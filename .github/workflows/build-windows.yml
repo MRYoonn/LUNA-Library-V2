@@ -3,6 +3,11 @@ name: LUNA Library V2 - PDF4QT Windows Portable
 # Manual builds only. No private data, secrets, or untrusted PR execution.
 on:
   workflow_dispatch:
+    inputs:
+      packaging_preflight_only:
+        description: 'Validate Windows runtime staging without compiling PDF4QT'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -12,7 +17,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  windows-packaging-preflight:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public source gate and regression tests
+        shell: pwsh
+        run: |
+          python -B tools/preflight_public.py
+          if ($LASTEXITCODE -ne 0) { throw "Public security gate blocked build" }
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "Regression tests failed" }
+      - name: Validate official x64 CRT staging on the actual Windows image
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP 'luna-crt-preflight'
+          & ./tools/stage_msvc_runtime.ps1 -Destination $output
+          python -B -c "import sys; from pathlib import Path; from tools.verify_portable import is_x64_pe; files=list(Path(sys.argv[1]).glob('*.dll')); assert files and all(is_x64_pe(p) for p in files), 'Invalid x64 CRT files'; print('[PASS] App-local CRT files are Windows x64 PE binaries')" $output
+          if ($LASTEXITCODE -ne 0) { throw "CRT binary validation failed" }
+
   build-windows:
+    needs: windows-packaging-preflight
+    if: ${{ !inputs.packaging_preflight_only }}
     runs-on: windows-2022
     timeout-minutes: 180
     env:
@@ -131,17 +160,7 @@ jobs:
           # App-local redistributable DLLs make this portable on a clean PC.
           # windeployqt's release --compiler-runtime bundles a separate installer,
           # and cannot locate Visual Studio at all without VCINSTALLDIR.
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          if (!(Test-Path $vswhere)) { throw "Visual Studio locator absent" }
-          $vs = (& $vswhere -latest -products * -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath)
-          if ($LASTEXITCODE -ne 0 -or !$vs) { throw "Visual Studio 2022 C++ installation absent" }
-          $redistRoot = Join-Path $vs.Trim() 'VC\Redist\MSVC'
-          $crt = Get-ChildItem -LiteralPath $redistRoot -Directory |
-            Sort-Object { [version]$_.Name } -Descending |
-            ForEach-Object { Join-Path $_.FullName 'x64\Microsoft.VC143.CRT' } |
-            Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-          if (!$crt) { throw "Microsoft x64 app-local CRT absent" }
-          Copy-Item -Path (Join-Path $crt '*.dll') -Destination $output
+          & ./tools/stage_msvc_runtime.ps1 -Destination $output
           $windeployqt = Join-Path $env:QT_ROOT_DIR 'bin/windeployqt.exe'
           if (!(Test-Path $windeployqt)) { throw "Qt deploy tool absent" }
           & $windeployqt --release --no-compiler-runtime "$output/LUNA.exe"

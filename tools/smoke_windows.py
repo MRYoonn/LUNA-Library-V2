@@ -46,6 +46,8 @@ def run(package: Path) -> None:
     child_env["QT_PLUGIN_PATH"] = str(package)
     child_env["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(package / "platforms")
     child_env["QT_QPA_PLATFORM"] = "windows"
+    # Qt otherwise may show --version/errors in a blocking GUI message box.
+    child_env["QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES"] = "1"
     with tempfile.TemporaryDirectory(prefix="luna-smoke-") as temporary:
         folder = Path(temporary)
         pdf = folder / "synthetic.pdf"

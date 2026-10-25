@@ -135,6 +135,7 @@ class NativeSmokeHarnessTests(unittest.TestCase):
             self.assertTrue(kwargs["check"])
             self.assertLessEqual(kwargs["timeout"], 45)
             self.assertEqual(kwargs["env"]["QT_QPA_PLATFORM"], "windows")
+            self.assertEqual(kwargs["env"]["QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES"], "1")
             self.assertNotEqual(kwargs["cwd"], Path(package))
 
     def test_native_timeout_propagates(self):

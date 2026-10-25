@@ -169,6 +169,16 @@ public:
         auto* logo = new QLabel(QStringLiteral("☾  LUNA Library"), this);
         logo->setObjectName(QStringLiteral("LunaBrand"));
         header->addWidget(logo, 1);
+        auto* collapse = new QToolButton(this);
+        collapse->setObjectName(QStringLiteral("LunaTool"));
+        collapse->setToolTip(QStringLiteral("왼쪽 라이브러리 접기"));
+        collapse->setText(QStringLiteral("≪"));
+        collapse->setAutoRaise(true);
+        header->addWidget(collapse);
+        connect(collapse, &QToolButton::clicked, this, [this] {
+            if (auto* dock = qobject_cast<QDockWidget*>(parentWidget()))
+                dock->hide();
+        });
         layout->addLayout(header);
 
         auto* tools = new QHBoxLayout;
@@ -757,6 +767,13 @@ void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
     if (auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
         bar->setMovable(false);
         bar->setIconSize(QSize(20, 20));
+        // Recovery control for the collapsible left library.
+        QAction* libraryVisibility = dock->toggleViewAction();
+        libraryVisibility->setText(QStringLiteral("라이브러리"));
+        libraryVisibility->setToolTip(QStringLiteral("LUNA 라이브러리 표시 / 숨기기"));
+        libraryVisibility->setIcon(window.style()->standardIcon(QStyle::SP_DirIcon));
+        bar->insertAction(bar->actions().isEmpty() ? nullptr : bar->actions().first(),
+                          libraryVisibility);
         for (const char* name : {"actionGoToDocumentStart", "actionGoToDocumentEnd",
                                  "actionFitPage", "actionFitHeight",
                                  "actionSelectTable", "actionMagnifier"}) {

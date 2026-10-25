@@ -31,6 +31,33 @@ install(TARGETS LUNA RUNTIME DESTINATION ${PDF4QT_INSTALL_BIN_DIR}
 # LUNA_LIBRARY_V2_TARGET_END
 """
 
+# Explicit CI-only mode: exercise the real window and asynchronous PDF reader.
+# A marker is written only after a one-page synthetic document has been loaded.
+# This does not claim visual rendering or annotation correctness.
+SMOKE_CHECK = r'''
+    if (parser.isSet(lunaSmokeReport))
+    {
+        if (arguments.size() != 1) return 2;
+        auto* poll = new QTimer(&mainWindow);
+        poll->setInterval(200);
+        QObject::connect(poll, &QTimer::timeout, &mainWindow,
+            [&application, &mainWindow, &parser, lunaSmokeReport, poll, attempts = 0]() mutable {
+                auto* controller = mainWindow.getProgramController();
+                const auto* document = controller->getDocument();
+                if (++attempts >= 150) { application.exit(3); return; }
+                if (attempts < 10 || !mainWindow.isVisible() || !controller->canClose() ||
+                    !document || document->getCatalog()->getPageCount() != 1) return;
+                QSaveFile report(parser.value(lunaSmokeReport));
+                const QByteArray marker("LUNA_SMOKE_PDF_OPEN_OK\n");
+                const bool saved = report.open(QIODevice::WriteOnly) &&
+                    report.write(marker) == marker.size() && report.commit();
+                poll->stop();
+                application.exit(saved ? 0 : 4);
+            });
+        poll->start();
+    }
+'''
+
 def git_blob(data: bytes) -> str:
     return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
 
@@ -49,10 +76,17 @@ def replace_exact(source: str, old: str, new: str) -> str:
 def make_main(src: str) -> str:
     src = replace_exact(src,
         '#include "pdfviewermainwindow.h"',
-        '#include "pdfviewermainwindow.h"\n#include "lunalibrary.h"')
+        '#include "pdfviewermainwindow.h"\n#include "pdfprogramcontroller.h"\n#include "lunalibrary.h"')
     src = replace_exact(src,
         '#include <QCommandLineParser>',
-        '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>')
+        '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>')
+    src = replace_exact(src, '    parser.addVersionOption();',
+        '    parser.addVersionOption();\n'
+        '    QCommandLineOption lunaSmokeReport("luna-smoke-report",\n'
+        '        "CI only: verify a one-page synthetic PDF opens, write a marker and exit.", "path");\n'
+        '    parser.addOption(lunaSmokeReport);')
+    src = replace_exact(src, '    return application.exec();',
+        SMOKE_CHECK + '\n    return application.exec();')
     src = replace_exact(src,
         'QCoreApplication::setOrganizationName("MelkaJ");',
         'QCoreApplication::setOrganizationName("LUNA");')

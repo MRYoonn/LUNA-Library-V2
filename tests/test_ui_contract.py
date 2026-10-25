@@ -17,8 +17,9 @@ class LunaUiContractTests(unittest.TestCase):
         self.assertIn('QStringLiteral("LunaLibraryDock")', CPP)
         self.assertIn("Qt::LeftDockWidgetArea", CPP)
         self.assertIn("SidebarDockWidget", CPP)
-        self.assertIn("nativeSidebar", CPP.replace("old->", "nativeSidebar->") if False else
-                      "nativeSidebar" if "nativeSidebar" in CPP else "SidebarDockWidget")
+        self.assertEqual(CPP.count('QStringLiteral("LunaLibraryDock")'), 1)
+        self.assertIn('window.findChild<QDockWidget*>', CPP)
+        self.assertIn('QStringLiteral("SidebarDockWidget")', CPP)
 
     def test_existing_pdf4qt_document_engine_reused(self):
         self.assertIn("viewer_->getProgramController()", CPP)

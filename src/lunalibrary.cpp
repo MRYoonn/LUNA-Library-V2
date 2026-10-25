@@ -774,7 +774,8 @@ void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
         documentRow->addWidget(viewModes);
         frameLayout->addWidget(documentHeader);
         frameLayout->addWidget(bar);
-        if (pdfWidget) frameLayout->addWidget(pdfWidget, 1);
+        bar->show(); // QMainWindow::removeToolBar() explicitly hides it.
+        if (pdfWidget) { frameLayout->addWidget(pdfWidget, 1); pdfWidget->show(); }
         window.setCentralWidget(frame);
     }
     QObject::connect(&window, &QWidget::windowTitleChanged, &window,
@@ -805,6 +806,9 @@ bool verifyLibraryUi(pdfviewer::PDFViewerMainWindow& window) {
         if (other != dock && other->isVisible()) return fail("Unexpected extra PDF sidebar");
     }
     if (window.styleSheet().isEmpty()) return fail("Theme resource missing");
+    auto* toolbar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
+    if (!toolbar || !toolbar->isVisible() || !window.getProgramController()->getPdfWidget()->isVisible())
+        return fail("Native PDF toolbar or renderer widget is hidden");
     if (navigation->width() < 190 || documents->width() < 300 || window.getProgramController()->getPdfWidget()->width() < 300)
         return fail("Library/PDF geometry does not fit the test window");
     auto* list = pages->widget(0)->findChild<QListWidget*>();

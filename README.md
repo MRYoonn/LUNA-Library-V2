@@ -39,6 +39,8 @@ Windows 워크플로는 포터블 패키징 후 다음 검사를 수행한다.
 - `tools/verify_portable.py`: x64 PE 헤더, 필수 Qt/PDF4QT DLL,
   `platforms/qwindows.dll`, MSVC 런타임 및 라이선스 파일 확인.
   개인 데이터 파일과 추가 실행 파일은 차단한다. 전체 DLL import 해석 검사는 아니다.
+  MSVC 런타임 DLL은 Visual Studio 2022의 공식 x64 CRT 재배포 폴더에서
+  앱 옆으로 복사하며, 별도 런타임 설치 프로그램 실행에 의존하지 않는다.
 - `tools/smoke_windows.py`: 개발용 Qt 경로를 제외한 환경에서 `--version` 실행 후,
   실제 메인 창을 시작하고 임시 합성 1페이지 PDF를 연다.
   PDF4QT가 문서를 로딩하고 창이 표시된 경우에만 성공 마커를 기록하고 종료한다.

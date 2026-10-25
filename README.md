@@ -1,8 +1,16 @@
 # LUNA Library V2
 
-**PDF4QT 기반 Windows용 LUNA Library** — 2열 인터페이스 (왼쪽 폴더/PDF 목록, 오른쪽 PDF 본문)
+**PDF4QT Editor 기반 Windows용 LUNA Library** — 2열 인터페이스 (왼쪽 폴더/PDF 목록, 오른쪽 PDF 본문)
 
 This is a **public source-only build repository**. It does not store, synchronize or receive your PDF files, annotations, research notes, cloud credentials or local databases.
+
+## PDF4QT Editor integration (experimental branch)
+
+For reliable highlight, sticky-note, annotation persistence and editing tools, this experimental branch uses the **PDF4QT Editor** window and its `PDFProgramController::AllFeatures` implementation rather than the limited Viewer interface. The rendering engine remains unchanged. The original PDF4QT editor and viewer targets remain available.
+
+The LUNA library panel is still the left column; the PDF4QT Editor canvas is still the right column. Built-in `actionCreateTextHighlight`, `actionStickyNoteNote`, `actionFind` and `actionBookmarkPage` are surfaced on the toolbar.
+
+**Not built or GUI-tested on Windows yet.** Keep this branch unmerged until annotation tools, save, reload and portable packaging pass.
 
 ## Windows EXE 만들기
 

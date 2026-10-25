@@ -39,7 +39,7 @@ class LunaUiContractTests(unittest.TestCase):
 
     def test_image_decode_guards(self):
         self.assertIn("thumbnail.size() <= 5'000'000", CPP)
-        self.assertIn("original.width() > 15000", CPP)
+        self.assertIn("original.width() > 4096", CPP)
         self.assertIn("reader.setScaledSize(scaled)", CPP)
 
     def test_crop_cancel_and_minimum_rectangle(self):

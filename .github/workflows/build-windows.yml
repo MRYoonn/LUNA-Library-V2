@@ -125,7 +125,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $output | Out-Null
           Copy-Item -Path "$bin/*" -Destination $output -Recurse -Force
           Get-ChildItem -LiteralPath $output -Filter '*.exe' -File | Where-Object { $_.Name -ne 'LUNA.exe' } | Remove-Item
-          Copy-Item 'pdf4qt/LICENSE.txt' "$output/PDF4QT_LICENSE.txt"
+          Copy-Item 'pdf4qt/LICENSE' "$output/PDF4QT_LICENSE.txt"
           Copy-Item 'pdf4qt/3rdparty_licenses' "$output/third_party_licenses" -Recurse
           Copy-Item 'LICENSE_NOTICE.md' "$output/LUNA_LICENSE_NOTICE.md"
           $windeployqt = Join-Path $env:QT_ROOT_DIR 'bin/windeployqt.exe'

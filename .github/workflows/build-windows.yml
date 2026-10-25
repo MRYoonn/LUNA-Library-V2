@@ -1,0 +1,132 @@
+name: LUNA Library V2 - PDF4QT Windows Portable
+
+# Manual builds only. No private data, secrets, or untrusted PR execution.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: luna-library-v2-windows
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      PDF4QT_PIN: 67b6b9903cb4e318803342f2d428f02e1bb124e3
+      VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+      VCPKG_INSTALLED_DIR: ${{ github.workspace }}\vcpkg_installed
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-binary-cache
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}\pdf4qt\vcpkg\overlays\general
+    steps:
+      - name: Checkout public builder with no retained credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Fail-closed public security checks
+        shell: pwsh
+        run: |
+          python tools/preflight_public.py
+          if ($LASTEXITCODE -ne 0) { throw "Public security gate blocked build" }
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "Regression tests failed" }
+
+      - name: Download and verify pinned public PDF4QT
+        shell: pwsh
+        run: |
+          git init pdf4qt
+          git -C pdf4qt remote add origin https://github.com/JakubMelka/PDF4QT.git
+          git -C pdf4qt fetch --depth 1 origin $env:PDF4QT_PIN
+          if ($LASTEXITCODE -ne 0) { throw "Upstream checkout failed" }
+          git -C pdf4qt checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Upstream checkout failed" }
+          $actual = (git -C pdf4qt rev-parse HEAD).Trim()
+          if ($actual -ne $env:PDF4QT_PIN) { throw "Upstream SHA mismatch" }
+
+      - name: Apply isolated LUNA target
+        shell: pwsh
+        run: |
+          python tools/apply_overlay.py pdf4qt --dry-run
+          if ($LASTEXITCODE -ne 0) { throw "Source pin mismatch" }
+          python tools/apply_overlay.py pdf4qt
+          if ($LASTEXITCODE -ne 0) { throw "LUNA patch failed" }
+
+      - name: Prepare vcpkg packages
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg clone failed" }
+          $baseline = (Get-Content -Raw pdf4qt/vcpkg.json | ConvertFrom-Json).'builtin-baseline'
+          git -C vcpkg fetch --depth 1 origin $baseline
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg baseline missing" }
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows --x-manifest-root="$env:GITHUB_WORKSPACE\pdf4qt" --x-install-root="$env:VCPKG_INSTALLED_DIR" --clean-buildtrees-after-build --clean-packages-after-build
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg dependencies failed" }
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+          modules: 'qtspeech qtmultimedia'
+          cache: 'false'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+
+      - name: Configure native Windows build
+        shell: pwsh
+        run: |
+          cmake -S pdf4qt -B pdf4qt/build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_VCPKG_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" -DPDF4QT_QT_ROOT="$env:QT_ROOT_DIR" -DPDF4QT_BUILD_TESTS=OFF -DPDF4QT_ENABLE_OCR=OFF -DPDF4QT_INSTALL_DEPENDENCIES=ON -DPDF4QT_INSTALL_QT_DEPENDENCIES=ON -DPDF4QT_INSTALL_MSVC_REDISTRIBUTABLE=ON -DPDF4QT_INSTALL_PREPARE_WIX_INSTALLER=OFF -DPDF4QT_INSTALL_TO_USR=ON
+          if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
+
+      - name: Compile source and install DLLs
+        shell: pwsh
+        run: |
+          cmake --build pdf4qt/build --config Release --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw "Native compile failed" }
+          cmake --install pdf4qt/build --config Release
+          if ($LASTEXITCODE -ne 0) { throw "Native install failed" }
+
+      - name: Create standalone portable LUNA
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:GITHUB_WORKSPACE 'pdf4qt/build/install/usr/bin'
+          if (!(Test-Path "$bin/LUNA.exe")) { throw "LUNA.exe absent" }
+          $output = Join-Path $env:GITHUB_WORKSPACE 'LUNA-Windows-Portable'
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+          Copy-Item -Path "$bin/*" -Destination $output -Recurse -Force
+          Get-ChildItem -LiteralPath $output -Filter '*.exe' -File | Where-Object { $_.Name -ne 'LUNA.exe' } | Remove-Item
+          Copy-Item 'pdf4qt/LICENSE.txt' "$output/PDF4QT_LICENSE.txt"
+          Copy-Item 'pdf4qt/3rdparty_licenses' "$output/third_party_licenses" -Recurse
+          Copy-Item 'LICENSE_NOTICE.md' "$output/LUNA_LICENSE_NOTICE.md"
+          $windeployqt = Join-Path $env:QT_ROOT_DIR 'bin/windeployqt.exe'
+          if (!(Test-Path $windeployqt)) { throw "Qt deploy tool absent" }
+          & $windeployqt --release --compiler-runtime "$output/LUNA.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Qt DLL deployment failed" }
+          if (!(Test-Path "$output/Qt6Core.dll")) { throw "Qt DLL missing" }
+          $private = @(Get-ChildItem -Path $output -File -Recurse | Where-Object { $_.Extension -in @('.pdf','.db','.sqlite','.sqlite3','.env','.log','.pem','.pfx') })
+          if ($private.Count -gt 0) { throw "Sensitive artifact blocked" }
+          Get-FileHash "$output/LUNA.exe" -Algorithm SHA256 | Format-List
+
+      - name: Version command smoke test
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\LUNA-Windows-Portable\LUNA.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "Native executable startup failed" }
+
+      - name: Upload LUNA Windows portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-Windows-Portable
+          path: LUNA-Windows-Portable/
+          retention-days: 7
+          if-no-files-found: error

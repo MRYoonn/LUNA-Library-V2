@@ -12,7 +12,14 @@ This is a **public source-only build repository**. It does not store, synchroniz
 4. 성공하면 해당 실행 기록 맨 아래 **Artifacts → LUNA-Windows-Portable** 다운로드.
 5. ZIP 압축을 풀고 **LUNA.exe** 더블클릭. PDF 로딩·선택·화질은 실제 Windows에서 별도 검증.
 
-**주의:** 아직 실제 Windows EXE 빌드 성공이나 GUI 동작이 검증되지 않았다. 초기 빌드는 PDF4QT의 C++/Qt/vcpkg 의존성을 설치하기 때문에 오래 걸리거나 외부 패키지 문제로 실패할 수 있다. 승인 없이 자동 재시도하지 않는다.
+초기 빌드는 PDF4QT의 C++/Qt/vcpkg 의존성 설치와 컴파일 때문에 오래 걸릴 수 있다. 실패 원인을 확인하고 수정한 뒤 필요한 검증만 다시 실행한다. 실제 PDF의 화질과 상호작용은 자동 시작 검사와 별도로 확인한다.
+
+Windows 기본 포터블 빌드는 이후 검증을 통과했다.
+[P0 검증 실행](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40230666645)에서
+컴파일·패키징·DLL 검사·실제 창 시작·합성 PDF 로딩이 통과했고,
+[포터블 Artifact](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40230666645/artifacts/12614056454)가 생성됐다.
+이 산출물의 커밋은 `31a65be0fd2fc72636356044560faefc55eb5a68`이다.
+첨부 디자인에 따른 후속 UI 변경과 주석 기능까지 검증됐다는 뜻은 아니다.
 
 ## 동작 구조
 
@@ -25,6 +32,25 @@ This is a **public source-only build repository**. It does not store, synchroniz
 - **집↔연구실 PDF 동기화:** 향후 로컬 컴퓨터와 별도 동기화 서비스만 사용하며 GitHub는 관여하지 않음.
 
 ## 개발 및 릴리스 검증
+
+네이티브 UI 브랜치는 탐색 패널·논문 목록·원래 PDF4QT 문서 위젯을 가로로 배치한다.
+각 라이브러리 패널 접기, 집중 모드, `Ctrl+K` 파일명 검색, 실제 열람 기록과 즐겨찾기,
+원본을 유지하는 PDF 복사 추가를 제공한다. 같은 이름의 파일은 덮어쓰지 않는다.
+개인 경로·최근 열람·즐겨찾기·창 크기·패널 너비는 로컬 QSettings에만 저장한다.
+스타 표시 또는 문서 목록의 컨텍스트 메뉴에서 즐겨찾기를 변경할 수 있다.
+목록의 종이 아이콘은 일반 PDF 아이콘이며 실제 페이지 썸네일이라고 표시하지 않는다.
+DOI·태그·페이지 보기·휴지통·다중 문서 탭은 아직 제공하지 않는다.
+
+색상 토큰은 `src/lunalibrary.cpp`에서 네이티브 카드와
+`src/lunalibrary.qss` 템플릿에 함께 적용한다. PDF 렌더러는 교체하지 않는다.
+후속 Windows UI 검사에서는 임시 합성 라이브러리만 사용하며,
+검색·즐겨찾기·최근 열람·패널 접기·목록을 통한 PDF 재열기·연속 보기 200%를 검사한다.
+실제 Windows/QPA 창에서 기능 검사를 마친 뒤 같은 위젯 트리를 숨겨진 렌더 호스트에
+옮겨 1366×768·1920×1080 크기로 캡처한다. PNG의 실제 크기도 검사하며,
+CI 데스크톱에 의해 줄어든 이미지는 통과시키지 않는다.
+이 Qt 레이아웃 캡처는 별도 `LUNA-UI-Synthetic` Artifact로 저장한다.
+물리 디스플레이 해상도나 OS 배율 검사와는 구분한다.
+이 브랜치의 Windows 결과는 해당 실행에서 별도로 확인해야 한다.
 
 Python 표준 라이브러리만 사용한다. 공개 소스 검사에서 생성 파일을 차단하므로
 저장소 안에 PDF4QT 소스, 빌드 결과 또는 Python 바이트코드를 만들지 않는다.
@@ -60,4 +86,4 @@ PDF4QT 원본: [JakubMelka/PDF4QT](https://github.com/JakubMelka/PDF4QT), MIT li
 
 ## 상태 (2026-10-26)
 
-공개 소스와 수동 Windows 빌드 설정 등록 완료. **Windows 네이티브 컴파일 및 GUI 검증 미실시.** 기존 비공개 LUNA 저장소 변경 없음.
+**P0 Windows 포터블 빌드·패키지 검사·합성 PDF 시작 검사 통과.** 후속 네이티브 UI 브랜치의 Windows 결과는 별도 확인이 필요하다. 주석 저장·재열기, 실제 사용자 문서의 동작과 Windows 배율 검증은 미실시. 기존 비공개 저장소 변경 없음.

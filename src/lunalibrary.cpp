@@ -3,8 +3,27 @@
 #include "lunalibrary.h"
 #include "pdfviewermainwindow.h"
 #include "pdfprogramcontroller.h"
+#include "pdfdrawwidget.h"
+#include "pdfdrawspacecontroller.h"
 
 #include <QAbstractItemView>
+#include <QDateTime>
+#include <QDebug>
+#include <QCursor>
+#include <QEvent>
+#include <QFile>
+#include <QFontMetrics>
+#include <QMenu>
+#include <QMenuBar>
+#include <QPainter>
+#include <QProgressBar>
+#include <QStorageInfo>
+#include <QSet>
+#include <QStyledItemDelegate>
+#include <QStyleOptionViewItem>
+#include <QMainWindow>
+#include <QKeySequence>
+#include <QSizePolicy>
 #include <QAction>
 #include <QButtonGroup>
 #include <QDir>
@@ -36,8 +55,89 @@
 namespace luna {
 namespace {
 
+// Shared design tokens used by both native painting and the QSS template.
+constexpr const char* kNAVY = "#172B50";
+constexpr const char* kBLUE = "#4F70B5";
+constexpr const char* kCANVAS = "#F7F8FC";
+constexpr const char* kPANEL = "#FFFFFF";
+constexpr const char* kSELECTION = "#E8ECFA";
+constexpr const char* kLINE = "#E0E4ED";
+constexpr const char* kTEXT = "#263247";
+constexpr const char* kMUTED = "#77839A";
+constexpr const char* kTHUMB_LINE = "#C8CFDD";
+constexpr const char* kSTAR_OFF = "#A2ACBF";
+constexpr const char* kHOVER = "#EEF1F8";
+constexpr const char* kACTIVE_TEXT = "#31549B";
+constexpr const char* kBLUE_HOVER = "#3E60A5";
+
+QString themeSheet(const QByteArray& bytes) {
+    QString sheet = QString::fromUtf8(bytes);
+    sheet.replace(QStringLiteral("@NAVY@"), QString::fromLatin1(kNAVY));
+    sheet.replace(QStringLiteral("@BLUE@"), QString::fromLatin1(kBLUE));
+    sheet.replace(QStringLiteral("@CANVAS@"), QString::fromLatin1(kCANVAS));
+    sheet.replace(QStringLiteral("@PANEL@"), QString::fromLatin1(kPANEL));
+    sheet.replace(QStringLiteral("@SELECTION@"), QString::fromLatin1(kSELECTION));
+    sheet.replace(QStringLiteral("@LINE@"), QString::fromLatin1(kLINE));
+    sheet.replace(QStringLiteral("@TEXT@"), QString::fromLatin1(kTEXT));
+    sheet.replace(QStringLiteral("@MUTED@"), QString::fromLatin1(kMUTED));
+    sheet.replace(QStringLiteral("@THUMB_LINE@"), QString::fromLatin1(kTHUMB_LINE));
+    sheet.replace(QStringLiteral("@STAR_OFF@"), QString::fromLatin1(kSTAR_OFF));
+    sheet.replace(QStringLiteral("@HOVER@"), QString::fromLatin1(kHOVER));
+    sheet.replace(QStringLiteral("@ACTIVE_TEXT@"), QString::fromLatin1(kACTIVE_TEXT));
+    sheet.replace(QStringLiteral("@BLUE_HOVER@"), QString::fromLatin1(kBLUE_HOVER));
+    return sheet;
+}
+
 constexpr int kScanBatch = 90;
 constexpr int kMaximumEntries = 15000;
+
+class DocumentCard final : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {300, 104}; }
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        painter->save();
+        const QRect r = option.rect;
+        const bool selected = option.state & QStyle::State_Selected;
+        painter->fillRect(r, QColor(selected ? kSELECTION : kPANEL));
+        if (selected) painter->fillRect(QRect(r.left(), r.top(), 3, r.height()), QColor(kBLUE));
+        painter->setPen(QColor(kLINE));
+        painter->drawLine(r.bottomLeft(), r.bottomRight());
+        const QRect paper(r.left() + 18, r.top() + 16, 40, 64);
+        painter->setBrush(Qt::white);
+        painter->drawRoundedRect(paper, 4, 4);
+        for (int y = 11; y <= 35; y += 6) {
+            painter->setPen(QColor(kTHUMB_LINE));
+            painter->drawLine(paper.left() + 7, paper.top() + y, paper.right() - 7, paper.top() + y);
+        }
+        QFont small = option.font;
+        small.setPointSize(8);
+        painter->setFont(small);
+        painter->setPen(QColor(kBLUE));
+        painter->drawText(paper.adjusted(0, 43, 0, 0), Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("PDF"));
+        QFont title = option.font;
+        title.setPointSize(10);
+        title.setBold(true);
+        painter->setFont(title);
+        painter->setPen(QColor(kNAVY));
+        const QRect text(r.left() + 74, r.top() + 14, qMax(20, r.width() - 112), 52);
+        painter->save();
+        painter->setClipRect(text, Qt::IntersectClip);
+        painter->drawText(text, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap | Qt::TextWrapAnywhere, index.data().toString());
+        painter->restore();
+        painter->setFont(small);
+        painter->setPen(QColor(kMUTED));
+        const QString location = index.data(Qt::UserRole + 1).toString();
+        painter->drawText(QRect(text.left(), r.top() + 75, qMax(20, r.width() - 94), 18),
+            Qt::AlignLeft | Qt::AlignVCenter,
+            QFontMetrics(small).elidedText(location, Qt::ElideMiddle, qMax(20, r.width() - 94)));
+        painter->setFont(option.font);
+        painter->setPen(QColor(index.data(Qt::UserRole + 2).toBool() ? kBLUE : kSTAR_OFF));
+        painter->drawText(QRect(r.right() - 30, r.top() + 16, 22, 24), Qt::AlignCenter,
+            index.data(Qt::UserRole + 2).toBool() ? QStringLiteral("★") : QStringLiteral("☆"));
+        painter->restore();
+    }
+};
 
 class LibraryPanel final : public QWidget {
 public:
@@ -45,121 +145,137 @@ public:
         : QWidget(parent), viewer_(viewer)
     {
         setObjectName(QStringLiteral("LunaLibraryPanel"));
-        setMinimumWidth(250);
-        setStyleSheet(QStringLiteral(R"STYLE(
-            QWidget#LunaLibraryPanel { background:#F8FAFC; color:#1D2B40; }
-            QLabel#LunaBrand { font-size:19px; font-weight:700; color:#14233D; }
-            QLabel#LunaSection { font-size:12px; font-weight:600; color:#64748B; }
-            QPushButton#LunaTab { background:#E8EDF4; border:0; border-radius:7px;
-                padding:9px; color:#475569; font-weight:600; }
-            QPushButton#LunaTab:checked { background:#3B82F6; color:white; }
-            QToolButton#LunaTool { border:0; background:transparent; border-radius:6px;
-                padding:6px 7px; color:#334155; }
-            QToolButton#LunaTool:hover { background:#DFEAFE; }
-            QLineEdit#LunaSearch { border:1px solid #CBD5E1; border-radius:6px;
-                background:white; padding:7px; }
-            QTreeView, QListWidget { background:transparent; border:none;
-                outline:0; color:#1E293B; font-size:12px; }
-            QTreeView::item, QListWidget::item { padding:5px; }
-            QTreeView::item:selected, QListWidget::item:selected { background:#DBEAFE; color:#1D4ED8; }
-        )STYLE"));
+        const QStringList favoritePaths = savedPaths(QStringLiteral("library/favorites"));
+        favorites_ = QSet<QString>(favoritePaths.cbegin(), favoritePaths.cend());
+        setMinimumWidth(510);
+        auto* layout = new QHBoxLayout(this);
+        layout->setContentsMargins(0, 0, 0, 0);
+        split_ = new QSplitter(Qt::Horizontal, this);
+        split_->setObjectName(QStringLiteral("LunaLibrarySplitter"));
+        split_->setChildrenCollapsible(false);
+        split_->setHandleWidth(1);
+        layout->addWidget(split_);
 
-        auto* layout = new QVBoxLayout(this);
-        layout->setContentsMargins(11, 13, 11, 10);
-        layout->setSpacing(8);
-
-        auto* header = new QHBoxLayout;
-        auto* logo = new QLabel(QStringLiteral("☾  LUNA Library"), this);
-        logo->setObjectName(QStringLiteral("LunaBrand"));
-        header->addWidget(logo, 1);
-        layout->addLayout(header);
-
-        auto* tools = new QHBoxLayout;
-        tools->setSpacing(2);
-        auto button = [this, tools](const QString& text, QStyle::StandardPixmap icon) {
-            auto* control = new QToolButton(this);
-            control->setObjectName(QStringLiteral("LunaTool"));
-            control->setIcon(style()->standardIcon(icon));
-            control->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-            control->setText(text);
-            tools->addWidget(control);
-            return control;
-        };
-        auto* addFile = button(QStringLiteral("추가"), QStyle::SP_FileIcon);
-        auto* addFolder = button(QStringLiteral("새 폴더"), QStyle::SP_DirIcon);
-        auto* find = button(QStringLiteral("검색"), QStyle::SP_FileDialogContentsView);
-        auto* location = button(QStringLiteral("위치"), QStyle::SP_DirOpenIcon);
-        layout->addLayout(tools);
-
-        query_ = new QLineEdit(this);
-        query_->setObjectName(QStringLiteral("LunaSearch"));
-        query_->setPlaceholderText(QStringLiteral("PDF 파일명 검색…"));
-        query_->setClearButtonEnabled(true);
-        query_->hide();
-        layout->addWidget(query_);
-
-        auto* switcher = new QHBoxLayout;
-        switcher->setSpacing(4);
-        folderTab_ = new QPushButton(QStringLiteral("폴더"), this);
-        pdfTab_ = new QPushButton(QStringLiteral("PDF"), this);
+        navigation_ = new QWidget(split_);
+        navigation_->setObjectName(QStringLiteral("LunaNavigation"));
+        navigation_->setMinimumWidth(190);
+        navigation_->setMaximumWidth(300);
+        auto* nav = new QVBoxLayout(navigation_);
+        nav->setContentsMargins(14, 20, 14, 16);
+        nav->setSpacing(9);
+        auto* section = new QLabel(QStringLiteral("내 라이브러리"), navigation_);
+        section->setObjectName(QStringLiteral("LunaSection"));
+        nav->addWidget(section);
         auto* group = new QButtonGroup(this);
-        group->setExclusive(true);
-        for (auto* tab : {folderTab_, pdfTab_}) {
-            tab->setObjectName(QStringLiteral("LunaTab"));
-            tab->setCheckable(true);
-            group->addButton(tab);
-            switcher->addWidget(tab);
-        }
+        auto navButton = [this, nav, group](const QString& text, QStyle::StandardPixmap icon) {
+            auto* b = new QPushButton(style()->standardIcon(icon), text, navigation_);
+            b->setObjectName(QStringLiteral("LunaNavigationButton"));
+            b->setCheckable(true);
+            b->setMinimumHeight(38);
+            group->addButton(b);
+            nav->addWidget(b);
+            return b;
+        };
+        pdfTab_ = navButton(QStringLiteral("모든 논문"), QStyle::SP_FileDialogDetailedView);
+        folderTab_ = navButton(QStringLiteral("선택한 폴더"), QStyle::SP_DirIcon);
+        auto* recent = navButton(QStringLiteral("최근 열람"), QStyle::SP_FileDialogContentsView);
+        auto* favorites = navButton(QStringLiteral("즐겨찾기"), QStyle::SP_DialogYesButton);
+        pdfTab_->setObjectName(QStringLiteral("LunaAllDocumentsButton"));
+        folderTab_->setObjectName(QStringLiteral("LunaFolderDocumentsButton"));
+        recent->setObjectName(QStringLiteral("LunaRecentDocumentsButton"));
+        favorites->setObjectName(QStringLiteral("LunaFavoriteDocumentsButton"));
+        for (auto* b : {pdfTab_, folderTab_, recent, favorites}) b->setProperty("lunaNavigation", true);
         folderTab_->setChecked(true);
-        layout->addLayout(switcher);
-
-        pages_ = new QStackedWidget(this);
-        layout->addWidget(pages_, 1);
-
-        auto* folderPage = new QWidget(this);
-        auto* folderLayout = new QVBoxLayout(folderPage);
-        folderLayout->setContentsMargins(0, 0, 0, 0);
-        folderLayout->setSpacing(5);
-        auto* folderHeading = new QLabel(QStringLiteral("내 라이브러리"), folderPage);
+        nav->addSpacing(18);
+        auto* folders = new QHBoxLayout;
+        auto* folderHeading = new QLabel(QStringLiteral("내 폴더"), navigation_);
         folderHeading->setObjectName(QStringLiteral("LunaSection"));
-        folderLayout->addWidget(folderHeading);
-
-        auto* vertical = new QSplitter(Qt::Vertical, folderPage);
-        vertical->setChildrenCollapsible(false);
+        folders->addWidget(folderHeading, 1);
+        auto* addFolder = new QToolButton(navigation_);
+        addFolder->setText(QStringLiteral("＋"));
+        addFolder->setToolTip(QStringLiteral("선택한 위치에 새 폴더 만들기"));
+        addFolder->setObjectName(QStringLiteral("LunaTool"));
+        folders->addWidget(addFolder);
+        nav->addLayout(folders);
+        rootLabel_ = new QLabel(navigation_);
+        rootLabel_->setObjectName(QStringLiteral("LunaSecondary"));
+        rootLabel_->setWordWrap(true);
+        rootLabel_->setTextFormat(Qt::PlainText);
+        nav->addWidget(rootLabel_);
         model_ = new QFileSystemModel(this);
         model_->setReadOnly(true);
         model_->setFilter(QDir::AllDirs | QDir::NoDotAndDotDot);
-        tree_ = new QTreeView(vertical);
+        tree_ = new QTreeView(navigation_);
         tree_->setModel(model_);
         tree_->setHeaderHidden(true);
         tree_->setAnimated(true);
+        tree_->setIndentation(16);
         tree_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         for (int i = 1; i < 4; ++i) tree_->hideColumn(i);
-        vertical->addWidget(tree_);
+        nav->addWidget(tree_, 1);
+        auto* location = new QPushButton(QStringLiteral("라이브러리 위치 선택…"), navigation_);
+        location->setObjectName(QStringLiteral("LunaLocation"));
+        nav->addWidget(location);
+        storageLabel_ = new QLabel(navigation_);
+        storageLabel_->setObjectName(QStringLiteral("LunaSecondary"));
+        storageLabel_->setWordWrap(true);
+        nav->addSpacing(10);
+        nav->addWidget(storageLabel_);
+        storage_ = new QProgressBar(navigation_);
+        storage_->setRange(0, 100);
+        storage_->setTextVisible(false);
+        storage_->setFixedHeight(6);
+        nav->addWidget(storage_);
 
-        auto* documents = new QWidget(vertical);
-        auto* docsLayout = new QVBoxLayout(documents);
-        docsLayout->setContentsMargins(0, 7, 0, 0);
-        docsLayout->setSpacing(4);
-        folderCount_ = new QLabel(QStringLiteral("PDF 문서"), documents);
-        folderCount_->setObjectName(QStringLiteral("LunaSection"));
-        docsLayout->addWidget(folderCount_);
-        folderPdfs_ = makePdfList(documents);
-        docsLayout->addWidget(folderPdfs_, 1);
-        vertical->addWidget(documents);
-        vertical->setSizes({310, 350});
-        folderLayout->addWidget(vertical, 1);
-        pages_->addWidget(folderPage);
-
-        auto* allPage = new QWidget(this);
-        auto* allLayout = new QVBoxLayout(allPage);
-        allLayout->setContentsMargins(0, 0, 0, 0);
-        allCount_ = new QLabel(QStringLiteral("전체 PDF"), allPage);
-        allCount_->setObjectName(QStringLiteral("LunaSection"));
-        allLayout->addWidget(allCount_);
-        allPdfs_ = makePdfList(allPage);
-        allLayout->addWidget(allPdfs_, 1);
-        pages_->addWidget(allPage);
+        documents_ = new QWidget(split_);
+        documents_->setObjectName(QStringLiteral("LunaDocuments"));
+        documents_->setMinimumWidth(300);
+        auto* docs = new QVBoxLayout(documents_);
+        docs->setContentsMargins(0, 0, 0, 0);
+        docs->setSpacing(0);
+        auto* heading = new QWidget(documents_);
+        auto* headingLayout = new QVBoxLayout(heading);
+        headingLayout->setContentsMargins(18, 20, 18, 12);
+        headingLayout->setSpacing(12);
+        auto* title = new QLabel(QStringLiteral("논문 라이브러리"), heading);
+        title->setObjectName(QStringLiteral("LunaLibraryTitle"));
+        headingLayout->addWidget(title);
+        auto* addFile = new QPushButton(QStringLiteral("＋  PDF 파일 추가"), heading);
+        addFile->setObjectName(QStringLiteral("LunaPrimary"));
+        addFile->setMinimumHeight(40);
+        addFile->setToolTip(QStringLiteral("현재 폴더에 복사합니다. 원본은 유지하며 같은 이름의 파일은 덮어쓰지 않습니다."));
+        headingLayout->addWidget(addFile);
+        query_ = new QLineEdit(heading);
+        query_->setObjectName(QStringLiteral("LunaSearch"));
+        query_->setPlaceholderText(QStringLiteral("파일명으로 라이브러리 검색…"));
+        query_->setClearButtonEnabled(true);
+        query_->setMinimumHeight(34);
+        headingLayout->addWidget(query_);
+        auto* mode = new QLabel(QStringLiteral("PDF 파일 보기"), heading);
+        mode->setObjectName(QStringLiteral("LunaActiveMode"));
+        headingLayout->addWidget(mode);
+        docs->addWidget(heading);
+        pages_ = new QStackedWidget(documents_);
+        pages_->setObjectName(QStringLiteral("LunaDocumentPages"));
+        docs->addWidget(pages_, 1);
+        auto page = [this](QListWidget*& list, QLabel*& count) {
+            auto* p = new QWidget(pages_);
+            auto* box = new QVBoxLayout(p);
+            box->setContentsMargins(0, 0, 0, 0);
+            box->setSpacing(0);
+            count = new QLabel(p);
+            count->setObjectName(QStringLiteral("LunaCount"));
+            box->addWidget(count);
+            list = makePdfList(p);
+            box->addWidget(list, 1);
+            pages_->addWidget(p);
+        };
+        page(folderPdfs_, folderCount_);
+        page(allPdfs_, allCount_);
+        page(historyPdfs_, historyCount_);
+        split_->setSizes({210, 330});
+        split_->setStretchFactor(0, 0);
+        split_->setStretchFactor(1, 1);
 
         folderTimer_ = new QTimer(this);
         allTimer_ = new QTimer(this);
@@ -167,57 +283,176 @@ public:
         allTimer_->setInterval(0);
         connect(folderTimer_, &QTimer::timeout, this, [this] { scanBatch(false); });
         connect(allTimer_, &QTimer::timeout, this, [this] { scanBatch(true); });
-
         connect(tree_, &QTreeView::clicked, this, [this](const QModelIndex& index) {
             const QString path = model_->filePath(index);
-            if (QFileInfo(path).isDir()) selectFolder(path);
+            if (!QFileInfo(path).isDir()) return;
+            folderTab_->setChecked(true);
+            pages_->setCurrentIndex(0);
+            selectFolder(path);
         });
-        connect(folderPdfs_, &QListWidget::itemDoubleClicked, this,
-                [this](QListWidgetItem* item) { openItem(item); });
-        connect(allPdfs_, &QListWidget::itemDoubleClicked, this,
-                [this](QListWidgetItem* item) { openItem(item); });
-
         connect(folderTab_, &QPushButton::clicked, this, [this] { pages_->setCurrentIndex(0); });
         connect(pdfTab_, &QPushButton::clicked, this, [this] {
             pages_->setCurrentIndex(1);
             if (!allScanned_) scanAll();
         });
+        connect(recent, &QPushButton::clicked, this, [this] { showHistory(false); });
+        connect(favorites, &QPushButton::clicked, this, [this] { showHistory(true); });
         connect(query_, &QLineEdit::textChanged, this, [this](const QString& word) {
-            filter(folderPdfs_, word); filter(allPdfs_, word);
+            for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) filter(list, word);
         });
-        connect(find, &QToolButton::clicked, this, [this] {
-            query_->setVisible(!query_->isVisible());
-            if (query_->isVisible()) query_->setFocus();
-            else query_->clear();
-        });
-        connect(location, &QToolButton::clicked, this, [this] {
-            const QString path = QFileDialog::getExistingDirectory(this,
-                QStringLiteral("논문 폴더 선택"), root_);
+        connect(location, &QPushButton::clicked, this, [this] {
+            const QString path = QFileDialog::getExistingDirectory(this, QStringLiteral("논문 폴더 선택"), root_);
             if (!path.isEmpty()) selectRoot(path);
         });
-        connect(addFile, &QToolButton::clicked, this, [this] {
-            const QString path = QFileDialog::getOpenFileName(
-                this, QStringLiteral("PDF 열기"), current_, QStringLiteral("PDF (*.pdf *.PDF)"));
-            if (!path.isEmpty()) openPdf(path);
-        });
+        connect(addFile, &QPushButton::clicked, this, [this] { importPdfs(); });
         connect(addFolder, &QToolButton::clicked, this, [this] { createFolder(); });
+        connect(viewer_, &QWidget::windowTitleChanged, this, [this] {
+            QTimer::singleShot(0, this, [this] { rememberOpenedDocument(); });
+        });
+        connect(split_, &QSplitter::splitterMoved, this, [this] { savePanelState(); });
 
         QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
         QString start = settings.value(QStringLiteral("library/root")).toString();
-        if (!QFileInfo(start).isDir()) {
-            start = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-        }
+        if (!QFileInfo(start).isDir()) start = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
         if (!QFileInfo(start).isDir()) start = QDir::homePath();
         selectRoot(start);
+        split_->restoreState(settings.value(QStringLiteral("library/splitter")).toByteArray());
+    }
+
+    void updateMinimum() { setMinimumWidth((navigation_->isHidden() ? 0 : 190) + (documents_->isHidden() ? 0 : 300) + 1); }
+    void toggleNavigation() { savePanelState(); navigation_->setVisible(navigation_->isHidden()); updateMinimum(); }
+    void toggleDocuments() { savePanelState(); documents_->setVisible(documents_->isHidden()); updateMinimum(); }
+    void focusSearch() { documents_->show(); updateMinimum(); query_->setFocus(); query_->selectAll(); }
+    QLineEdit* searchEdit() const { return query_; }
+    void savePanelState() {
+        if (navigation_->isHidden() || documents_->isHidden()) return;
+        QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+            .setValue(QStringLiteral("library/splitter"), split_->saveState());
     }
 
 private:
+    QStringList savedPaths(const QString& key) const {
+        return QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).value(key).toStringList();
+    }
+    void decorate(QListWidgetItem* item, const QString& path) {
+        item->setData(Qt::UserRole, path);
+        const QString location = QDir(root_).relativeFilePath(QFileInfo(path).absolutePath());
+        item->setData(Qt::UserRole + 1, location == QStringLiteral(".") ? QStringLiteral("라이브러리 폴더 · PDF") : location);
+        item->setData(Qt::UserRole + 2, favorites_.contains(path));
+        item->setToolTip(path);
+    }
+    void toggleFavorite(const QString& path) {
+        QStringList paths = savedPaths(QStringLiteral("library/favorites"));
+        if (paths.contains(path)) paths.removeAll(path);
+        else paths.append(path);
+        favorites_ = QSet<QString>(paths.cbegin(), paths.cend());
+        QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).setValue(QStringLiteral("library/favorites"), paths);
+        for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) {
+            for (int i = 0; i < list->count(); ++i) {
+                auto* item = list->item(i);
+                item->setData(Qt::UserRole + 2, paths.contains(item->data(Qt::UserRole).toString()));
+            }
+            list->viewport()->update();
+        }
+        if (pages_->currentIndex() == 2 && showingFavorites_) showHistory(true);
+    }
+    void showHistory(bool favorites) {
+        showingFavorites_ = favorites;
+        historyPdfs_->clear();
+        const QStringList paths = savedPaths(favorites ? QStringLiteral("library/favorites") : QStringLiteral("library/recent"));
+        for (const auto& path : paths) {
+            const QFileInfo info(path);
+            if (!info.isFile() || info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
+            auto* item = new QListWidgetItem(info.completeBaseName(), historyPdfs_);
+            decorate(item, path);
+        }
+        filter(historyPdfs_, query_->text());
+        historyCount_->setText(QStringLiteral("%1 · %2개").arg(favorites ? QStringLiteral("즐겨찾기") : QStringLiteral("최근 열람"))
+            .arg(historyPdfs_->count()));
+        pages_->setCurrentIndex(2);
+    }
+    void rememberOpenedDocument() {
+        auto* controller = viewer_->getProgramController();
+        if (!controller->getDocument()) { lastOpened_.clear(); return; }
+        const QFileInfo info(controller->getOriginalFileName());
+        const QString path = info.canonicalFilePath();
+        if (!info.isFile() || path.isEmpty() || path == lastOpened_) return;
+        lastOpened_ = path;
+        QStringList recent = savedPaths(QStringLiteral("library/recent"));
+        recent.removeAll(path);
+        recent.prepend(path);
+        while (recent.size() > 100) recent.removeLast();
+        QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).setValue(QStringLiteral("library/recent"), recent);
+        // Reuse the native PDF4QT draw-space controller: no replacement renderer.
+        auto* proxy = controller->getPdfWidget()->getDrawWidgetProxy();
+        proxy->setPageLayout(pdf::PageLayout::OneColumn);
+        proxy->zoom(2.0);
+        if (pages_->currentIndex() == 2 && !showingFavorites_) showHistory(false);
+    }
+    void importPdfs() {
+        const QStringList files = QFileDialog::getOpenFileNames(this,
+            QStringLiteral("PDF 추가 · 원본을 유지하고 현재 폴더에 복사"), current_, QStringLiteral("PDF (*.pdf *.PDF)"));
+        QString opened;
+        for (const QString& path : files) {
+            const QFileInfo info(path);
+            if (!info.isFile() || info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
+            const QString target = QDir(current_).filePath(info.fileName());
+            if (info.canonicalFilePath() == QFileInfo(target).canonicalFilePath()) { opened = target; continue; }
+            if (QFileInfo::exists(target)) {
+                QMessageBox::information(this, QStringLiteral("같은 이름의 PDF"),
+                    QStringLiteral("현재 폴더에 같은 이름의 파일이 있어 덮어쓰지 않았습니다.\n%1").arg(info.fileName()));
+                continue;
+            }
+            if (!QFile::copy(path, target)) {
+                QMessageBox::warning(this, QStringLiteral("PDF 추가 실패"),
+                    QStringLiteral("파일을 복사하지 못했습니다. 원본은 그대로 유지됩니다.\n%1").arg(info.fileName()));
+                continue;
+            }
+            opened = target;
+        }
+        if (opened.isEmpty()) return;
+        allTimer_->stop();
+        allIterator_.reset();
+        allScanned_ = false;
+        allPdfs_->clear();
+        folderTab_->setChecked(true);
+        pages_->setCurrentIndex(0);
+        selectFolder(current_);
+        openPdf(opened);
+    }
     QListWidget* makePdfList(QWidget* parent) {
         auto* list = new QListWidget(parent);
         list->setUniformItemSizes(true);
         list->setSelectionMode(QAbstractItemView::SingleSelection);
         list->setEditTriggers(QAbstractItemView::NoEditTriggers);
         list->setSortingEnabled(false);
+        list->setObjectName(QStringLiteral("LunaDocumentList"));
+        list->setItemDelegate(new DocumentCard(list));
+        list->setWordWrap(true);
+        list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        list->setContextMenuPolicy(Qt::CustomContextMenu);
+        auto* favoriteAction = new QAction(QStringLiteral("즐겨찾기 전환"), list);
+        favoriteAction->setObjectName(QStringLiteral("LunaToggleFavorite"));
+        favoriteAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+D")));
+        favoriteAction->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        list->addAction(favoriteAction);
+        connect(favoriteAction, &QAction::triggered, this, [this, list] {
+            if (auto* item = list->currentItem()) toggleFavorite(item->data(Qt::UserRole).toString());
+        });
+        connect(list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) { openItem(item); });
+        connect(list, &QListWidget::customContextMenuRequested, this, [this, list](const QPoint& point) {
+            auto* item = list->itemAt(point);
+            if (!item) return;
+            const QString path = item->data(Qt::UserRole).toString();
+            QMenu menu(this);
+            auto* favorite = menu.addAction(item->data(Qt::UserRole + 2).toBool() ? QStringLiteral("즐겨찾기 해제") : QStringLiteral("즐겨찾기 추가"));
+            if (menu.exec(list->viewport()->mapToGlobal(point)) == favorite) toggleFavorite(path);
+        });
+        connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
+            if (list->viewport()->mapFromGlobal(QCursor::pos()).x() >= list->viewport()->width() - 36)
+                toggleFavorite(item->data(Qt::UserRole).toString());
+        });
         return list;
     }
     void filter(QListWidget* list, const QString& word) {
@@ -232,6 +467,15 @@ private:
         if (!info.isDir()) return;
         root_ = info.canonicalFilePath();
         if (root_.isEmpty()) return;
+        rootLabel_->setText(info.fileName().isEmpty() ? root_ : info.fileName());
+        rootLabel_->setToolTip(root_);
+        const QStorageInfo disk(root_);
+        if (disk.isReady() && disk.bytesTotal() > 0 && disk.bytesAvailable() >= 0) {
+            const double gib = 1024.0 * 1024.0 * 1024.0;
+            storage_->setValue(int(100.0 * (disk.bytesTotal() - disk.bytesAvailable()) / disk.bytesTotal()));
+            storageLabel_->setText(QStringLiteral("디스크 사용 공간\n%1 GB / %2 GB")
+                .arg((disk.bytesTotal() - disk.bytesAvailable()) / gib, 0, 'f', 1).arg(disk.bytesTotal() / gib, 0, 'f', 1));
+        } else { storage_->setValue(0); storageLabel_->setText(QStringLiteral("저장 공간 정보 없음")); }
         model_->setRootPath(root_);
         tree_->setRootIndex(model_->index(root_));
         QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
@@ -286,8 +530,7 @@ private:
                     QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
             auto* item = new QListWidgetItem(
                 style()->standardIcon(QStyle::SP_FileIcon), info.completeBaseName(), list);
-            item->setData(Qt::UserRole, path);
-            item->setToolTip(all ? QDir(root_).relativeFilePath(path) : path);
+            decorate(item, path);
             item->setHidden(!query_->text().isEmpty() &&
                              !item->text().contains(query_->text(), Qt::CaseInsensitive));
         }
@@ -299,6 +542,7 @@ private:
             count->setText(QStringLiteral("%1 PDF · %2개")
                 .arg(all ? QStringLiteral("전체") : QStringLiteral("현재 폴더"))
                 .arg(list->count()));
+            if (list->count() >= kMaximumEntries) count->setText(count->text() + QStringLiteral(" 이상 · 표시 제한"));
         } else {
             count->setText(QStringLiteral("PDF 검색 중… %1개").arg(list->count()));
         }
@@ -345,6 +589,17 @@ private:
     }
 
     pdfviewer::PDFViewerMainWindow* viewer_;
+    QSplitter* split_ = nullptr;
+    QWidget* navigation_ = nullptr;
+    QWidget* documents_ = nullptr;
+    QLabel* rootLabel_ = nullptr;
+    QLabel* storageLabel_ = nullptr;
+    QProgressBar* storage_ = nullptr;
+    QListWidget* historyPdfs_ = nullptr;
+    QLabel* historyCount_ = nullptr;
+    bool showingFavorites_ = false;
+    QString lastOpened_;
+    QSet<QString> favorites_;
     QFileSystemModel* model_ = nullptr;
     QTreeView* tree_ = nullptr;
     QStackedWidget* pages_ = nullptr;
@@ -364,9 +619,27 @@ private:
     bool allScanned_ = false;
 };
 
+class WindowState final : public QObject {
+public:
+    explicit WindowState(QMainWindow* window) : QObject(window), window_(window) { window->installEventFilter(this); }
+protected:
+    bool eventFilter(QObject* object, QEvent* event) override {
+        if (object == window_ && event->type() == QEvent::Close) {
+            QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+            settings.setValue(QStringLiteral("window/geometry"), window_->saveGeometry());
+            settings.setValue(QStringLiteral("window/state"), window_->saveState());
+        }
+        return QObject::eventFilter(object, event);
+    }
+private:
+    QMainWindow* window_;
+};
+
 } // namespace
 
 void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
+    QFile sheet(QStringLiteral(":/luna/lunalibrary.qss"));
+    if (sheet.open(QIODevice::ReadOnly)) window.setStyleSheet(themeSheet(sheet.readAll()));
     // Hide the old PDF4QT sidebar: LUNA must have precisely two visible columns.
     if (auto* old = window.findChild<QDockWidget*>(
         QStringLiteral("SidebarDockWidget"))) {
@@ -380,12 +653,70 @@ void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
     dock->setAllowedAreas(Qt::LeftDockWidgetArea);
     dock->setFeatures(QDockWidget::NoDockWidgetFeatures);
     dock->setTitleBarWidget(new QWidget(dock));
-    dock->setMinimumWidth(260);
-    dock->setMaximumWidth(480);
-    dock->setWidget(new LibraryPanel(&window, dock));
+    dock->setMinimumWidth(1);
+    dock->setMaximumWidth(850);
+    auto* library = new LibraryPanel(&window, dock);
+    dock->setWidget(library);
     window.addDockWidget(Qt::LeftDockWidgetArea, dock);
     dock->show();
-    window.resizeDocks({dock}, {315}, Qt::Horizontal);
+    window.resizeDocks({dock}, {540}, Qt::Horizontal);
+
+    auto* controls = new QToolBar(QStringLiteral("라이브러리"), &window);
+    controls->setObjectName(QStringLiteral("LunaLibraryToolbar"));
+    controls->setMovable(false);
+    controls->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    controls->setIconSize(QSize(18, 18));
+    auto* folders = controls->addAction(window.style()->standardIcon(QStyle::SP_DirIcon), QStringLiteral("폴더"));
+    folders->setObjectName(QStringLiteral("LunaToggleNavigation"));
+    folders->setCheckable(true);
+    folders->setChecked(true);
+    QObject::connect(folders, &QAction::triggered, library, [library] { library->toggleNavigation(); });
+    auto* documents = controls->addAction(window.style()->standardIcon(QStyle::SP_FileDialogDetailedView), QStringLiteral("목록"));
+    documents->setObjectName(QStringLiteral("LunaToggleDocuments"));
+    documents->setCheckable(true);
+    documents->setChecked(true);
+    QObject::connect(documents, &QAction::triggered, library, [library] { library->toggleDocuments(); });
+    auto* focus = controls->addAction(QStringLiteral("집중 모드"));
+    focus->setObjectName(QStringLiteral("LunaFocusMode"));
+    focus->setCheckable(true);
+    QObject::connect(focus, &QAction::toggled, dock, [dock](bool enabled) { dock->setVisible(!enabled); });
+    auto* space = new QWidget(controls);
+    space->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    controls->addWidget(space);
+    auto* globalSearch = new QLineEdit(controls);
+    globalSearch->setObjectName(QStringLiteral("LunaGlobalSearch"));
+    globalSearch->setPlaceholderText(QStringLiteral("라이브러리 검색…  Ctrl+K"));
+    globalSearch->setMinimumWidth(240);
+    globalSearch->setMaximumWidth(400);
+    globalSearch->setClearButtonEnabled(true);
+    controls->addWidget(globalSearch);
+    QObject::connect(globalSearch, &QLineEdit::textChanged, library->searchEdit(), &QLineEdit::setText);
+    QObject::connect(library->searchEdit(), &QLineEdit::textChanged, globalSearch, &QLineEdit::setText);
+    auto* search = new QAction(QStringLiteral("라이브러리 검색"), &window);
+    search->setObjectName(QStringLiteral("LunaSearchAction"));
+    search->setShortcut(QKeySequence(QStringLiteral("Ctrl+K")));
+    window.addAction(search);
+    QObject::connect(search, &QAction::triggered, &window, [dock, library, globalSearch, documents, focus] {
+        focus->setChecked(false);
+        dock->show();
+        documents->setChecked(true);
+        library->focusSearch();
+        globalSearch->setFocus();
+        globalSearch->selectAll();
+    });
+    if (auto* pdfBar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
+        window.insertToolBar(pdfBar, controls);
+    } else window.addToolBar(Qt::TopToolBarArea, controls);
+    const QList<QPair<QString, QString>> menus = {
+        {QStringLiteral("menuFile"), QStringLiteral("파일")}, {QStringLiteral("menuEdit"), QStringLiteral("편집")},
+        {QStringLiteral("menuView"), QStringLiteral("보기")}, {QStringLiteral("menuGoTo"), QStringLiteral("이동")},
+        {QStringLiteral("menuTools"), QStringLiteral("도구")}, {QStringLiteral("menuHelp"), QStringLiteral("도움말")}
+    };
+    for (const auto& entry : menus) if (auto* menu = window.findChild<QMenu*>(entry.first)) menu->setTitle(entry.second);
+    auto* brand = new QLabel(QStringLiteral("☾  LUNA Library  v2"), &window);
+    brand->setContentsMargins(12, 6, 20, 6);
+    brand->setStyleSheet(QStringLiteral("color:%1; font-weight:700; font-size:16px;").arg(QString::fromLatin1(kNAVY)));
+    window.menuBar()->setCornerWidget(brand, Qt::TopLeftCorner);
 
     if (auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
         bar->setMovable(false);
@@ -400,6 +731,52 @@ void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
             if (auto* action = window.findChild<QAction*>(QString::fromLatin1(name)))
                 bar->addAction(action);
         }
+        const QList<QPair<QString, QString>> modes = {
+            {QStringLiteral("actionPageLayoutContinuous"), QStringLiteral("연속 보기")},
+            {QStringLiteral("actionPageLayoutSinglePage"), QStringLiteral("한 페이지")},
+            {QStringLiteral("actionPageLayoutTwoPages"), QStringLiteral("두 페이지")}
+        };
+        // Keep the real PDF widget and all controller pointers. Only the native
+        // toolbar is reparented beside it, so library panels start at the header.
+        window.removeToolBar(bar);
+        auto* pdfWidget = window.takeCentralWidget();
+        auto* frame = new QWidget(&window);
+        frame->setObjectName(QStringLiteral("LunaPdfFrame"));
+        auto* frameLayout = new QVBoxLayout(frame);
+        frameLayout->setContentsMargins(0, 0, 0, 0);
+        frameLayout->setSpacing(0);
+        auto* documentHeader = new QWidget(frame);
+        documentHeader->setObjectName(QStringLiteral("LunaDocumentHeader"));
+        auto* documentRow = new QHBoxLayout(documentHeader);
+        documentRow->setContentsMargins(12, 4, 8, 4);
+        auto* documentTitle = new QLabel(QStringLiteral("PDF 문서"), documentHeader);
+        documentTitle->setObjectName(QStringLiteral("LunaDocumentTitle"));
+        documentTitle->setTextFormat(Qt::PlainText);
+        documentTitle->setMinimumWidth(0);
+        documentTitle->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        documentRow->addWidget(documentTitle, 1);
+        QObject::connect(&window, &QWidget::windowTitleChanged, documentTitle, [&window, documentTitle] {
+            QTimer::singleShot(0, documentTitle, [&window, documentTitle] {
+                const QString file = window.getProgramController()->getOriginalFileName();
+                documentTitle->setText(file.isEmpty() ? QStringLiteral("PDF 문서") : QFileInfo(file).fileName());
+                documentTitle->setToolTip(file);
+            });
+        });
+        auto* viewModes = new QToolBar(documentHeader);
+        viewModes->setObjectName(QStringLiteral("LunaViewModes"));
+        viewModes->setMovable(false);
+        viewModes->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        viewModes->setIconSize(QSize(16, 16));
+        for (const auto& entry : modes) if (auto* action = window.findChild<QAction*>(entry.first)) {
+            action->setText(entry.second);
+            viewModes->addAction(action);
+        }
+        documentRow->addWidget(viewModes);
+        frameLayout->addWidget(documentHeader);
+        frameLayout->addWidget(bar);
+        bar->show(); // QMainWindow::removeToolBar() explicitly hides it.
+        if (pdfWidget) { frameLayout->addWidget(pdfWidget, 1); pdfWidget->show(); }
+        window.setCentralWidget(frame);
     }
     QObject::connect(&window, &QWidget::windowTitleChanged, &window,
         [&window](const QString& title) {
@@ -407,7 +784,84 @@ void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
                 window.setWindowTitle(QStringLiteral("LUNA Library · ") + title);
         });
     window.setWindowTitle(QStringLiteral("LUNA Library"));
-    window.resize(1420, 880);
+    window.resize(1366, 768);
+    QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+    window.restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
+    window.restoreState(settings.value(QStringLiteral("window/state")).toByteArray());
+    focus->setChecked(dock->isHidden());
+    new WindowState(&window);
+}
+
+bool verifyLibraryUi(pdfviewer::PDFViewerMainWindow& window, QString& error) {
+    auto fail = [&error](const char* message) {
+        error = QString::fromLatin1(message);
+        qWarning("LUNA UI smoke: %s", message);
+        return false;
+    };
+    auto* split = window.findChild<QSplitter*>(QStringLiteral("LunaLibrarySplitter"));
+    auto* navigation = window.findChild<QWidget*>(QStringLiteral("LunaNavigation"));
+    auto* documents = window.findChild<QWidget*>(QStringLiteral("LunaDocuments"));
+    auto* search = window.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch"));
+    auto* pages = window.findChild<QStackedWidget*>(QStringLiteral("LunaDocumentPages"));
+    auto* dock = window.findChild<QDockWidget*>(QStringLiteral("LunaLibraryDock"));
+    if (!split || split->count() != 2 || !navigation || !documents || !search || !pages || !dock)
+        return fail("Required native library widgets missing");
+    for (auto* other : window.findChildren<QDockWidget*>()) {
+        if (other != dock && other->isVisible()) return fail("Unexpected extra PDF sidebar");
+    }
+    if (window.styleSheet().isEmpty()) return fail("Theme resource missing");
+    auto* toolbar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
+    if (!toolbar || !toolbar->isVisible() || !window.getProgramController()->getPdfWidget()->isVisible())
+        return fail("Native PDF toolbar or renderer widget is hidden");
+    if (navigation->width() < 190 || documents->width() < 300 || window.getProgramController()->getPdfWidget()->width() < 300)
+        return fail("Library/PDF geometry does not fit the test window");
+    auto* list = pages->widget(0)->findChild<QListWidget*>();
+    if (!list || list->count() != 1) return fail("Synthetic library must contain exactly one PDF");
+    auto* item = list->item(0);
+    search->setText(QStringLiteral("LUNA_NO_MATCH_742"));
+    if (!item->isHidden()) return fail("Filename filtering did not hide unmatched PDF");
+    search->clear();
+    if (item->isHidden()) return fail("Clearing search did not restore PDF");
+    list->setCurrentItem(item);
+    auto* favorite = list->findChild<QAction*>(QStringLiteral("LunaToggleFavorite"));
+    if (!favorite) return fail("Favorite action missing");
+    const QString path = item->data(Qt::UserRole).toString();
+    favorite->trigger();
+    QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+    if (!item->data(Qt::UserRole + 2).toBool() || !settings.value(QStringLiteral("library/favorites")).toStringList().contains(path))
+        return fail("Favorite toggle did not persist actual file path");
+    auto* favoritesButton = window.findChild<QPushButton*>(QStringLiteral("LunaFavoriteDocumentsButton"));
+    auto* recentButton = window.findChild<QPushButton*>(QStringLiteral("LunaRecentDocumentsButton"));
+    auto* folderButton = window.findChild<QPushButton*>(QStringLiteral("LunaFolderDocumentsButton"));
+    if (!favoritesButton || !recentButton || !folderButton) return fail("Navigation buttons missing");
+    favoritesButton->click();
+    auto* history = pages->currentWidget()->findChild<QListWidget*>();
+    if (!history || history->count() != 1 || history->item(0)->data(Qt::UserRole).toString() != path)
+        return fail("Favorite navigation did not use real saved data");
+    folderButton->click();
+    favorite->trigger();
+    if (item->data(Qt::UserRole + 2).toBool()) return fail("Favorite removal failed");
+    recentButton->click();
+    history = pages->currentWidget()->findChild<QListWidget*>();
+    if (!history || history->count() != 1 || history->item(0)->data(Qt::UserRole).toString() != path)
+        return fail("Successful PDF open not recorded in recent history");
+    folderButton->click();
+    const QList<QPair<QString, QWidget*>> toggles = {
+        {QStringLiteral("LunaToggleNavigation"), navigation}, {QStringLiteral("LunaToggleDocuments"), documents},
+        {QStringLiteral("LunaFocusMode"), dock}
+    };
+    for (const auto& entry : toggles) {
+        auto* action = window.findChild<QAction*>(entry.first);
+        if (!action) return fail("Panel visibility action missing");
+        action->trigger();
+        if (!entry.second->isHidden()) return fail("Panel did not collapse");
+        action->trigger();
+        if (entry.second->isHidden()) return fail("Panel did not reopen");
+    }
+    // Drive the same signal/slot used by double-click, including the save guard.
+    window.getProgramController()->closeDocument();
+    list->itemDoubleClicked(item);
+    return true;
 }
 
 } // namespace luna

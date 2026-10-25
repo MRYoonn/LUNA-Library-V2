@@ -21,6 +21,11 @@ class LunaUiContractTests(unittest.TestCase):
         self.assertIn('window.findChild<QDockWidget*>', CPP)
         self.assertIn('QStringLiteral("SidebarDockWidget")', CPP)
 
+    def test_sidebar_can_be_hidden_and_reopened(self):
+        self.assertIn('collapse->setToolTip(QStringLiteral("왼쪽 라이브러리 접기"))', CPP)
+        self.assertIn("dock->toggleViewAction()", CPP)
+        self.assertIn("bar->insertAction(", CPP)
+
     def test_existing_pdf4qt_document_engine_reused(self):
         self.assertIn("viewer_->getProgramController()", CPP)
         self.assertIn("controller->openDocument(", CPP)

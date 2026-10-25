@@ -55,6 +55,15 @@ jobs:
           python tools/apply_overlay.py pdf4qt
           if ($LASTEXITCODE -ne 0) { throw "LUNA patch failed" }
 
+      # Public dependency cache only; contains no user documents or authentication data.
+      - name: Cache public vcpkg archives
+        uses: actions/cache@v4
+        with:
+          path: |
+            vcpkg-binary-cache
+            vcpkg/downloads
+          key: ${{ runner.os }}-pdf4qt-vcpkg-${{ hashFiles('pdf4qt/vcpkg.json', 'pdf4qt/vcpkg-configuration.json') }}
+
       - name: Prepare vcpkg packages
         shell: pwsh
         run: |

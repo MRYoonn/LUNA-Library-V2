@@ -21,10 +21,12 @@
 #include <QSaveFile>
 #include <functional>
 #include <QMouseEvent>
+#include <QMenu>
 #include <QPropertyAnimation>
 #include <QScreen>
 #include <QDockWidget>
 #include <QFileDialog>
+#include <QFile>
 #include <QFileInfo>
 #include <QFileSystemModel>
 #include <QHBoxLayout>
@@ -423,6 +425,88 @@ private:
         thumbnailPath_ = file;
     }
 
+    void openFileContextMenu(QListWidget* list, const QPoint& point) {
+        QListWidgetItem* selected = list->itemAt(point);
+        if (!selected) return;
+        const QString source = selected->data(Qt::UserRole).toString();
+        const QFileInfo file(source);
+        if (!file.isFile() ||
+            file.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
+            return;
+        hideThumbnail();
+        QMenu popup(this);
+        QAction* move = popup.addAction(QStringLiteral("PDF 이동 (썸네일 함께 이동)"));
+        QAction* chosen = popup.exec(list->viewport()->mapToGlobal(point));
+        if (chosen == move) movePdfWithThumbnail(file.absoluteFilePath());
+    }
+    // User-confirmed local file move. Never silently transfer user data to a server.
+    // All known sidecar images are moved before the PDF; failure attempts rollback.
+    void movePdfWithThumbnail(const QString& originalPath) {
+        QFileInfo sourceInfo(originalPath);
+        if (!sourceInfo.isFile() ||
+            sourceInfo.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
+            return;
+        const QString folder = QFileDialog::getExistingDirectory(this,
+            QStringLiteral("PDF 및 썸네일을 옮길 폴더 선택"), sourceInfo.absolutePath());
+        if (folder.isEmpty() ||
+            QDir::cleanPath(folder) == QDir::cleanPath(sourceInfo.absolutePath()))
+            return;
+        const QString newPath = QDir(folder).filePath(sourceInfo.fileName());
+        const QString previousBase = sourceInfo.absolutePath() + QLatin1Char('/') +
+                                     sourceInfo.completeBaseName();
+        const QString newBase = QDir(folder).filePath(sourceInfo.completeBaseName());
+        QList<QPair<QString, QString>> moves;
+        for (const QString& ext : {QStringLiteral(".png"), QStringLiteral(".jpg"),
+                                   QStringLiteral(".jpeg")}) {
+            const QString dest = newBase + QStringLiteral(".luna-thumb") + ext;
+            if (QFileInfo::exists(dest)) {
+                QMessageBox::warning(this, QStringLiteral("파일 이동 취소"),
+                    QStringLiteral("대상 폴더에 같은 이름의 썸네일이 있어 이동하지 않았습니다."));
+                return;
+            }
+            const QString old = previousBase + QStringLiteral(".luna-thumb") + ext;
+            if (QFileInfo::exists(old)) moves.append(qMakePair(old, dest));
+        }
+        if (QFileInfo::exists(newPath)) {
+            QMessageBox::warning(this, QStringLiteral("파일 이동 취소"),
+                QStringLiteral("대상 폴더에 같은 이름의 PDF가 있습니다."));
+            return;
+        }
+        if (QMessageBox::question(this, QStringLiteral("PDF 이동 확인"),
+            QStringLiteral("선택한 PDF와 썸네일을 다음 폴더로 옮길까요?\n%1").arg(folder),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+            return;
+        auto* controller = viewer_->getProgramController();
+        if (QFileInfo(controller->getOriginalFileName()).absoluteFilePath() ==
+            sourceInfo.absoluteFilePath()) {
+            if (!controller->canClose() || !controller->askForSaveDocumentBeforeClose())
+                return;
+            controller->closeDocument();
+        }
+        moves.append(qMakePair(sourceInfo.absoluteFilePath(), newPath));
+        QList<QPair<QString, QString>> moved;
+        for (const auto& pair : moves) {
+            QFile sourceFile(pair.first);
+            if (!sourceFile.rename(pair.second)) {
+                bool rollbackOK = true;
+                for (int i = moved.size() - 1; i >= 0; --i) {
+                    QFile undoFile(moved.at(i).second);
+                    if (!undoFile.rename(moved.at(i).first))
+                        rollbackOK = false;
+                }
+                QMessageBox::critical(this, QStringLiteral("PDF 이동 실패"),
+                    rollbackOK ? QStringLiteral("이동 중 오류가 발생해 기존 위치로 복원했습니다.")
+                               : QStringLiteral("일부 파일을 원래 위치로 복구하지 못했습니다. "
+                                                "원본과 대상 폴더를 모두 확인해 주세요."));
+                return;
+            }
+            moved.append(pair);
+        }
+        hideThumbnail();
+        selectFolder(current_);
+        if (pages_->currentIndex() == 1) scanAll();
+    }
+
     void startThumbnailCrop() {
         if (cropOverlay_) {
             cropOverlay_->setFocus();
@@ -488,6 +572,9 @@ private:
         list->setSelectionMode(QAbstractItemView::SingleSelection);
         list->setEditTriggers(QAbstractItemView::NoEditTriggers);
         list->setSortingEnabled(false);
+        list->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(list, &QListWidget::customContextMenuRequested, this,
+            [this, list](const QPoint& point) { openFileContextMenu(list, point); });
         list->setMouseTracking(true);
         list->viewport()->setMouseTracking(true);
         list->viewport()->installEventFilter(this);

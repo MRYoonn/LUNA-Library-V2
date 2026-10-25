@@ -792,8 +792,12 @@ void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
     new WindowState(&window);
 }
 
-bool verifyLibraryUi(pdfviewer::PDFViewerMainWindow& window) {
-    auto fail = [](const char* message) { qWarning("LUNA UI smoke: %s", message); return false; };
+bool verifyLibraryUi(pdfviewer::PDFViewerMainWindow& window, QString& error) {
+    auto fail = [&error](const char* message) {
+        error = QString::fromLatin1(message);
+        qWarning("LUNA UI smoke: %s", message);
+        return false;
+    };
     auto* split = window.findChild<QSplitter*>(QStringLiteral("LunaLibrarySplitter"));
     auto* navigation = window.findChild<QWidget*>(QStringLiteral("LunaNavigation"));
     auto* documents = window.findChild<QWidget*>(QStringLiteral("LunaDocuments"));

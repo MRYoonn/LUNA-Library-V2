@@ -41,14 +41,23 @@ SMOKE_CHECK = r'''
         auto* poll = new QTimer(&mainWindow);
         poll->setInterval(200);
         QObject::connect(poll, &QTimer::timeout, &mainWindow,
-            [&application, &mainWindow, &parser, lunaSmokeReport, poll, attempts = 0, phase = 0]() mutable {
+            [&application, &mainWindow, &captureHost, &parser, lunaSmokeReport, poll, attempts = 0, phase = 0]() mutable {
+                auto fail = [&](int code, const QByteArray& reason) {
+                    QSaveFile diagnostic(parser.value(lunaSmokeReport));
+                    if (diagnostic.open(QIODevice::WriteOnly)) {
+                        diagnostic.write(reason);
+                        diagnostic.commit();
+                    }
+                    application.exit(code);
+                };
                 auto* controller = mainWindow.getProgramController();
                 const auto* document = controller->getDocument();
                 if (++attempts >= 150) { application.exit(3); return; }
                 if (attempts < 10 || !mainWindow.isVisible() || !controller->canClose() ||
                     !document || document->getCatalog()->getPageCount() != 1) return;
                 if (phase == 0) {
-                    if (!luna::verifyLibraryUi(mainWindow)) { application.exit(5); return; }
+                    QString error;
+                    if (!luna::verifyLibraryUi(mainWindow, error)) { fail(5, error.toUtf8()); return; }
                     phase = 1;
                     attempts = 0;
                     return;
@@ -58,12 +67,36 @@ SMOKE_CHECK = r'''
                     application.exit(6); return;
                 }
                 if (phase == 1) {
-                    if (!mainWindow.grab().save(parser.value(lunaSmokeReport) + ".png", "PNG")) { application.exit(7); return; }
-                    mainWindow.resize(1920, 1080);
+                    // The real Windows/QPA window was exercised above. Hosted
+                    // desktops clamp top-level windows to about 1024 pixels.
+                    // Render the same widget tree as a child at exact sizes;
+                    // this is a Qt layout capture, not a physical display test.
+                    QApplication::setQuitOnLastWindowClosed(false);
+                    captureHost = std::make_unique<QWidget>();
+                    captureHost->setAttribute(Qt::WA_DontShowOnScreen);
+                    captureHost->resize(2048, 1536);
+                    captureHost->show();
+                    mainWindow.setParent(captureHost.get(), Qt::Widget);
+                    mainWindow.resize(1366, 768);
+                    mainWindow.show();
                     phase = 2;
                     attempts = 0;
                     return;
                 }
+                if (phase == 2) {
+                    if (mainWindow.size() != QSize(1366, 768)) {
+                        fail(8, QString("Expected1366x768 actual%1x%2 minimumHint%3x%4")
+                            .arg(mainWindow.width()).arg(mainWindow.height())
+                            .arg(mainWindow.minimumSizeHint().width()).arg(mainWindow.minimumSizeHint().height()).toUtf8());
+                        return;
+                    }
+                    if (!mainWindow.grab().save(parser.value(lunaSmokeReport) + ".png", "PNG")) { application.exit(7); return; }
+                    mainWindow.resize(1920, 1080);
+                    phase = 3;
+                    attempts = 0;
+                    return;
+                }
+                if (mainWindow.size() != QSize(1920, 1080)) { fail(8, "Expected1920x1080 layout size"); return; }
                 if (!mainWindow.grab().save(parser.value(lunaSmokeReport) + ".wide.png", "PNG")) { application.exit(7); return; }
                 QSaveFile report(parser.value(lunaSmokeReport));
                 const QByteArray marker("LUNA_SMOKE_PDF_OPEN_OK\n");
@@ -97,7 +130,7 @@ def make_main(src: str) -> str:
         '#include "pdfviewermainwindow.h"\n#include "pdfprogramcontroller.h"\n#include "pdfdrawwidget.h"\n#include "pdfdrawspacecontroller.h"\n#include "lunalibrary.h"')
     src = replace_exact(src,
         '#include <QCommandLineParser>',
-        '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>\n#include <QSettings>\n#include <QFileInfo>')
+        '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>\n#include <QSettings>\n#include <QFileInfo>\n#include <memory>')
     src = replace_exact(src, '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);',
         '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);\n'
         '    if (parser.isSet(lunaSmokeReport)) {\n'
@@ -142,7 +175,7 @@ def make_main(src: str) -> str:
         '    QApplication::setWindowIcon(QIcon(lunaIcon));')
     src = replace_exact(src,
         'pdfviewer::PDFViewerMainWindow mainWindow;\n    mainWindow.show();',
-        'pdfviewer::PDFViewerMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
+        'std::unique_ptr<QWidget> captureHost;\n    pdfviewer::PDFViewerMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
     return src
 
 def apply(root: Path, dry_run=False) -> None:

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import shutil
+import struct
 import sys
 import tempfile
 
@@ -59,20 +60,31 @@ def run(package: Path, screenshots_directory: Path | None = None) -> None:
         pdf.write_bytes(synthetic_pdf())
         subprocess.run([str(executable), "--version"], cwd=folder, env=child_env,
                        check=True, timeout=20)
-        subprocess.run([str(executable), "--luna-smoke-report", str(report), str(pdf)],
-                       cwd=folder, env=child_env, check=True, timeout=45)
+        try:
+            subprocess.run([str(executable), "--luna-smoke-report", str(report), str(pdf)],
+                           cwd=folder, env=child_env, check=True, timeout=45)
+        except subprocess.CalledProcessError as error:
+            detail = report.read_text(encoding="utf-8")[:512] if report.is_file() else "No native diagnostic"
+            raise RuntimeError(f"Native smoke exit {error.returncode}: {detail}") from error
         if not report.is_file() or report.read_bytes() != b"LUNA_SMOKE_PDF_OPEN_OK\n":
             raise RuntimeError("Native window/PDF-load success marker missing")
-        for source_name, target_name in ((str(report) + ".png", "luna-1366.png"),
-                                         (str(report) + ".wide.png", "luna-1920.png")):
+        for source_name, target_name, dimensions in ((str(report) + ".png", "luna-1366.png", (1366, 768)),
+                                                     (str(report) + ".wide.png", "luna-1920.png", (1920, 1080))):
             image = Path(source_name)
             if not image.is_file() or not image.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
                 raise RuntimeError("Native UI screenshot missing or invalid")
+            with image.open("rb") as stream:
+                header = stream.read(24)
+            if len(header) != 24 or header[12:16] != b"IHDR":
+                raise RuntimeError("Native UI PNG header invalid")
+            actual = struct.unpack(">II", header[16:24])
+            if actual != dimensions:
+                raise RuntimeError(f"Qt layout capture dimensions: expected {dimensions}, got {actual}")
             if screenshots_directory is not None:
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(image, screenshots_directory / target_name)
     print("[PASS] Native library search, favorites, recent history, panel visibility and PDF reopen")
-    print("[PASS] Continuous layout at 200% and native screenshots at two window sizes")
+    print("[PASS] Continuous layout at 200% and exact 1366x768 / 1920x1080 Qt layout captures")
     print("[NOTICE] Human visual review, text selection, annotation persistence and OS DPI remain unverified.")
 
 

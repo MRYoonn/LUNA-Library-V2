@@ -24,6 +24,32 @@ This is a **public source-only build repository**. It does not store, synchroniz
 - **빌드:** `.github/workflows/build-windows.yml` (수동 실행, 읽기 전용)
 - **집↔연구실 PDF 동기화:** 향후 로컬 컴퓨터와 별도 동기화 서비스만 사용하며 GitHub는 관여하지 않음.
 
+## 개발 및 릴리스 검증
+
+Python 표준 라이브러리만 사용한다. 공개 소스 검사에서 생성 파일을 차단하므로
+저장소 안에 PDF4QT 소스, 빌드 결과 또는 Python 바이트코드를 만들지 않는다.
+
+```bash
+python3 -B tools/preflight_public.py
+python3 -B -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+Windows 워크플로는 포터블 패키징 후 다음 검사를 수행한다.
+
+- `tools/verify_portable.py`: x64 PE 헤더, 필수 Qt/PDF4QT DLL,
+  `platforms/qwindows.dll`, MSVC 런타임 및 라이선스 파일 확인.
+  개인 데이터 파일과 추가 실행 파일은 차단한다. 전체 DLL import 해석 검사는 아니다.
+  MSVC 런타임 DLL은 Visual Studio 2022의 공식 x64 CRT 재배포 폴더에서
+  앱 옆으로 복사하며, 별도 런타임 설치 프로그램 실행에 의존하지 않는다.
+- `tools/smoke_windows.py`: 개발용 Qt 경로를 제외한 환경에서 `--version` 실행 후,
+  실제 메인 창을 시작하고 임시 합성 1페이지 PDF를 연다.
+  PDF4QT가 문서를 로딩하고 창이 표시된 경우에만 성공 마커를 기록하고 종료한다.
+  타임아웃, 비정상 종료 또는 마커 누락은 실패다. 테스트 PDF는 패키지에 포함하지 않는다.
+
+위 검사의 추가 자체는 Windows 검증 성공을 뜻하지 않는다. 새 커밋의 Windows 실행 결과를
+별도로 확인해야 한다. 화면 렌더링 품질, 텍스트 선택, 주석 저장·재열기,
+Windows 배율별 UI 검증은 여전히 별도 테스트가 필요하다.
+
 ## 개인정보 보호
 
 공개 저장소에는 사용자 PDF, 실제 논문 기록, 메모, 썸네일, SQLite DB, API 키, MYBOX 인증정보, 로컬 사용자 경로, 기존 비공개 LUNA/Recall 소스를 **절대 업로드하지 않는다**. 의심이 생기면 빌드 및 공개 작업을 중단한다. 자세한 내용은 [SECURITY_POLICY.md](SECURITY_POLICY.md).

@@ -11,6 +11,9 @@ APPROVED = {
     "src/lunalibrary.cpp", "src/lunalibrary.h",
     "tools/apply_overlay.py", "tools/preflight_public.py",
     "tests/test_public_gate.py",
+    "tools/verify_portable.py", "tests/test_portable.py",
+    "tools/smoke_windows.py",
+    "tools/stage_msvc_runtime.ps1",
 }
 FORBIDDEN = [
     ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)),

@@ -53,6 +53,15 @@ class LunaUiContractTests(unittest.TestCase):
         self.assertRegex(CPP, r"hide\(\);[^\n]*\n\s*if \(selected\.width")
         self.assertIn("document->grab(area)", CPP)
 
+    def test_user_authorized_bundle_move_rolls_back_on_error(self):
+        self.assertIn("QList<QPair<QString, QString>> moves", CPP)
+        self.assertIn("QMessageBox::question", CPP)
+        self.assertIn("movePdfWithThumbnail", CPP)
+        self.assertIn("QFileInfo::exists(newPath)", CPP)
+        self.assertIn("controller->closeDocument()", CPP)
+        self.assertIn("rollbackOK", CPP)
+        self.assertIn("undoFile.rename", CPP)
+
     def test_sidecar_writes_are_local_and_atomic(self):
         self.assertIn("QSaveFile dest(output)", CPP)
         self.assertIn('image.save(&dest, "PNG")', CPP)

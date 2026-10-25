@@ -15,6 +15,11 @@
 #include <QGraphicsOpacityEffect>
 #include <QGuiApplication>
 #include <QImageReader>
+#include <QKeyEvent>
+#include <QPainter>
+#include <QPointer>
+#include <QSaveFile>
+#include <functional>
 #include <QMouseEvent>
 #include <QPropertyAnimation>
 #include <QScreen>
@@ -47,6 +52,86 @@ namespace {
 
 constexpr int kScanBatch = 90;
 constexpr int kMaximumEntries = 15000;
+
+// A local-only selection layer; never exports cropped user content to GitHub.
+// Captures the displayed PDF area as a thumbnail without modifying the PDF.
+class ThumbnailCropOverlay final : public QWidget {
+public:
+    using Finished = std::function<void(const QRect&)>;
+    ThumbnailCropOverlay(QWidget* documentViewport, Finished callback)
+        : QWidget(documentViewport), callback_(std::move(callback)) {
+        setAttribute(Qt::WA_DeleteOnClose);
+        setFocusPolicy(Qt::StrongFocus);
+        setCursor(Qt::CrossCursor);
+        setMouseTracking(true);
+        setGeometry(documentViewport->rect());
+        raise();
+        show();
+        setFocus();
+    }
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter painter(this);
+        painter.fillRect(rect(), QColor(15, 23, 42, 36));
+        painter.setPen(QColor("#ffffff"));
+        painter.setBrush(QColor(15, 23, 42, 190));
+        painter.drawRoundedRect(QRect(18, 14, qMin(width() - 36, 380), 38), 7, 7);
+        painter.drawText(QRect(27, 17, qMin(width() - 54, 370), 32),
+            Qt::AlignLeft | Qt::AlignVCenter,
+            QStringLiteral("썸네일로 저장할 영역을 드래그하세요  ·  ESC 취소"));
+        if (!selecting_) return;
+        QPen pen(QColor("#3B82F6"), 2, Qt::SolidLine);
+        painter.setPen(pen);
+        painter.setBrush(QColor(59, 130, 246, 35));
+        painter.drawRect(selection_);
+    }
+    void mousePressEvent(QMouseEvent* event) override {
+        if (event->button() != Qt::LeftButton) return;
+        origin_ = event->position().toPoint();
+        selection_ = QRect(origin_, origin_);
+        selecting_ = true;
+        update();
+        event->accept();
+    }
+    void mouseMoveEvent(QMouseEvent* event) override {
+        if (!selecting_) return;
+        selection_ = QRect(origin_, event->position().toPoint()).normalized()
+            .intersected(rect());
+        update();
+        event->accept();
+    }
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        if (event->button() != Qt::LeftButton || !selecting_) return;
+        selecting_ = false;
+        selection_ = QRect(origin_, event->position().toPoint()).normalized()
+            .intersected(rect());
+        const QRect selected = selection_;
+        hide(); // Exclude the selection layer from QWidget::grab().
+        if (selected.width() >= 40 && selected.height() >= 40) {
+            QTimer::singleShot(0, this, [this, selected] {
+                if (callback_) callback_(selected);
+                close();
+            });
+        } else {
+            close();
+        }
+        event->accept();
+    }
+    void keyPressEvent(QKeyEvent* event) override {
+        if (event->key() == Qt::Key_Escape) {
+            hide();
+            close();
+            event->accept();
+            return;
+        }
+        QWidget::keyPressEvent(event);
+    }
+private:
+    Finished callback_;
+    QPoint origin_;
+    QRect selection_;
+    bool selecting_ = false;
+};
 
 class LibraryPanel final : public QWidget {
 public:
@@ -96,6 +181,8 @@ public:
         };
         auto* addFile = button(QStringLiteral("추가"), QStyle::SP_FileIcon);
         auto* addFolder = button(QStringLiteral("새 폴더"), QStyle::SP_DirIcon);
+        auto* cropButton = button(QStringLiteral("썸네일"), QStyle::SP_DialogSaveButton);
+        cropButton->setToolTip(QStringLiteral("현재 PDF에서 썸네일 영역 직접 지정"));
         auto* find = button(QStringLiteral("검색"), QStyle::SP_FileDialogContentsView);
         auto* location = button(QStringLiteral("위치"), QStyle::SP_DirOpenIcon);
         layout->addLayout(tools);
@@ -210,6 +297,7 @@ public:
             if (!path.isEmpty()) openPdf(path);
         });
         connect(addFolder, &QToolButton::clicked, this, [this] { createFolder(); });
+        connect(cropButton, &QToolButton::clicked, this, [this] { startThumbnailCrop(); });
 
         QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
         QString start = settings.value(QStringLiteral("library/root")).toString();
@@ -333,6 +421,65 @@ private:
         thumbnailPopup_->show();
         fade_->start();
         thumbnailPath_ = file;
+    }
+
+    void startThumbnailCrop() {
+        if (cropOverlay_) {
+            cropOverlay_->setFocus();
+            return;
+        }
+        auto* controller = viewer_->getProgramController();
+        const QString currentPdf = controller->getOriginalFileName();
+        const QFileInfo info(currentPdf);
+        if (!controller->canClose() || !info.isFile() ||
+            info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) {
+            QMessageBox::information(this, QStringLiteral("썸네일 지정"),
+                QStringLiteral("먼저 PDF를 열고 로딩이 완료된 후 이용해 주세요."));
+            return;
+        }
+        QWidget* document = viewer_->centralWidget();
+        if (!document || document->width() < 60 || document->height() < 60)
+            return;
+        QPointer<LibraryPanel> library(this);
+        QPointer<QWidget> target(document);
+        auto* overlay = new ThumbnailCropOverlay(document,
+            [library, target, source = info.absoluteFilePath()](const QRect& chosen) {
+                if (library && target) library->saveThumbnail(target, source, chosen);
+            });
+        cropOverlay_ = overlay;
+    }
+    void saveThumbnail(QWidget* document, const QString& documentPath,
+                       const QRect& chosen) {
+        const QRect area = chosen.intersected(document->rect());
+        if (area.width() < 40 || area.height() < 40) return;
+        const QFileInfo original(documentPath);
+        if (!original.isFile() ||
+            original.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
+            return;
+        const QString output = original.absolutePath() + QLatin1Char('/') +
+            original.completeBaseName() + QStringLiteral(".luna-thumb.png");
+        if (QFileInfo::exists(output) &&
+            QMessageBox::question(this, QStringLiteral("썸네일 덮어쓰기"),
+                QStringLiteral("기존 썸네일을 새 이미지로 교체할까요?"),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+            return;
+        // The image is saved beside the local PDF, including MYBOX-synced folders.
+        // QWidget::grab is used *after* the crop overlay is hidden.
+        document->repaint();
+        const QPixmap image = document->grab(area);
+        if (image.isNull()) {
+            QMessageBox::warning(this, QStringLiteral("썸네일 오류"),
+                QStringLiteral("선택한 화면 영역을 캡처할 수 없습니다."));
+            return;
+        }
+        QSaveFile dest(output);
+        if (!dest.open(QIODevice::WriteOnly) || !image.save(&dest, "PNG") ||
+            !dest.commit()) {
+            QMessageBox::warning(this, QStringLiteral("썸네일 저장 실패"),
+                QStringLiteral("원본 PDF 폴더에 이미지를 저장할 수 없습니다."));
+            return;
+        }
+        hideThumbnail();
     }
 
     QListWidget* makePdfList(QWidget* parent) {
@@ -476,6 +623,7 @@ private:
     QLabel* thumbnailLabel_ = nullptr;
     QPropertyAnimation* fade_ = nullptr;
     QString thumbnailPath_;
+    QPointer<ThumbnailCropOverlay> cropOverlay_;
     QFileSystemModel* model_ = nullptr;
     QTreeView* tree_ = nullptr;
     QStackedWidget* pages_ = nullptr;

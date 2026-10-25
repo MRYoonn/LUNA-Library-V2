@@ -179,8 +179,16 @@ jobs:
       - name: Native window and synthetic PDF smoke test
         shell: pwsh
         run: |
-          python -B tools/smoke_windows.py LUNA-Windows-Portable
+          python -B tools/smoke_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui"
           if ($LASTEXITCODE -ne 0) { throw "Native window or PDF load failed" }
+
+      - name: Upload synthetic native UI screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-UI-Synthetic
+          path: ${{ runner.temp }}/luna-ui/
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Upload LUNA Windows portable artifact
         uses: actions/upload-artifact@v4

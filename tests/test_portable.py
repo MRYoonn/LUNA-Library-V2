@@ -124,6 +124,8 @@ class NativeSmokeHarnessTests(unittest.TestCase):
             calls.append((command, kwargs))
             if "--luna-smoke-report" in command:
                 Path(command[2]).write_bytes(b"LUNA_SMOKE_PDF_OPEN_OK\n")
+                Path(command[2] + ".png").write_bytes(b"\x89PNG\r\n\x1a\nsynthetic fixture")
+                Path(command[2] + ".wide.png").write_bytes(b"\x89PNG\r\n\x1a\nsynthetic fixture")
         with tempfile.TemporaryDirectory() as package:
             with patch("tools.smoke_windows.sys.platform", "win32"), \
                  patch.dict("os.environ", {"SystemRoot": package}), \
@@ -144,6 +146,17 @@ class NativeSmokeHarnessTests(unittest.TestCase):
                  patch.dict("os.environ", {"SystemRoot": package}), \
                  patch("tools.smoke_windows.subprocess.run", side_effect=subprocess.TimeoutExpired("LUNA", 20)):
                 with self.assertRaises(subprocess.TimeoutExpired):
+                    run(Path(package))
+
+    def test_marker_without_native_screenshots_fails(self):
+        def process(command, **kwargs):
+            if "--luna-smoke-report" in command:
+                Path(command[2]).write_bytes(b"LUNA_SMOKE_PDF_OPEN_OK\n")
+        with tempfile.TemporaryDirectory() as package:
+            with patch("tools.smoke_windows.sys.platform", "win32"), \
+                 patch.dict("os.environ", {"SystemRoot": package}), \
+                 patch("tools.smoke_windows.subprocess.run", side_effect=process):
+                with self.assertRaisesRegex(RuntimeError, "screenshot missing"):
                     run(Path(package))
 
 

@@ -108,8 +108,15 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg clone failed" }
+          # Cache restore may already have created vcpkg/downloads. Preserve it.
+          git init vcpkg
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg init failed" }
+          git -C vcpkg remote add origin https://github.com/microsoft/vcpkg.git
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg remote setup failed" }
+          git -C vcpkg fetch --depth 1 origin HEAD
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg fetch failed" }
+          git -C vcpkg checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg checkout failed" }
           $baseline = (Get-Content -Raw pdf4qt/vcpkg.json | ConvertFrom-Json).'builtin-baseline'
           git -C vcpkg fetch --depth 1 origin $baseline
           if ($LASTEXITCODE -ne 0) { throw "vcpkg baseline missing" }

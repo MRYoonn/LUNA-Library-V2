@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // LUNA Library V2 UI overlay. PDF rendering remains upstream PDF4QT.
 #include "lunalibrary.h"
-#include "pdfviewermainwindow.h"
+#include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
 
 #include <QAbstractItemView>
@@ -41,7 +41,7 @@ constexpr int kMaximumEntries = 15000;
 
 class LibraryPanel final : public QWidget {
 public:
-    explicit LibraryPanel(pdfviewer::PDFViewerMainWindow* viewer, QWidget* parent)
+    explicit LibraryPanel(pdfviewer::PDFEditorMainWindow* viewer, QWidget* parent)
         : QWidget(parent), viewer_(viewer)
     {
         setObjectName(QStringLiteral("LunaLibraryPanel"));
@@ -344,7 +344,7 @@ private:
         }
     }
 
-    pdfviewer::PDFViewerMainWindow* viewer_;
+    pdfviewer::PDFEditorMainWindow* viewer_;
     QFileSystemModel* model_ = nullptr;
     QTreeView* tree_ = nullptr;
     QStackedWidget* pages_ = nullptr;
@@ -366,7 +366,7 @@ private:
 
 } // namespace
 
-void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
+void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     // Hide the old PDF4QT sidebar: LUNA must have precisely two visible columns.
     if (auto* old = window.findChild<QDockWidget*>(
         QStringLiteral("SidebarDockWidget"))) {
@@ -396,7 +396,9 @@ void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
             if (auto* action = window.findChild<QAction*>(QString::fromLatin1(name)))
                 bar->removeAction(action);
         }
-        for (const char* name : {"actionFind", "actionBookmarkPage"}) {
+        // The Editor variant activates PDF4QT-native highlighting and note tools.
+        for (const char* name : {"actionFind", "actionCreateTextHighlight",
+                                 "actionStickyNoteNote", "actionBookmarkPage"}) {
             if (auto* action = window.findChild<QAction*>(QString::fromLatin1(name)))
                 bar->addAction(action);
         }

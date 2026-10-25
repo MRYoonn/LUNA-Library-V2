@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolated LUNA UI overlay for the pinned public PDF4QT Viewer source.
+"""Isolated LUNA UI overlay for the pinned public PDF4QT Editor source.
 
 Never imports private source or documents. Refuses unexpected upstream changes.
 """
@@ -11,8 +11,8 @@ import sys
 
 PIN = "67b6b9903cb4e318803342f2d428f02e1bb124e3"
 BLOBS = {
-    "Pdf4QtViewer/main.cpp": "6c343865e20e983bf942e63e3ca2d3aab074a3d1",
-    "Pdf4QtViewer/CMakeLists.txt": "08270333862c8906c2281a325b8a0f4efe94cf4d",
+    "Pdf4QtEditor/main.cpp": "208c36b730ec158854b614e48c868e518aea5cde",
+    "Pdf4QtEditor/CMakeLists.txt": "9ca656581680c7af16cee3ed35a32332e44e2dab",
 }
 CMAKE_ADDITION = """
 # LUNA_LIBRARY_V2_TARGET_BEGIN
@@ -48,8 +48,8 @@ def replace_exact(source: str, old: str, new: str) -> str:
 
 def make_main(src: str) -> str:
     src = replace_exact(src,
-        '#include "pdfviewermainwindow.h"',
-        '#include "pdfviewermainwindow.h"\n#include "lunalibrary.h"')
+        '#include "pdfeditormainwindow.h"',
+        '#include "pdfeditormainwindow.h"\n#include "lunalibrary.h"')
     src = replace_exact(src,
         '#include <QCommandLineParser>',
         '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>')
@@ -57,10 +57,10 @@ def make_main(src: str) -> str:
         'QCoreApplication::setOrganizationName("MelkaJ");',
         'QCoreApplication::setOrganizationName("LUNA");')
     src = replace_exact(src,
-        'QCoreApplication::setApplicationName("PDF4QT Viewer");',
+        'QCoreApplication::setApplicationName("PDF4QT Editor");',
         'QCoreApplication::setApplicationName("LUNA Library");')
     src = replace_exact(src,
-        'QApplication::setApplicationDisplayName(QApplication::translate("Application", "PDF4QT Viewer"));',
+        'QApplication::setApplicationDisplayName(QApplication::translate("Application", "PDF4QT Editor"));',
         'QApplication::setApplicationDisplayName(QStringLiteral("LUNA Library"));')
     src = replace_exact(src,
         'isLightGui = parser.isSet(lightGui);',
@@ -78,13 +78,13 @@ def make_main(src: str) -> str:
         '    }\n'
         '    QApplication::setWindowIcon(QIcon(lunaIcon));')
     src = replace_exact(src,
-        'pdfviewer::PDFViewerMainWindow mainWindow;\n    mainWindow.show();',
-        'pdfviewer::PDFViewerMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
+        'pdfviewer::PDFEditorMainWindow mainWindow;\n    mainWindow.show();',
+        'pdfviewer::PDFEditorMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
     return src
 
 def apply(root: Path, dry_run=False) -> None:
     root = root.resolve(strict=True)
-    folder = root / "Pdf4QtViewer"
+    folder = root / "Pdf4QtEditor"
     main, cmake = folder / "main.cpp", folder / "CMakeLists.txt"
     for rel, sha in BLOBS.items():
         if not verify_file(root / rel, sha):

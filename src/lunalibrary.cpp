@@ -23,6 +23,7 @@
 #include <QMouseEvent>
 #include <QMenu>
 #include <QPropertyAnimation>
+#include <QPair>
 #include <QScreen>
 #include <QDockWidget>
 #include <QFileDialog>
@@ -398,8 +399,8 @@ private:
         QImageReader reader(file);
         reader.setAutoTransform(true);
         const QSize original = reader.size();
-        if (!original.isValid() || original.width() > 15000 ||
-            original.height() > 15000) { hideThumbnail(); return; }
+        if (!original.isValid() || original.width() > 4096 ||
+            original.height() > 4096) { hideThumbnail(); return; }
         const QSize scaled = original.scaled(QSize(235, 310), Qt::KeepAspectRatio);
         reader.setScaledSize(scaled);
         const QImage image = reader.read();

@@ -64,6 +64,17 @@ jobs:
             vcpkg/downloads
           key: ${{ runner.os }}-pdf4qt-vcpkg-${{ hashFiles('pdf4qt/vcpkg.json', 'pdf4qt/vcpkg-configuration.json') }}
 
+      # LUNA first-use beta excludes OCR. Skip unnecessary Windows packages.
+      # This changes only the ephemeral public PDF4QT checkout, never the pinned source.
+      - name: Exclude optional OCR and Linux-only TBB from Windows dependencies
+        shell: pwsh
+        run: |
+          $manifestPath = Join-Path $env:GITHUB_WORKSPACE 'pdf4qt/vcpkg.json'
+          $manifest = Get-Content -Raw $manifestPath | ConvertFrom-Json
+          $manifest.dependencies = @($manifest.dependencies | Where-Object { $_ -notin @('tesseract', 'tbb') })
+          $manifest | ConvertTo-Json -Depth 15 | Set-Content -Encoding utf8 $manifestPath
+          Write-Host "Release-only dependencies:" ($manifest.dependencies -join ', ')
+
       - name: Prepare vcpkg packages
         shell: pwsh
         run: |

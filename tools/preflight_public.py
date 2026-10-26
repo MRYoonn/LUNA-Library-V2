@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Public LUNA release gate. Stop on any suspicious file or source content."""
 from pathlib import Path
+import hashlib
 import re
 import sys
 
@@ -20,6 +21,8 @@ APPROVED = {
     "src/lunaeditorsmoke.cpp", "src/lunaeditorsmoke.h",
     "src/lunasavedialog.h", "tests/native_dialog/CMakeLists.txt", "tests/native_dialog/main.cpp",
 }
+APPROVED_BINARY = {'assets/icons/LUNA-Moon.ico': '5c1dec76af47b7c37e3d41e5fb05d62a02783f4f4af0247503096feb4cd7b51f', 'assets/icons/LUNA-Moon.png': '6e425c04d648d2ad0417afd82d590ba4aecab7a6e8898e84a788019e920efb59'}
+APPROVED.update(APPROVED_BINARY)
 FORBIDDEN = [
     ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)),
     ("phone", re.compile(r"(?<!\d)01[016789][-. ]?\d{3,4}[-. ]?\d{4}(?!\d)")),
@@ -50,6 +53,10 @@ def check(root=ROOT):
             continue
         if path.stat().st_size > 200_000:
             errors.append("Unexpected file size: " + name)
+            continue
+        if name in APPROVED_BINARY:
+            if hashlib.sha256(path.read_bytes()).hexdigest() != APPROVED_BINARY[name]:
+                errors.append("Unapproved icon content: " + name)
             continue
         try:
             data = path.read_text(encoding="utf-8")
@@ -83,5 +90,5 @@ if __name__ == "__main__":
     if failures:
         print("[BLOCK] PUBLIC RELEASE HALTED", file=sys.stderr)
         sys.exit(1)
-    print("[PASS] " + str(len(APPROVED)) + " public text files, no flagged private items")
+    print("[PASS] " + str(len(APPROVED)) + " approved source/icon files, no flagged private items")
     print("[NOTICE] Heuristic scan is not a guarantee of zero sensitive data.")

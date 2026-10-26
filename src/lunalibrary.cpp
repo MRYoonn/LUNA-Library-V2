@@ -58,6 +58,10 @@
 #include <QSaveFile>
 #include <QMouseEvent>
 #include <functional>
+#include <QImageReader>
+#include <QGraphicsOpacityEffect>
+#include <QPropertyAnimation>
+#include <QScreen>
 #include <memory>
 
 namespace luna {
@@ -515,6 +519,118 @@ private:
         selectFolder(current_);
         openPdf(opened);
     }
+    bool eventFilter(QObject* observed, QEvent* event) override {
+        const bool historyViewport = historyPdfs_ && observed == historyPdfs_->viewport();
+        const bool folderViewport = folderPdfs_ && observed == folderPdfs_->viewport();
+        const bool allViewport = allPdfs_ && observed == allPdfs_->viewport();
+        if (!folderViewport && !allViewport && !historyViewport)
+            return QWidget::eventFilter(observed, event);
+        if (event->type() == QEvent::MouseMove) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+            auto* list = folderViewport ? folderPdfs_ : (allViewport ? allPdfs_ : historyPdfs_);
+            QListWidgetItem* item = list->itemAt(mouse->position().toPoint());
+            if (item && !item->isHidden()) {
+                const QString path = item->data(Qt::UserRole).toString();
+                showThumbnailFor(path);
+            } else {
+                hideThumbnail();
+            }
+        } else if (event->type() == QEvent::Leave ||
+                   event->type() == QEvent::Hide ||
+                   event->type() == QEvent::MouseButtonPress ||
+                   event->type() == QEvent::Wheel) {
+            hideThumbnail();
+        }
+        return QWidget::eventFilter(observed, event);
+    }
+
+    QString thumbnailForPdf(const QString& documentPath) const {
+        const QFileInfo info(documentPath);
+        if (!info.isFile() ||
+            info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
+            return {};
+        const QString prefix = info.absolutePath() + QLatin1Char('/') +
+                               info.completeBaseName() + QStringLiteral(".luna-thumb");
+        for (const QString& extension : {QStringLiteral(".png"), QStringLiteral(".jpg"),
+                                         QStringLiteral(".jpeg")}) {
+            const QString candidate = prefix + extension;
+            const QFileInfo thumbnail(candidate);
+            if (!thumbnail.isSymLink() && thumbnail.isFile() && thumbnail.size() > 0 && thumbnail.size() <= 5'000'000)
+                return candidate;
+        }
+        return {};
+    }
+    void ensureThumbnailPopup() {
+        if (thumbnailPopup_) return;
+        thumbnailPopup_ = new QFrame(this, Qt::ToolTip | Qt::FramelessWindowHint);
+        thumbnailPopup_->setObjectName(QStringLiteral("LunaThumbnailPopup"));
+        thumbnailPopup_->setAttribute(Qt::WA_TransparentForMouseEvents);
+        thumbnailPopup_->setAttribute(Qt::WA_ShowWithoutActivating);
+        thumbnailPopup_->setStyleSheet(QStringLiteral(
+            "QFrame#LunaThumbnailPopup {background:#FFFFFF; border:1px solid #CBD5E1;"
+            " border-radius:10px;} QLabel {background:transparent; color:#334155;}"));
+        auto* layout = new QVBoxLayout(thumbnailPopup_);
+        layout->setContentsMargins(10, 10, 10, 10);
+        layout->setSpacing(7);
+        thumbnailImage_ = new QLabel(thumbnailPopup_);
+        thumbnailImage_->setFixedWidth(235);
+        thumbnailImage_->setAlignment(Qt::AlignCenter);
+        thumbnailImage_->setTextFormat(Qt::PlainText);
+        layout->addWidget(thumbnailImage_);
+        thumbnailLabel_ = new QLabel(thumbnailPopup_);
+        thumbnailLabel_->setFixedWidth(235);
+        thumbnailLabel_->setWordWrap(true);
+        thumbnailLabel_->setTextFormat(Qt::PlainText);
+        layout->addWidget(thumbnailLabel_);
+        auto* opacity = new QGraphicsOpacityEffect(thumbnailPopup_);
+        thumbnailPopup_->setGraphicsEffect(opacity);
+        fade_ = new QPropertyAnimation(opacity, "opacity", thumbnailPopup_);
+        fade_->setDuration(165);
+        fade_->setStartValue(0.0);
+        fade_->setEndValue(1.0);
+        thumbnailPopup_->hide();
+    }
+    void hideThumbnail() {
+        if (thumbnailPopup_) thumbnailPopup_->hide();
+        thumbnailPath_.clear();
+        if (fade_) fade_->stop();
+    }
+    void showThumbnailFor(const QString& pdfPath) {
+        const QString file = thumbnailForPdf(pdfPath);
+        if (file.isEmpty()) { hideThumbnail(); return; }
+        if (file == thumbnailPath_ && thumbnailPopup_ && thumbnailPopup_->isVisible())
+            return;
+        ensureThumbnailPopup();
+        QImageReader reader(file);
+        reader.setAutoTransform(true);
+        const QSize original = reader.size();
+        if (!original.isValid() || original.width() > 4096 ||
+            original.height() > 4096) { hideThumbnail(); return; }
+        const QSize scaled = original.scaled(QSize(235, 310), Qt::KeepAspectRatio);
+        reader.setScaledSize(scaled);
+        const QImage image = reader.read();
+        if (image.isNull()) { hideThumbnail(); return; }
+        thumbnailImage_->setPixmap(QPixmap::fromImage(image));
+        thumbnailLabel_->setText(QFileInfo(pdfPath).fileName());
+        thumbnailPopup_->adjustSize();
+        const QPoint cursor = QCursor::pos();
+        QPoint target = cursor + QPoint(19, 12);
+        if (auto* screen = QGuiApplication::screenAt(cursor)) {
+            const QRect area = screen->availableGeometry();
+            target.setX(qBound(area.left(), target.x(),
+                qMax(area.left(), area.right() - thumbnailPopup_->width() + 1)));
+            target.setY(qBound(area.top(), target.y(),
+                qMax(area.top(), area.bottom() - thumbnailPopup_->height() + 1)));
+        }
+        fade_->stop();
+        if (auto* effect = qobject_cast<QGraphicsOpacityEffect*>(thumbnailPopup_->graphicsEffect()))
+            effect->setOpacity(0.0);
+        thumbnailPopup_->move(target);
+        thumbnailPopup_->show();
+        fade_->start();
+        thumbnailPath_ = file;
+    }
+
     void startThumbnailCrop() {
         if (cropOverlay_) {
             cropOverlay_->setFocus();
@@ -583,6 +699,8 @@ private:
 
     QListWidget* makePdfList(QWidget* parent) {
         auto* list = new QListWidget(parent);
+        list->setMouseTracking(true);
+        list->viewport()->installEventFilter(this);
         list->setUniformItemSizes(true);
         list->setSelectionMode(QAbstractItemView::SingleSelection);
         list->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -753,6 +871,11 @@ private:
         }
     }
 
+    QFrame* thumbnailPopup_ = nullptr;
+    QLabel* thumbnailImage_ = nullptr;
+    QLabel* thumbnailLabel_ = nullptr;
+    QPropertyAnimation* fade_ = nullptr;
+    QString thumbnailPath_;
     QPointer<ThumbnailCropOverlay> cropOverlay_;
     pdfviewer::PDFEditorMainWindow* viewer_;
     QSplitter* split_ = nullptr;
@@ -884,7 +1007,7 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
         {QStringLiteral("menuTools"), QStringLiteral("도구")}, {QStringLiteral("menuHelp"), QStringLiteral("도움말")}
     };
     for (const auto& entry : menus) if (auto* menu = window.findChild<QMenu*>(entry.first)) menu->setTitle(entry.second);
-    auto* brand = new QLabel(QStringLiteral("☾  LUNA Library  v2"), &window);
+    auto* brand = new QLabel(QStringLiteral("<img src=\":/luna/LUNA-Moon.png\" width=\"24\" height=\"24\">  LUNA Library  v2"), &window);
     brand->setContentsMargins(12, 6, 20, 6);
     brand->setStyleSheet(QStringLiteral("color:%1; font-weight:700; font-size:16px;").arg(QString::fromLatin1(kNAVY)));
     window.menuBar()->setCornerWidget(brand, Qt::TopLeftCorner);

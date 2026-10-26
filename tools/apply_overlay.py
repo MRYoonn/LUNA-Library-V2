@@ -35,6 +35,28 @@ install(TARGETS LUNA RUNTIME DESTINATION ${PDF4QT_INSTALL_BIN_DIR}
 # A marker is written only after a one-page synthetic document has been loaded.
 # Annotation persistence is checked through the native Editor actions.
 SMOKE_CHECK = r'''
+    if (parser.isSet(lunaResearchReport))
+    {
+        if (arguments.size() != 1) return 2;
+        auto* poll = new QTimer(&mainWindow);
+        poll->setInterval(200);
+        QObject::connect(poll, &QTimer::timeout, &mainWindow,
+            [&application, &mainWindow, &parser, lunaResearchReport, poll, attempts = 0]() mutable {
+                auto* controller = mainWindow.getProgramController();
+                if (++attempts > 300) { application.exit(12); return; }
+                if (attempts < 10 || !mainWindow.isEnabled() || !controller->getDocument()) return;
+                poll->stop();
+                QString error;
+                const bool passed = luna::verifyResearchRoundTrip(mainWindow, parser.value(lunaResearchReport), error);
+                if (!passed) mainWindow.grab().save(parser.value(lunaResearchReport) + ".failure.png");
+                QSaveFile report(parser.value(lunaResearchReport));
+                if (!report.open(QIODevice::WriteOnly)) { application.exit(13); return; }
+                report.write(passed ? QByteArray("LUNA_RESEARCH_ROUNDTRIP_OK\n") : error.toUtf8());
+                if (!report.commit()) { application.exit(13); return; }
+                application.exit(passed ? 0 : 12);
+            });
+        poll->start();
+    }
     if (parser.isSet(lunaSmokeReport))
     {
         if (arguments.size() != 1) return 2;
@@ -160,12 +182,13 @@ def make_main(src: str) -> str:
     src = replace_exact(src, '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);',
         '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);\n'
         '    if (parser.isSet(lunaLayoutOnly) && !parser.isSet(lunaSmokeReport)) return 2;\n'
-        '    if (parser.isSet(lunaSmokeReport)) {\n'
+        '    if (parser.isSet(lunaSmokeReport) && parser.isSet(lunaResearchReport)) return 2;\n'
+        '    if (parser.isSet(lunaSmokeReport) || parser.isSet(lunaResearchReport)) {\n'
         '        if (parser.positionalArguments().size() != 1) return 2;\n'
         '        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);\n'
         '        QSettings::setDefaultFormat(QSettings::IniFormat);\n'
         '        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,\n'
-        '            QFileInfo(parser.value(lunaSmokeReport)).absolutePath() + "/settings");\n'
+        '            QFileInfo(parser.value(parser.isSet(lunaResearchReport) ? lunaResearchReport : lunaSmokeReport)).absolutePath() + "/settings");\n'
         '        QSettings("LUNA", "LUNA Library").setValue("library/root",\n'
         '            QFileInfo(parser.positionalArguments().front()).absolutePath());\n'
         '    }')
@@ -175,6 +198,9 @@ def make_main(src: str) -> str:
         '        "CI only: verify a two-page synthetic PDF opens, write a marker and exit.", "path");\n'
         '    lunaSmokeReport.setFlags(QCommandLineOption::HiddenFromHelp);\n'
         '    parser.addOption(lunaSmokeReport);\n'
+        '    QCommandLineOption lunaResearchReport("luna-research-report", "CI only: verify the pinned public research PDF.", "path");\n'
+        '    lunaResearchReport.setFlags(QCommandLineOption::HiddenFromHelp);\n'
+        '    parser.addOption(lunaResearchReport);\n'
         '    QCommandLineOption lunaLayoutOnly("luna-layout-only", "CI only: scaled layout checks without modifying the PDF.");\n'
         '    lunaLayoutOnly.setFlags(QCommandLineOption::HiddenFromHelp);\n'
         '    parser.addOption(lunaLayoutOnly);')

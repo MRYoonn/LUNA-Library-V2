@@ -13,6 +13,7 @@
 #include "pdfwidgettool.h"
 #include "pdftextlayout.h"
 #include "pdfannotationstyle.h"
+#include "pdfpage.h"
 
 #include <QAction>
 #include <QApplication>
@@ -112,6 +113,111 @@ void key(QWidget* widget, int code, Qt::KeyboardModifiers modifiers) {
     QApplication::sendEvent(widget, &press);
     QApplication::sendEvent(widget, &release);
 }
+}
+
+bool verifyResearchRoundTrip(pdfviewer::PDFEditorMainWindow& window,
+                             const QString& reportPath, QString& error) {
+    auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
+    auto* controller = window.getProgramController();
+    auto* pdfWidget = controller->getPdfWidget();
+    auto* proxy = pdfWidget->getDrawWidgetProxy();
+    auto* widget = pdfWidget->getDrawWidget()->getWidget();
+    const QString original = controller->getOriginalFileName();
+    const QByteArray originalBytes = readFile(original);
+    const QString saved = reportPath + QStringLiteral(".annotated.pdf");
+    if (originalBytes.isEmpty() || QFileInfo::exists(saved) || !controller->getDocument() ||
+        controller->getDocument()->getCatalog()->getPageCount() != 5) return fail("Unexpected public research fixture");
+    auto action = [&](const char* name) { return window.findChild<QAction*>(QString::fromLatin1(name)); };
+    auto* select = action("actionSelectText");
+    auto* highlight = action("actionCreateTextHighlight");
+    auto* saveAs = action("actionSave_As");
+    if (!select || !highlight || !saveAs) return fail("Native research actions missing");
+    if (auto* focus = action("LunaFocusMode"); focus && !focus->isChecked()) focus->trigger();
+    proxy->zoom(1.0); proxy->setPageLayout(pdf::PageLayout::OneColumn);
+    auto highlights = [&] {
+        int count = 0;
+        for (const auto& annotation : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations)
+            if (annotation.annotation->getType() == pdf::AnnotationType::Highlight) ++count;
+        return count;
+    };
+    const int initialHighlights = highlights();
+    for (int sample = 0; sample < 3; ++sample) {
+        const int pageIndex = sample == 2 ? 1 : 0;
+        proxy->goToPage(pageIndex);
+        QPoint start, end;
+        QString expected;
+        if (!waitFor([&] {
+            if (!window.isEnabled() || !select->isEnabled()) return false;
+            pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(pageIndex);
+            const auto snapshot = proxy->getSnapshot();
+            const auto* page = snapshot.getPageSnapshot(pageIndex);
+            if (!page) return false;
+            const auto box = controller->getDocument()->getCatalog()->getPage(pageIndex)->getMediaBox();
+            for (const auto& block : layout.getTextBlocks()) for (const auto& line : block.getLines()) {
+                const auto& chars = line.getCharacters();
+                if (chars.size() < 12 || chars.front().fontSize > 14 || chars.front().fontSize < 6) continue;
+                const auto first = chars.front().boundingBox.boundingRect().center();
+                const auto last = chars.back().boundingBox.boundingRect().center();
+                QString text;
+                for (const auto& character : chars) text += character.character;
+                if (sample == 0 && (last.x() >= box.width() / 2 || first.y() > box.height() * .75)) continue;
+                if (sample == 1 && (first.x() < box.width() / 2 || first.y() > box.height() * .75)) continue;
+                if (sample == 2 && !text.contains(QStringLiteral("Figure 1"))) continue;
+                const QPointF from = first - QPointF(1,0);
+                const QPointF to = chars[8].boundingBox.boundingRect().center() + QPointF(1,-2);
+                start = page->pageToDeviceMatrix.map(from).toPoint();
+                end = page->pageToDeviceMatrix.map(to).toPoint();
+                if (!widget->rect().contains(start) || !widget->rect().contains(end)) {
+                    if (sample == 2) {
+                        proxy->goToPageAndEnsureVisible(pageIndex, QRectF(from, to).normalized().adjusted(-10,-10,10,10));
+                        return false;
+                    }
+                    continue;
+                }
+                const auto inverse = page->pageToDeviceMatrix.inverted();
+                expected = layout.getTextFromSelection(layout.createTextSelection(pageIndex,
+                    inverse.map(QPointF(start)), inverse.map(QPointF(end))), pageIndex).simplified();
+                if (expected.size() >= 4) return true;
+            }
+            return false;
+        })) return fail("Public paper column or figure-caption glyphs unavailable");
+        if (!select->isChecked()) select->trigger();
+        mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+        mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
+        mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+        if (controller->getToolManager()->getSelectTextTool()->getSelectedText().simplified() != expected)
+            return fail("Public paper native column/caption drag selected unexpected text");
+        QApplication::clipboard()->clear(); key(widget,Qt::Key_C,Qt::ControlModifier);
+        if (!waitFor([&] { return QApplication::clipboard()->text().simplified() == expected; }))
+            return fail("Public paper selected text did not copy");
+        if (sample < 2) {
+            highlight->trigger();
+            mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+            mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
+            mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+            if (!waitFor([&] { return highlights() == initialHighlights + sample + 1 && select->isChecked(); }))
+                return fail("Public paper column highlight failed");
+        }
+    }
+    if (!waitFor([&] { return window.isEnabled() && saveAs->isEnabled(); })) return fail("Public paper save remained busy");
+    bool chosen = false;
+    QTimer choose;
+    QObject::connect(&choose, &QTimer::timeout, &window, [&] {
+        if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+            chosen = selectSyntheticCopy(*dialog, saved, error);
+            QMetaObject::invokeMethod(dialog, chosen ? "accept" : "reject", Qt::DirectConnection);
+        }
+    });
+    choose.start(30); saveAs->trigger(); choose.stop();
+    if (!chosen || !QFileInfo::exists(saved) || readFile(original) != originalBytes)
+        return fail("Public paper Save As did not preserve original and produce a copy");
+    controller->closeDocument(); controller->openDocument(saved);
+    if (!waitFor([&] { return controller->getDocument() && window.isEnabled() && controller->getDocument()->getCatalog()->getPageCount() == 5; }) ||
+        highlights() != initialHighlights + 2) return fail("Public paper annotations did not survive native reopen");
+    proxy->zoom(.7); proxy->goToPage(0);
+    QCoreApplication::processEvents();
+    if (!window.grab().save(reportPath + QStringLiteral(".png"))) return fail("Public paper capture failed");
+    return true;
 }
 
 bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,

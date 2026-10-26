@@ -15,6 +15,7 @@ APPROVED = {
     "src/lunafilemove.h", "tests/native_dialog/filemoves.cpp",
     "src/lunadocumentclaim.h", "tests/native_dialog/documentclaims.cpp",
     "tools/probe_documents_windows.py",
+    "tools/probe_research_windows.py",
     "tools/apply_overlay.py", "tools/preflight_public.py",
     "tests/test_public_gate.py",
     "tools/verify_portable.py", "tests/test_portable.py",

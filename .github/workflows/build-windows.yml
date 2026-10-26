@@ -270,6 +270,12 @@ jobs:
           python -B tools/probe_documents_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui"
           if ($LASTEXITCODE -ne 0) { throw "Native UI or annotation round trip failed" }
 
+      - name: Public CC BY research PDF selection and annotation round trip
+        shell: pwsh
+        run: |
+          python -B tools/probe_research_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui/research"
+          if ($LASTEXITCODE -ne 0) { throw "Public research PDF verification failed" }
+
       - name: Native Windows Qt 125 and 150 percent layout checks
         shell: pwsh
         run: |

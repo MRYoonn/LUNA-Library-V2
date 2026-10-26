@@ -5,6 +5,7 @@
 #include "pdfprogramcontroller.h"
 #include "pdfdrawwidget.h"
 #include "pdfdrawspacecontroller.h"
+#include "pdfcompiler.h"
 #include "pdfwidgetannotation.h"
 #include "pdfwidgettool.h"
 #include "pdftextlayout.h"
@@ -55,6 +56,11 @@ void mouse(QWidget* widget, QEvent::Type type, QPoint point,
 bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
                            const QString& reportPath, QString& error) {
     auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
+    auto checkpoint = [&](const char* phase) {
+        QFile report(reportPath);
+        if (report.open(QIODevice::WriteOnly)) report.write(phase);
+    };
+    checkpoint("Editor phase: native text selection");
     auto* controller = window.getProgramController();
     auto* pdfWidget = controller->getPdfWidget();
     auto* proxy = pdfWidget->getDrawWidgetProxy();
@@ -87,18 +93,34 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     }))
         return fail("Native text selection did not select synthetic text");
 
+    // Use the native glyph geometry rather than guessed font metrics. The
+    // upstream selector intersects a rectangle with text blocks, so an exactly
+    // horizontal zero-height test drag selects nothing (QRectF::intersects).
+    pdf::PDFTextLayout textLayout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(0);
+    if (textLayout.getTextBlocks().empty() || textLayout.getTextBlocks().front().getLines().empty())
+        return fail("Synthetic native text layout has no lines");
+    const auto& characters = textLayout.getTextBlocks().front().getLines().front().getCharacters();
+    if (characters.size() < 8) return fail("Synthetic native text layout is incomplete");
+    QPointF pageStart = characters.front().boundingBox.boundingRect().center() - QPointF(1, 0);
+    QPointF pageEnd = characters[7].boundingBox.boundingRect().center() + QPointF(1, -2);
+    if (textLayout.createTextSelection(0, pageStart, pageEnd).isEmpty())
+        return fail("Synthetic drag rectangle does not intersect native glyphs");
+
     // The native highlighter selects text by dragging in its own tool mode.
     // Zoom out temporarily so the synthetic line fits the hosted desktop.
     proxy->zoom(1.0);
+    checkpoint("Editor phase: native highlight drag");
     highlight->trigger();
+    if (!highlight->isChecked() || !controller->getToolManager()->getActiveTool())
+        return fail("Native highlighter action did not activate its tool");
     auto* widget = pdfWidget->getDrawWidget()->getWidget();
     QPoint start, end, notePoint;
     if (!waitFor([&] {
         const auto snapshot = proxy->getSnapshot();
         const auto* page = snapshot.getPageSnapshot(0);
         if (!page) return false;
-        start = page->pageToDeviceMatrix.map(QPointF(41, 166)).toPoint();
-        end = page->pageToDeviceMatrix.map(QPointF(142, 166)).toPoint();
+        start = page->pageToDeviceMatrix.map(pageStart).toPoint();
+        end = page->pageToDeviceMatrix.map(pageEnd).toPoint();
         notePoint = page->pageToDeviceMatrix.map(QPointF(150, 195)).toPoint();
         return widget->rect().contains(start) && widget->rect().contains(end) && widget->rect().contains(notePoint);
     })) return fail("Synthetic annotation points are outside native viewport");
@@ -113,6 +135,7 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         if (item.annotation->getType() == pdf::AnnotationType::Highlight) highlightColor = item.annotation->getColor();
     if (highlightColor.empty()) return fail("Highlight has no persisted color");
 
+    checkpoint("Editor phase: native sticky note input");
     note->trigger();
     const QString noteText = QStringLiteral("LUNA synthetic note round trip");
     bool enteredNote = false;
@@ -133,6 +156,7 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!enteredNote || !waitFor([&] { return annotations(pdf::AnnotationType::Text) == 1; }))
         return fail("Native sticky note input did not create one annotation");
 
+    checkpoint("Editor phase: native Save As dialog");
     bool choseCopy = false;
     QTimer chooseFile;
     QObject::connect(&chooseFile, &QTimer::timeout, &window, [&] {
@@ -146,10 +170,12 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     saveAs->trigger();
     chooseFile.stop();
     if (!choseCopy || !QFileInfo::exists(saved) || readFile(saved).isEmpty() ||
-        controller->getOriginalFileName() != saved) return fail("Native Save As did not write the separate copy");
+        QFileInfo(controller->getOriginalFileName()).canonicalFilePath() != QFileInfo(saved).canonicalFilePath())
+        return fail("Native Save As did not write the separate copy");
     if (readFile(original) != originalBytes) return fail("Save As modified synthetic original");
     select->trigger(); // Close the highlighter style window before layout captures.
     if (!controller->askForSaveDocumentBeforeClose()) return fail("Saved document remains dirty");
+    checkpoint("Editor phase: reopen annotated copy from disk");
     controller->closeDocument();
     controller->openDocument(saved);
     if (!waitFor([&] {

@@ -63,9 +63,14 @@ def run(package: Path, screenshots_directory: Path | None = None) -> None:
         try:
             subprocess.run([str(executable), "--luna-smoke-report", str(report), str(pdf)],
                            cwd=folder, env=child_env, check=True, timeout=45)
-        except subprocess.CalledProcessError as error:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             detail = report.read_text(encoding="utf-8")[:512] if report.is_file() else "No native diagnostic"
-            raise RuntimeError(f"Native smoke exit {error.returncode}: {detail}") from error
+            failure_image = Path(str(report) + ".failure.png")
+            if screenshots_directory is not None and failure_image.is_file():
+                screenshots_directory.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(failure_image, screenshots_directory / "luna-failure.png")
+            status = f"exit {error.returncode}" if isinstance(error, subprocess.CalledProcessError) else "timed out"
+            raise RuntimeError(f"Native smoke {status}: {detail}") from error
         if not report.is_file() or report.read_bytes() != b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n":
             raise RuntimeError("Native window/PDF-load success marker missing")
         if pdf.read_bytes() != synthetic_pdf():

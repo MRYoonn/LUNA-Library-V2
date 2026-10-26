@@ -43,6 +43,7 @@ SMOKE_CHECK = r'''
         QObject::connect(poll, &QTimer::timeout, &mainWindow,
             [&application, &mainWindow, &captureHost, &parser, lunaSmokeReport, poll, attempts = 0, phase = 0]() mutable {
                 auto fail = [&](int code, const QByteArray& reason) {
+                    mainWindow.grab().save(parser.value(lunaSmokeReport) + ".failure.png", "PNG");
                     QSaveFile diagnostic(parser.value(lunaSmokeReport));
                     if (diagnostic.open(QIODevice::WriteOnly)) {
                         diagnostic.write(reason);
@@ -56,8 +57,10 @@ SMOKE_CHECK = r'''
                 if (attempts < 10 || !mainWindow.isVisible() || !controller->canClose() ||
                     !document || document->getCatalog()->getPageCount() != 1) return;
                 if (phase == 0) {
+                    poll->stop();
                     QString error;
                     if (!luna::verifyLibraryUi(mainWindow, error)) { fail(5, error.toUtf8()); return; }
+                    poll->start();
                     phase = 1;
                     attempts = 0;
                     return;

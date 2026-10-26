@@ -190,12 +190,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Native UI or annotation round trip failed" }
 
       - name: Upload synthetic native UI screenshots
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: LUNA-UI-Synthetic
           path: ${{ runner.temp }}/luna-ui/
           retention-days: 7
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Upload LUNA Windows portable artifact
         uses: actions/upload-artifact@v4

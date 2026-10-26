@@ -7,6 +7,7 @@
 #include "pdfdrawspacecontroller.h"
 
 #include <QAbstractItemView>
+#include <QApplication>
 #include <QDateTime>
 #include <QDebug>
 #include <QCursor>
@@ -23,6 +24,7 @@
 #include <QStyleOptionViewItem>
 #include <QMainWindow>
 #include <QKeySequence>
+#include <QKeyEvent>
 #include <QSizePolicy>
 #include <QAction>
 #include <QButtonGroup>
@@ -695,6 +697,10 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     auto* search = new QAction(QStringLiteral("라이브러리 검색"), &window);
     search->setObjectName(QStringLiteral("LunaSearchAction"));
     search->setShortcut(QKeySequence(QStringLiteral("Ctrl+K")));
+    // PDF4QT uses Ctrl+K for Options. Reserve the requested LUNA shortcut
+    // for library search while keeping Options available in the menu.
+    if (auto* options = window.findChild<QAction*>(QStringLiteral("actionOptions")))
+        options->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+O")));
     window.addAction(search);
     QObject::connect(search, &QAction::triggered, &window, [dock, library, globalSearch, documents, focus] {
         focus->setChecked(false);
@@ -835,6 +841,20 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error) {
     auto* list = pages->widget(0)->findChild<QListWidget*>();
     if (!list || list->count() != 1) return fail("Synthetic library must contain exactly one PDF");
     auto* item = list->item(0);
+    int searchBindings = 0;
+    const QKeySequence searchKey(QStringLiteral("Ctrl+K"));
+    for (auto* action : window.findChildren<QAction*>())
+        if (action->shortcuts().contains(searchKey)) ++searchBindings;
+    if (searchBindings != 1) return fail("Ctrl+K has missing or conflicting action bindings");
+    auto* draw = window.getProgramController()->getPdfWidget()->getDrawWidget()->getWidget();
+    window.activateWindow();
+    QCoreApplication::processEvents();
+    draw->setFocus();
+    QKeyEvent press(QEvent::KeyPress, Qt::Key_K, Qt::ControlModifier);
+    QKeyEvent release(QEvent::KeyRelease, Qt::Key_K, Qt::ControlModifier);
+    QApplication::sendEvent(draw, &press);
+    QApplication::sendEvent(search, &release);
+    if (!search->hasFocus()) return fail("Native Ctrl+K did not focus library search");
     search->setText(QStringLiteral("LUNA_NO_MATCH_742"));
     if (!item->isHidden()) return fail("Filename filtering did not hide unmatched PDF");
     search->clear();

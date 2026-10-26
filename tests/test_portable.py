@@ -154,6 +154,18 @@ class NativeSmokeHarnessTests(unittest.TestCase):
                 with self.assertRaises(subprocess.TimeoutExpired):
                     run(Path(package))
 
+    def test_running_window_timeout_reports_native_phase(self):
+        def process(command, **kwargs):
+            if "--luna-smoke-report" in command:
+                Path(command[2]).write_text("Editor phase: native Save As dialog")
+                raise subprocess.TimeoutExpired(command, 45)
+        with tempfile.TemporaryDirectory() as package:
+            with patch("tools.smoke_windows.sys.platform", "win32"), \
+                 patch.dict("os.environ", {"SystemRoot": package}), \
+                 patch("tools.smoke_windows.subprocess.run", side_effect=process):
+                with self.assertRaisesRegex(RuntimeError, "timed out: Editor phase: native Save As dialog"):
+                    run(Path(package))
+
     def test_marker_without_native_screenshots_fails(self):
         def process(command, **kwargs):
             if "--luna-smoke-report" in command:

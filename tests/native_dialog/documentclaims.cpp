@@ -16,19 +16,25 @@ int main(int argc, char** argv) {
     int activated = 0;
     luna::DocumentClaim first([&] { ++activated; }), second([] {});
     using Result = luna::DocumentClaim::Result;
-    if (first.acquire(path) != Result::Acquired || second.acquire(path) != Result::Existing) return 2;
+    const auto firstResult = first.acquire(path), secondResult = second.acquire(path);
+    if (firstResult != Result::Acquired || secondResult != Result::Existing) {
+        qCritical() << "Claim ownership failed" << int(firstResult) << int(secondResult); return 2;
+    }
     auto settle = [] {
         QEventLoop loop; QTimer::singleShot(150, &loop, &QEventLoop::quit); loop.exec();
     };
     settle();
-    if (activated != 1 || first.path().isEmpty() || !second.path().isEmpty()) return 3;
+    if (activated != 1 || first.path().isEmpty() || !second.path().isEmpty()) {
+        qCritical() << "Duplicate activation failed" << activated << "owner has path" << !first.path().isEmpty()
+                    << "duplicate has path" << !second.path().isEmpty(); return 3;
+    }
     QLocalSocket client;
     client.connectToServer(luna::DocumentClaim::endpoint(path));
-    if (!client.waitForConnected(500)) return 4;
+    if (!client.waitForConnected(500)) { qCritical() << "Fragment client failed" << client.errorString(); return 4; }
     client.write("acti"); client.flush(); settle();
-    if (activated != 1) return 5;
+    if (activated != 1) { qCritical() << "Partial message activated" << activated; return 5; }
     client.write("vate\n"); client.flush(); settle();
-    if (activated != 2) return 6;
+    if (activated != 2) { qCritical() << "Completed message did not activate" << activated; return 6; }
     QLocalSocket invalid;
     invalid.connectToServer(luna::DocumentClaim::endpoint(path));
     if (!invalid.waitForConnected(500)) return 7;

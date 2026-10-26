@@ -172,7 +172,7 @@ def make_main(src: str) -> str:
     src = replace_exact(src, '    parser.addVersionOption();',
         '    parser.addVersionOption();\n'
         '    QCommandLineOption lunaSmokeReport("luna-smoke-report",\n'
-        '        "CI only: verify a one-page synthetic PDF opens, write a marker and exit.", "path");\n'
+        '        "CI only: verify a two-page synthetic PDF opens, write a marker and exit.", "path");\n'
         '    lunaSmokeReport.setFlags(QCommandLineOption::HiddenFromHelp);\n'
         '    parser.addOption(lunaSmokeReport);\n'
         '    QCommandLineOption lunaLayoutOnly("luna-layout-only", "CI only: scaled layout checks without modifying the PDF.");\n'

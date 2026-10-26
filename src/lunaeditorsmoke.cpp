@@ -37,9 +37,41 @@
 #include <QPrintDialog>
 #include <QPrinterInfo>
 #include <functional>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#include <atomic>
+#include <chrono>
+#include <thread>
+#endif
 
 namespace luna {
 namespace {
+#ifdef Q_OS_WIN
+struct PrintCancellation {
+    DWORD process;
+    std::atomic_bool seen{false};
+};
+
+BOOL CALLBACK cancelNativePrintWindow(HWND window, LPARAM parameter) {
+    auto& state = *reinterpret_cast<PrintCancellation*>(parameter);
+    DWORD process = 0;
+    GetWindowThreadProcessId(window, &process);
+    if (process != state.process || !IsWindowVisible(window)) return TRUE;
+    wchar_t windowClass[32] = {}, title[128] = {};
+    GetClassNameW(window, windowClass, 32); GetWindowTextW(window, title, 128);
+    // The hosted Windows image is English. Never send Print/OK or touch
+    // another process; only cancel our own standard Windows Print dialog.
+    if (lstrcmpW(windowClass, L"#32770") || lstrcmpW(title, L"Print")) return TRUE;
+    HWND cancel = GetDlgItem(window, IDCANCEL);
+    if (cancel && IsWindowEnabled(cancel) && PostMessageW(window, WM_COMMAND,
+        MAKEWPARAM(IDCANCEL, BN_CLICKED), reinterpret_cast<LPARAM>(cancel))) {
+        state.seen = true;
+        return FALSE;
+    }
+    return TRUE;
+}
+#endif
+
 bool waitFor(const std::function<bool()>& predicate) {
     if (predicate()) return true;
     QEventLoop loop;
@@ -169,20 +201,6 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!waitFor([&] { return findDialog && findDialog->windowTitle().contains(QStringLiteral("1/1")); })) return fail("Native PDF search did not find synthetic text");
     findDialog->reject();
     if (!select->isChecked()) select->trigger();
-    checkpoint("Reader phase: native print dialog open and cancel");
-    if (!QPrinterInfo::availablePrinters().isEmpty()) {
-        bool sawPrint = false;
-        QTimer cancelPrint;
-        QObject::connect(&cancelPrint,&QTimer::timeout,&window,[&] {
-            if (auto* dialog = qobject_cast<QPrintDialog*>(QApplication::activeModalWidget())) {
-                sawPrint = true; dialog->reject();
-            }
-        });
-        cancelPrint.start(50); key(widget,Qt::Key_P,Qt::ControlModifier); cancelPrint.stop();
-        if (!sawPrint) return fail("Ctrl+P did not open native print dialog");
-    } else {
-        qInfo("[NOTICE] No system printer on runner: physical print dialog not exercised; native action retained.");
-    }
 
     auto annotations = [&](pdf::AnnotationType type) {
         int count = 0;
@@ -425,6 +443,40 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!waitFor([&] { return action("actionSave")->isEnabled() && window.isEnabled(); })) return fail("Native final save remained busy");
     widget->setFocus(); key(widget,Qt::Key_S,Qt::ControlModifier);
     if (readFile(original) != originalBytes) return fail("Reader regressions modified original PDF");
+    checkpoint("Reader phase: native print dialog open and cancel");
+    if (!QPrinterInfo::availablePrinters().isEmpty()) {
+#ifdef Q_OS_WIN
+        // QPrintDialog::exec uses PrintDlgEx directly on Windows, bypassing
+        // QDialog::exec and QApplication::activeModalWidget(). Its native
+        // modal loop also need not dispatch a Qt timer. Cancel from Win32.
+        PrintCancellation cancellation{GetCurrentProcessId()};
+        std::atomic_bool finished{false};
+        std::thread cancelPrint([&] {
+            for (int i = 0; i < 200 && !finished; ++i) {
+                EnumWindows(cancelNativePrintWindow, reinterpret_cast<LPARAM>(&cancellation));
+                if (cancellation.seen) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        });
+        key(widget,Qt::Key_P,Qt::ControlModifier);
+        finished = true; cancelPrint.join();
+        const bool sawPrint = cancellation.seen;
+#else
+        bool sawPrint = false;
+        QTimer cancelPrint;
+        QObject::connect(&cancelPrint,&QTimer::timeout,&window,[&] {
+            if (auto* dialog = qobject_cast<QPrintDialog*>(QApplication::activeModalWidget())) {
+                sawPrint = true; dialog->reject();
+            }
+        });
+        cancelPrint.start(50); key(widget,Qt::Key_P,Qt::ControlModifier); cancelPrint.stop();
+#endif
+        if (!sawPrint) return fail("Ctrl+P did not open native print dialog");
+        qInfo("[PASS] Native print dialog opened and cancelled without a print job.");
+    } else {
+        qInfo("[NOTICE] No system printer on runner: physical print dialog not exercised; native action retained.");
+    }
+
     proxy->setPageLayout(pdf::PageLayout::OneColumn);
     proxy->zoom(2.0);
     return true;

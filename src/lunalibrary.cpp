@@ -62,6 +62,8 @@
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
 #include <QScreen>
+#include <QCache>
+#include <QThreadPool>
 #include <memory>
 
 namespace luna {
@@ -181,6 +183,54 @@ private:
     bool selecting_ = false;
 };
 
+// Bounded, lazy decoding shared by cards and hover previews. GUI callbacks
+// are guarded by their owner; worker threads never access a widget.
+class ThumbnailCache final : public QObject {
+public:
+    explicit ThumbnailCache(QObject* parent) : QObject(parent), images_(16 * 1024) { workers_.setMaxThreadCount(2); }
+    ~ThumbnailCache() override { workers_.clear(); workers_.waitForDone(); }
+    static ThumbnailCache* instance() {
+        static QPointer<ThumbnailCache> cache;
+        if (!cache) cache = new ThumbnailCache(qApp);
+        return cache;
+    }
+    void invalidate() { ++generation_; images_.clear(); }
+    QImage request(const QString& path, QObject* owner, std::function<void()> ready) {
+        const QFileInfo file(path);
+        if (!file.isFile() || file.isSymLink() || file.size() <= 0 || file.size() > 5'000'000) return {};
+        const QString key = file.absoluteFilePath() + QStringLiteral("|%1|%2").arg(file.size()).arg(file.lastModified().toMSecsSinceEpoch());
+        if (auto* image = images_.object(key)) return *image;
+        if (!pending_.contains(key) && pending_.size() >= 32) return {};
+        const bool started = pending_.contains(key);
+        pending_[key].insert(owner, {QPointer<QObject>(owner), std::move(ready)});
+        if (started) return {};
+        const auto generation = generation_;
+        workers_.start([this, key, path, generation] {
+            QImageReader reader(path);
+            reader.setAutoTransform(true);
+            const QSize size = reader.size();
+            QImage image;
+            if (size.isValid() && size.width() <= 4096 && size.height() <= 4096) {
+                reader.setScaledSize(size.scaled(QSize(470, 620), Qt::KeepAspectRatio));
+                image = reader.read();
+                if (!image.isNull()) image = image.scaled(QSize(470,620), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            }
+            QMetaObject::invokeMethod(this, [this, key, image, generation] {
+                if (generation == generation_) images_.insert(key, new QImage(image), qMax(1, int(image.sizeInBytes() / 1024)));
+                const auto callbacks = pending_.take(key);
+                for (const auto& callback : callbacks) if (callback.owner) callback.ready();
+            }, Qt::QueuedConnection);
+        });
+        return {};
+    }
+private:
+    struct Callback { QPointer<QObject> owner; std::function<void()> ready; };
+    quint64 generation_ = 0;
+    QThreadPool workers_;
+    QCache<QString,QImage> images_;
+    QHash<QString,QHash<QObject*,Callback>> pending_;
+};
+
 class DocumentCard final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
@@ -205,6 +255,18 @@ public:
         painter->setFont(small);
         painter->setPen(QColor(kBLUE));
         painter->drawText(paper.adjusted(0, 43, 0, 0), Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("PDF"));
+        const QFileInfo pdf(index.data(Qt::UserRole).toString());
+        const QString sidecar = pdf.absolutePath() + QLatin1Char('/') + pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
+        QPointer<QWidget> view(const_cast<QWidget*>(option.widget));
+        const QImage thumbnail = ThumbnailCache::instance()->request(sidecar, view, [view] {
+            if (auto* list = qobject_cast<QAbstractItemView*>(view.data())) list->viewport()->update();
+            else if (view) view->update();
+        });
+        if (!thumbnail.isNull()) {
+            const QSize size = thumbnail.size().scaled(paper.size(), Qt::KeepAspectRatio);
+            painter->fillRect(paper, Qt::white);
+            painter->drawImage(QRect(paper.center() - QPoint(size.width()/2,size.height()/2), size), thumbnail);
+        }
         QFont title = option.font;
         title.setPointSize(10);
         title.setBold(true);
@@ -593,24 +655,25 @@ private:
     void hideThumbnail() {
         if (thumbnailPopup_) thumbnailPopup_->hide();
         thumbnailPath_.clear();
+        thumbnailRevision_.clear();
+        hoverRequest_.clear();
         if (fade_) fade_->stop();
     }
     void showThumbnailFor(const QString& pdfPath) {
         const QString file = thumbnailForPdf(pdfPath);
         if (file.isEmpty()) { hideThumbnail(); return; }
-        if (file == thumbnailPath_ && thumbnailPopup_ && thumbnailPopup_->isVisible())
+        const QFileInfo currentImage(file);
+        const QString revision = file + QStringLiteral("|%1|%2").arg(currentImage.size()).arg(currentImage.lastModified().toMSecsSinceEpoch());
+        if (revision == thumbnailRevision_ && thumbnailPopup_ && thumbnailPopup_->isVisible())
             return;
         ensureThumbnailPopup();
-        QImageReader reader(file);
-        reader.setAutoTransform(true);
-        const QSize original = reader.size();
-        if (!original.isValid() || original.width() > 4096 ||
-            original.height() > 4096) { hideThumbnail(); return; }
-        const QSize scaled = original.scaled(QSize(235, 310), Qt::KeepAspectRatio);
-        reader.setScaledSize(scaled);
-        const QImage image = reader.read();
-        if (image.isNull()) { hideThumbnail(); return; }
-        thumbnailImage_->setPixmap(QPixmap::fromImage(image));
+        hoverRequest_ = file;
+        QPointer<LibraryPanel> owner(this);
+        const QImage image = ThumbnailCache::instance()->request(file, this, [owner, file, pdfPath] {
+            if (owner && owner->hoverRequest_ == file) owner->showThumbnailFor(pdfPath);
+        });
+        if (image.isNull()) { if (thumbnailPopup_) thumbnailPopup_->hide(); return; }
+        thumbnailImage_->setPixmap(QPixmap::fromImage(image.scaled(QSize(235,310), Qt::KeepAspectRatio, Qt::SmoothTransformation)));
         thumbnailLabel_->setText(QFileInfo(pdfPath).fileName());
         thumbnailPopup_->adjustSize();
         const QPoint cursor = QCursor::pos();
@@ -629,6 +692,7 @@ private:
         thumbnailPopup_->show();
         fade_->start();
         thumbnailPath_ = file;
+        thumbnailRevision_ = revision;
     }
 
     void startThumbnailCrop() {
@@ -694,6 +758,9 @@ private:
                 QStringLiteral("원본 PDF 폴더에 이미지를 저장할 수 없습니다."));
             return;
         }
+        ThumbnailCache::instance()->invalidate();
+        hideThumbnail();
+        for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) if (list) list->viewport()->update();
 
     }
 
@@ -772,6 +839,7 @@ private:
         if (pages_->currentIndex() == 1) scanAll();
     }
     void selectFolder(const QString& path) {
+        hideThumbnail();
         if (!QFileInfo(path).isDir()) return;
         current_ = path;
         folderTimer_->stop();
@@ -876,6 +944,8 @@ private:
     QLabel* thumbnailLabel_ = nullptr;
     QPropertyAnimation* fade_ = nullptr;
     QString thumbnailPath_;
+    QString thumbnailRevision_;
+    QString hoverRequest_;
     QPointer<ThumbnailCropOverlay> cropOverlay_;
     pdfviewer::PDFEditorMainWindow* viewer_;
     QSplitter* split_ = nullptr;

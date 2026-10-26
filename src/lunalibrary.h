@@ -6,4 +6,5 @@ namespace luna {
 void installLibrary(pdfviewer::PDFEditorMainWindow& window);
 // Used only by the explicit CI mode with a temporary synthetic library.
 bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, const QString& capturePath = {});
+bool verifyCancelledLibraryMove(pdfviewer::PDFEditorMainWindow& window, QString& error);
 }

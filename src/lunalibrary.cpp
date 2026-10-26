@@ -11,6 +11,7 @@
 
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QAbstractButton>
 #include <QDateTime>
 #include <QDebug>
 #include <QCursor>
@@ -250,6 +251,7 @@ public:
 
 class LibraryPanel final : public QWidget {
     friend bool luna::verifyLibraryUi(pdfviewer::PDFEditorMainWindow&, QString&, const QString&);
+    friend bool luna::verifyCancelledLibraryMove(pdfviewer::PDFEditorMainWindow&, QString&);
 public:
     explicit LibraryPanel(pdfviewer::PDFEditorMainWindow* viewer, QWidget* parent)
         : QWidget(parent), viewer_(viewer)
@@ -1154,6 +1156,35 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     focus->setChecked(dock->isHidden());
     hideAdvancedToolbars(window); // Old saved PDF4QT toolbar rows must not reappear.
     new WindowState(&window);
+}
+
+bool verifyCancelledLibraryMove(pdfviewer::PDFEditorMainWindow& window, QString& error) {
+    auto* dock = window.findChild<QDockWidget*>(QStringLiteral("LunaLibraryDock"));
+    auto* library = dock ? dynamic_cast<LibraryPanel*>(dock->widget()) : nullptr;
+    auto* controller = window.getProgramController();
+    const auto* document = controller->getDocument();
+    const QString source = controller->getOriginalFileName();
+    QTemporaryDir target(QFileInfo(source).absolutePath() + QStringLiteral("/luna-cancelled-move-XXXXXX"));
+    QFile original(source);
+    if (!library || !document || !target.isValid() || !original.open(QIODevice::ReadOnly)) {
+        error = QStringLiteral("Cannot prepare unsaved-move verification"); return false;
+    }
+    const QByteArray bytes = original.readAll(); original.close();
+    bool cancelled = false;
+    QTimer response;
+    QObject::connect(&response, &QTimer::timeout, &window, [&] {
+        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+            if (auto* cancel = box->button(QMessageBox::Cancel)) { cancelled = true; cancel->click(); }
+            else box->reject();
+        }
+    });
+    response.start(20); library->moveDocumentTo(source, target.path()); response.stop();
+    if (!cancelled || controller->getDocument() != document || controller->getOriginalFileName() != source ||
+        !QDir(target.path()).entryList(QDir::Files | QDir::Hidden).isEmpty() ||
+        !original.open(QIODevice::ReadOnly) || original.readAll() != bytes) {
+        error = QStringLiteral("Cancelling unsaved PDF movement changed document state or files"); return false;
+    }
+    return true;
 }
 
 bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, const QString& capturePath) {

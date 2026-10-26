@@ -2,6 +2,7 @@
 // Drives native Editor actions and widget events; no alternate PDF renderer.
 #include "lunaeditorsmoke.h"
 #include "lunasavedialog.h"
+#include "lunalibrary.h"
 #include "lunareadertoolbar.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -358,6 +359,7 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     checkpoint("Editor phase: native Save As dialog");
     if (!waitFor([&] { return saveAs->isEnabled() && window.isEnabled(); }))
         return fail("Native Save As action remained unavailable");
+    if (!verifyCancelledLibraryMove(window, error)) return false;
     bool choseCopy = false;
     QString selectionError;
     QTimer chooseFile;

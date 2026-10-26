@@ -3,6 +3,7 @@
 #include <QCryptographicHash>
 #include <QFileInfo>
 #include <QDir>
+#include <QEventLoop>
 #include <QLockFile>
 #include <QStandardPaths>
 #include <QLocalServer>
@@ -31,7 +32,12 @@ public:
                 auto receive = [this, client, request] {
                     request->append(client->readAll());
                     if (request->size() < 9 && !request->contains('\n')) return;
-                    if (*request == "activate\n") activate_();
+                    if (*request == "activate\n") {
+                        activate_();
+                        client->write("ok\n");
+                        client->flush();
+                        return; // The acknowledged client closes the pipe.
+                    }
                     client->disconnectFromServer();
                 };
                 connect(client, &QLocalSocket::readyRead, this, receive);
@@ -55,11 +61,28 @@ public:
     static bool activateExisting(const QString& path) {
         if (identity(path).isEmpty()) return false;
         QLocalSocket socket;
-        socket.connectToServer(endpoint(path), QIODevice::WriteOnly);
+        socket.connectToServer(endpoint(path), QIODevice::ReadWrite);
         if (!socket.waitForConnected(150)) return false;
-        if (socket.write("activate\n") != 9 || (socket.bytesToWrite() && !socket.waitForBytesWritten(300))) return false;
+        // Keep the Windows pipe alive until the owner has consumed the request.
+        // A completed write is not an acknowledgement from the other process.
+        QEventLoop loop;
+        QTimer timeout;
+        timeout.setSingleShot(true);
+        QByteArray response;
+        connect(&socket, &QLocalSocket::readyRead, &loop, [&] {
+            response.append(socket.readAll());
+            if (response.contains('\n') || response.size() > 16) loop.quit();
+        });
+        connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+        connect(&socket, &QLocalSocket::disconnected, &loop, [&] {
+            response.append(socket.readAll()); loop.quit();
+        });
+        if (socket.write("activate\n") != 9) return false;
+        socket.flush();
+        timeout.start(1000);
+        loop.exec(QEventLoop::ExcludeUserInputEvents);
         socket.disconnectFromServer();
-        return true;
+        return response == "ok\n";
     }
     Result acquire(const QString& path) {
         const QString canonical = identity(path);

@@ -63,6 +63,7 @@
 #include <QVBoxLayout>
 #include <QPointer>
 #include <QProcess>
+#include <QScopedValueRollback>
 #include <QMimeData>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -274,6 +275,7 @@ public:
             QMessageBox::warning(&window_, QStringLiteral("PDF 열기 실패"), QStringLiteral("PDF 파일이 없거나 읽을 수 없는 경로입니다."));
             return false;
         }
+        QScopedValueRollback<bool> opening(opening_, true);
         const auto result = claim_.acquire(path);
         if (result == DocumentClaim::Result::Existing) return false;
         if (result != DocumentClaim::Result::Acquired) {
@@ -339,6 +341,8 @@ private:
         return info.isFile() && info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) == 0;
     }
     void synchronize() {
+        if (opening_ || synchronizing_) return;
+        QScopedValueRollback<bool> synchronizing(synchronizing_, true);
         auto* controller = window_.getProgramController();
         if (!controller->getDocument()) {
             if (pending_ && (!window_.isEnabled() || ++pendingIdle_ < 25)) return;
@@ -369,6 +373,8 @@ private:
     bool pending_ = false;
     int pendingIdle_ = 0;
     bool duplicateNotice_ = false;
+    bool opening_ = false;
+    bool synchronizing_ = false;
     QString blockedPath_;
 };
 

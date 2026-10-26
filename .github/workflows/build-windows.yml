@@ -85,6 +85,7 @@ jobs:
       - name: Compile and run native Qt probes
         shell: pwsh
         run: |
+          $env:QT_FORCE_STDERR_LOGGING = '1'
           $probe = Join-Path $env:RUNNER_TEMP 'luna-native-probes'
           cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
           if ($LASTEXITCODE -ne 0) { throw "Native probe configuration failed" }
@@ -207,6 +208,7 @@ jobs:
       - name: Test native Save As dialog before compiling the PDF engine
         shell: pwsh
         run: |
+          $env:QT_FORCE_STDERR_LOGGING = '1'
           $probe = Join-Path $env:RUNNER_TEMP 'luna-dialog-build'
           cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
           if ($LASTEXITCODE -ne 0) { throw "Native dialog probe configuration failed" }
@@ -241,6 +243,8 @@ jobs:
           Copy-Item 'pdf4qt/LICENSE' "$output/PDF4QT_LICENSE.txt"
           Copy-Item 'pdf4qt/3rdparty_licenses' "$output/third_party_licenses" -Recurse
           Copy-Item 'LICENSE_NOTICE.md' "$output/LUNA_LICENSE_NOTICE.md"
+          Copy-Item 'USER_GUIDE_KO.md' "$output/USER_GUIDE_KO.md"
+          @{ product = 'LUNA Library V2'; status = 'development verification'; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; validation = 'pending' } | ConvertTo-Json | Set-Content -Encoding utf8 "$output/build-info.json"
           # App-local redistributable DLLs make this portable on a clean PC.
           # windeployqt's release --compiler-runtime bundles a separate installer,
           # and cannot locate Visual Studio at all without VCINSTALLDIR.

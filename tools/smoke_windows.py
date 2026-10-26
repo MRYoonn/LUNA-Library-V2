@@ -60,6 +60,7 @@ def run(package: Path, screenshots_directory: Path | None = None,
     child_env["QT_PLUGIN_PATH"] = str(package)
     child_env["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(package / "platforms")
     child_env["QT_QPA_PLATFORM"] = "windows"
+    child_env["QT_FORCE_STDERR_LOGGING"] = "1"
     child_env["QT_SCALE_FACTOR"] = str(scale)
     # Qt otherwise may show --version/errors in a blocking GUI message box.
     child_env["QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES"] = "1"

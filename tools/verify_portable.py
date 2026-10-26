@@ -8,12 +8,12 @@ import struct
 import sys
 
 REQUIRED_BINARIES = (
-    "LUNA.exe", "Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll",
+    "LUNA.exe", "Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll", "Qt6Network.dll",
     "Pdf4QtLibCore.dll", "Pdf4QtLibWidgets.dll", "Pdf4QtLibGui.dll",
     "platforms/qwindows.dll", "msvcp140.dll", "vcruntime140.dll",
     "vcruntime140_1.dll",
 )
-REQUIRED_NOTICES = ("PDF4QT_LICENSE.txt", "LUNA_LICENSE_NOTICE.md")
+REQUIRED_NOTICES = ("PDF4QT_LICENSE.txt", "LUNA_LICENSE_NOTICE.md", "USER_GUIDE_KO.md", "build-info.json")
 PRIVATE_SUFFIXES = {
     ".pdf", ".db", ".sqlite", ".sqlite3", ".log", ".pem", ".pfx",
     ".p12", ".key", ".token",

@@ -7,10 +7,13 @@ This is a **public source-only build repository**. It does not store, synchroniz
 ## Windows EXE 만들기
 
 1. [Actions → LUNA Library V2 - PDF4QT Windows Portable](https://github.com/MRYoonn/LUNA-Library-V2/actions/workflows/build-windows.yml) 페이지 열기.
-2. 오른쪽 **Run workflow** → Branch **main** → 초록색 **Run workflow** 누르기.
+2. 오른쪽 **Run workflow** → Branch **feature/native-editor-roundtrip** → 초록색 **Run workflow** 누르기.
 3. 실행 기록에서 각 단계의 성공/실패를 확인하기. 실패하면 정확한 오류 메시지를 확인하고 수정한다.
 4. 성공하면 해당 실행 기록 맨 아래 **Artifacts → LUNA-Windows-Portable** 다운로드.
-5. ZIP 압축을 풀고 **LUNA.exe** 더블클릭. PDF 로딩·선택·화질은 실제 Windows에서 별도 검증.
+5. ZIP 전체를 풀고 **LUNA.exe** 더블클릭. 사용자 문서 화질과 배율은 자신의 Windows에서 확인한다.
+
+개발 변경은 아직 Draft PR이며 `main`에 병합하지 않았다. 이미 검증된 빌드를 받으려면
+[Editor 포터블 ZIP](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40258840696/artifacts/12623708384)을 다운로드하면 된다.
 
 초기 빌드는 PDF4QT의 C++/Qt/vcpkg 의존성 설치와 컴파일 때문에 오래 걸릴 수 있다. 실패 원인을 확인하고 수정한 뒤 필요한 검증만 다시 실행한다. 실제 PDF의 화질과 상호작용은 자동 시작 검사와 별도로 확인한다.
 
@@ -20,6 +23,19 @@ Windows 기본 포터블 빌드는 이후 검증을 통과했다.
 [포터블 Artifact](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40230666645/artifacts/12614056454)가 생성됐다.
 이 산출물의 커밋은 `31a65be0fd2fc72636356044560faefc55eb5a68`이다.
 첨부 디자인에 따른 후속 UI 변경과 주석 기능까지 검증됐다는 뜻은 아니다.
+
+Editor 통합 빌드도 [Windows 실행40258840696](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40258840696)에서
+통과했다. 검증한 C++ 소스 커밋은 `574050a567e382a4738d9a38b657c1fbac2db659`이다.
+네이티브 창/PDF 열기, 실제 Ctrl+K 검색 포커스, 라이브러리 회귀 검사,
+형광펜·메모 생성, 다른 이름으로 저장, 닫기·디스크 재열기를 통과했다.
+원본 합성 PDF 바이트와 저장한 주석 내용·기본 형광펜 색상도 확인했다.
+Python 테스트는 로컬·Windows 각각 **31 PASS / 0 FAIL / 0 SKIP**,
+Windows 네이티브 Qt CTest는 **1 PASS / 0 FAIL / 0 SKIP**이다.
+
+[Qt 레이아웃 캡처](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40258840696/artifacts/12624227683)는
+실제 PNG 크기 1366×768·1920×1080을 자동 확인했다. 최신 이미지 저장 호스트의
+클라우드 프록시 접근 제한으로 개발 환경에서 직접 시각 검토하지 못했다.
+물리 모니터 및 Windows125%/150% 배율 검증을 대신하지 않는다.
 
 ## 동작 구조
 
@@ -44,7 +60,8 @@ DOI·태그·페이지 보기·휴지통·다중 문서 탭은 아직 제공하�
 색상 토큰은 `src/lunalibrary.cpp`에서 네이티브 카드와
 `src/lunalibrary.qss` 템플릿에 함께 적용한다. PDF 렌더러는 교체하지 않는다.
 후속 Windows UI 검사에서는 임시 합성 라이브러리만 사용하며,
-검색·즐겨찾기·최근 열람·패널 접기·목록을 통한 PDF 재열기·연속 보기 200%를 검사한다.
+실제 Ctrl+K 키 입력·파일명 검색·즐겨찾기·최근 열람·패널 접기·목록을 통한 PDF 재열기·연속 보기 200%를 검사한다.
+PDF4QT 환경설정의 기존 Ctrl+K 충돌을 해소했으며 환경설정은 Ctrl+Alt+O로 연다.
 실제 Windows/QPA 창에서 기능 검사를 마친 뒤 같은 위젯 트리를 숨겨진 렌더 호스트에
 옮겨 1366×768·1920×1080 크기로 캡처한다. PNG의 실제 크기도 검사하며,
 CI 데스크톱에 의해 줄어든 이미지는 통과시키지 않는다.
@@ -63,7 +80,13 @@ python3 -B tools/preflight_public.py
 python3 -B -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Windows 워크플로는 포터블 패키징 후 다음 검사를 수행한다.
+Windows 워크플로는 전체 PDF4QT 컴파일 전에 `tests/native_dialog`를 먼저 빌드하여
+실제 Qt 파일 대화상자 CTest를 실행한다. 포커스된 파일명 입력, Windows 경로 대소문자,
+같은 디렉터리의 식별 및 기존 파일 덮어쓰기 거부를 검사한다.
+`src/lunasavedialog.h`를 앱의 CI 검사와 공유하므로 같은 경로 검사를 사용한다.
+사용자 설정이나 PDF를 사용하지 않는 작은 네이티브 테스트다.
+
+포터블 패키징 후에는 다음 검사를 수행한다.
 
 - `tools/verify_portable.py`: x64 PE 헤더, 필수 Qt/PDF4QT DLL,
   `platforms/qwindows.dll`, MSVC 런타임 및 라이선스 파일 확인.
@@ -127,4 +150,4 @@ PDF4QT 원본: [JakubMelka/PDF4QT](https://github.com/JakubMelka/PDF4QT), MIT li
 
 ## 상태 (2026-10-26)
 
-**P0 포터블 및 P1 네이티브 UI Windows 자동 검사 통과.** Editor 통합과 합성 주석 저장·재열기 검사를 추가했으며 이 변경의 Windows 결과는 아직 미검증이다. 실제 사용자 문서와 Windows 배율 검증은 미실시. 기존 비공개 저장소 변경 없음.
+**P0 포터블·P1 네이티브 UI·P2 Editor 합성 주석 저장/재열기 Windows 자동 검사 통과.** 썸네일·태그·폴더 이름 변경/이동·다중 문서 탭은 후속 작업이다. 실제 사용자 문서, 메모 편집/삭제, 색상 선택 UI, 북마크 JSON 왕복, Windows 배율 검증은 미실시. 기존 비공개 저장소 변경 및 PR 자동 병합 없음.

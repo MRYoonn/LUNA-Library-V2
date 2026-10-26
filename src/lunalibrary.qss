@@ -1,6 +1,6 @@
 /* LUNA light theme. @TOKENS@ are expanded from the shared C++ palette. */
 QWidget#LunaLibraryPanel { background:@CANVAS@; color:@TEXT@; font-family:"Segoe UI","Malgun Gothic"; font-size:13px; }
-QWidget#LunaNavigation { background:@CANVAS@; border-right:1px solid @LINE@; }
+QWidget#LunaNavigation, QWidget#LunaNavigationContents { background:@CANVAS@; border-right:1px solid @LINE@; }
 QWidget#LunaDocuments { background:@PANEL@; border-right:1px solid @LINE@; }
 QLabel#LunaBrand { color:@NAVY@; font-size:17px; font-weight:700; }
 QLabel#LunaSection { color:@MUTED@; font-size:12px; font-weight:600; }
@@ -28,7 +28,13 @@ QSplitter#LunaLibrarySplitter::handle { background:@LINE@; }
 QToolBar#LunaLibraryToolbar { background:@CANVAS@; border:0; border-bottom:1px solid @LINE@; padding:5px 10px; spacing:5px; }
 QToolBar#LunaLibraryToolbar QToolButton { border:0; border-radius:6px; padding:7px 10px; color:@TEXT@; }
 QToolBar#LunaLibraryToolbar QToolButton:checked { background:@SELECTION@; color:@ACTIVE_TEXT@; }
-QToolBar#mainToolBar { border:0; border-bottom:1px solid @LINE@; background:white; spacing:5px; padding:5px; }
+QToolBar#mainToolBar { border:0; border-bottom:1px solid @LINE@; background:@PANEL@; spacing:2px; padding:3px 4px; }
+QToolBar#mainToolBar QToolButton { border:0; border-radius:5px; padding:4px; min-width:22px; min-height:24px; }
+QToolBar#mainToolBar QToolButton:hover { background:@HOVER@; }
+QToolBar#mainToolBar QToolButton:checked { background:@SELECTION@; }
+QToolBar#mainToolBar QToolButton:disabled { color:@MUTED@; }
+QToolBar#mainToolBar QAbstractSpinBox { background:@CANVAS@; color:@TEXT@; border:1px solid @LINE@; border-radius:5px; min-height:24px; }
+QToolBar#mainToolBar::separator { background:@LINE@; width:1px; margin:7px 3px; }
 QMenuBar { background:@CANVAS@; color:@TEXT@; padding:3px; }
 QMenuBar::item:selected { background:@SELECTION@; }
 QWidget#LunaDocumentHeader { background:@CANVAS@; border-bottom:1px solid @LINE@; }

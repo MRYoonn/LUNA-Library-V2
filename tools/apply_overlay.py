@@ -16,9 +16,9 @@ BLOBS = {
 }
 CMAKE_ADDITION = """
 # LUNA_LIBRARY_V2_TARGET_BEGIN
-add_executable(LUNA luna_main.cpp lunalibrary.cpp lunaeditorsmoke.cpp icon.rc app.qrc luna_resources.qrc)
+add_executable(LUNA luna_main.cpp lunalibrary.cpp lunareadertoolbar.cpp lunaeditorsmoke.cpp icon.rc app.qrc luna_resources.qrc)
 target_link_libraries(LUNA PRIVATE Pdf4QtLibCore Pdf4QtLibWidgets Pdf4QtLibGui
-    Qt6::Core Qt6::Gui Qt6::Widgets)
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::PrintSupport)
 if(MSVC)
     target_compile_options(LUNA PRIVATE /utf-8)
 endif()
@@ -41,7 +41,7 @@ SMOKE_CHECK = r'''
         auto* poll = new QTimer(&mainWindow);
         poll->setInterval(200);
         QObject::connect(poll, &QTimer::timeout, &mainWindow,
-            [&application, &mainWindow, &captureHost, &parser, lunaSmokeReport, poll, attempts = 0, phase = 0]() mutable {
+            [&application, &mainWindow, &captureHost, &parser, lunaSmokeReport, lunaLayoutOnly, poll, attempts = 0, phase = 0]() mutable {
                 auto fail = [&](int code, const QByteArray& reason) {
                     mainWindow.grab().save(parser.value(lunaSmokeReport) + ".failure.png", "PNG");
                     QSaveFile diagnostic(parser.value(lunaSmokeReport));
@@ -55,11 +55,11 @@ SMOKE_CHECK = r'''
                 const auto* document = controller->getDocument();
                 if (++attempts >= 150) { application.exit(3); return; }
                 if (attempts < 10 || !mainWindow.isVisible() || !controller->canClose() ||
-                    !document || document->getCatalog()->getPageCount() != 1) return;
+                    !document || document->getCatalog()->getPageCount() != 2) return;
                 if (phase == 0) {
                     poll->stop();
                     QString error;
-                    if (!luna::verifyLibraryUi(mainWindow, error)) { fail(5, error.toUtf8()); return; }
+                    if (!parser.isSet(lunaLayoutOnly) && !luna::verifyLibraryUi(mainWindow, error)) { fail(5, error.toUtf8()); return; }
                     poll->start();
                     phase = 1;
                     attempts = 0;
@@ -69,10 +69,13 @@ SMOKE_CHECK = r'''
                 if (qAbs(proxy->getZoom() - 2.0) > 0.001 || proxy->getPageLayout() != pdf::PageLayout::OneColumn) {
                     application.exit(6); return;
                 }
+                const double scale = mainWindow.devicePixelRatioF();
+                const QSize compact(qRound(1366 / scale), qRound(768 / scale));
+                const QSize wide(qRound(1920 / scale), qRound(1080 / scale));
                 if (phase == 1) {
                     poll->stop();
                     QString error;
-                    if (!luna::verifyEditorRoundTrip(mainWindow, parser.value(lunaSmokeReport), error)) {
+                    if (!parser.isSet(lunaLayoutOnly) && !luna::verifyEditorRoundTrip(mainWindow, parser.value(lunaSmokeReport), error)) {
                         fail(9, error.toUtf8()); return;
                     }
                     poll->start();
@@ -86,29 +89,43 @@ SMOKE_CHECK = r'''
                     captureHost->resize(2048, 1536);
                     captureHost->show();
                     mainWindow.setParent(captureHost.get(), Qt::Widget);
-                    mainWindow.resize(1366, 768);
+                    mainWindow.resize(compact);
                     mainWindow.show();
                     phase = 2;
                     attempts = 0;
                     return;
                 }
                 if (phase == 2) {
-                    if (mainWindow.size() != QSize(1366, 768)) {
+                    if (mainWindow.size() != compact) {
                         fail(8, QString("Expected1366x768 actual%1x%2 minimumHint%3x%4")
                             .arg(mainWindow.width()).arg(mainWindow.height())
                             .arg(mainWindow.minimumSizeHint().width()).arg(mainWindow.minimumSizeHint().height()).toUtf8());
                         return;
                     }
+                    poll->stop();
+                    QString error;
+                    if (!luna::verifyReaderToolbar(mainWindow, error, true)) { fail(10, error.toUtf8()); return; }
                     if (!mainWindow.grab().save(parser.value(lunaSmokeReport) + ".png", "PNG")) { application.exit(7); return; }
-                    mainWindow.resize(1920, 1080);
+                    mainWindow.resize(wide);
                     phase = 3;
                     attempts = 0;
+                    poll->start();
                     return;
                 }
-                if (mainWindow.size() != QSize(1920, 1080)) { fail(8, "Expected1920x1080 layout size"); return; }
+                if (mainWindow.size() != wide) { fail(8, "Expected1920x1080 layout size"); return; }
+                poll->stop();
+                QString error;
+                if (!luna::verifyReaderToolbar(mainWindow, error, true)) { fail(10, error.toUtf8()); return; }
                 if (!mainWindow.grab().save(parser.value(lunaSmokeReport) + ".wide.png", "PNG")) { application.exit(7); return; }
+                QJsonObject layout;
+                layout["scale"] = scale;
+                layout["compactLogicalWidth"] = compact.width(); layout["compactLogicalHeight"] = compact.height();
+                layout["wideLogicalWidth"] = wide.width(); layout["wideLogicalHeight"] = wide.height();
+                layout["toolbarHeight"] = mainWindow.findChild<QToolBar*>(QStringLiteral("mainToolBar"))->height();
+                QSaveFile layoutFile(parser.value(lunaSmokeReport) + ".layout.json");
+                if (!layoutFile.open(QIODevice::WriteOnly) || layoutFile.write(QJsonDocument(layout).toJson()) < 0 || !layoutFile.commit()) { application.exit(11); return; }
                 QSaveFile report(parser.value(lunaSmokeReport));
-                const QByteArray marker("LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n");
+                const QByteArray marker = parser.isSet(lunaLayoutOnly) ? QByteArray("LUNA_SMOKE_LAYOUT_OK\n") : QByteArray("LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n");
                 const bool saved = report.open(QIODevice::WriteOnly) &&
                     report.write(marker) == marker.size() && report.commit();
                 poll->stop();
@@ -136,12 +153,13 @@ def replace_exact(source: str, old: str, new: str) -> str:
 def make_main(src: str) -> str:
     src = replace_exact(src,
         '#include "pdfeditormainwindow.h"',
-        '#include "pdfeditormainwindow.h"\n#include "pdfprogramcontroller.h"\n#include "pdfdrawwidget.h"\n#include "pdfdrawspacecontroller.h"\n#include "lunalibrary.h"\n#include "lunaeditorsmoke.h"')
+        '#include "pdfeditormainwindow.h"\n#include "pdfprogramcontroller.h"\n#include "pdfdrawwidget.h"\n#include "pdfdrawspacecontroller.h"\n#include "lunalibrary.h"\n#include "lunareadertoolbar.h"\n#include "lunaeditorsmoke.h"')
     src = replace_exact(src,
         '#include <QCommandLineParser>',
-        '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>\n#include <QSettings>\n#include <QFileInfo>\n#include <memory>')
+        '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>\n#include <QSettings>\n#include <QFileInfo>\n#include <memory>\n#include <QJsonDocument>\n#include <QJsonObject>\n#include <QJsonArray>\n#include <QToolBar>')
     src = replace_exact(src, '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);',
         '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);\n'
+        '    if (parser.isSet(lunaLayoutOnly) && !parser.isSet(lunaSmokeReport)) return 2;\n'
         '    if (parser.isSet(lunaSmokeReport)) {\n'
         '        if (parser.positionalArguments().size() != 1) return 2;\n'
         '        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);\n'
@@ -156,7 +174,10 @@ def make_main(src: str) -> str:
         '    QCommandLineOption lunaSmokeReport("luna-smoke-report",\n'
         '        "CI only: verify a one-page synthetic PDF opens, write a marker and exit.", "path");\n'
         '    lunaSmokeReport.setFlags(QCommandLineOption::HiddenFromHelp);\n'
-        '    parser.addOption(lunaSmokeReport);')
+        '    parser.addOption(lunaSmokeReport);\n'
+        '    QCommandLineOption lunaLayoutOnly("luna-layout-only", "CI only: scaled layout checks without modifying the PDF.");\n'
+        '    lunaLayoutOnly.setFlags(QCommandLineOption::HiddenFromHelp);\n'
+        '    parser.addOption(lunaLayoutOnly);')
     src = replace_exact(src, '    return application.exec();',
         SMOKE_CHECK + '\n    return application.exec();')
     src = replace_exact(src,
@@ -198,6 +219,8 @@ def apply(root: Path, dry_run=False) -> None:
     own = Path(__file__).resolve().parents[1] / "src"
     files = {
         folder / "lunalibrary.cpp": (own / "lunalibrary.cpp").read_bytes(),
+        folder / "lunareadertoolbar.cpp": (own / "lunareadertoolbar.cpp").read_bytes(),
+        folder / "lunareadertoolbar.h": (own / "lunareadertoolbar.h").read_bytes(),
         folder / "lunaeditorsmoke.cpp": (own / "lunaeditorsmoke.cpp").read_bytes(),
         folder / "lunaeditorsmoke.h": (own / "lunaeditorsmoke.h").read_bytes(),
         folder / "lunasavedialog.h": (own / "lunasavedialog.h").read_bytes(),

@@ -15,6 +15,7 @@ APPROVED = {
     "tools/smoke_windows.py",
     "tools/stage_msvc_runtime.ps1",
     "src/lunalibrary.qss",
+    "src/lunareadertoolbar.cpp", "src/lunareadertoolbar.h",
     "src/lunaeditorsmoke.cpp", "src/lunaeditorsmoke.h",
     "src/lunasavedialog.h", "tests/native_dialog/CMakeLists.txt", "tests/native_dialog/main.cpp",
 }

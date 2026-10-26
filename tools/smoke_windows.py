@@ -10,10 +10,13 @@ import shutil
 import struct
 import sys
 import tempfile
+import json
 
 
-def synthetic_pdf() -> bytes:
-    """A single page with public synthetic text and a valid cross-reference table."""
+def synthetic_pdf(page_count: int = 1) -> bytes:
+    """Public synthetic text with a valid cross-reference table (one or two pages)."""
+    if page_count not in (1, 2):
+        raise ValueError("Synthetic fixture supports one or two pages")
     content = b"BT /F1 18 Tf 40 160 Td (LUNA synthetic smoke test) Tj ET\n"
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -23,20 +26,29 @@ def synthetic_pdf() -> bytes:
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"endstream",
     ]
+    if page_count == 2:
+        objects[1] = b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>"
+        second = b"BT /F1 18 Tf 40 160 Td (Second synthetic page) Tj ET\n"
+        objects.extend([
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] "
+            b"/Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>",
+            b"<< /Length " + str(len(second)).encode() + b" >>\nstream\n" + second + b"endstream",
+        ])
     data = bytearray(b"%PDF-1.4\n")
     offsets = []
     for number, obj in enumerate(objects, 1):
         offsets.append(len(data))
         data.extend(f"{number} 0 obj\n".encode() + obj + b"\nendobj\n")
     xref = len(data)
-    data.extend(b"xref\n0 6\n0000000000 65535 f \n")
+    data.extend(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode())
     for offset in offsets:
         data.extend(f"{offset:010d} 00000 n \n".encode())
-    data.extend(f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode())
+    data.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode())
     return bytes(data)
 
 
-def run(package: Path, screenshots_directory: Path | None = None) -> None:
+def run(package: Path, screenshots_directory: Path | None = None,
+        *, layout_only: bool = False, scale: float = 1.0) -> None:
     if sys.platform != "win32":
         raise RuntimeError("Requires native Windows; Linux execution does not validate LUNA.exe")
     package = package.resolve(strict=True)
@@ -48,6 +60,7 @@ def run(package: Path, screenshots_directory: Path | None = None) -> None:
     child_env["QT_PLUGIN_PATH"] = str(package)
     child_env["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(package / "platforms")
     child_env["QT_QPA_PLATFORM"] = "windows"
+    child_env["QT_SCALE_FACTOR"] = str(scale)
     # Qt otherwise may show --version/errors in a blocking GUI message box.
     child_env["QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES"] = "1"
     with tempfile.TemporaryDirectory(prefix="luna-smoke-") as temporary:
@@ -57,11 +70,12 @@ def run(package: Path, screenshots_directory: Path | None = None) -> None:
         (library / "Synthetic examples").mkdir()
         pdf = library / "synthetic.pdf"
         report = folder / "result.txt"
-        pdf.write_bytes(synthetic_pdf())
+        pdf.write_bytes(synthetic_pdf(2))
         subprocess.run([str(executable), "--version"], cwd=folder, env=child_env,
                        check=True, timeout=20)
         try:
-            subprocess.run([str(executable), "--luna-smoke-report", str(report), str(pdf)],
+            subprocess.run([str(executable), "--luna-smoke-report", str(report),
+                            *(["--luna-layout-only"] if layout_only else []), str(pdf)],
                            cwd=folder, env=child_env, check=True, timeout=45)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             detail = report.read_text(encoding="utf-8")[:512] if report.is_file() else "No native diagnostic"
@@ -71,12 +85,13 @@ def run(package: Path, screenshots_directory: Path | None = None) -> None:
                 shutil.copyfile(failure_image, screenshots_directory / "luna-failure.png")
             status = f"exit {error.returncode}" if isinstance(error, subprocess.CalledProcessError) else "timed out"
             raise RuntimeError(f"Native smoke {status}: {detail}") from error
-        if not report.is_file() or report.read_bytes() != b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n":
+        marker = b"LUNA_SMOKE_LAYOUT_OK\n" if layout_only else b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n"
+        if not report.is_file() or report.read_bytes() != marker:
             raise RuntimeError("Native window/PDF-load success marker missing")
-        if pdf.read_bytes() != synthetic_pdf():
+        if pdf.read_bytes() != synthetic_pdf(2):
             raise RuntimeError("Native annotation test modified the original PDF")
         annotated = Path(str(report) + ".annotated.pdf")
-        if not annotated.is_file() or not annotated.read_bytes().startswith(b"%PDF-"):
+        if not layout_only and (not annotated.is_file() or not annotated.read_bytes().startswith(b"%PDF-")):
             raise RuntimeError("Native annotation test did not save a PDF copy")
         for source_name, target_name, dimensions in ((str(report) + ".png", "luna-1366.png", (1366, 768)),
                                                      (str(report) + ".wide.png", "luna-1920.png", (1920, 1080))):
@@ -88,25 +103,45 @@ def run(package: Path, screenshots_directory: Path | None = None) -> None:
             if len(header) != 24 or header[12:16] != b"IHDR":
                 raise RuntimeError("Native UI PNG header invalid")
             actual = struct.unpack(">II", header[16:24])
-            if actual != dimensions:
+            tolerance = 1 if layout_only else 0  # Integer logical dimensions round at fractional DPR.
+            if any(abs(a - b) > tolerance for a, b in zip(actual, dimensions)):
                 raise RuntimeError(f"Qt layout capture dimensions: expected {dimensions}, got {actual}")
             if screenshots_directory is not None:
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(image, screenshots_directory / target_name)
+        metadata = Path(str(report) + ".layout.json")
+        if layout_only:
+            if not metadata.is_file():
+                raise RuntimeError("Scaled native layout metadata missing")
+            layout = json.loads(metadata.read_text(encoding="utf-8"))
+            if abs(layout.get("scale", 0) - scale) > 0.02:
+                raise RuntimeError("Native Qt device pixel ratio does not match requested scale")
+            if not 40 <= layout.get("toolbarHeight", 0) <= 44:
+                raise RuntimeError("Scaled native reading toolbar is not a compact row")
+        if metadata.is_file() and screenshots_directory is not None:
+            shutil.copyfile(metadata, screenshots_directory / "layout.json")
+    if layout_only:
+        print(f"[PASS] Native Windows Qt scale {scale:g}: responsive toolbar, panel collapse and captures")
+        print("[NOTICE] Per-process Qt scaling; physical monitor / OS per-monitor DPI changes remain separate checks.")
+        return
     print("[PASS] Native library search, favorites, recent history, panel visibility and PDF reopen")
     print("[PASS] Continuous layout at 200% and exact 1366x768 / 1920x1080 Qt layout captures")
     print("[PASS] Native text selection, highlight drag, sticky note, Save As and annotation disk round trip")
     print("[PASS] Original synthetic PDF bytes preserved; note contents and highlight color survive reopen")
-    print("[NOTICE] Human visual review, note edit/delete, color chooser and OS DPI remain separate checks.")
+    print("[PASS] Compact toolbar, page/zoom controls, Ctrl+O/F/K/S, drag-copy, native color chooser, note edit and annotation-only deletion")
+    print("[PASS] Unsaved window-close confirmation, advanced view menus and default text-selection return")
+    print("[NOTICE] Physical printing and OS per-monitor DPI changes remain separate checks.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--screenshots-directory", type=Path)
+    parser.add_argument("--layout-only", action="store_true")
+    parser.add_argument("--scale", type=float, choices=(1.0, 1.25, 1.5), default=1.0)
     args = parser.parse_args()
     try:
-        run(args.directory, args.screenshots_directory)
+        run(args.directory, args.screenshots_directory, layout_only=args.layout_only, scale=args.scale)
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         print("[BLOCK] " + str(error), file=sys.stderr)
         raise SystemExit(1)

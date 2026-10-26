@@ -37,6 +37,8 @@
 #include <QPointer>
 #include <QPrintDialog>
 #include <QPrinterInfo>
+#include <QScreen>
+#include <QIcon>
 #include <functional>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
@@ -488,6 +490,26 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
 
     proxy->setPageLayout(pdf::PageLayout::OneColumn);
     proxy->zoom(2.0);
+#ifdef Q_OS_WIN
+    // Verify the live native window exposes both shell icon sizes. Also compare
+    // Qt's applied icon pixels with the official resource, not just a filename.
+    const HWND nativeWindow = reinterpret_cast<HWND>(window.winId());
+    auto iconHandle = [&](WPARAM kind, int fallback) {
+        auto handle = SendMessageW(nativeWindow, WM_GETICON, kind, 0);
+        return handle ? handle : GetClassLongPtrW(nativeWindow, fallback);
+    };
+    if (!iconHandle(ICON_BIG, GCLP_HICON) || !iconHandle(ICON_SMALL, GCLP_HICONSM))
+        return fail("Native window/titlebar shell icon handles missing");
+    const QIcon official(QStringLiteral(":/luna/LUNA-Moon.ico"));
+    if (official.isNull() || window.windowIcon().pixmap(32,32).toImage() != official.pixmap(32,32).toImage())
+        return fail("Live window icon differs from official moon resource");
+    // Actual isolated hosted Windows desktop, before the later off-screen Qt
+    // layout captures. This includes shell/taskbar context for visual review.
+    window.activateWindow();
+    QCoreApplication::processEvents();
+    if (!window.screen() || !window.screen()->grabWindow(0).save(reportPath + QStringLiteral(".desktop.png")))
+        return fail("Could not capture actual Windows desktop for shell icon review");
+#endif
     return true;
 }
 }

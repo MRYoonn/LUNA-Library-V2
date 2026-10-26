@@ -116,6 +116,11 @@ def run(package: Path, screenshots_directory: Path | None = None,
             if screenshots_directory is not None:
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(hover, screenshots_directory / "luna-thumbnail-hover.png")
+            desktop = Path(str(report) + ".desktop.png")
+            if not desktop.is_file() or not desktop.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+                raise RuntimeError("Actual Windows shell icon review capture missing")
+            if screenshots_directory is not None:
+                shutil.copyfile(desktop, screenshots_directory / "luna-windows-desktop.png")
         metadata = Path(str(report) + ".layout.json")
         if layout_only:
             if not metadata.is_file():

@@ -128,7 +128,8 @@ class NativeSmokeHarnessTests(unittest.TestCase):
         def process(command, **kwargs):
             calls.append((command, kwargs))
             if "--luna-smoke-report" in command:
-                Path(command[2]).write_bytes(b"LUNA_SMOKE_PDF_OPEN_OK\n")
+                Path(command[2]).write_bytes(b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n")
+                Path(command[2] + ".annotated.pdf").write_bytes(synthetic_pdf())
                 Path(command[2] + ".png").write_bytes(png_header(1366, 768))
                 Path(command[2] + ".wide.png").write_bytes(png_header(1920, 1080))
         with tempfile.TemporaryDirectory() as package:
@@ -156,7 +157,8 @@ class NativeSmokeHarnessTests(unittest.TestCase):
     def test_marker_without_native_screenshots_fails(self):
         def process(command, **kwargs):
             if "--luna-smoke-report" in command:
-                Path(command[2]).write_bytes(b"LUNA_SMOKE_PDF_OPEN_OK\n")
+                Path(command[2]).write_bytes(b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n")
+                Path(command[2] + ".annotated.pdf").write_bytes(synthetic_pdf())
         with tempfile.TemporaryDirectory() as package:
             with patch("tools.smoke_windows.sys.platform", "win32"), \
                  patch.dict("os.environ", {"SystemRoot": package}), \
@@ -167,13 +169,37 @@ class NativeSmokeHarnessTests(unittest.TestCase):
     def test_hosted_desktop_clamped_capture_is_rejected(self):
         def process(command, **kwargs):
             if "--luna-smoke-report" in command:
-                Path(command[2]).write_bytes(b"LUNA_SMOKE_PDF_OPEN_OK\n")
+                Path(command[2]).write_bytes(b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n")
+                Path(command[2] + ".annotated.pdf").write_bytes(synthetic_pdf())
                 Path(command[2] + ".png").write_bytes(png_header(1028, 895))
         with tempfile.TemporaryDirectory() as package:
             with patch("tools.smoke_windows.sys.platform", "win32"), \
                  patch.dict("os.environ", {"SystemRoot": package}), \
                  patch("tools.smoke_windows.subprocess.run", side_effect=process):
                 with self.assertRaisesRegex(RuntimeError, "capture dimensions"):
+                    run(Path(package))
+
+    def test_native_original_modification_is_rejected(self):
+        def process(command, **kwargs):
+            if "--luna-smoke-report" in command:
+                Path(command[2]).write_bytes(b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n")
+                Path(command[-1]).write_bytes(b"%PDF- changed original")
+        with tempfile.TemporaryDirectory() as package:
+            with patch("tools.smoke_windows.sys.platform", "win32"), \
+                 patch.dict("os.environ", {"SystemRoot": package}), \
+                 patch("tools.smoke_windows.subprocess.run", side_effect=process):
+                with self.assertRaisesRegex(RuntimeError, "modified the original"):
+                    run(Path(package))
+
+    def test_marker_without_saved_copy_is_rejected(self):
+        def process(command, **kwargs):
+            if "--luna-smoke-report" in command:
+                Path(command[2]).write_bytes(b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n")
+        with tempfile.TemporaryDirectory() as package:
+            with patch("tools.smoke_windows.sys.platform", "win32"), \
+                 patch.dict("os.environ", {"SystemRoot": package}), \
+                 patch("tools.smoke_windows.subprocess.run", side_effect=process):
+                with self.assertRaisesRegex(RuntimeError, "save a PDF copy"):
                     run(Path(package))
 
 

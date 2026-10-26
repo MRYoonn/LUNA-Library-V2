@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native packaged-window and PDF-load smoke test; not a visual/annotation test."""
+"""Native packaged UI and synthetic Editor annotation save/reopen smoke test."""
 from __future__ import annotations
 
 import argparse
@@ -66,8 +66,13 @@ def run(package: Path, screenshots_directory: Path | None = None) -> None:
         except subprocess.CalledProcessError as error:
             detail = report.read_text(encoding="utf-8")[:512] if report.is_file() else "No native diagnostic"
             raise RuntimeError(f"Native smoke exit {error.returncode}: {detail}") from error
-        if not report.is_file() or report.read_bytes() != b"LUNA_SMOKE_PDF_OPEN_OK\n":
+        if not report.is_file() or report.read_bytes() != b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n":
             raise RuntimeError("Native window/PDF-load success marker missing")
+        if pdf.read_bytes() != synthetic_pdf():
+            raise RuntimeError("Native annotation test modified the original PDF")
+        annotated = Path(str(report) + ".annotated.pdf")
+        if not annotated.is_file() or not annotated.read_bytes().startswith(b"%PDF-"):
+            raise RuntimeError("Native annotation test did not save a PDF copy")
         for source_name, target_name, dimensions in ((str(report) + ".png", "luna-1366.png", (1366, 768)),
                                                      (str(report) + ".wide.png", "luna-1920.png", (1920, 1080))):
             image = Path(source_name)
@@ -85,7 +90,9 @@ def run(package: Path, screenshots_directory: Path | None = None) -> None:
                 shutil.copyfile(image, screenshots_directory / target_name)
     print("[PASS] Native library search, favorites, recent history, panel visibility and PDF reopen")
     print("[PASS] Continuous layout at 200% and exact 1366x768 / 1920x1080 Qt layout captures")
-    print("[NOTICE] Human visual review, text selection, annotation persistence and OS DPI remain unverified.")
+    print("[PASS] Native text selection, highlight drag, sticky note, Save As and annotation disk round trip")
+    print("[PASS] Original synthetic PDF bytes preserved; note contents and highlight color survive reopen")
+    print("[NOTICE] Human visual review, note edit/delete, color chooser and OS DPI remain separate checks.")
 
 
 if __name__ == "__main__":

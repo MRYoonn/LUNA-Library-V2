@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolated LUNA UI overlay for the pinned public PDF4QT Viewer source.
+"""Isolated LUNA UI overlay for the pinned public PDF4QT Editor source.
 
 Never imports private source or documents. Refuses unexpected upstream changes.
 """
@@ -11,12 +11,12 @@ import sys
 
 PIN = "67b6b9903cb4e318803342f2d428f02e1bb124e3"
 BLOBS = {
-    "Pdf4QtViewer/main.cpp": "6c343865e20e983bf942e63e3ca2d3aab074a3d1",
-    "Pdf4QtViewer/CMakeLists.txt": "08270333862c8906c2281a325b8a0f4efe94cf4d",
+    "Pdf4QtEditor/main.cpp": "208c36b730ec158854b614e48c868e518aea5cde",
+    "Pdf4QtEditor/CMakeLists.txt": "9ca656581680c7af16cee3ed35a32332e44e2dab",
 }
 CMAKE_ADDITION = """
 # LUNA_LIBRARY_V2_TARGET_BEGIN
-add_executable(LUNA luna_main.cpp lunalibrary.cpp icon.rc app.qrc luna_resources.qrc)
+add_executable(LUNA luna_main.cpp lunalibrary.cpp lunaeditorsmoke.cpp icon.rc app.qrc luna_resources.qrc)
 target_link_libraries(LUNA PRIVATE Pdf4QtLibCore Pdf4QtLibWidgets Pdf4QtLibGui
     Qt6::Core Qt6::Gui Qt6::Widgets)
 if(MSVC)
@@ -33,7 +33,7 @@ install(TARGETS LUNA RUNTIME DESTINATION ${PDF4QT_INSTALL_BIN_DIR}
 
 # Explicit CI-only mode: exercise the real window and asynchronous PDF reader.
 # A marker is written only after a one-page synthetic document has been loaded.
-# This does not claim visual rendering or annotation correctness.
+# Annotation persistence is checked through the native Editor actions.
 SMOKE_CHECK = r'''
     if (parser.isSet(lunaSmokeReport))
     {
@@ -67,6 +67,12 @@ SMOKE_CHECK = r'''
                     application.exit(6); return;
                 }
                 if (phase == 1) {
+                    poll->stop();
+                    QString error;
+                    if (!luna::verifyEditorRoundTrip(mainWindow, parser.value(lunaSmokeReport), error)) {
+                        fail(9, error.toUtf8()); return;
+                    }
+                    poll->start();
                     // The real Windows/QPA window was exercised above. Hosted
                     // desktops clamp top-level windows to about 1024 pixels.
                     // Render the same widget tree as a child at exact sizes;
@@ -99,7 +105,7 @@ SMOKE_CHECK = r'''
                 if (mainWindow.size() != QSize(1920, 1080)) { fail(8, "Expected1920x1080 layout size"); return; }
                 if (!mainWindow.grab().save(parser.value(lunaSmokeReport) + ".wide.png", "PNG")) { application.exit(7); return; }
                 QSaveFile report(parser.value(lunaSmokeReport));
-                const QByteArray marker("LUNA_SMOKE_PDF_OPEN_OK\n");
+                const QByteArray marker("LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n");
                 const bool saved = report.open(QIODevice::WriteOnly) &&
                     report.write(marker) == marker.size() && report.commit();
                 poll->stop();
@@ -126,8 +132,8 @@ def replace_exact(source: str, old: str, new: str) -> str:
 
 def make_main(src: str) -> str:
     src = replace_exact(src,
-        '#include "pdfviewermainwindow.h"',
-        '#include "pdfviewermainwindow.h"\n#include "pdfprogramcontroller.h"\n#include "pdfdrawwidget.h"\n#include "pdfdrawspacecontroller.h"\n#include "lunalibrary.h"')
+        '#include "pdfeditormainwindow.h"',
+        '#include "pdfeditormainwindow.h"\n#include "pdfprogramcontroller.h"\n#include "pdfdrawwidget.h"\n#include "pdfdrawspacecontroller.h"\n#include "lunalibrary.h"\n#include "lunaeditorsmoke.h"')
     src = replace_exact(src,
         '#include <QCommandLineParser>',
         '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>\n#include <QSettings>\n#include <QFileInfo>\n#include <memory>')
@@ -135,6 +141,7 @@ def make_main(src: str) -> str:
         '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);\n'
         '    if (parser.isSet(lunaSmokeReport)) {\n'
         '        if (parser.positionalArguments().size() != 1) return 2;\n'
+        '        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);\n'
         '        QSettings::setDefaultFormat(QSettings::IniFormat);\n'
         '        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,\n'
         '            QFileInfo(parser.value(lunaSmokeReport)).absolutePath() + "/settings");\n'
@@ -153,10 +160,10 @@ def make_main(src: str) -> str:
         'QCoreApplication::setOrganizationName("MelkaJ");',
         'QCoreApplication::setOrganizationName("LUNA");')
     src = replace_exact(src,
-        'QCoreApplication::setApplicationName("PDF4QT Viewer");',
+        'QCoreApplication::setApplicationName("PDF4QT Editor");',
         'QCoreApplication::setApplicationName("LUNA Library");')
     src = replace_exact(src,
-        'QApplication::setApplicationDisplayName(QApplication::translate("Application", "PDF4QT Viewer"));',
+        'QApplication::setApplicationDisplayName(QApplication::translate("Application", "PDF4QT Editor"));',
         'QApplication::setApplicationDisplayName(QStringLiteral("LUNA Library"));')
     src = replace_exact(src,
         'isLightGui = parser.isSet(lightGui);',
@@ -174,13 +181,13 @@ def make_main(src: str) -> str:
         '    }\n'
         '    QApplication::setWindowIcon(QIcon(lunaIcon));')
     src = replace_exact(src,
-        'pdfviewer::PDFViewerMainWindow mainWindow;\n    mainWindow.show();',
-        'std::unique_ptr<QWidget> captureHost;\n    pdfviewer::PDFViewerMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
+        'pdfviewer::PDFEditorMainWindow mainWindow;\n    mainWindow.show();',
+        'std::unique_ptr<QWidget> captureHost;\n    pdfviewer::PDFEditorMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
     return src
 
 def apply(root: Path, dry_run=False) -> None:
     root = root.resolve(strict=True)
-    folder = root / "Pdf4QtViewer"
+    folder = root / "Pdf4QtEditor"
     main, cmake = folder / "main.cpp", folder / "CMakeLists.txt"
     for rel, sha in BLOBS.items():
         if not verify_file(root / rel, sha):
@@ -188,6 +195,8 @@ def apply(root: Path, dry_run=False) -> None:
     own = Path(__file__).resolve().parents[1] / "src"
     files = {
         folder / "lunalibrary.cpp": (own / "lunalibrary.cpp").read_bytes(),
+        folder / "lunaeditorsmoke.cpp": (own / "lunaeditorsmoke.cpp").read_bytes(),
+        folder / "lunaeditorsmoke.h": (own / "lunaeditorsmoke.h").read_bytes(),
         folder / "lunalibrary.h": (own / "lunalibrary.h").read_bytes(),
         folder / "lunalibrary.qss": (own / "lunalibrary.qss").read_bytes(),
         folder / "luna_resources.qrc": b'<RCC><qresource prefix="/luna"><file>lunalibrary.qss</file></qresource></RCC>\n',
@@ -202,10 +211,15 @@ def apply(root: Path, dry_run=False) -> None:
     if dry_run:
         print("[PASS] Upstream and destination gates")
         return
+    source_newline = b"\r\n" if b"\r\n" in main.read_bytes() else b"\n"
     for path, data in files.items():
+        if path.suffix in {".cpp", ".h"}:
+            data = data.replace(b"\r\n", b"\n").replace(b"\n", source_newline)
         path.write_bytes(data)
-    cmake.write_bytes(cmake.read_bytes().rstrip(b"\r\n") + b"\n\n" +
-                      CMAKE_ADDITION.encode("utf-8"))
+    cmake_data = cmake.read_bytes()
+    cmake_newline = b"\r\n" if b"\r\n" in cmake_data else b"\n"
+    cmake.write_bytes(cmake_data.rstrip(b"\r\n") + cmake_newline * 2 +
+                      CMAKE_ADDITION.encode("utf-8").replace(b"\n", cmake_newline))
     print("[PASS] Standalone LUNA target applied, PDF4QT engine untouched")
 
 if __name__ == "__main__":

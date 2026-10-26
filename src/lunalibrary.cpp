@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // LUNA Library V2 UI overlay. PDF rendering remains upstream PDF4QT.
 #include "lunalibrary.h"
+#include "lunareadertoolbar.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
 #include "pdfdrawwidget.h"
@@ -20,6 +21,7 @@
 #include <QProgressBar>
 #include <QStorageInfo>
 #include <QSet>
+#include <QScrollArea>
 #include <QStyledItemDelegate>
 #include <QStyleOptionViewItem>
 #include <QMainWindow>
@@ -158,11 +160,20 @@ public:
         split_->setHandleWidth(1);
         layout->addWidget(split_);
 
-        navigation_ = new QWidget(split_);
+        auto* navigationScroll = new QScrollArea(split_);
+        navigationScroll->setWidgetResizable(true);
+        navigationScroll->setFrameShape(QFrame::NoFrame);
+        navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        navigationScroll->setMinimumHeight(0);
+        navigation_ = navigationScroll;
         navigation_->setObjectName(QStringLiteral("LunaNavigation"));
         navigation_->setMinimumWidth(190);
         navigation_->setMaximumWidth(300);
-        auto* nav = new QVBoxLayout(navigation_);
+        auto* navigationContents = new QWidget(navigationScroll);
+        navigationContents->setObjectName(QStringLiteral("LunaNavigationContents"));
+        navigationScroll->setWidget(navigationContents);
+        auto* nav = new QVBoxLayout(navigationContents);
+        nav->setSizeConstraint(QLayout::SetMinimumSize);
         nav->setContentsMargins(14, 20, 14, 16);
         nav->setSpacing(9);
         auto* section = new QLabel(QStringLiteral("내 라이브러리"), navigation_);
@@ -716,6 +727,7 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     const QList<QPair<QString, QString>> menus = {
         {QStringLiteral("menuFile"), QStringLiteral("파일")}, {QStringLiteral("menuEdit"), QStringLiteral("편집")},
         {QStringLiteral("menuView"), QStringLiteral("보기")}, {QStringLiteral("menuGoTo"), QStringLiteral("이동")},
+        {QStringLiteral("menuInsert"), QStringLiteral("삽입")},
         {QStringLiteral("menuTools"), QStringLiteral("도구")}, {QStringLiteral("menuHelp"), QStringLiteral("도움말")}
     };
     for (const auto& entry : menus) if (auto* menu = window.findChild<QMenu*>(entry.first)) menu->setTitle(entry.second);
@@ -725,40 +737,7 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     window.menuBar()->setCornerWidget(brand, Qt::TopLeftCorner);
 
     if (auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
-        bar->setMovable(false);
-        bar->setIconSize(QSize(20, 20));
-        for (const char* name : {"actionGoToDocumentStart", "actionGoToDocumentEnd",
-                                 "actionFitPage", "actionFitHeight",
-                                 "actionSelectTable", "actionMagnifier", "actionOptimizeImages",
-                                 "actionCreateTextUnderline", "actionCreateTextStrikeout",
-                                 "actionCreateTextSquiggly", "actionScreenshot", "actionExtractImage"}) {
-            if (auto* action = window.findChild<QAction*>(QString::fromLatin1(name)))
-                bar->removeAction(action);
-        }
-        for (const char* name : {"actionFind", "actionBookmarkPage"}) {
-            if (auto* action = window.findChild<QAction*>(QString::fromLatin1(name)))
-                if (!bar->actions().contains(action)) bar->addAction(action);
-        }
-        const QList<QPair<QString, QString>> editorLabels = {
-            {QStringLiteral("actionSave"), QStringLiteral("현재 PDF 저장")},
-            {QStringLiteral("actionSave_As"), QStringLiteral("다른 이름으로 저장…")},
-            {QStringLiteral("actionCreateTextHighlight"), QStringLiteral("형광펜")},
-            {QStringLiteral("actionStickyNoteNote"), QStringLiteral("메모")},
-            {QStringLiteral("actionBookmarkPage"), QStringLiteral("페이지 북마크")}
-        };
-        for (const auto& entry : editorLabels)
-            if (auto* action = window.findChild<QAction*>(entry.first)) action->setText(entry.second);
-        if (auto* save = window.findChild<QAction*>(QStringLiteral("actionSave")))
-            save->setToolTip(QStringLiteral("현재 열린 PDF에 주석을 저장합니다 (Ctrl+S). 원본 보존은 다른 이름으로 저장을 사용하세요."));
-        if (auto* saveAs = window.findChild<QAction*>(QStringLiteral("actionSave_As")))
-            saveAs->setToolTip(QStringLiteral("다른 경로에 PDF 복사본을 저장합니다. 이후 저장은 복사본에 적용됩니다."));
-        if (auto* highlight = window.findChild<QAction*>(QStringLiteral("actionCreateTextHighlight")))
-            highlight->setToolTip(QStringLiteral("형광펜 선택 후 본문을 드래그하세요. 기본 PDF4QT 스타일 창에서 색상을 변경할 수 있습니다."));
-        const QList<QPair<QString, QString>> modes = {
-            {QStringLiteral("actionPageLayoutContinuous"), QStringLiteral("연속 보기")},
-            {QStringLiteral("actionPageLayoutSinglePage"), QStringLiteral("한 페이지")},
-            {QStringLiteral("actionPageLayoutTwoPages"), QStringLiteral("두 페이지")}
-        };
+        installReaderToolbar(window, *bar, *focus);
         // Keep the real PDF widget and all controller pointers. Only the native
         // toolbar is reparented beside it, so library panels start at the header.
         window.removeToolBar(bar);
@@ -785,16 +764,6 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
                 documentTitle->setToolTip(file);
             });
         });
-        auto* viewModes = new QToolBar(documentHeader);
-        viewModes->setObjectName(QStringLiteral("LunaViewModes"));
-        viewModes->setMovable(false);
-        viewModes->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-        viewModes->setIconSize(QSize(16, 16));
-        for (const auto& entry : modes) if (auto* action = window.findChild<QAction*>(entry.first)) {
-            action->setText(entry.second);
-            viewModes->addAction(action);
-        }
-        documentRow->addWidget(viewModes);
         frameLayout->addWidget(documentHeader);
         frameLayout->addWidget(bar);
         bar->show(); // QMainWindow::removeToolBar() explicitly hides it.
@@ -812,10 +781,12 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     window.restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
     window.restoreState(settings.value(QStringLiteral("window/state")).toByteArray());
     focus->setChecked(dock->isHidden());
+    hideAdvancedToolbars(window); // Old saved PDF4QT toolbar rows must not reappear.
     new WindowState(&window);
 }
 
 bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error) {
+    if (!verifyReaderToolbar(window, error, false)) return false;
     auto fail = [&error](const char* message) {
         error = QString::fromLatin1(message);
         qWarning("LUNA UI smoke: %s", message);

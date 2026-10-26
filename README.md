@@ -7,13 +7,14 @@ This is a **public source-only build repository**. It does not store, synchroniz
 ## Windows EXE 만들기
 
 1. [Actions → LUNA Library V2 - PDF4QT Windows Portable](https://github.com/MRYoonn/LUNA-Library-V2/actions/workflows/build-windows.yml) 페이지 열기.
-2. 오른쪽 **Run workflow** → Branch **feature/native-editor-roundtrip** → 초록색 **Run workflow** 누르기.
+2. 오른쪽 **Run workflow** → Branch **feature/native-reading-toolbar** → 초록색 **Run workflow** 누르기.
 3. 실행 기록에서 각 단계의 성공/실패를 확인하기. 실패하면 정확한 오류 메시지를 확인하고 수정한다.
 4. 성공하면 해당 실행 기록 맨 아래 **Artifacts → LUNA-Windows-Portable** 다운로드.
 5. ZIP 전체를 풀고 **LUNA.exe** 더블클릭. 사용자 문서 화질과 배율은 자신의 Windows에서 확인한다.
 
 개발 변경은 아직 Draft PR이며 `main`에 병합하지 않았다. 이미 검증된 빌드를 받으려면
-[Editor 포터블 ZIP](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40258840696/artifacts/12623708384)을 다운로드하면 된다.
+[읽기 툴바 포터블 ZIP](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40282150131/artifacts/12634015827)을 다운로드하면 된다.
+기존 [Editor 빌드](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40258840696/artifacts/12623708384)도 보존했다.
 
 초기 빌드는 PDF4QT의 C++/Qt/vcpkg 의존성 설치와 컴파일 때문에 오래 걸릴 수 있다. 실패 원인을 확인하고 수정한 뒤 필요한 검증만 다시 실행한다. 실제 PDF의 화질과 상호작용은 자동 시작 검사와 별도로 확인한다.
 
@@ -33,8 +34,9 @@ Python 테스트는 로컬·Windows 각각 **31 PASS / 0 FAIL / 0 SKIP**,
 Windows 네이티브 Qt CTest는 **1 PASS / 0 FAIL / 0 SKIP**이다.
 
 [Qt 레이아웃 캡처](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40258840696/artifacts/12624227683)는
-실제 PNG 크기 1366×768·1920×1080을 자동 확인했다. 최신 이미지 저장 호스트의
-클라우드 프록시 접근 제한으로 개발 환경에서 직접 시각 검토하지 못했다.
+실제 PNG 크기 1366×768·1920×1080을 자동 확인했다. 이후 접근 가능한 환경에서
+ZIP의 공식 SHA256을 대조하고 이미지를 직접 검토했다. 이 이전 빌드에는 복잡한
+플러그인 툴바가 노출되어 있으며, 아래 읽기 툴바 작업의 비교 기준으로 사용했다.
 물리 모니터 및 Windows125%/150% 배율 검증을 대신하지 않는다.
 
 ## 동작 구조
@@ -94,7 +96,7 @@ Windows 워크플로는 전체 PDF4QT 컴파일 전에 `tests/native_dialog`를 
   MSVC 런타임 DLL은 Visual Studio 2022의 공식 x64 CRT 재배포 폴더에서
   앱 옆으로 복사하며, 별도 런타임 설치 프로그램 실행에 의존하지 않는다.
 - `tools/smoke_windows.py`: 개발용 Qt 경로를 제외한 환경에서 `--version` 실행 후,
-  실제 메인 창을 시작하고 임시 합성 1페이지 PDF를 연다.
+  실제 메인 창을 시작하고 임시 합성 2페이지 PDF를 연다.
   PDF4QT Editor의 실제 선택·형광펜 드래그·메모 입력·다른 이름으로 저장을 수행한다.
   복사본을 닫고 다시 열어 하이라이트 수·색상과 메모 내용을 확인한다.
   원본 합성 PDF가 바이트 단위로 동일하고 별도 PDF가 저장되어야 통과한다.
@@ -102,8 +104,52 @@ Windows 워크플로는 전체 PDF4QT 컴파일 전에 `tests/native_dialog`를 
   타임아웃, 비정상 종료 또는 마커 누락은 실패다. 테스트 PDF는 패키지에 포함하지 않는다.
 
 위 검사의 추가 자체는 Windows 검증 성공을 뜻하지 않는다. 새 커밋의 Windows 실행 결과를
-별도로 확인해야 한다. 화면 렌더링 품질, 두 단 논문 선택 정확도, 메모 편집·삭제,
-색상 선택 UI 및 Windows 배율별 검증은 별도 테스트가 필요하다.
+별도로 확인해야 한다. 아래 읽기 툴바 빌드에서는 합성 문서의 메모 편집·삭제와
+색상 선택 UI도 검사했다. 실제 두 단 논문 선택 정확도, 렌더링 품질·성능,
+물리 모니터의 OS 배율 변경과 실제 출력물 품질은 별도 검증 대상이다.
+
+## 간결한 읽기 툴바 작업
+
+`feature/native-reading-toolbar`는 기본 PDF 툴바를 열기·저장, 페이지 이동/번호,
+확대·축소/비율, 텍스트 선택, 형광펜, 메모, 주석 삭제, 본문 검색, 인쇄,
+라이브러리 접기로 제한한다. 기존 QWidgetAction의 페이지/비율 입력 위젯을 재사용하고
+플러그인 툴바는 숨긴다. 원래 QAction과 연결은 유지하며 고급 기능은 메뉴에 남긴다.
+메인 툴바는 약42 논리 픽셀 높이이며 같은 선형 아이콘과 한국어 툴팁을 사용한다.
+좁은 창에서는 Qt의 한 줄 오버플로와 맨 앞의 라이브러리 접기를 사용한다.
+
+PDF를 연 뒤 기본 상태는 텍스트 선택이다. 주석을 만든 뒤 텍스트 선택으로 돌아오며,
+메모 아이콘 클릭은 PDF4QT의 팝업을 연다. 팝업의 메모 편집 버튼은 기존 주석 편집기로
+연결한다. 지우개 클릭은 선택한 주석에 기존 주석 관리자의 삭제 기능을 적용하며,
+본문이나 원본 PDF 객체를 지우는 기능을 추가하지 않는다.
+
+새 검증은 합성2페이지 PDF로 페이지/확대 조작, 실제 키 입력, 드래그 복사,
+형광펜 색상 선택, 메모 확인/편집, 주석 삭제/복구 및 저장 후 재열기를 검사한다.
+별도 레이아웃 모드는 Windows Qt의 프로세스 배율1.25/1.5에서 유효 화면 크기를 줄여
+겹침·잘림과 패널 접기를 검사한다. 이는 실제 모니터의 OS 배율 변경 검사와 구분한다.
+[Windows 실행40282150131](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40282150131)에서
+C++ 컴파일, 패키징, 위 네이티브 기능 검사와 배율별 배치 검사가 모두 통과했다.
+검증한 앱 소스는 `96c66f747fc4ff59f351ba6b5efe00241445bbc1`이다.
+Python **34 PASS / 0 FAIL / 0 SKIP**, 네이티브 Qt CTest **1 PASS / 0 FAIL / 0 SKIP**이다.
+이후 커밋은 별도 인쇄 검사·워크플로·문서 변경이며 앱 C++ 소스는 동일하다.
+
+[합성 UI 캡처](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40282150131/artifacts/12633601824)의
+6개 PNG를 다운로드해 직접 검토했다. 기본 1366×768·1920×1080 및 배율별 캡처에서
+플러그인 도구 줄이 제거됐고 툴바 높이는 모두42 논리 픽셀이다.
+좁은1366 화면의125%/150%에서는 오버플로를 사용하며, 라이브러리 접기 후 모든 필수
+도구가 보이는 것을 자동 검사했다.150%의1366 캡처는 정수 논리 좌표 반올림으로
+실제1367×768이며 나머지는 요청한 픽셀 크기와 같다. 실제 OS 모니터 배율 검사는 아니다.
+
+포터블·캡처 ZIP 모두 GitHub가 제공한 SHA256과 로컬 다운로드를 대조했다.
+
+- 포터블: `44c39d6f32246cc00c1be6d85d3ecf4463fa6b57efde06dd9c34729eef6c4368`
+- UI 캡처: `0a5a6c97e723010472c4371797ab7531bc4e22a61658f85f79899be838b4952f`
+
+[별도 Windows 인쇄 검사40285739442](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40285739442)도 통과했다.
+`tools/probe_print_windows.ps1`은 위 검증된 EXE 해시를 확인한 뒤 실제 전경 창에 Ctrl+P를
+보내고, 같은 프로세스의 Windows 인쇄 창이 열리는지 확인해 취소한다.
+원본 합성 PDF 바이트도 유지됐다. 실제 인쇄 작업은 보내지 않았다.
+동일 검사를 재실행하려면 수동 워크플로에서 `packaging_preflight_only`와
+`verify_print_portable`을 함께 선택한다. 이 모드는 위 기존 산출물을 사용하며 앱을 재컴파일하지 않는다.
 
 ## PDF 주석과 저장 정책
 
@@ -116,7 +162,8 @@ PDF4QT 기본 스타일 창에서 색상을 선택할 수 있다. 메모 도구�
 완전히 같은 드래그는 상위 엔진의 사각형 선택에서 빈 영역으로 처리되는 제한이 있다.
 북마크는 하이라이트·메모와 달리 PDF 주석으로 저장되지 않으며,
 기본 북마크 내보내기/불러오기 메뉴에서 별도 JSON을 사용한다.
-색상 선택, 메모 편집·삭제 및 북마크 JSON 왕복은 후속 실사용 검증 대상이다.
+읽기 툴바 빌드에서 합성 문서의 색상 선택과 메모 편집·삭제는 네이티브 검사를 통과했다.
+실제 논문에서의 실사용과 북마크 JSON 왕복은 별도 검증 대상이다.
 
 **현재 PDF 저장 / Ctrl+S는 현재 열린 PDF에 변경 내용을 기록한다.**
 원본을 보존하려면 먼저 **다른 이름으로 저장**으로 복사본을 만든다.
@@ -150,4 +197,4 @@ PDF4QT 원본: [JakubMelka/PDF4QT](https://github.com/JakubMelka/PDF4QT), MIT li
 
 ## 상태 (2026-10-26)
 
-**P0 포터블·P1 네이티브 UI·P2 Editor 합성 주석 저장/재열기 Windows 자동 검사 통과.** 썸네일·태그·폴더 이름 변경/이동·다중 문서 탭은 후속 작업이다. 실제 사용자 문서, 메모 편집/삭제, 색상 선택 UI, 북마크 JSON 왕복, Windows 배율 검증은 미실시. 기존 비공개 저장소 변경 및 PR 자동 병합 없음.
+**P0 포터블·P1 네이티브 UI/간결한 읽기 툴바·P2 Editor 합성 주석 저장/재열기 Windows 자동 검사 통과.** 메모 편집·삭제, 색상 선택, 인쇄 창 열기·취소 및 Qt125%/150% 배치도 확인했다. 썸네일·태그·폴더 이름 변경/이동·다중 문서 탭은 후속 작업이다. 실제 사용자 문서, 북마크 JSON 왕복, 물리 모니터의 OS 배율 변경 및 실제 인쇄 출력은 미검증이다. 기존 비공개 저장소 변경 및 PR 자동 병합 없음.

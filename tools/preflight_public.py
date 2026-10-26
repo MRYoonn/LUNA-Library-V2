@@ -14,7 +14,9 @@ APPROVED = {
     "tools/verify_portable.py", "tests/test_portable.py",
     "tools/smoke_windows.py",
     "tools/stage_msvc_runtime.ps1",
+    "tools/probe_print_windows.ps1",
     "src/lunalibrary.qss",
+    "src/lunareadertoolbar.cpp", "src/lunareadertoolbar.h",
     "src/lunaeditorsmoke.cpp", "src/lunaeditorsmoke.h",
     "src/lunasavedialog.h", "tests/native_dialog/CMakeLists.txt", "tests/native_dialog/main.cpp",
 }

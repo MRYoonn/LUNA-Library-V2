@@ -7,6 +7,7 @@ from unittest.mock import patch
 import subprocess
 import contextlib
 import io
+import json
 
 from tools.smoke_windows import run, synthetic_pdf
 
@@ -100,6 +101,51 @@ class PortableLayoutTests(unittest.TestCase):
 
 
 class NativeSmokeHarnessTests(unittest.TestCase):
+    def test_two_page_fixture_cross_reference_and_page_tree(self):
+        data = synthetic_pdf(2)
+        xref = int(data.split(b"startxref\n")[1].splitlines()[0])
+        entries = data[xref:].splitlines()[3:10]
+        self.assertEqual(len(entries), 7)
+        for number, entry in enumerate(entries, 1):
+            self.assertTrue(data[int(entry[:10]):].startswith(f"{number} 0 obj\n".encode()))
+        self.assertIn(b"/Kids [3 0 R 6 0 R] /Count 2", data)
+        self.assertIn(b"/Size 8", data)
+
+    def test_scaled_layout_checks_dpr_without_claiming_annotation_roundtrip(self):
+        calls = []
+        def process(command, **kwargs):
+            calls.append((command, kwargs))
+            if "--luna-smoke-report" in command:
+                self.assertIn("--luna-layout-only", command)
+                report = Path(command[2])
+                report.write_bytes(b"LUNA_SMOKE_LAYOUT_OK\n")
+                Path(str(report)+".png").write_bytes(png_header(1367, 768))
+                Path(str(report)+".wide.png").write_bytes(png_header(1920, 1080))
+                Path(str(report)+".layout.json").write_text(json.dumps({"scale":1.5,"toolbarHeight":42}))
+        with tempfile.TemporaryDirectory() as package:
+            with patch("tools.smoke_windows.sys.platform", "win32"), \
+                 patch.dict("os.environ", {"SystemRoot": package}), \
+                 patch("tools.smoke_windows.subprocess.run", side_effect=process), \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                run(Path(package), layout_only=True, scale=1.5)
+            self.assertIn("scale 1.5", output.getvalue())
+            self.assertNotIn("annotation disk round trip", output.getvalue())
+        self.assertTrue(all(kwargs["env"]["QT_SCALE_FACTOR"] == "1.5" for _, kwargs in calls))
+
+    def test_scaled_layout_rejects_wrong_native_device_ratio(self):
+        def process(command, **kwargs):
+            if "--luna-smoke-report" in command:
+                report = Path(command[2]); report.write_bytes(b"LUNA_SMOKE_LAYOUT_OK\n")
+                Path(str(report)+".png").write_bytes(png_header(1366,768))
+                Path(str(report)+".wide.png").write_bytes(png_header(1920,1080))
+                Path(str(report)+".layout.json").write_text(json.dumps({"scale":1.0,"toolbarHeight":42}))
+        with tempfile.TemporaryDirectory() as package:
+            with patch("tools.smoke_windows.sys.platform", "win32"), \
+                 patch.dict("os.environ", {"SystemRoot": package}), \
+                 patch("tools.smoke_windows.subprocess.run", side_effect=process):
+                with self.assertRaisesRegex(RuntimeError, "pixel ratio"):
+                    run(Path(package), layout_only=True, scale=1.5)
+
     def test_synthetic_pdf_cross_reference(self):
         data = synthetic_pdf()
         xref = int(data.split(b"startxref\n")[1].splitlines()[0])

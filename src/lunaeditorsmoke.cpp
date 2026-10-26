@@ -433,7 +433,14 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!waitFor([&] { return controller->getDocument() && select->isChecked(); }) || annotations(pdf::AnnotationType::Highlight) != 0 || annotations(pdf::AnnotationType::Text) != 1)
         return fail("Deleted annotation returned after save and reopen");
     // Restore a native highlight for the final reading-layout captures.
+    // A document and the checked selection action can precede completion of
+    // asynchronous text indexing. The native controller disables the window
+    // while busy; clicking its disabled tool button is correctly ignored.
+    if (!waitFor([&] { return window.isEnabled() && highlight->isEnabled(); }))
+        return fail("Native reader remained busy after final reopen");
     proxy->zoom(1.0); proxy->goToPage(0); click(highlight);
+    if (!highlight->isChecked() || !controller->getToolManager()->getActiveTool())
+        return fail("Native highlighter did not activate after final reopen");
     if (!chooseColor(Qt::yellow)) return fail("Native highlight color reset failed");
     if (!waitFor([&] { return points(start,end,notePoint); })) return fail("Final glyph points outside viewport");
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);

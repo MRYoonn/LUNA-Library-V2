@@ -206,6 +206,15 @@ PDF4QT 원본: [JakubMelka/PDF4QT](https://github.com/JakubMelka/PDF4QT), MIT li
 **기존 P0 포터블·P1 읽기 툴바·P2 Editor 합성 주석 저장/재열기 Windows 검사 결과는 보존한다.**
 PR #7은 베타 통합 개발 중이다. 썸네일 크롭·비동기 캐시·호버·동반 이동과 공식 달 아이콘은
 구현했으며, 최신 Windows 통합 검증은 별도 진행 중이다. 캐시와 파일 이동의 Linux Qt C++
-검사는 통과했지만 Windows 실행 검사를 대체하지 않는다. 다중 문서 탭은 아직 미구현이다.
+검사는 통과했지만 Windows 실행 검사를 대체하지 않는다.
+다중 문서는 **탭 대신 문서별 독립 프로세스·창 방식**을 사용한다. Ctrl+O에서 여러 PDF를
+선택하거나 목록·드래그 앤 드롭으로 열 수 있다. 같은 PDF는 기존 창을 활성화하고,
+각 창은 자체 PDF4QT Controller·주석·저장 상태를 가진다. 다른 창에서 열린 PDF는
+그 창으로 전환한 뒤 이동해야 한다. 창별 미저장 변경 확인은 PDF4QT 기능을 유지한다.
+이 방식의 Windows 2·5·10개 문서 및 주석 분리 검증은 진행 중이다.
+원본 `PDFProgramController::loadPlugins()`는 `QPluginLoader::instance()`의 플러그인에
+`setDataExchangeInterface(this)`와 `setWidget(m_pdfWidget)`를 설정한다. 같은 프로세스에
+여러 Editor를 넣으면 공유 플러그인의 참조가 바뀌므로, 엔진을 수정하지 않는 베타에서는
+프로세스를 분리한다. 작동하는 탭 UI를 제공한다고 표시하지 않는다.
 실제 학술 PDF, 물리 모니터 OS 배율, 장시간 사용 검증 및 최종 Beta ZIP은 남아 있다.
 태그와 DOI 추출 등 제외 기능은 개발하지 않는다. main 자동 병합·공개 Release 게시 없음.

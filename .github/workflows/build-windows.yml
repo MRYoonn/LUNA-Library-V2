@@ -226,10 +226,10 @@ jobs:
           python -B tools/verify_portable.py LUNA-Windows-Portable
           if ($LASTEXITCODE -ne 0) { throw "Portable package verification failed" }
 
-      - name: Native UI and synthetic annotation round trip
+      - name: Independent document windows and native annotation round trip
         shell: pwsh
         run: |
-          python -B tools/smoke_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui"
+          python -B tools/probe_documents_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui"
           if ($LASTEXITCODE -ne 0) { throw "Native UI or annotation round trip failed" }
 
       - name: Native Windows Qt 125 and 150 percent layout checks

@@ -3,6 +3,7 @@
 #include "lunalibrary.h"
 #include "lunathumbnailcache.h"
 #include "lunafilemove.h"
+#include "lunadocumentclaim.h"
 #include "lunareadertoolbar.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -61,6 +62,10 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 #include <QPointer>
+#include <QProcess>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QSaveFile>
 #include <QMouseEvent>
 #include <functional>
@@ -248,6 +253,128 @@ public:
         painter->restore();
     }
 };
+
+class IndependentDocuments final : public QObject {
+public:
+    explicit IndependentDocuments(pdfviewer::PDFEditorMainWindow& window)
+        : QObject(&window), window_(window), claim_([this] { focusWindow(); }) {
+        setObjectName(QStringLiteral("LunaIndependentDocuments"));
+        connect(&window_, &QWidget::windowTitleChanged, this, [this] { synchronize(); });
+        connect(&poll_, &QTimer::timeout, this, [this] { synchronize(); });
+        poll_.start(200);
+        window_.setAcceptDrops(true);
+        qApp->installEventFilter(this);
+    }
+    void focusWindow() {
+        if (window_.isMinimized()) window_.showNormal();
+        window_.raise(); window_.activateWindow();
+    }
+    bool initial(const QString& path) {
+        if (!validPdf(path)) {
+            QMessageBox::warning(&window_, QStringLiteral("PDF 열기 실패"), QStringLiteral("PDF 파일이 없거나 읽을 수 없는 경로입니다."));
+            return false;
+        }
+        const auto result = claim_.acquire(path);
+        if (result == DocumentClaim::Result::Existing) return false;
+        if (result != DocumentClaim::Result::Acquired) {
+            QMessageBox::warning(&window_, QStringLiteral("문서 열기 실패"),
+                QStringLiteral("문서 창의 중복 열기 방지 기능을 시작하지 못했습니다."));
+            return false;
+        }
+        pending_ = true; pendingIdle_ = 0;
+        window_.getProgramController()->openDocument(path);
+        return true;
+    }
+    void open(const QString& path) {
+        if (!validPdf(path)) {
+            QMessageBox::warning(&window_, QStringLiteral("PDF 열기 실패"), QStringLiteral("PDF 파일이 이동되었거나 존재하지 않습니다."));
+            return;
+        }
+        const QString identity = DocumentClaim::identity(path);
+        if (identity == claim_.path()) { focusWindow(); return; }
+        if (DocumentClaim::activateExisting(path)) return;
+        auto* controller = window_.getProgramController();
+        if (!controller->getDocument() && !pending_) {
+            if (window_.isEnabled() && controller->canClose()) initial(path);
+            return;
+        }
+        // Coalesce repeated clicks during child startup, before its local
+        // endpoint is listening. The child also claims the path atomically.
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        for (auto it = launching_.begin(); it != launching_.end(); ) {
+            if (now - it.value() > 10000) it = launching_.erase(it); else ++it;
+        }
+        if (launching_.contains(identity)) return;
+        if (!QProcess::startDetached(QCoreApplication::applicationFilePath(), {QFileInfo(path).absoluteFilePath()}, QFileInfo(path).absolutePath())) {
+            QMessageBox::warning(&window_, QStringLiteral("문서 창 열기 실패"),
+                QStringLiteral("새 PDF 창을 시작하지 못했습니다. 현재 문서는 그대로 유지됩니다."));
+            return;
+        }
+        launching_.insert(identity, now);
+    }
+    bool openElsewhere(const QString& path) {
+        return DocumentClaim::identity(path) != claim_.path() && DocumentClaim::activateExisting(path);
+    }
+    void chooseFiles() {
+        const QStringList paths = QFileDialog::getOpenFileNames(&window_, QStringLiteral("PDF 열기 · 문서별 독립 창"),
+            QFileInfo(window_.getProgramController()->getOriginalFileName()).absolutePath(), QStringLiteral("PDF (*.pdf *.PDF)"));
+        for (const QString& path : paths) open(path);
+    }
+protected:
+    bool eventFilter(QObject* object, QEvent* event) override {
+        if (event->type() != QEvent::DragEnter && event->type() != QEvent::Drop) return false;
+        auto* widget = qobject_cast<QWidget*>(object);
+        if (!widget || widget->window() != &window_) return false;
+        auto* drop = static_cast<QDropEvent*>(event);
+        const auto urls = drop->mimeData()->urls();
+        if (urls.isEmpty()) return false;
+        for (const auto& url : urls) if (!url.isLocalFile() || !validPdf(url.toLocalFile())) return false;
+        if (event->type() == QEvent::Drop) for (const auto& url : urls) open(url.toLocalFile());
+        drop->acceptProposedAction();
+        return true;
+    }
+private:
+    static bool validPdf(const QString& path) {
+        const QFileInfo info(path);
+        return info.isFile() && info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) == 0;
+    }
+    void synchronize() {
+        auto* controller = window_.getProgramController();
+        if (!controller->getDocument()) {
+            if (pending_ && (!window_.isEnabled() || ++pendingIdle_ < 25)) return;
+            pending_ = false; blockedPath_.clear(); claim_.release(); return;
+        }
+        pending_ = false;
+        const QString path = controller->getOriginalFileName();
+        if (DocumentClaim::identity(path).isEmpty() || DocumentClaim::identity(path) == claim_.path()) return;
+        if (path == blockedPath_) return;
+        blockedPath_.clear();
+        // Native Save As and advanced recent-file actions can change the path.
+        // Never discard unsaved edits if an advanced action bypasses our open UI.
+        if (claim_.acquire(path) == DocumentClaim::Result::Existing && !duplicateNotice_) {
+            blockedPath_ = path;
+            duplicateNotice_ = true;
+            QTimer::singleShot(0, this, [this, path] {
+                auto* c = window_.getProgramController();
+                if (c->getOriginalFileName() == path && window_.isEnabled() && c->canClose() && c->askForSaveDocumentBeforeClose())
+                    c->closeDocument();
+                duplicateNotice_ = false;
+            });
+        }
+    }
+    pdfviewer::PDFEditorMainWindow& window_;
+    DocumentClaim claim_;
+    QTimer poll_;
+    QHash<QString, qint64> launching_;
+    bool pending_ = false;
+    int pendingIdle_ = 0;
+    bool duplicateNotice_ = false;
+    QString blockedPath_;
+};
+
+IndependentDocuments* independentDocuments(pdfviewer::PDFEditorMainWindow& window) {
+    return dynamic_cast<IndependentDocuments*>(window.findChild<QObject*>(QStringLiteral("LunaIndependentDocuments")));
+}
 
 class LibraryPanel final : public QWidget {
     friend bool luna::verifyLibraryUi(pdfviewer::PDFEditorMainWindow&, QString&, const QString&);
@@ -776,6 +903,11 @@ private:
     void moveDocumentTo(const QString& path, const QString& destination) {
         const QString source = QFileInfo(path).canonicalFilePath();
         if (source.isEmpty()) return;
+        if (auto* documents = independentDocuments(*viewer_); documents && documents->openElsewhere(source)) {
+            QMessageBox::information(this, QStringLiteral("다른 창에서 열린 PDF"),
+                QStringLiteral("이 PDF를 열고 있는 LUNA 창에서 이동해 주세요. 해당 창을 활성화했습니다."));
+            return;
+        }
         auto* controller = viewer_->getProgramController();
         const bool opened = controller->getDocument() &&
             QFileInfo(controller->getOriginalFileName()).canonicalFilePath() == source;
@@ -929,6 +1061,7 @@ private:
         if (item) openPdf(item->data(Qt::UserRole).toString());
     }
     void openPdf(const QString& path) {
+        if (auto* documents = independentDocuments(*viewer_)) { documents->open(path); return; }
         const QFileInfo info(path);
         if (!info.isFile() ||
             info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) return;
@@ -1155,7 +1288,30 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     window.restoreState(settings.value(QStringLiteral("window/state")).toByteArray());
     focus->setChecked(dock->isHidden());
     hideAdvancedToolbars(window); // Old saved PDF4QT toolbar rows must not reappear.
+    auto* documentWindows = new IndependentDocuments(window);
+    if (auto* originalOpen = window.findChild<QAction*>(QStringLiteral("actionOpen"))) {
+        // Preserve the native QAction and its connections; route the public
+        // open UI through independent processes instead of replacing a document.
+        auto* open = new QAction(originalOpen->icon(), QStringLiteral("PDF 열기…"), &window);
+        open->setObjectName(QStringLiteral("LunaOpenDocuments"));
+        open->setShortcut(QKeySequence(QStringLiteral("Ctrl+O")));
+        open->setToolTip(QStringLiteral("PDF 열기 · 여러 문서는 독립 창에서 열립니다 (Ctrl+O)"));
+        originalOpen->setShortcut(QKeySequence());
+        window.addAction(open);
+        QObject::connect(open, &QAction::triggered, documentWindows, &IndependentDocuments::chooseFiles);
+        if (auto* reader = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
+            reader->insertAction(originalOpen, open); reader->removeAction(originalOpen);
+        }
+        for (auto* menu : window.findChildren<QMenu*>()) menu->removeAction(originalOpen);
+        if (auto* file = window.findChild<QMenu*>(QStringLiteral("menuFile")))
+            file->insertAction(file->actions().isEmpty() ? nullptr : file->actions().front(), open);
+    }
     new WindowState(&window);
+}
+
+bool openInitialDocument(pdfviewer::PDFEditorMainWindow& window, const QString& path) {
+    if (auto* documents = independentDocuments(window)) return documents->initial(path);
+    return false;
 }
 
 bool verifyCancelledLibraryMove(pdfviewer::PDFEditorMainWindow& window, QString& error) {
@@ -1278,6 +1434,10 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         QTimer poll, timeout;
         bool success = false;
         QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
+            // This verifier runs inside the smoke timer's callback. Nested
+            // event loops do not normally drain DeferredDelete from that outer
+            // callback; explicitly give WA_DeleteOnClose its normal event turn.
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             if (ready()) { success = true; loop.quit(); }
         });
         QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
@@ -1293,8 +1453,9 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (!library->cropOverlay_) return fail("Native crop overlay did not open");
     QKeyEvent cancel(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
     QApplication::sendEvent(library->cropOverlay_, &cancel);
-    if (!wait([&] { return !library->cropOverlay_; }) || QFileInfo::exists(thumbnail))
-        return fail("Crop cancellation wrote an image or left an overlay");
+    if (QFileInfo::exists(thumbnail)) return fail("Crop cancellation wrote an image");
+    if (library->cropOverlay_ && library->cropOverlay_->isVisible()) return fail("Crop cancellation left a visible overlay");
+    if (!wait([&] { return !library->cropOverlay_; })) return fail("Cancelled crop overlay was not deleted");
     library->startThumbnailCrop();
     auto* crop = library->cropOverlay_.data();
     if (!crop || crop->parentWidget() != draw) return fail("Crop does not target the native PDF viewport");

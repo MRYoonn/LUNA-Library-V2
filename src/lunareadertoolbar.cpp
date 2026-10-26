@@ -279,7 +279,7 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
     auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
     auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
     if (!bar || !bar->isVisible() || bar->orientation() != Qt::Horizontal) return fail("Reading toolbar missing");
-    const QStringList allowed = {"LunaFocusMode", "actionOpen", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "actionCreateTextHighlight", "actionStickyNoteComment", "actionDeleteAnnotation", "actionFind", "actionPrint"};
+    const QStringList allowed = {"LunaFocusMode", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "actionCreateTextHighlight", "actionStickyNoteComment", "actionDeleteAnnotation", "actionFind", "actionPrint"};
     int controls = 0;
     for (auto* action : bar->actions()) {
         if (action->isSeparator()) continue;

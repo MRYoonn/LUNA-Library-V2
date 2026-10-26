@@ -109,6 +109,13 @@ def run(package: Path, screenshots_directory: Path | None = None,
             if screenshots_directory is not None:
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(image, screenshots_directory / target_name)
+        if not layout_only:
+            hover = Path(str(report) + ".hover.png")
+            if not hover.is_file() or not hover.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+                raise RuntimeError("Native thumbnail hover capture missing")
+            if screenshots_directory is not None:
+                screenshots_directory.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(hover, screenshots_directory / "luna-thumbnail-hover.png")
         metadata = Path(str(report) + ".layout.json")
         if layout_only:
             if not metadata.is_file():
@@ -125,6 +132,7 @@ def run(package: Path, screenshots_directory: Path | None = None,
         print("[NOTICE] Per-process Qt scaling; physical monitor / OS per-monitor DPI changes remain separate checks.")
         return
     print("[PASS] Native library search, favorites, recent history, panel visibility and PDF reopen")
+    print("[PASS] Native viewport crop/cancel, atomic PNG sidecar, asynchronous hover, 165ms fade and screen bounds")
     print("[PASS] Continuous layout at 200% and exact 1366x768 / 1920x1080 Qt layout captures")
     print("[PASS] Native text selection, highlight drag, sticky note, Save As and annotation disk round trip")
     print("[PASS] Original synthetic PDF bytes preserved; note contents and highlight color survive reopen")

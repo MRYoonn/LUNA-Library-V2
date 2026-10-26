@@ -9,7 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
     "README.md", "SECURITY_POLICY.md", "LICENSE_NOTICE.md", ".gitignore",
     ".github/workflows/build-windows.yml",
-    "src/lunalibrary.cpp", "src/lunalibrary.h",
+    "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunathumbnailcache.h",
+    "tests/native_dialog/thumbnails.cpp",
     "tools/apply_overlay.py", "tools/preflight_public.py",
     "tests/test_public_gate.py",
     "tools/verify_portable.py", "tests/test_portable.py",

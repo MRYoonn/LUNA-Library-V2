@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // LUNA Library V2 UI overlay. PDF rendering remains upstream PDF4QT.
 #include "lunalibrary.h"
+#include "lunathumbnailcache.h"
 #include "lunareadertoolbar.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -13,6 +14,7 @@
 #include <QDebug>
 #include <QCursor>
 #include <QEvent>
+#include <QEventLoop>
 #include <QFile>
 #include <QFontMetrics>
 #include <QMenu>
@@ -183,54 +185,6 @@ private:
     bool selecting_ = false;
 };
 
-// Bounded, lazy decoding shared by cards and hover previews. GUI callbacks
-// are guarded by their owner; worker threads never access a widget.
-class ThumbnailCache final : public QObject {
-public:
-    explicit ThumbnailCache(QObject* parent) : QObject(parent), images_(16 * 1024) { workers_.setMaxThreadCount(2); }
-    ~ThumbnailCache() override { workers_.clear(); workers_.waitForDone(); }
-    static ThumbnailCache* instance() {
-        static QPointer<ThumbnailCache> cache;
-        if (!cache) cache = new ThumbnailCache(qApp);
-        return cache;
-    }
-    void invalidate() { ++generation_; images_.clear(); }
-    QImage request(const QString& path, QObject* owner, std::function<void()> ready) {
-        const QFileInfo file(path);
-        if (!file.isFile() || file.isSymLink() || file.size() <= 0 || file.size() > 5'000'000) return {};
-        const QString key = file.absoluteFilePath() + QStringLiteral("|%1|%2").arg(file.size()).arg(file.lastModified().toMSecsSinceEpoch());
-        if (auto* image = images_.object(key)) return *image;
-        if (!pending_.contains(key) && pending_.size() >= 32) return {};
-        const bool started = pending_.contains(key);
-        pending_[key].insert(owner, {QPointer<QObject>(owner), std::move(ready)});
-        if (started) return {};
-        const auto generation = generation_;
-        workers_.start([this, key, path, generation] {
-            QImageReader reader(path);
-            reader.setAutoTransform(true);
-            const QSize size = reader.size();
-            QImage image;
-            if (size.isValid() && size.width() <= 4096 && size.height() <= 4096) {
-                reader.setScaledSize(size.scaled(QSize(470, 620), Qt::KeepAspectRatio));
-                image = reader.read();
-                if (!image.isNull()) image = image.scaled(QSize(470,620), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            }
-            QMetaObject::invokeMethod(this, [this, key, image, generation] {
-                if (generation == generation_) images_.insert(key, new QImage(image), qMax(1, int(image.sizeInBytes() / 1024)));
-                const auto callbacks = pending_.take(key);
-                for (const auto& callback : callbacks) if (callback.owner) callback.ready();
-            }, Qt::QueuedConnection);
-        });
-        return {};
-    }
-private:
-    struct Callback { QPointer<QObject> owner; std::function<void()> ready; };
-    quint64 generation_ = 0;
-    QThreadPool workers_;
-    QCache<QString,QImage> images_;
-    QHash<QString,QHash<QObject*,Callback>> pending_;
-};
-
 class DocumentCard final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
@@ -292,6 +246,7 @@ public:
 };
 
 class LibraryPanel final : public QWidget {
+    friend bool luna::verifyLibraryUi(pdfviewer::PDFEditorMainWindow&, QString&, const QString&);
 public:
     explicit LibraryPanel(pdfviewer::PDFEditorMainWindow* viewer, QWidget* parent)
         : QWidget(parent), viewer_(viewer)
@@ -1131,7 +1086,7 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     new WindowState(&window);
 }
 
-bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error) {
+bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, const QString& capturePath) {
     if (!verifyReaderToolbar(window, error, false)) return false;
     auto fail = [&error](const char* message) {
         error = QString::fromLatin1(message);
@@ -1212,6 +1167,70 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error) {
         action->trigger();
         if (entry.second->isHidden()) return fail("Panel did not reopen");
     }
+    // Exercise the real viewport crop and asynchronous hover in the temporary
+    // synthetic library. Nothing here reads or modifies a user's library.
+    auto* library = dynamic_cast<LibraryPanel*>(dock->widget());
+    if (!library) return fail("Library panel type missing");
+    auto wait = [](const std::function<bool()>& ready) {
+        if (ready()) return true;
+        QEventLoop loop;
+        QTimer poll, timeout;
+        bool success = false;
+        QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
+            if (ready()) { success = true; loop.quit(); }
+        });
+        QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+        poll.start(20); timeout.setSingleShot(true); timeout.start(5000); loop.exec();
+        return success;
+    };
+    if (!wait([&] { return window.isEnabled() && window.getProgramController()->canClose(); }))
+        return fail("Reader busy before crop verification");
+    const QFileInfo pdf(path);
+    const QString thumbnail = pdf.absolutePath() + QLatin1Char('/') + pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
+    if (QFileInfo::exists(thumbnail)) return fail("Synthetic crop destination already exists");
+    library->startThumbnailCrop();
+    if (!library->cropOverlay_) return fail("Native crop overlay did not open");
+    QKeyEvent cancel(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    QApplication::sendEvent(library->cropOverlay_, &cancel);
+    if (!wait([&] { return !library->cropOverlay_; }) || QFileInfo::exists(thumbnail))
+        return fail("Crop cancellation wrote an image or left an overlay");
+    library->startThumbnailCrop();
+    auto* crop = library->cropOverlay_.data();
+    if (!crop || crop->parentWidget() != draw) return fail("Crop does not target the native PDF viewport");
+    auto mouse = [](QWidget* target, QEvent::Type type, QPoint point, Qt::MouseButton button, Qt::MouseButtons buttons) {
+        QMouseEvent event(type, QPointF(point), QPointF(target->mapToGlobal(point)), button, buttons, Qt::NoModifier);
+        QApplication::sendEvent(target, &event);
+    };
+    const QPoint from(50, 80), to(210, 240);
+    if (!draw->rect().contains(to)) return fail("Crop fixture exceeds viewport");
+    mouse(crop, QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+    mouse(crop, QEvent::MouseMove, to, Qt::NoButton, Qt::LeftButton);
+    mouse(crop, QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+    if (!wait([&] { return QFileInfo::exists(thumbnail) && !library->cropOverlay_; }))
+        return fail("Native crop did not atomically save its PNG");
+    const QImage captured(thumbnail);
+    const QSize expected = QRect(from, to).size() * draw->devicePixelRatioF();
+    if (captured.isNull() || captured.size() != expected) return fail("Native crop PNG has wrong dimensions");
+    const QPoint card = list->visualItemRect(item).center();
+    mouse(list->viewport(), QEvent::MouseMove, card, Qt::NoButton, Qt::NoButton);
+    if (!wait([&] { return library->thumbnailPopup_ && library->thumbnailPopup_->isVisible() && library->fade_->state() == QAbstractAnimation::Stopped; }))
+        return fail("Asynchronous thumbnail hover did not finish fading in");
+    if (library->fade_->duration() != 165 || library->thumbnailImage_->pixmap().isNull())
+        return fail("Thumbnail hover image or fade duration is incorrect");
+    auto* screen = library->thumbnailPopup_->screen();
+    if (!screen || !screen->availableGeometry().contains(library->thumbnailPopup_->frameGeometry()))
+        return fail("Thumbnail hover extends outside the available screen");
+    if (!capturePath.isEmpty() && !library->thumbnailPopup_->grab().save(capturePath + QStringLiteral(".hover.png")))
+        return fail("Could not capture native hover widget");
+    QEvent leave(QEvent::Leave);
+    QApplication::sendEvent(list->viewport(), &leave);
+    if (library->thumbnailPopup_->isVisible()) return fail("Hover remained visible after leaving list");
+    ThumbnailCache::instance()->invalidate();
+    mouse(list->viewport(), QEvent::MouseMove, card, Qt::NoButton, Qt::NoButton);
+    library->hideThumbnail(); // Same cancellation used by folder switching.
+    QCoreApplication::processEvents();
+    if (library->thumbnailPopup_->isVisible() || !library->hoverRequest_.isEmpty())
+        return fail("Cancelled hover request resurfaced");
     // Drive the same signal/slot used by double-click, including the save guard.
     window.getProgramController()->closeDocument();
     list->itemDoubleClicked(item);

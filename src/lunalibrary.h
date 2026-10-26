@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include <QString>
-namespace pdfviewer { class PDFViewerMainWindow; }
+namespace pdfviewer { class PDFEditorMainWindow; }
 namespace luna {
-void installLibrary(pdfviewer::PDFViewerMainWindow& window);
+void installLibrary(pdfviewer::PDFEditorMainWindow& window);
 // Used only by the explicit CI mode with a temporary synthetic library.
-bool verifyLibraryUi(pdfviewer::PDFViewerMainWindow& window, QString& error);
+bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error);
 }

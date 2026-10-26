@@ -86,7 +86,8 @@ jobs:
 
       # Public dependency cache only; contains no user documents or authentication data.
       - name: Cache public vcpkg archives
-        uses: actions/cache@v4
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             vcpkg-binary-cache
@@ -125,6 +126,17 @@ jobs:
           & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows --x-manifest-root="$env:GITHUB_WORKSPACE\pdf4qt" --x-install-root="$env:VCPKG_INSTALLED_DIR" --clean-buildtrees-after-build --clean-packages-after-build
           if ($LASTEXITCODE -ne 0) { throw "vcpkg dependencies failed" }
 
+      # Preserve successfully built public dependencies even if a later native
+      # regression fails. The app, user files and settings are never cached.
+      - name: Save validated public dependencies
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            vcpkg-binary-cache
+            vcpkg/downloads
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -137,6 +149,17 @@ jobs:
           modules: 'qtspeech qtmultimedia'
           cache: 'false'
           aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+
+      - name: Test native Save As dialog before compiling the PDF engine
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'luna-dialog-build'
+          cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw "Native dialog probe configuration failed" }
+          cmake --build $probe --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Native dialog probe compile failed" }
+          ctest --test-dir $probe -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw "Native dialog probe failed; PDF engine build not started" }
 
       - name: Configure native Windows build
         shell: pwsh
@@ -183,19 +206,20 @@ jobs:
           python -B tools/verify_portable.py LUNA-Windows-Portable
           if ($LASTEXITCODE -ne 0) { throw "Portable package verification failed" }
 
-      - name: Native window and synthetic PDF smoke test
+      - name: Native UI and synthetic annotation round trip
         shell: pwsh
         run: |
           python -B tools/smoke_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui"
-          if ($LASTEXITCODE -ne 0) { throw "Native window or PDF load failed" }
+          if ($LASTEXITCODE -ne 0) { throw "Native UI or annotation round trip failed" }
 
       - name: Upload synthetic native UI screenshots
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: LUNA-UI-Synthetic
           path: ${{ runner.temp }}/luna-ui/
           retention-days: 7
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Upload LUNA Windows portable artifact
         uses: actions/upload-artifact@v4

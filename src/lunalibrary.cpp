@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 // LUNA Library V2 UI overlay. PDF rendering remains upstream PDF4QT.
 #include "lunalibrary.h"
-#include "pdfviewermainwindow.h"
+#include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
 #include "pdfdrawwidget.h"
 #include "pdfdrawspacecontroller.h"
 
 #include <QAbstractItemView>
+#include <QApplication>
 #include <QDateTime>
 #include <QDebug>
 #include <QCursor>
@@ -23,6 +24,7 @@
 #include <QStyleOptionViewItem>
 #include <QMainWindow>
 #include <QKeySequence>
+#include <QKeyEvent>
 #include <QSizePolicy>
 #include <QAction>
 #include <QButtonGroup>
@@ -141,7 +143,7 @@ public:
 
 class LibraryPanel final : public QWidget {
 public:
-    explicit LibraryPanel(pdfviewer::PDFViewerMainWindow* viewer, QWidget* parent)
+    explicit LibraryPanel(pdfviewer::PDFEditorMainWindow* viewer, QWidget* parent)
         : QWidget(parent), viewer_(viewer)
     {
         setObjectName(QStringLiteral("LunaLibraryPanel"));
@@ -588,7 +590,7 @@ private:
         }
     }
 
-    pdfviewer::PDFViewerMainWindow* viewer_;
+    pdfviewer::PDFEditorMainWindow* viewer_;
     QSplitter* split_ = nullptr;
     QWidget* navigation_ = nullptr;
     QWidget* documents_ = nullptr;
@@ -637,7 +639,7 @@ private:
 
 } // namespace
 
-void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
+void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     QFile sheet(QStringLiteral(":/luna/lunalibrary.qss"));
     if (sheet.open(QIODevice::ReadOnly)) window.setStyleSheet(themeSheet(sheet.readAll()));
     // Hide the old PDF4QT sidebar: LUNA must have precisely two visible columns.
@@ -695,6 +697,10 @@ void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
     auto* search = new QAction(QStringLiteral("라이브러리 검색"), &window);
     search->setObjectName(QStringLiteral("LunaSearchAction"));
     search->setShortcut(QKeySequence(QStringLiteral("Ctrl+K")));
+    // PDF4QT uses Ctrl+K for Options. Reserve the requested LUNA shortcut
+    // for library search while keeping Options available in the menu.
+    if (auto* options = window.findChild<QAction*>(QStringLiteral("actionOptions")))
+        options->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+O")));
     window.addAction(search);
     QObject::connect(search, &QAction::triggered, &window, [dock, library, globalSearch, documents, focus] {
         focus->setChecked(false);
@@ -723,14 +729,31 @@ void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
         bar->setIconSize(QSize(20, 20));
         for (const char* name : {"actionGoToDocumentStart", "actionGoToDocumentEnd",
                                  "actionFitPage", "actionFitHeight",
-                                 "actionSelectTable", "actionMagnifier"}) {
+                                 "actionSelectTable", "actionMagnifier", "actionOptimizeImages",
+                                 "actionCreateTextUnderline", "actionCreateTextStrikeout",
+                                 "actionCreateTextSquiggly", "actionScreenshot", "actionExtractImage"}) {
             if (auto* action = window.findChild<QAction*>(QString::fromLatin1(name)))
                 bar->removeAction(action);
         }
         for (const char* name : {"actionFind", "actionBookmarkPage"}) {
             if (auto* action = window.findChild<QAction*>(QString::fromLatin1(name)))
-                bar->addAction(action);
+                if (!bar->actions().contains(action)) bar->addAction(action);
         }
+        const QList<QPair<QString, QString>> editorLabels = {
+            {QStringLiteral("actionSave"), QStringLiteral("현재 PDF 저장")},
+            {QStringLiteral("actionSave_As"), QStringLiteral("다른 이름으로 저장…")},
+            {QStringLiteral("actionCreateTextHighlight"), QStringLiteral("형광펜")},
+            {QStringLiteral("actionStickyNoteNote"), QStringLiteral("메모")},
+            {QStringLiteral("actionBookmarkPage"), QStringLiteral("페이지 북마크")}
+        };
+        for (const auto& entry : editorLabels)
+            if (auto* action = window.findChild<QAction*>(entry.first)) action->setText(entry.second);
+        if (auto* save = window.findChild<QAction*>(QStringLiteral("actionSave")))
+            save->setToolTip(QStringLiteral("현재 열린 PDF에 주석을 저장합니다 (Ctrl+S). 원본 보존은 다른 이름으로 저장을 사용하세요."));
+        if (auto* saveAs = window.findChild<QAction*>(QStringLiteral("actionSave_As")))
+            saveAs->setToolTip(QStringLiteral("다른 경로에 PDF 복사본을 저장합니다. 이후 저장은 복사본에 적용됩니다."));
+        if (auto* highlight = window.findChild<QAction*>(QStringLiteral("actionCreateTextHighlight")))
+            highlight->setToolTip(QStringLiteral("형광펜 선택 후 본문을 드래그하세요. 기본 PDF4QT 스타일 창에서 색상을 변경할 수 있습니다."));
         const QList<QPair<QString, QString>> modes = {
             {QStringLiteral("actionPageLayoutContinuous"), QStringLiteral("연속 보기")},
             {QStringLiteral("actionPageLayoutSinglePage"), QStringLiteral("한 페이지")},
@@ -792,7 +815,7 @@ void installLibrary(pdfviewer::PDFViewerMainWindow& window) {
     new WindowState(&window);
 }
 
-bool verifyLibraryUi(pdfviewer::PDFViewerMainWindow& window, QString& error) {
+bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error) {
     auto fail = [&error](const char* message) {
         error = QString::fromLatin1(message);
         qWarning("LUNA UI smoke: %s", message);
@@ -818,6 +841,20 @@ bool verifyLibraryUi(pdfviewer::PDFViewerMainWindow& window, QString& error) {
     auto* list = pages->widget(0)->findChild<QListWidget*>();
     if (!list || list->count() != 1) return fail("Synthetic library must contain exactly one PDF");
     auto* item = list->item(0);
+    int searchBindings = 0;
+    const QKeySequence searchKey(QStringLiteral("Ctrl+K"));
+    for (auto* action : window.findChildren<QAction*>())
+        if (action->shortcuts().contains(searchKey)) ++searchBindings;
+    if (searchBindings != 1) return fail("Ctrl+K has missing or conflicting action bindings");
+    auto* draw = window.getProgramController()->getPdfWidget()->getDrawWidget()->getWidget();
+    window.activateWindow();
+    QCoreApplication::processEvents();
+    draw->setFocus();
+    QKeyEvent press(QEvent::KeyPress, Qt::Key_K, Qt::ControlModifier);
+    QKeyEvent release(QEvent::KeyRelease, Qt::Key_K, Qt::ControlModifier);
+    QApplication::sendEvent(draw, &press);
+    QApplication::sendEvent(search, &release);
+    if (!search->hasFocus()) return fail("Native Ctrl+K did not focus library search");
     search->setText(QStringLiteral("LUNA_NO_MATCH_742"));
     if (!item->isHidden()) return fail("Filename filtering did not hide unmatched PDF");
     search->clear();

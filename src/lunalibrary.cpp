@@ -16,6 +16,8 @@
 #include <QCursor>
 #include <QEvent>
 #include <QEventLoop>
+#include <QElapsedTimer>
+#include <QTemporaryDir>
 #include <QFile>
 #include <QFontMetrics>
 #include <QMenu>
@@ -205,9 +207,9 @@ public:
             painter->setPen(QColor(kTHUMB_LINE));
             painter->drawLine(paper.left() + 7, paper.top() + y, paper.right() - 7, paper.top() + y);
         }
-        QFont small = option.font;
-        small.setPointSize(8);
-        painter->setFont(small);
+        QFont captionFont = option.font;
+        captionFont.setPointSize(8);
+        painter->setFont(captionFont);
         painter->setPen(QColor(kBLUE));
         painter->drawText(paper.adjusted(0, 43, 0, 0), Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("PDF"));
         const QFileInfo pdf(index.data(Qt::UserRole).toString());
@@ -232,12 +234,12 @@ public:
         painter->setClipRect(text, Qt::IntersectClip);
         painter->drawText(text, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap | Qt::TextWrapAnywhere, index.data().toString());
         painter->restore();
-        painter->setFont(small);
+        painter->setFont(captionFont);
         painter->setPen(QColor(kMUTED));
         const QString location = index.data(Qt::UserRole + 1).toString();
         painter->drawText(QRect(text.left(), r.top() + 75, qMax(20, r.width() - 94), 18),
             Qt::AlignLeft | Qt::AlignVCenter,
-            QFontMetrics(small).elidedText(location, Qt::ElideMiddle, qMax(20, r.width() - 94)));
+            QFontMetrics(captionFont).elidedText(location, Qt::ElideMiddle, qMax(20, r.width() - 94)));
         painter->setFont(option.font);
         painter->setPen(QColor(index.data(Qt::UserRole + 2).toBool() ? kBLUE : kSTAR_OFF));
         painter->drawText(QRect(r.right() - 30, r.top() + 16, 22, 24), Qt::AlignCenter,
@@ -1328,6 +1330,48 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     beforePdf.close(); beforePng.close();
     if (!wait([&] { return list->count() == 1; })) return fail("Library list did not refresh after movement");
     item = list->item(0); // Folder refresh replaced the previous item.
+    {
+        QTemporaryDir many(pdf.absolutePath() + QStringLiteral("/luna-library-scale-XXXXXX"));
+        if (!many.isValid()) return fail("Cannot create synthetic 1000-PDF library");
+        for (int i = 0; i < 1000; ++i) {
+            const QString name = QStringLiteral("합성 논문 %1").arg(i, 4, 10, QLatin1Char('0'));
+            if (!QFile::copy(path, many.path() + QLatin1Char('/') + name + QStringLiteral(".pdf")))
+                return fail("Cannot create synthetic library fixtures");
+            if (i < 40 && !QFile::copy(thumbnail, many.path() + QLatin1Char('/') + name + QStringLiteral(".luna-thumb.png")))
+                return fail("Cannot create synthetic list thumbnails");
+        }
+        QElapsedTimer heartbeatClock, loadClock;
+        heartbeatClock.start(); loadClock.start();
+        qint64 longestGap = 0;
+        int beats = 0;
+        QTimer heartbeat;
+        QObject::connect(&heartbeat, &QTimer::timeout, &window, [&] {
+            longestGap = qMax(longestGap, heartbeatClock.restart()); ++beats;
+        });
+        heartbeat.start(10);
+        library->selectFolder(many.path());
+        if (!wait([&] { return list->count() == 1000 && !library->folderTimer_->isActive(); }))
+            return fail("1000-PDF library did not finish incremental discovery");
+        const qint64 loadMs = loadClock.elapsed();
+        QElapsedTimer searchClock; searchClock.start();
+        search->setText(QStringLiteral("합성 논문 0999"));
+        int visible = 0;
+        for (int i = 0; i < list->count(); ++i) if (!list->item(i)->isHidden()) ++visible;
+        const qint64 searchMs = searchClock.elapsed();
+        if (visible != 1 || searchMs > 1000) return fail("1000-PDF filename search failed or blocked the UI");
+        search->clear(); list->scrollToBottom();
+        if (!wait([&] { return beats >= 3; })) return fail("Library loading starved GUI events");
+        heartbeat.stop();
+        if (longestGap > 1000) return fail("Library GUI event gap exceeded one second");
+        if (QFileInfo(window.getProgramController()->getOriginalFileName()).canonicalFilePath() != QFileInfo(path).canonicalFilePath())
+            return fail("Library discovery opened an unrelated PDF");
+        qInfo() << "LUNA synthetic 1000-PDF library: load ms" << loadMs
+                << "search ms" << searchMs << "maximum GUI timer gap ms" << longestGap;
+        library->selectFolder(pdf.absolutePath());
+        if (!wait([&] { return list->count() == 1 && !library->folderTimer_->isActive(); }))
+            return fail("Library did not recover after large-folder switching");
+        item = list->item(0);
+    }
     // Drive the same signal/slot used by double-click, including the save guard.
     window.getProgramController()->closeDocument();
     list->itemDoubleClicked(item);

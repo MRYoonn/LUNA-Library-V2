@@ -86,7 +86,8 @@ jobs:
 
       # Public dependency cache only; contains no user documents or authentication data.
       - name: Cache public vcpkg archives
-        uses: actions/cache@v4
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             vcpkg-binary-cache
@@ -124,6 +125,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
           & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows --x-manifest-root="$env:GITHUB_WORKSPACE\pdf4qt" --x-install-root="$env:VCPKG_INSTALLED_DIR" --clean-buildtrees-after-build --clean-packages-after-build
           if ($LASTEXITCODE -ne 0) { throw "vcpkg dependencies failed" }
+
+      # Preserve successfully built public dependencies even if a later native
+      # regression fails. The app, user files and settings are never cached.
+      - name: Save validated public dependencies
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            vcpkg-binary-cache
+            vcpkg/downloads
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4

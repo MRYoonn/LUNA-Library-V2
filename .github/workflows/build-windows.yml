@@ -8,6 +8,10 @@ on:
         description: 'Validate Windows runtime staging without compiling PDF4QT'
         type: boolean
         default: false
+      verify_print_portable:
+        description: 'Check native Ctrl+P in the already validated reader portable build'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +24,9 @@ jobs:
   windows-packaging-preflight:
     runs-on: windows-2022
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,6 +45,19 @@ jobs:
           & ./tools/stage_msvc_runtime.ps1 -Destination $output
           python -B -c "import sys; from pathlib import Path; from tools.verify_portable import is_x64_pe; files=list(Path(sys.argv[1]).glob('*.dll')); assert files and all(is_x64_pe(p) for p in files), 'Invalid x64 CRT files'; print('[PASS] App-local CRT files are Windows x64 PE binaries')" $output
           if ($LASTEXITCODE -ne 0) { throw "CRT binary validation failed" }
+      - name: Download validated reader portable for native print verification
+        if: inputs.verify_print_portable
+        uses: actions/download-artifact@v4
+        with:
+          name: LUNA-Windows-Portable
+          run-id: 40282150131
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/luna-verified-reader
+      - name: Verify native Windows Ctrl+P and Cancel in the validated portable EXE
+        if: inputs.verify_print_portable
+        shell: pwsh
+        run: |
+          & ./tools/probe_print_windows.ps1 -Package "$env:RUNNER_TEMP/luna-verified-reader"
 
   build-windows:
     needs: windows-packaging-preflight

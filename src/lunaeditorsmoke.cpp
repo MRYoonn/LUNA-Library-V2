@@ -309,6 +309,7 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     QTimer editNote;
     QObject::connect(&editNote, &QTimer::timeout, &window, [&] {
         auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dialog) dialog = qobject_cast<QDialog*>(QApplication::activePopupWidget());
         if (!dialog) return;
         if (auto* edit = dialog->findChild<QPushButton*>(QStringLiteral("LunaEditNote"))) {
             sawNote = true; edit->click(); return;

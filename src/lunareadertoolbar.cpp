@@ -170,6 +170,7 @@ private:
             QTimer::singleShot(0, this, [this, state] {
                 if (!state->waiting) return;
                 auto* popup = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+                if (!popup) popup = qobject_cast<QDialog*>(QApplication::activePopupWidget());
                 if (!popup || popup->parentWidget() != draw_ || !popup->windowFlags().testFlag(Qt::Popup) || !popup->layout()) return;
                 auto* button = new QPushButton(QStringLiteral("메모 편집…"), popup);
                 button->setObjectName(QStringLiteral("LunaEditNote")); button->setEnabled(editable_);

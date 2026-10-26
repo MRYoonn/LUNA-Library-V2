@@ -14,6 +14,7 @@
 #include "pdftextlayout.h"
 #include "pdfannotationstyle.h"
 #include "pdfpage.h"
+#include "pdfundoredomanager.h"
 
 #include <QAction>
 #include <QApplication>
@@ -535,6 +536,28 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         return fail("Annotation eraser damaged PDF text");
     int saves = 0;
     if (!waitFor([&] { return action("actionSave")->isEnabled() && window.isEnabled(); })) return fail("Native save remained busy after erasing");
+#ifdef Q_OS_WIN
+    checkpoint("Reader phase: locked-file save failure preserves disk and unsaved edits");
+    const QByteArray beforeFailedSave = readFile(saved);
+    auto* undoState = controller->findChild<pdfviewer::PDFUndoRedoManager*>();
+    if (!undoState || undoState->isCurrentSaved()) return fail("Save-failure fixture has no unsaved edits");
+    const HANDLE locked = CreateFileW(reinterpret_cast<LPCWSTR>(saved.utf16()), GENERIC_READ,
+        FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (locked == INVALID_HANDLE_VALUE) return fail("Cannot lock synthetic save-failure target");
+    bool sawSaveError = false;
+    QTimer dismissError;
+    QObject::connect(&dismissError, &QTimer::timeout, &window, [&] {
+        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+            sawSaveError = box->icon() == QMessageBox::Critical;
+            box->accept();
+        }
+    });
+    dismissError.start(30); widget->setFocus(); key(widget,Qt::Key_S,Qt::ControlModifier); dismissError.stop();
+    CloseHandle(locked);
+    if (!sawSaveError || readFile(saved) != beforeFailedSave || undoState->isCurrentSaved() ||
+        annotations(pdf::AnnotationType::Highlight) != 0 || annotations(pdf::AnnotationType::Text) != 1)
+        return fail("Native failed save lost original bytes or unsaved annotation state");
+#endif
     const auto saveConnection = QObject::connect(action("actionSave"), &QAction::triggered, &window, [&] { ++saves; });
     widget->setFocus(); key(widget, Qt::Key_S, Qt::ControlModifier);
     QObject::disconnect(saveConnection);

@@ -284,6 +284,11 @@ jobs:
           python -B tools/smoke_windows.py LUNA-Windows-Portable --layout-only --scale 1.5 --screenshots-directory "$env:RUNNER_TEMP/luna-ui/scale150"
           if ($LASTEXITCODE -ne 0) { throw "Native Qt 150 percent layout failed" }
 
+      - name: Record validation scope in the portable package
+        shell: pwsh
+        run: |
+          @{ product = 'LUNA Library V2'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ pythonTests = 35; nativeQtTests = 4; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = 'pinned CC BY PLOS paper passed'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
+
       - name: Upload synthetic native UI screenshots
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

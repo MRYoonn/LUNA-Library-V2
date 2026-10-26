@@ -2,6 +2,7 @@
 // LUNA Library V2 UI overlay. PDF rendering remains upstream PDF4QT.
 #include "lunalibrary.h"
 #include "lunathumbnailcache.h"
+#include "lunafilemove.h"
 #include "lunareadertoolbar.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -750,15 +751,82 @@ private:
             auto* favorite = menu.addAction(item->data(Qt::UserRole + 2).toBool() ? QStringLiteral("즐겨찾기 해제") : QStringLiteral("즐겨찾기 추가"));
             auto* crop = menu.addAction(QStringLiteral("현재 PDF의 썸네일 지정…"));
             crop->setEnabled(QFileInfo(path).canonicalFilePath() == QFileInfo(viewer_->getProgramController()->getOriginalFileName()).canonicalFilePath());
+            auto* move = menu.addAction(QStringLiteral("PDF와 썸네일 이동…"));
             auto* chosen = menu.exec(list->viewport()->mapToGlobal(point));
             if (chosen == favorite) toggleFavorite(path);
             else if (chosen == crop) startThumbnailCrop();
+            else if (chosen == move) moveDocument(path);
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
             if (list->viewport()->mapFromGlobal(QCursor::pos()).x() >= list->viewport()->width() - 36)
                 toggleFavorite(item->data(Qt::UserRole).toString());
         });
         return list;
+    }
+    void moveDocument(const QString& path) {
+        const QString destination = QFileDialog::getExistingDirectory(this,
+            QStringLiteral("PDF와 썸네일 이동 · 같은 드라이브의 대상 폴더"), QFileInfo(path).absolutePath());
+        if (destination.isEmpty()) return;
+        moveDocumentTo(path, destination);
+    }
+    void moveDocumentTo(const QString& path, const QString& destination) {
+        const QString source = QFileInfo(path).canonicalFilePath();
+        if (source.isEmpty()) return;
+        auto* controller = viewer_->getProgramController();
+        const bool opened = controller->getDocument() &&
+            QFileInfo(controller->getOriginalFileName()).canonicalFilePath() == source;
+        int page = 0;
+        double zoom = 2.0;
+        if (opened) {
+            if (!viewer_->isEnabled() || !controller->canClose()) return;
+            if (!controller->askForSaveDocumentBeforeClose()) return;
+            // Save As may have changed the current document while prompting.
+            // Do not close or relocate a different document under the old name.
+            if (QFileInfo(controller->getOriginalFileName()).canonicalFilePath() != source) {
+                QMessageBox::information(this, QStringLiteral("이동 취소"),
+                    QStringLiteral("저장한 문서의 경로가 변경되었습니다. 이동할 파일을 다시 선택해 주세요."));
+                return;
+            }
+            const auto currentPages = controller->getPdfWidget()->getDrawWidget()->getCurrentPages();
+            if (!currentPages.empty()) page = int(currentPages.front());
+            zoom = controller->getPdfWidget()->getDrawWidgetProxy()->getZoom();
+            if (cropOverlay_) cropOverlay_->close();
+            controller->closeDocument();
+        }
+        hideThumbnail();
+        const auto result = movePdfWithThumbnails(source, destination);
+        if (result.success) {
+            QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+            for (const QString& key : {QStringLiteral("library/favorites"), QStringLiteral("library/recent")}) {
+                QStringList paths = settings.value(key).toStringList();
+                for (QString& value : paths) if (value == source) value = result.documentPath;
+                paths.removeDuplicates();
+                settings.setValue(key, paths);
+            }
+            const auto favorites = savedPaths(QStringLiteral("library/favorites"));
+            favorites_ = QSet<QString>(favorites.cbegin(), favorites.cend());
+            ThumbnailCache::instance()->invalidate();
+            allTimer_->stop(); allIterator_.reset(); allScanned_ = false; allPdfs_->clear();
+            selectFolder(current_);
+            if (pages_->currentIndex() == 1) scanAll();
+            else if (pages_->currentIndex() == 2) showHistory(showingFavorites_);
+        }
+        if (opened) {
+            controller->openDocument(result.documentPath);
+            auto* restore = new QTimer(this);
+            connect(restore, &QTimer::timeout, this, [this, restore, target = result.documentPath, page, zoom, attempts = 0]() mutable {
+                auto* c = viewer_->getProgramController();
+                if (++attempts > 200) { restore->stop(); restore->deleteLater(); return; }
+                if (!viewer_->isEnabled() || !c->getDocument()) return;
+                if (QFileInfo(c->getOriginalFileName()).canonicalFilePath() == QFileInfo(target).canonicalFilePath()) {
+                    c->getPdfWidget()->getDrawWidgetProxy()->zoom(zoom);
+                    c->getPdfWidget()->getDrawWidgetProxy()->goToPage(page);
+                }
+                restore->stop(); restore->deleteLater();
+            });
+            restore->start(50);
+        }
+        if (!result.success) QMessageBox::warning(this, QStringLiteral("파일 이동 실패"), result.error);
     }
     void filter(QListWidget* list, const QString& word) {
         for (int i = 0; i < list->count(); ++i) {
@@ -1231,6 +1299,35 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     QCoreApplication::processEvents();
     if (library->thumbnailPopup_->isVisible() || !library->hoverRequest_.isEmpty())
         return fail("Cancelled hover request resurfaced");
+    // Move the opened synthetic document out and back. The real controller
+    // releases/reopens it; both original PDF bytes and the sidecar must survive.
+    QFile beforePdf(path), beforePng(thumbnail);
+    if (!beforePdf.open(QIODevice::ReadOnly) || !beforePng.open(QIODevice::ReadOnly))
+        return fail("Cannot read move verification fixtures");
+    const QByteArray pdfBytes = beforePdf.readAll(), pngBytes = beforePng.readAll();
+    beforePdf.close(); beforePng.close();
+    const QString movedFolder = pdf.absolutePath() + QStringLiteral("/Synthetic examples");
+    const QString movedPath = QDir(movedFolder).filePath(pdf.fileName());
+    const QString movedThumbnail = QDir(movedFolder).filePath(QFileInfo(thumbnail).fileName());
+    auto reopened = [&](const QString& expectedPath) {
+        return wait([&] {
+            auto* c = window.getProgramController();
+            return window.isEnabled() && c->getDocument() &&
+                QFileInfo(c->getOriginalFileName()).canonicalFilePath() == QFileInfo(expectedPath).canonicalFilePath();
+        });
+    };
+    library->moveDocumentTo(path, movedFolder);
+    if (!reopened(movedPath) || QFileInfo::exists(path) || QFileInfo::exists(thumbnail) || !QFileInfo::exists(movedThumbnail))
+        return fail("Opened PDF and sidecar did not move/reopen together");
+    library->moveDocumentTo(movedPath, pdf.absolutePath());
+    if (!reopened(path) || QFileInfo::exists(movedPath) || QFileInfo::exists(movedThumbnail))
+        return fail("Opened PDF did not return to its library folder");
+    if (!beforePdf.open(QIODevice::ReadOnly) || !beforePng.open(QIODevice::ReadOnly) ||
+        beforePdf.readAll() != pdfBytes || beforePng.readAll() != pngBytes)
+        return fail("PDF/thumbnail bytes changed during paired movement");
+    beforePdf.close(); beforePng.close();
+    if (!wait([&] { return list->count() == 1; })) return fail("Library list did not refresh after movement");
+    item = list->item(0); // Folder refresh replaced the previous item.
     // Drive the same signal/slot used by double-click, including the save guard.
     window.getProgramController()->closeDocument();
     list->itemDoubleClicked(item);

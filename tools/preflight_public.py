@@ -16,6 +16,7 @@ APPROVED = {
     "tools/stage_msvc_runtime.ps1",
     "src/lunalibrary.qss",
     "src/lunaeditorsmoke.cpp", "src/lunaeditorsmoke.h",
+    "src/lunasavedialog.h", "tests/native_dialog/CMakeLists.txt", "tests/native_dialog/main.cpp",
 }
 FORBIDDEN = [
     ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)),

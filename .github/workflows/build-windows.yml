@@ -150,6 +150,17 @@ jobs:
           cache: 'false'
           aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
 
+      - name: Test native Save As dialog before compiling the PDF engine
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'luna-dialog-build'
+          cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw "Native dialog probe configuration failed" }
+          cmake --build $probe --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Native dialog probe compile failed" }
+          ctest --test-dir $probe -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw "Native dialog probe failed; PDF engine build not started" }
+
       - name: Configure native Windows build
         shell: pwsh
         run: |

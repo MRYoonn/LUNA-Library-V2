@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Drives native Editor actions and widget events; no alternate PDF renderer.
 #include "lunaeditorsmoke.h"
+#include "lunasavedialog.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
 #include "pdfdrawwidget.h"
@@ -162,20 +163,11 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!waitFor([&] { return saveAs->isEnabled() && window.isEnabled(); }))
         return fail("Native Save As action remained unavailable");
     bool choseCopy = false;
+    QString selectionError;
     QTimer chooseFile;
     QObject::connect(&chooseFile, &QTimer::timeout, &window, [&] {
         if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
-            // selectFile() intentionally leaves a focused, visible filename
-            // editor unchanged. Fill the actual native Qt dialog input, then
-            // verify its selected path before accepting any write operation.
-            auto* filename = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
-            if (!filename) { dialog->reject(); return; }
-            dialog->setDirectory(QFileInfo(saved).absolutePath());
-            filename->setText(QFileInfo(saved).fileName());
-            const auto selected = dialog->selectedFiles();
-            choseCopy = selected.size() == 1 &&
-                QDir::cleanPath(QFileInfo(selected.front()).absoluteFilePath()) ==
-                QDir::cleanPath(QFileInfo(saved).absoluteFilePath());
+            choseCopy = selectSyntheticCopy(*dialog, saved, selectionError);
             if (!choseCopy) { dialog->reject(); return; }
             QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
         }
@@ -183,10 +175,10 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     chooseFile.start(50);
     saveAs->trigger();
     chooseFile.stop();
-    if (!choseCopy) return fail("Native Save As dialog did not select the temporary copy path");
+    if (!choseCopy) { error = selectionError.isEmpty() ? QStringLiteral("Native Save As did not open its dialog") : selectionError; return false; }
     if (!QFileInfo::exists(saved)) return fail("Native Save As returned without the expected PDF copy");
     if (readFile(saved).isEmpty()) return fail("Native Save As wrote an empty PDF copy");
-    if (QFileInfo(controller->getOriginalFileName()).canonicalFilePath() != QFileInfo(saved).canonicalFilePath())
+    if (!sameExistingFile(controller->getOriginalFileName(), saved))
         return fail("Native Save As did not switch the current document to the copy");
     if (readFile(original) != originalBytes) return fail("Save As modified synthetic original");
     select->trigger(); // Close the highlighter style window before layout captures.

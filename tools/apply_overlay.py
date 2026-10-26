@@ -200,6 +200,7 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "lunalibrary.cpp": (own / "lunalibrary.cpp").read_bytes(),
         folder / "lunaeditorsmoke.cpp": (own / "lunaeditorsmoke.cpp").read_bytes(),
         folder / "lunaeditorsmoke.h": (own / "lunaeditorsmoke.h").read_bytes(),
+        folder / "lunasavedialog.h": (own / "lunasavedialog.h").read_bytes(),
         folder / "lunalibrary.h": (own / "lunalibrary.h").read_bytes(),
         folder / "lunalibrary.qss": (own / "lunalibrary.qss").read_bytes(),
         folder / "luna_resources.qrc": b'<RCC><qresource prefix="/luna"><file>lunalibrary.qss</file></qresource></RCC>\n',

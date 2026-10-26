@@ -109,6 +109,7 @@ public:
         connect(controller->getToolManager(), &pdf::PDFToolManager::documentModified, this, afterAnnotation);
         connect(controller->getPdfWidget()->getAnnotationManager(), &pdf::PDFWidgetAnnotationManager::documentModified, this, afterAnnotation);
         connect(&window_, &QWidget::windowTitleChanged, this, [this] {
+            target_ = {}; // A document/title transition cancels an unfinished click.
             QTimer::singleShot(0, this, [this] {
                 auto* c = window_.getProgramController();
                 if (c->getDocument() && !c->getToolManager()->getActiveTool()) selectText();
@@ -146,8 +147,9 @@ private:
     }
     bool eventFilter(QObject* object, QEvent* event) override {
         if (object != draw_) return false;
-        if (event->type() == QEvent::KeyRelease && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
-            selectText(); return false;
+        if ((event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) &&
+            static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
+            target_ = {}; selectText(); return false;
         }
         if (event->type() == QEvent::MouseButtonPress) {
             auto* mouse = static_cast<QMouseEvent*>(event);
@@ -161,6 +163,7 @@ private:
             auto* mouse = static_cast<QMouseEvent*>(event);
             const auto reference = target_; target_ = {};
             if (mouse->button() != Qt::LeftButton || (mouse->pos() - press_).manhattanLength() >= QApplication::startDragDistance()) return true;
+            if (!checked(deleting_ ? "actionDeleteAnnotation" : "actionSelectText")) return true;
             auto* c = window_.getProgramController(); auto* manager = c->getPdfWidget()->getAnnotationManager();
             manager->selectAnnotation(reference, true);
             if (deleting_) { manager->deleteSelectedAnnotations(); selectText(); return true; }

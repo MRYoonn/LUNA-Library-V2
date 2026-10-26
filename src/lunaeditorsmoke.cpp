@@ -384,6 +384,12 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     checkpoint("Reader phase: annotation-only deletion and Ctrl+S persistence");
     proxy->zoom(1.0); proxy->goToPage(0);
     if (!waitFor([&] { return select->isChecked(); })) return fail("Default selection missing after reopen");
+    click(action("actionDeleteAnnotation"));
+    const QPoint cancelPoint = annotationPoint(pdf::AnnotationType::Text);
+    mouse(widget,QEvent::MouseButtonPress,cancelPoint,Qt::LeftButton,Qt::LeftButton);
+    key(widget,Qt::Key_Escape,Qt::NoModifier);
+    mouse(widget,QEvent::MouseButtonRelease,cancelPoint,Qt::LeftButton,Qt::NoButton);
+    if (annotations(pdf::AnnotationType::Text) != 1 || !select->isChecked()) return fail("Escape did not cancel annotation deletion before mouse release");
     auto erase = [&](pdf::AnnotationType type) {
         click(action("actionDeleteAnnotation"));
         const QPoint point = annotationPoint(type);

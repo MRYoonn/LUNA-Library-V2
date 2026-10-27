@@ -18,6 +18,7 @@
 #include <QApplication>
 #include <QAbstractButton>
 #include <QDateTime>
+#include <QCryptographicHash>
 #include <QDebug>
 #include <QCursor>
 #include <QEvent>
@@ -200,6 +201,10 @@ private:
     bool selecting_ = false;
 };
 
+QString openedDateKey(const QString& path) {
+    return QString::fromLatin1(QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+
 class DocumentCard final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
@@ -241,17 +246,20 @@ public:
         title.setBold(true);
         painter->setFont(title);
         painter->setPen(QColor(kNAVY));
-        const QRect text(r.left() + 74, r.top() + 14, qMax(20, r.width() - 112), 52);
+        const QRect text(r.left() + 74, r.top() + 14, qMax(20, r.width() - 112), 40);
         painter->save();
         painter->setClipRect(text, Qt::IntersectClip);
         painter->drawText(text, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap | Qt::TextWrapAnywhere, index.data().toString());
         painter->restore();
         painter->setFont(captionFont);
         painter->setPen(QColor(kMUTED));
-        const QString location = index.data(Qt::UserRole + 1).toString();
-        painter->drawText(QRect(text.left(), r.top() + 75, qMax(20, r.width() - 94), 18),
+        painter->drawText(QRect(text.left(), r.top() + 58, qMax(20, r.width() - 94), 18),
+            Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("저널·연도 미확인"));
+        const QString opened = index.data(Qt::UserRole + 3).toString();
+        const QString metadata = (opened.isEmpty() ? QStringLiteral("열람 기록 없음") : opened) + QStringLiteral(" / 저자 미확인");
+        painter->drawText(QRect(text.left(), r.top() + 78, qMax(20, r.width() - 94), 18),
             Qt::AlignLeft | Qt::AlignVCenter,
-            QFontMetrics(captionFont).elidedText(location, Qt::ElideMiddle, qMax(20, r.width() - 94)));
+            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, qMax(20, r.width() - 94)));
         painter->setFont(option.font);
         painter->setPen(QColor(index.data(Qt::UserRole + 2).toBool() ? kBLUE : kSTAR_OFF));
         painter->drawText(QRect(r.right() - 30, r.top() + 16, 22, 24), Qt::AlignCenter,
@@ -427,6 +435,9 @@ public:
         setObjectName(QStringLiteral("LunaLibraryPanel"));
         const QStringList favoritePaths = savedPaths(QStringLiteral("library/favorites"));
         favorites_ = QSet<QString>(favoritePaths.cbegin(), favoritePaths.cend());
+        QSettings dates(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        dates.beginGroup(QStringLiteral("library/openedDates"));
+        for (const QString& key : dates.childKeys()) openedDates_.insert(key, dates.value(key).toString());
         setMinimumWidth(510);
         auto* layout = new QHBoxLayout(this);
         layout->setContentsMargins(0, 0, 0, 0);
@@ -680,6 +691,8 @@ private:
         const QString location = QDir(root_).relativeFilePath(QFileInfo(path).absolutePath());
         item->setData(Qt::UserRole + 1, location == QStringLiteral(".") ? QStringLiteral("라이브러리 폴더 · PDF") : location);
         item->setData(Qt::UserRole + 2, favorites_.contains(path));
+        const QDateTime opened = QDateTime::fromString(openedDates_.value(openedDateKey(path)), Qt::ISODate);
+        item->setData(Qt::UserRole + 3, opened.isValid() ? opened.toLocalTime().date().toString(QStringLiteral("yy.MM.dd.")) : QString());
         item->setToolTip(path);
     }
     void toggleFavorite(const QString& path) {
@@ -724,6 +737,14 @@ private:
         recent.prepend(path);
         while (recent.size() > 100) recent.removeLast();
         QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).setValue(QStringLiteral("library/recent"), recent);
+        const QString opened = QDateTime::currentDateTime().toString(Qt::ISODate);
+        const QString key = openedDateKey(path);
+        openedDates_.insert(key, opened);
+        QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+            .setValue(QStringLiteral("library/openedDates/") + key, opened);
+        for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_})
+            for (int row = 0; row < list->count(); ++row)
+                if (list->item(row)->data(Qt::UserRole).toString() == path) decorate(list->item(row), path);
         // Reuse the native PDF4QT draw-space controller: no replacement renderer.
         auto* proxy = controller->getPdfWidget()->getDrawWidgetProxy();
         proxy->setPageLayout(pdf::PageLayout::OneColumn);
@@ -1032,6 +1053,13 @@ private:
                 paths.removeDuplicates();
                 settings.setValue(key, paths);
             }
+            const QString oldDateKey = openedDateKey(source), newDateKey = openedDateKey(result.documentPath);
+            const QString date = settings.value(QStringLiteral("library/openedDates/") + oldDateKey).toString();
+            if (!date.isEmpty() && oldDateKey != newDateKey) {
+                settings.setValue(QStringLiteral("library/openedDates/") + newDateKey, date);
+                settings.remove(QStringLiteral("library/openedDates/") + oldDateKey);
+                openedDates_.remove(oldDateKey); openedDates_.insert(newDateKey, date);
+            }
             const auto favorites = savedPaths(QStringLiteral("library/favorites"));
             favorites_ = QSet<QString>(favorites.cbegin(), favorites.cend());
             ThumbnailCache::instance()->invalidate();
@@ -1211,6 +1239,7 @@ private:
     QLabel* historyCount_ = nullptr;
     bool showingFavorites_ = false;
     QString lastOpened_;
+    QHash<QString, QString> openedDates_;
     QSet<QString> favorites_;
     QFileSystemModel* model_ = nullptr;
     QTreeView* tree_ = nullptr;
@@ -1534,6 +1563,8 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     history = pages->currentWidget()->findChild<QListWidget*>();
     if (!history || history->count() != 1 || history->item(0)->data(Qt::UserRole).toString() != path)
         return fail("Successful PDF open not recorded in recent history");
+    if (history->item(0)->data(Qt::UserRole + 3).toString() != QDate::currentDate().toString(QStringLiteral("yy.MM.dd.")))
+        return fail("Successful open did not record the actual local-calendar date");
     folderButton->click();
     const QList<QPair<QString, QWidget*>> toggles = {
         {QStringLiteral("LunaToggleNavigation"), navigation}, {QStringLiteral("LunaToggleDocuments"), documents},

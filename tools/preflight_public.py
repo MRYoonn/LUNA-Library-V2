@@ -7,6 +7,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "experiments/tab_host/main.cpp", "experiments/tab_host/CMakeLists.txt",
+    "experiments/tab_host/README.md", "tools/probe_tab_host_windows.py",
     "README.md", "SECURITY_POLICY.md", "LICENSE_NOTICE.md", ".gitignore",
     "USER_GUIDE_KO.md",
     ".github/workflows/build-windows.yml",

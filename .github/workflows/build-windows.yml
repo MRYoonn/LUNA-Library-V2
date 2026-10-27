@@ -4,6 +4,10 @@ name: LUNA Library V2 - PDF4QT Windows Portable
 on:
   workflow_dispatch:
     inputs:
+      tab_host_source_run:
+        description: 'Experimental host only: successful full Beta Windows source run ID'
+        type: string
+        default: ''
       native_probes_only:
         description: 'Run standalone native Qt probes without compiling the PDF engine'
         type: boolean
@@ -96,7 +100,7 @@ jobs:
 
   build-windows:
     needs: windows-packaging-preflight
-    if: ${{ !inputs.packaging_preflight_only && !inputs.native_probes_only }}
+    if: ${{ !inputs.packaging_preflight_only && !inputs.native_probes_only && !inputs.tab_host_source_run }}
     runs-on: windows-2022
     timeout-minutes: 180
     env:
@@ -304,4 +308,60 @@ jobs:
           name: LUNA-Windows-Portable
           path: LUNA-Windows-Portable/
           retention-days: 7
+          if-no-files-found: error
+
+  tab-host-experiment:
+    needs: windows-packaging-preflight
+    if: inputs.tab_host_source_run
+    permissions:
+      contents: read
+      actions: read
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require a successful full Windows source build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.tab_host_source_run }}
+        run: |
+          if ($env:SOURCE_RUN -notmatch '^\d+$') { throw 'Invalid run ID' }
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN" | ConvertFrom-Json
+          if ($run.conclusion -ne 'success' -or $run.head_branch -ne 'feature/windows-beta-v0.1' -or $run.path -ne '.github/workflows/build-windows.yml') { throw 'Source must be a successful Beta-branch Windows workflow' }
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          $run | Select-Object id,head_sha,html_url,conclusion | ConvertTo-Json | Set-Content evidence/source-build.json
+          python -B tools/preflight_public.py
+          if ($LASTEXITCODE -ne 0) { throw 'Source gate failed' }
+      - uses: actions/download-artifact@v4
+        with:
+          name: LUNA-Windows-Portable
+          run-id: ${{ inputs.tab_host_source_run }}
+          github-token: ${{ github.token }}
+          path: portable
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          cache: 'false'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Compile isolated host and compare native embedding
+        shell: pwsh
+        run: |
+          cmake -S experiments/tab_host -B tab-host-build -G 'Visual Studio 17 2022' -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Host configuration failed' }
+          cmake --build tab-host-build --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Host compile failed' }
+          python -B tools/probe_tab_host_windows.py --host tab-host-build/Release/luna-tab-host.exe --package portable --output evidence
+          if ($LASTEXITCODE -ne 0) { throw 'Embedding lifecycle failed; POC not accepted' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-tab-host-experimental-evidence
+          path: evidence
           if-no-files-found: error

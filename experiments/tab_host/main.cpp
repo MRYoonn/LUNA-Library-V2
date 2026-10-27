@@ -141,8 +141,10 @@ private:
     void finish(bool basic, const QString& detail) {
         QJsonObject result{{"method", qt_ ? "qt-container" : "win32-parent"},
             {"embeddingLifecycle", basic ? "passed" : "failed"}, {"detail", detail},
-            {"pocAccepted", false}, {"annotationIsolation", "unverified"},
+            {"pocAccepted", false}, {"childCrashIsolation", basic ? "passed" : "unverified"},
+            {"annotationIsolation", "unverified"},
             {"keyboardFocusAndDialogs", "unverified"}, {"physicalDpi", "unverified"}};
+        grab().save(report_ + QStringLiteral(".final.png"));
         QSaveFile file(report_);
         if (!file.open(QIODevice::WriteOnly) || file.write(QJsonDocument(result).toJson()) < 0 || !file.commit()) {
             qCritical("Cannot write experimental evidence");
@@ -181,17 +183,17 @@ private:
         } else if (phase_ == 20) {
             grab().save(report_ + QStringLiteral(".png"));
             // Only read-only fixtures are used by the automated driver.
-            PostMessageW(documents_[0].handle, WM_CLOSE, 0, 0);
+            documents_[0].process->kill(); // Intentional crash of driver-owned synthetic A.
             ++phase_;
         } else if (phase_ == 21 && documents_[0].process->state() == QProcess::NotRunning) {
-            if (documents_[0].process->exitCode() != 0 || documents_[1].process->state() != QProcess::Running) {
-                finish(false, QStringLiteral("Clean child close affected another document")); return;
+            if (documents_[0].process->exitStatus() != QProcess::CrashExit || documents_[1].process->state() != QProcess::Running) {
+                finish(false, QStringLiteral("Child crash affected another document or did not terminate as expected")); return;
             }
             tabs_->setCurrentIndex(1);
             PostMessageW(documents_[1].handle, WM_CLOSE, 0, 0);
             ++phase_;
         } else if (phase_ == 22 && documents_[1].process->state() == QProcess::NotRunning) {
-            finish(documents_[1].process->exitCode() == 0, QStringLiteral("Two real document processes embedded, resized, switched and closed; interaction gates still required"));
+            finish(documents_[1].process->exitStatus() == QProcess::NormalExit && documents_[1].process->exitCode() == 0, QStringLiteral("Two document processes embedded, resized and switched; synthetic A crash isolated and B closed normally; interaction gates still required"));
         }
     }
     std::array<Document, 2> documents_;

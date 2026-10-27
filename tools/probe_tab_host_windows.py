@@ -54,7 +54,7 @@ def run(host, package, output):
             break
     (output / "summary.json").write_text(json.dumps({"pocAccepted": False, "runs": results,
         "remaining": ["real keyboard and pointer input", "focus and Alt+Tab", "annotation isolation",
-                      "save and reopen", "modal dialogs", "unsaved close cancel", "child crash", "physical OS DPI"]},
+                      "save and reopen", "modal dialogs", "unsaved close cancel", "physical OS DPI"]},
         ensure_ascii=False, indent=2), encoding="utf-8")
     if len(results) != 6 or any(r["exitCode"] != 0 or not r["sourceBytesUnchanged"] for r in results):
         raise RuntimeError("Embedding lifecycle comparison failed; full POC remains unaccepted")

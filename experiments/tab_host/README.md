@@ -21,10 +21,12 @@ foreign-window destruction, modal ownership and focus remain acceptance risks.
 
 The synthetic-only Python driver compares Qt `fromWinId/createWindowContainer`
 and Win32 `SetParent` at Qt scale 1/1.25/1.5. It records actual screenshots,
-source-byte preservation, tab switching, resizing, and clean child close.
+source-byte preservation, tab switching, resizing, deliberate crash of synthetic
+A while B survives, and clean close of B. Only the synthetic automatic driver
+may exercise the deliberate crash; never use --report with user documents.
 A lifecycle success is **not POC success**: every report says `pocAccepted:false`.
 Do not convert that flag until native input, Alt+Tab, shortcuts, annotation/save
-isolation, native dialogs, close/save/discard/cancel and child crash tests pass.
+isolation, native dialogs, close/save/discard/cancel tests pass.
 Physical Windows monitor DPI is distinct from Qt scale factors.
 
 Do not ship this experiment or substitute tab buttons that merely activate

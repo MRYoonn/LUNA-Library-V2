@@ -4,6 +4,10 @@ name: LUNA Library V2 - PDF4QT Windows Portable
 on:
   workflow_dispatch:
     inputs:
+      native_tabs_proof:
+        description: 'Isolated native-session architecture proof; never release portable'
+        type: boolean
+        default: false
       tab_host_source_run:
         description: 'Experimental host only: successful full Beta Windows source run ID'
         type: string
@@ -170,6 +174,13 @@ jobs:
           python tools/apply_overlay.py pdf4qt
           if ($LASTEXITCODE -ne 0) { throw "LUNA patch failed" }
 
+      - name: Apply opt-in native session proof
+        if: ${{ inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          python -B experiments/native_tabs/prepare.py pdf4qt
+          if ($LASTEXITCODE -ne 0) { throw "Native session source gate failed" }
+
       - name: Identify the Windows compiler image for dependency caching
         id: compiler-image
         shell: pwsh
@@ -286,7 +297,7 @@ jobs:
       # Cache before any PDF is opened: public compiler outputs only. Every
       # restored build still configures, compiles and runs the complete gates.
       - name: Save public engine compilation cache
-        if: steps.engine-cache.outputs.cache-hit != 'true'
+        if: ${{ !inputs.native_tabs_proof && steps.engine-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: pdf4qt/build
@@ -319,6 +330,27 @@ jobs:
           if ($private.Count -gt 0) { throw "Sensitive artifact blocked" }
           Get-FileHash "$output/LUNA.exe" -Algorithm SHA256 | Format-List
 
+      - name: Execute native two-document session acceptance
+        if: ${{ inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          $exe = @(Get-ChildItem pdf4qt/build -Recurse -Filter LunaNativeTabs.exe -File)
+          if ($exe.Count -ne 1) { throw 'Expected one native proof executable' }
+          $proof = Join-Path $env:RUNNER_TEMP 'luna-native-proof-package'
+          Copy-Item LUNA-Windows-Portable $proof -Recurse
+          Copy-Item $exe[0].FullName (Join-Path $proof 'LunaNativeTabs.exe')
+          python -B experiments/native_tabs/run_windows.py "$proof/LunaNativeTabs.exe" "$env:RUNNER_TEMP/luna-native-tabs-evidence"
+          if ($LASTEXITCODE -ne 0) { throw 'Native runtime acceptance failed; compilation is not success' }
+
+      - name: Upload native session evidence even on failure
+        if: ${{ always() && inputs.native_tabs_proof }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-native-tabs-evidence
+          path: ${{ runner.temp }}/luna-native-tabs-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Verify portable package layout
         shell: pwsh
         run: |
@@ -347,9 +379,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Native Qt 150 percent layout failed" }
 
       - name: Record validation scope in the portable package
+        if: ${{ !inputs.native_tabs_proof }}
         shell: pwsh
         run: |
-          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ pythonTests = 35; nativeQtTests = 5; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
+          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ pythonTests = 38; nativeQtTests = 5; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
       - name: Upload synthetic native UI screenshots
         if: ${{ !cancelled() }}
@@ -361,6 +394,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload LUNA Windows portable artifact
+        if: ${{ !inputs.native_tabs_proof }}
         uses: actions/upload-artifact@v4
         with:
           name: LUNA-Windows-Portable

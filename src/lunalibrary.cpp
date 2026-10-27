@@ -209,7 +209,36 @@ QString openedDateKey(const QString& path) {
 class DocumentCard final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
-    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {300, 104}; }
+    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {300, 132}; }
+    std::function<void(const QString&, const QString&)> saveMemo;
+    static QRect memoRect(const QRect& r) { return QRect(r.left() + 74, r.top() + 103, qMax(20, r.width() - 94), 24); }
+    QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
+        auto* editor = new QLineEdit(parent);
+        editor->setObjectName(QStringLiteral("LunaPaperMemoEditor"));
+        editor->setPlaceholderText(QStringLiteral("논문 한 줄 메모"));
+        editor->setAccessibleName(QStringLiteral("논문 한 줄 메모"));
+        return editor;
+    }
+    void setEditorData(QWidget* editor, const QModelIndex& index) const override {
+        auto* input = static_cast<QLineEdit*>(editor);
+        input->setText(index.data(Qt::UserRole + 4).toString()); input->selectAll();
+    }
+    void setModelData(QWidget* editor, QAbstractItemModel*, const QModelIndex& index) const override {
+        if (saveMemo) saveMemo(index.data(Qt::UserRole).toString(), static_cast<QLineEdit*>(editor)->text());
+    }
+    void updateEditorGeometry(QWidget* editor, const QStyleOptionViewItem& option, const QModelIndex&) const override {
+        editor->setGeometry(memoRect(option.rect));
+    }
+    bool editorEvent(QEvent* event, QAbstractItemModel* model, const QStyleOptionViewItem& option, const QModelIndex& index) override {
+        if (event->type() == QEvent::MouseButtonRelease || event->type() == QEvent::MouseButtonDblClick) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+            if (mouse->button() == Qt::LeftButton && memoRect(option.rect).contains(mouse->position().toPoint())) {
+                if (auto* view = qobject_cast<QAbstractItemView*>(parent())) view->edit(index);
+                return true;
+            }
+        }
+        return QStyledItemDelegate::editorEvent(event, model, option, index);
+    }
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
         painter->save();
         const QRect r = option.rect;
@@ -261,6 +290,11 @@ public:
         painter->drawText(QRect(text.left(), r.top() + 78, qMax(20, r.width() - 94), 18),
             Qt::AlignLeft | Qt::AlignVCenter,
             QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, qMax(20, r.width() - 94)));
+        const QString memo = index.data(Qt::UserRole + 4).toString();
+        painter->setPen(QColor(memo.isEmpty() ? kMUTED : kBLUE));
+        const QRect note = memoRect(r);
+        painter->drawText(note, Qt::AlignLeft | Qt::AlignVCenter,
+            QFontMetrics(captionFont).elidedText(memo.isEmpty() ? QStringLiteral("+ 메모 추가") : memo, Qt::ElideRight, note.width()));
         painter->setFont(option.font);
         painter->setPen(QColor(index.data(Qt::UserRole + 2).toBool() ? kBLUE : kSTAR_OFF));
         painter->drawText(QRect(r.right() - 30, r.top() + 16, 22, 24), Qt::AlignCenter,
@@ -409,6 +443,8 @@ public:
         QSettings dates(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
         dates.beginGroup(QStringLiteral("library/openedDates"));
         for (const QString& key : dates.childKeys()) openedDates_.insert(key, dates.value(key).toString());
+        dates.endGroup(); dates.beginGroup(QStringLiteral("library/memos"));
+        for (const QString& key : dates.childKeys()) memos_.insert(key, dates.value(key).toString());
         setMinimumWidth(510);
         auto* layout = new QHBoxLayout(this);
         layout->setContentsMargins(0, 0, 0, 0);
@@ -667,7 +703,28 @@ private:
         item->setData(Qt::UserRole + 2, favorites_.contains(path));
         const QDateTime opened = QDateTime::fromString(openedDates_.value(openedDateKey(path)), Qt::ISODate);
         item->setData(Qt::UserRole + 3, opened.isValid() ? opened.toLocalTime().date().toString(QStringLiteral("yy.MM.dd.")) : QString());
-        item->setToolTip(path);
+        const QString memo = memos_.value(openedDateKey(path));
+        item->setData(Qt::UserRole + 4, memo);
+        item->setFlags(item->flags() | Qt::ItemIsEditable);
+        item->setToolTip(memo.isEmpty() ? path : memo + QLatin1Char('\n') + path);
+    }
+    void savePaperMemo(const QString& path, QString text) {
+        text.replace(QLatin1Char('\n'), QLatin1Char(' ')); text.replace(QLatin1Char('\r'), QLatin1Char(' '));
+        const QString key = openedDateKey(path);
+        QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        settings.setValue(QStringLiteral("library/memos/") + key, text); settings.sync();
+        if (settings.status() != QSettings::NoError) {
+            QMessageBox::warning(this, QStringLiteral("메모 저장 실패"), QStringLiteral("로컬 설정에 메모를 저장하지 못했습니다. 입력한 메모: ") + text);
+            return;
+        }
+        memos_.insert(key, text);
+        for (auto* list : findChildren<QListWidget*>()) {
+            for (int row = 0; row < list->count(); ++row) {
+                auto* item = list->item(row);
+                if (item->data(Qt::UserRole).toString() == path) decorate(item, path);
+            }
+            filter(list, query_->text());
+        }
     }
     void toggleFavorite(const QString& path) {
         QStringList paths = savedPaths(QStringLiteral("library/favorites"));
@@ -948,7 +1005,9 @@ private:
         list->setEditTriggers(QAbstractItemView::NoEditTriggers);
         list->setSortingEnabled(false);
         list->setObjectName(QStringLiteral("LunaDocumentList"));
-        list->setItemDelegate(new DocumentCard(list));
+        auto* delegate = new DocumentCard(list);
+        delegate->saveMemo = [this](const QString& path, const QString& text) { savePaperMemo(path, text); };
+        list->setItemDelegate(delegate);
         list->setWordWrap(true);
         list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
         list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -1037,6 +1096,18 @@ private:
                 settings.remove(QStringLiteral("library/openedDates/") + oldDateKey);
                 openedDates_.remove(oldDateKey); openedDates_.insert(newDateKey, date);
             }
+            if (oldDateKey != newDateKey && memos_.contains(oldDateKey)) {
+                const QString memo = memos_.value(oldDateKey);
+                settings.setValue(QStringLiteral("library/memos/") + newDateKey, memo);
+                settings.sync();
+                if (settings.status() == QSettings::NoError) {
+                    memos_.insert(newDateKey, memo); memos_.remove(oldDateKey);
+                    settings.remove(QStringLiteral("library/memos/") + oldDateKey);
+                } else {
+                    QMessageBox::warning(this, QStringLiteral("메모 이동 저장 실패"),
+                        QStringLiteral("파일은 이동했지만 메모 설정을 저장하지 못했습니다. 기존 메모는 보존됩니다: ") + memo);
+                }
+            }
             const auto favorites = savedPaths(QStringLiteral("library/favorites"));
             favorites_ = QSet<QString>(favorites.cbegin(), favorites.cend());
             ThumbnailCache::instance()->invalidate();
@@ -1066,7 +1137,8 @@ private:
         for (int i = 0; i < list->count(); ++i) {
             QListWidgetItem* item = list->item(i);
             item->setHidden(!word.isEmpty() &&
-                            !item->text().contains(word, Qt::CaseInsensitive));
+                            !item->text().contains(word, Qt::CaseInsensitive) &&
+                            !item->data(Qt::UserRole + 4).toString().contains(word, Qt::CaseInsensitive));
         }
     }
     void selectRoot(const QString& path) {
@@ -1217,6 +1289,7 @@ private:
     bool showingFavorites_ = false;
     QString lastOpened_;
     QHash<QString, QString> openedDates_;
+    QHash<QString, QString> memos_;
     QSet<QString> favorites_;
     QFileSystemModel* model_ = nullptr;
     QTreeView* tree_ = nullptr;
@@ -1659,6 +1732,22 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     QCoreApplication::processEvents();
     if (library->thumbnailPopup_->isVisible() || !library->hoverRequest_.isEmpty())
         return fail("Cancelled hover request resurfaced");
+    // Edit through the real native delegate; Enter and focus-out must persist
+    // without changing the PDF title or bytes. Search includes the local memo.
+    list->edit(list->model()->index(list->row(item), 0));
+    auto* memoInput = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor"));
+    if (!memoInput) return fail("Inline paper memo editor did not open");
+    memoInput->setText(QStringLiteral("합성 메모 검색 742"));
+    QKeyEvent memoEnter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+    QApplication::sendEvent(memoInput, &memoEnter);
+    if (!wait([&] { return item->data(Qt::UserRole + 4).toString() == QStringLiteral("합성 메모 검색 742"); }))
+        return fail("Enter did not commit inline paper memo");
+    QSettings persistedMemo(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+    if (persistedMemo.value(QStringLiteral("library/memos/") + openedDateKey(path)).toString() != QStringLiteral("합성 메모 검색 742"))
+        return fail("Paper memo did not persist in local metadata");
+    search->setText(QStringLiteral("메모 검색 742"));
+    if (item->isHidden()) return fail("Memo text was excluded from library search");
+    search->clear();
     // Move the opened synthetic document out and back. The real controller
     // releases/reopens it; both original PDF bytes and the sidecar must survive.
     QFile beforePdf(path), beforePng(thumbnail);
@@ -1679,6 +1768,8 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     library->moveDocumentTo(path, movedFolder);
     if (!reopened(movedPath) || QFileInfo::exists(path) || QFileInfo::exists(thumbnail) || !QFileInfo::exists(movedThumbnail))
         return fail("Opened PDF and sidecar did not move/reopen together");
+    if (library->memos_.value(openedDateKey(movedPath)) != QStringLiteral("합성 메모 검색 742"))
+        return fail("Paper memo did not follow paired file move");
     library->moveDocumentTo(movedPath, pdf.absolutePath());
     if (!reopened(path) || QFileInfo::exists(movedPath) || QFileInfo::exists(movedThumbnail)) {
         auto* c = window.getProgramController();
@@ -1691,6 +1782,8 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         qWarning().noquote() << error;
         return false;
     }
+    if (library->memos_.value(openedDateKey(path)) != QStringLiteral("합성 메모 검색 742"))
+        return fail("Paper memo did not survive return movement");
     if (!beforePdf.open(QIODevice::ReadOnly) || !beforePng.open(QIODevice::ReadOnly) ||
         beforePdf.readAll() != pdfBytes || beforePng.readAll() != pngBytes)
         return fail("PDF/thumbnail bytes changed during paired movement");

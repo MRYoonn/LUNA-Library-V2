@@ -189,7 +189,7 @@ def make_main(src: str) -> str:
         '        QSettings::setDefaultFormat(QSettings::IniFormat);\n'
         '        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,\n'
         '            QFileInfo(parser.value(parser.isSet(lunaResearchReport) ? lunaResearchReport : lunaSmokeReport)).absolutePath() + "/settings");\n'
-        '        QSettings("LUNA", "LUNA Library").setValue("library/root",\n'
+        '        QSettings(QSettings::IniFormat, QSettings::UserScope, "LUNA", "LUNA Library").setValue("library/root",\n'
         '            QFileInfo(parser.positionalArguments().front()).absolutePath());\n'
         '    }')
     src = replace_exact(src, '    parser.addVersionOption();',

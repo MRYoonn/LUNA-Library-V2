@@ -565,7 +565,7 @@ public:
         });
         connect(split_, &QSplitter::splitterMoved, this, [this] { savePanelState(); });
 
-        QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
         QString start = settings.value(QStringLiteral("library/root")).toString();
         if (!QFileInfo(start).isDir()) start = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
         if (!QFileInfo(start).isDir()) start = QDir::homePath();
@@ -580,13 +580,13 @@ public:
     QLineEdit* searchEdit() const { return query_; }
     void savePanelState() {
         if (navigation_->isHidden() || documents_->isHidden()) return;
-        QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+        QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
             .setValue(QStringLiteral("library/splitter"), split_->saveState());
     }
 
 private:
     QStringList savedPaths(const QString& key) const {
-        return QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).value(key).toStringList();
+        return QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).value(key).toStringList();
     }
     void decorate(QListWidgetItem* item, const QString& path) {
         item->setData(Qt::UserRole, path);
@@ -600,7 +600,7 @@ private:
         if (paths.contains(path)) paths.removeAll(path);
         else paths.append(path);
         favorites_ = QSet<QString>(paths.cbegin(), paths.cend());
-        QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).setValue(QStringLiteral("library/favorites"), paths);
+        QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).setValue(QStringLiteral("library/favorites"), paths);
         for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) {
             for (int i = 0; i < list->count(); ++i) {
                 auto* item = list->item(i);
@@ -636,7 +636,7 @@ private:
         recent.removeAll(path);
         recent.prepend(path);
         while (recent.size() > 100) recent.removeLast();
-        QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).setValue(QStringLiteral("library/recent"), recent);
+        QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).setValue(QStringLiteral("library/recent"), recent);
         // Reuse the native PDF4QT draw-space controller: no replacement renderer.
         auto* proxy = controller->getPdfWidget()->getDrawWidgetProxy();
         proxy->setPageLayout(pdf::PageLayout::OneColumn);
@@ -938,7 +938,7 @@ private:
         hideThumbnail();
         const auto result = movePdfWithThumbnails(source, destination);
         if (result.success) {
-            QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+            QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
             for (const QString& key : {QStringLiteral("library/favorites"), QStringLiteral("library/recent")}) {
                 QStringList paths = settings.value(key).toStringList();
                 for (QString& value : paths) if (value == source) value = result.documentPath;
@@ -993,7 +993,7 @@ private:
         } else { storage_->setValue(0); storageLabel_->setText(QStringLiteral("저장 공간 정보 없음")); }
         model_->setRootPath(root_);
         tree_->setRootIndex(model_->index(root_));
-        QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+        QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
             .setValue(QStringLiteral("library/root"), root_);
         allTimer_->stop();
         allIterator_.reset();
@@ -1150,7 +1150,7 @@ public:
 protected:
     bool eventFilter(QObject* object, QEvent* event) override {
         if (object == window_ && event->type() == QEvent::Close) {
-            QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+            QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
             settings.setValue(QStringLiteral("window/geometry"), window_->saveGeometry());
             settings.setValue(QStringLiteral("window/state"), window_->saveState());
         }
@@ -1289,7 +1289,7 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
         });
     window.setWindowTitle(QStringLiteral("LUNA Library"));
     window.resize(1366, 768);
-    QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
     window.restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
     window.restoreState(settings.value(QStringLiteral("window/state")).toByteArray());
     focus->setChecked(dock->isHidden());
@@ -1399,7 +1399,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (!favorite) return fail("Favorite action missing");
     const QString path = item->data(Qt::UserRole).toString();
     favorite->trigger();
-    QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+    QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
     if (!item->data(Qt::UserRole + 2).toBool() || !settings.value(QStringLiteral("library/favorites")).toStringList().contains(path))
         return fail("Favorite toggle did not persist actual file path");
     auto* favoritesButton = window.findChild<QPushButton*>(QStringLiteral("LunaFavoriteDocumentsButton"));

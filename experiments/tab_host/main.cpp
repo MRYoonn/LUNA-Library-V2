@@ -6,6 +6,7 @@
 #include <QCloseEvent>
 #include <QCommandLineParser>
 #include <QFileInfo>
+#include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -32,8 +33,8 @@ struct Document {
 
 class Host final : public QMainWindow {
 public:
-    Host(const QString& executable, const QStringList& paths, bool qt, const QString& report)
-        : qt_(qt), report_(report) {
+    Host(const QString& executable, const QStringList& paths, bool qt, const QString& report, bool editorProbe)
+        : qt_(qt), editorProbe_(editorProbe), report_(report) {
         setWindowTitle(QStringLiteral("LUNA Library · 탭 연결 실험 (검증 미완료)"));
         resize(1366, 768);
         tabs_ = new QTabWidget(this);
@@ -60,7 +61,10 @@ public:
                     ? QStringLiteral(" · 닫힘") : QStringLiteral(" · 프로세스 오류")));
                 // The host and the other document stay alive. No implicit reopen.
             });
-            d.process->start(executable, {paths[i]});
+            QStringList arguments{paths[i]};
+            if (editorProbe_ && i == 0)
+                arguments = {QStringLiteral("--luna-smoke-report"), report_ + QStringLiteral(".editor"), paths[i]};
+            d.process->start(executable, arguments);
         }
         connect(tabs_, &QTabWidget::currentChanged, this, [this] { synchronize(); });
         connect(tabs_, &QTabWidget::tabCloseRequested, this, [this](int index) {
@@ -141,7 +145,8 @@ private:
     void finish(bool basic, const QString& detail) {
         QJsonObject result{{"method", qt_ ? "qt-container" : "win32-parent"},
             {"embeddingLifecycle", basic ? "passed" : "failed"}, {"detail", detail},
-            {"pocAccepted", false}, {"childCrashIsolation", basic ? "passed" : "unverified"},
+            {"pocAccepted", false}, {"childCrashIsolation", basic && !editorProbe_ ? "passed" : "unverified"},
+            {"nativeEditorRoundTrip", basic && editorProbe_ ? "passed" : "unverified"},
             {"annotationIsolation", "unverified"},
             {"keyboardFocusAndDialogs", "unverified"}, {"physicalDpi", "unverified"}};
         grab().save(report_ + QStringLiteral(".final.png"));
@@ -170,8 +175,28 @@ private:
         for (auto& d : documents_) if (!d.attached && d.process->state() == QProcess::Running) attach(d);
         synchronize();
         if (report_.isEmpty()) return; // Manual exploration never auto-closes documents.
-        if (ticks_ > 600) { finish(false, QStringLiteral("Timed out; inspect live window/dialog evidence")); return; }
+        if (ticks_ > (editorProbe_ ? 1500 : 600)) { finish(false, QStringLiteral("Timed out; inspect live window/dialog evidence")); return; }
         if (!documents_[0].attached || !documents_[1].attached) return;
+        if (editorProbe_) {
+            // Keep A foreground while its existing native Editor regression
+            // runs in the embedded process; B must remain alive and untouched.
+            if (phase_ == 0 && documents_[0].process->state() == QProcess::NotRunning) {
+                QFile marker(report_ + QStringLiteral(".editor"));
+                if (documents_[0].process->exitStatus() != QProcess::NormalExit ||
+                    documents_[0].process->exitCode() != 0 || !marker.open(QIODevice::ReadOnly) ||
+                    marker.readAll() != QByteArray("LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n") ||
+                    documents_[1].process->state() != QProcess::Running) {
+                    finish(false, QStringLiteral("Embedded native Editor regression failed; inspect .editor marker and log")); return;
+                }
+                tabs_->setCurrentIndex(1);
+                PostMessageW(documents_[1].handle, WM_CLOSE, 0, 0);
+                phase_ = 1;
+            } else if (phase_ == 1 && documents_[1].process->state() == QProcess::NotRunning) {
+                finish(documents_[1].process->exitStatus() == QProcess::NormalExit && documents_[1].process->exitCode() == 0,
+                    QStringLiteral("Existing native Editor regression ran inside A while B remained independent; actual Win32 input and native-dialog gates still required"));
+            }
+            return;
+        }
         if (phase_ < 20) {
             if (++settle_ % 5) return;
             tabs_->setCurrentIndex(phase_ % 2);
@@ -200,6 +225,7 @@ private:
     QTabWidget* tabs_ = nullptr;
     QTimer timer_;
     bool qt_;
+    bool editorProbe_;
     QString report_;
     int ticks_ = 0, phase_ = 0, settle_ = 0;
 };
@@ -209,16 +235,18 @@ int main(int argc, char** argv) {
     QCommandLineParser parser;
     parser.addHelpOption();
     parser.addOption({"method", "Embedding method: qt or win32", "method", "qt"});
+    parser.addOption({"editor-probe", "Run existing native Editor regression in embedded synthetic A"});
     parser.addOption({"report", "Synthetic-only automatic lifecycle evidence (not POC acceptance)", "path"});
     parser.addPositionalArgument("executable", "LUNA.exe");
     parser.addPositionalArgument("pdfs", "Exactly two distinct PDF files", "a.pdf b.pdf");
     parser.process(app);
+    if (parser.isSet("editor-probe") && !parser.isSet("report")) return 1;
     const auto args = parser.positionalArguments();
     if (args.size() != 3 || (parser.value("method") != "qt" && parser.value("method") != "win32")) return 1;
     for (const auto& path : args) if (!QFileInfo(path).isFile()) return 1;
     if (QFileInfo(args[1]).canonicalFilePath().compare(QFileInfo(args[2]).canonicalFilePath(), Qt::CaseInsensitive) == 0) return 1;
     Host host(QFileInfo(args[0]).absoluteFilePath(), {QFileInfo(args[1]).absoluteFilePath(), QFileInfo(args[2]).absoluteFilePath()},
-        parser.value("method") == "qt", parser.value("report"));
+        parser.value("method") == "qt", parser.value("report"), parser.isSet("editor-probe"));
     host.show();
     return app.exec();
 }

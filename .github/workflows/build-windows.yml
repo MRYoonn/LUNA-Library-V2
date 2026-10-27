@@ -115,6 +115,8 @@ jobs:
     timeout-minutes: 180
     env:
       PDF4QT_PIN: 67b6b9903cb4e318803342f2d428f02e1bb124e3
+      # Same public vcpkg revision used by the preserved successful Build 20.
+      VCPKG_PIN: 817892b0ecbc6af994dd6df999c73faf795adbf2
       VCPKG_ROOT: ${{ github.workspace }}\vcpkg
       VCPKG_INSTALLED_DIR: ${{ github.workspace }}\vcpkg_installed
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-binary-cache
@@ -153,6 +155,16 @@ jobs:
           python tools/apply_overlay.py pdf4qt
           if ($LASTEXITCODE -ne 0) { throw "LUNA patch failed" }
 
+      - name: Identify the Windows compiler image for dependency caching
+        id: compiler-image
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $toolset = (Get-Content (Join-Path $installation 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
+          if (-not $toolset) { throw 'Could not identify MSVC version' }
+          "identity=$($env:ImageVersion)-$toolset" >> $env:GITHUB_OUTPUT
+
       # Public dependency cache only; contains no user documents or authentication data.
       - name: Cache public vcpkg archives
         id: vcpkg-cache
@@ -161,7 +173,10 @@ jobs:
           path: |
             vcpkg-binary-cache
             vcpkg/downloads
-          key: ${{ runner.os }}-pdf4qt-vcpkg-${{ hashFiles('pdf4qt/vcpkg.json', 'pdf4qt/vcpkg-configuration.json') }}
+          key: ${{ runner.os }}-pdf4qt-vcpkg-${{ env.VCPKG_PIN }}-${{ steps.compiler-image.outputs.identity }}-${{ hashFiles('pdf4qt/vcpkg.json', 'pdf4qt/vcpkg-configuration.json') }}
+          restore-keys: |
+            ${{ runner.os }}-pdf4qt-vcpkg-${{ env.VCPKG_PIN }}-${{ steps.compiler-image.outputs.identity }}-
+            ${{ runner.os }}-pdf4qt-vcpkg-${{ hashFiles('pdf4qt/vcpkg.json', 'pdf4qt/vcpkg-configuration.json') }}
 
       # LUNA first-use beta excludes OCR. Skip unnecessary Windows packages.
       # This changes only the ephemeral public PDF4QT checkout, never the pinned source.
@@ -183,10 +198,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "vcpkg init failed" }
           git -C vcpkg remote add origin https://github.com/microsoft/vcpkg.git
           if ($LASTEXITCODE -ne 0) { throw "vcpkg remote setup failed" }
-          git -C vcpkg fetch --depth 1 origin HEAD
+          git -C vcpkg fetch --depth 1 origin $env:VCPKG_PIN
           if ($LASTEXITCODE -ne 0) { throw "vcpkg fetch failed" }
           git -C vcpkg checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -ne 0) { throw "vcpkg checkout failed" }
+          if ((git -C vcpkg rev-parse HEAD).Trim() -ne $env:VCPKG_PIN) { throw "vcpkg revision mismatch" }
           $baseline = (Get-Content -Raw pdf4qt/vcpkg.json | ConvertFrom-Json).'builtin-baseline'
           git -C vcpkg fetch --depth 1 origin $baseline
           if ($LASTEXITCODE -ne 0) { throw "vcpkg baseline missing" }
@@ -258,7 +274,7 @@ jobs:
           Copy-Item 'pdf4qt/3rdparty_licenses' "$output/third_party_licenses" -Recurse
           Copy-Item 'LICENSE_NOTICE.md' "$output/LUNA_LICENSE_NOTICE.md"
           Copy-Item 'USER_GUIDE_KO.md' "$output/USER_GUIDE_KO.md"
-          @{ product = 'LUNA Library'; status = 'development verification'; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; validation = 'pending' } | ConvertTo-Json | Set-Content -Encoding utf8 "$output/build-info.json"
+          @{ product = 'LUNA Library'; status = 'development verification'; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; validation = 'pending' } | ConvertTo-Json | Set-Content -Encoding utf8 "$output/build-info.json"
           # App-local redistributable DLLs make this portable on a clean PC.
           # windeployqt's release --compiler-runtime bundles a separate installer,
           # and cannot locate Visual Studio at all without VCINSTALLDIR.
@@ -301,7 +317,7 @@ jobs:
       - name: Record validation scope in the portable package
         shell: pwsh
         run: |
-          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ pythonTests = 35; nativeQtTests = 5; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = 'pinned CC BY PLOS paper passed'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
+          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ pythonTests = 35; nativeQtTests = 5; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = 'pinned CC BY PLOS paper passed'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
       - name: Upload synthetic native UI screenshots
         if: ${{ !cancelled() }}

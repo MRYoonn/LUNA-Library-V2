@@ -164,7 +164,7 @@ static void highlight(Editor* editor) {
     proxy->zoom(1.0); proxy->goToPage(0);
     QPoint start, end;
     require(waitFor([&] {
-        auto layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(0);
+        pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(0);
         if (layout.getTextBlocks().empty() || layout.getTextBlocks().front().getLines().empty()) return false;
         const auto& chars = layout.getTextBlocks().front().getLines().front().getCharacters();
         const auto snapshot = proxy->getSnapshot(); const auto* page = snapshot.getPageSnapshot(0);

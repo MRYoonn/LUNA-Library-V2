@@ -111,6 +111,12 @@ def run(package: Path, screenshots_directory: Path | None = None,
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(image, screenshots_directory / target_name)
         if not layout_only:
+            pages = Path(str(report) + ".pages.png")
+            if not pages.is_file() or not pages.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+                raise RuntimeError("Native two-column PDF page preview capture missing")
+            if screenshots_directory is not None:
+                screenshots_directory.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(pages, screenshots_directory / "luna-page-grid.png")
             hover = Path(str(report) + ".hover.png")
             if not hover.is_file() or not hover.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
                 raise RuntimeError("Native thumbnail hover capture missing")

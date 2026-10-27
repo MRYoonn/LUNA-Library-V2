@@ -1626,6 +1626,8 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         return fail("Page previews are not two columns or hid the folder panel");
     if (!wait([&] { return !grid->model()->data(firstPage, Qt::DecorationRole).value<QPixmap>().isNull(); }))
         return fail("PDF4QT did not render the real page thumbnail");
+    if (capturePath.isEmpty() || !window.grab().save(capturePath + QStringLiteral(".pages.png")))
+        return fail("Native two-column page preview capture failed");
     const QPoint point = grid->visualRect(secondPage).center();
     QMouseEvent pagePress(QEvent::MouseButtonPress, point, grid->viewport()->mapToGlobal(point), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
     QMouseEvent pageRelease(QEvent::MouseButtonRelease, point, grid->viewport()->mapToGlobal(point), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);

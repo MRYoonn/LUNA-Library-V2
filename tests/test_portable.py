@@ -178,6 +178,7 @@ class NativeSmokeHarnessTests(unittest.TestCase):
                 Path(command[2] + ".annotated.pdf").write_bytes(synthetic_pdf())
                 Path(command[2] + ".png").write_bytes(png_header(1366, 768))
                 Path(command[2] + ".wide.png").write_bytes(png_header(1920, 1080))
+                Path(command[2] + ".pages.png").write_bytes(png_header(1366, 768))
                 Path(command[2] + ".hover.png").write_bytes(png_header(255, 300))
                 Path(command[2] + ".desktop.png").write_bytes(png_header(1024, 768))
         with tempfile.TemporaryDirectory() as package:

@@ -1600,9 +1600,8 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         QTimer poll, timeout;
         bool success = false;
         QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
-            // This verifier runs inside the smoke timer's callback. Nested
-            // event loops do not normally drain DeferredDelete from that outer
-            // callback; explicitly give WA_DeleteOnClose its normal event turn.
+            // Process deletions posted at this nested loop level. Operations
+            // under test must be dispatched inside this loop, not its caller.
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             if (ready()) { success = true; loop.quit(); }
         });
@@ -1645,11 +1644,16 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (!cropAction || !cropAction->isEnabled()) return fail("Crop toolbar action is unavailable for loaded PDF");
     cropAction->trigger();
     if (!library->cropOverlay_) return fail("Native crop overlay did not open");
-    QKeyEvent cancel(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
-    QApplication::sendEvent(library->cropOverlay_, &cancel);
-    if (QFileInfo::exists(thumbnail)) return fail("Crop cancellation wrote an image");
-    if (library->cropOverlay_ && library->cropOverlay_->isVisible()) return fail("Crop cancellation left a visible overlay");
+    // ESC must run at the same event-loop level that observes deletion.
+    // A DeferredDelete posted by the outer smoke timer cannot be consumed by
+    // a deeper loop, even with sendPostedEvents(DeferredDelete).
+    QTimer::singleShot(0, library->cropOverlay_, [overlay = library->cropOverlay_] {
+        if (!overlay) return;
+        QKeyEvent cancel(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QApplication::sendEvent(overlay, &cancel);
+    });
     if (!wait([&] { return !library->cropOverlay_; })) return fail("Cancelled crop overlay was not deleted");
+    if (QFileInfo::exists(thumbnail)) return fail("Crop cancellation wrote an image");
     library->startThumbnailCrop();
     auto* crop = library->cropOverlay_.data();
     if (!crop || crop->parentWidget() != draw) return fail("Crop does not target the native PDF viewport");

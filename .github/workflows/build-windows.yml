@@ -46,6 +46,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Public security gate blocked build" }
           python -B -m unittest discover -s tests -p 'test_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw "Regression tests failed" }
+          python -B tests/native_dialog/windows_job.py
+          if ($LASTEXITCODE -ne 0) { throw "Synthetic Windows process containment failed" }
       - name: Validate official x64 CRT staging on the actual Windows image
         shell: pwsh
         run: |

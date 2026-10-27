@@ -75,6 +75,7 @@ def run(host, package, output):
                 files = [root / name / f"합성 문서 {name}.pdf" for name in ("A", "B")]
                 for file in files:
                     file.parent.mkdir()
+                    (file.parent / "Synthetic examples").mkdir()
                     file.write_bytes(synthetic_pdf(2))
                 hashes = [hashlib.sha256(file.read_bytes()).hexdigest() for file in files]
                 env = os.environ.copy()

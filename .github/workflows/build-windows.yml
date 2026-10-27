@@ -248,7 +248,7 @@ jobs:
           Copy-Item 'pdf4qt/3rdparty_licenses' "$output/third_party_licenses" -Recurse
           Copy-Item 'LICENSE_NOTICE.md' "$output/LUNA_LICENSE_NOTICE.md"
           Copy-Item 'USER_GUIDE_KO.md' "$output/USER_GUIDE_KO.md"
-          @{ product = 'LUNA Library V2'; status = 'development verification'; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; validation = 'pending' } | ConvertTo-Json | Set-Content -Encoding utf8 "$output/build-info.json"
+          @{ product = 'LUNA Library'; status = 'development verification'; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; validation = 'pending' } | ConvertTo-Json | Set-Content -Encoding utf8 "$output/build-info.json"
           # App-local redistributable DLLs make this portable on a clean PC.
           # windeployqt's release --compiler-runtime bundles a separate installer,
           # and cannot locate Visual Studio at all without VCINSTALLDIR.
@@ -291,7 +291,7 @@ jobs:
       - name: Record validation scope in the portable package
         shell: pwsh
         run: |
-          @{ product = 'LUNA Library V2'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ pythonTests = 35; nativeQtTests = 4; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = 'pinned CC BY PLOS paper passed'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
+          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ pythonTests = 35; nativeQtTests = 4; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = 'pinned CC BY PLOS paper passed'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
       - name: Upload synthetic native UI screenshots
         if: ${{ !cancelled() }}

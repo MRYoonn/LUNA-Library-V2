@@ -4,10 +4,24 @@
 
 This is a **public source-only build repository**. It does not store, synchronize or receive your PDF files, annotations, research notes, cloud credentials or local databases.
 
+## 현재 Beta 개발 상태
+
+Draft PR #7에서 HTML v0.9를 최종 UI 기준으로 통합 중입니다. 독립 문서 창은
+임시 구조이며 최종 목표는 한 LUNA 창 안의 PDF 탭입니다. 별도
+[`experiments/tab_host`](experiments/tab_host/README.md)는 Qt 컨테이너/Win32
+연결을 비교하는 미승인 실험이며 포터블 프로그램에 포함하지 않습니다.
+
+최근 기록 검사 실패는 Windows 레지스트리와 테스트 INI의 설정 형식 혼용을
+수정한 뒤 통과했습니다. run 40447039043은 C++/네이티브 CTest 4개 통과 후
+크롭 취소의 지연 삭제 검사에서 실패했습니다. 중첩 이벤트 루프에서 취소를
+보내도록 검사를 수정했으며, 이후 v0.9 UI와 함께 Windows 재검증 중입니다.
+아래의 과거 성공 기록이 현재 HEAD 전체의 성공을 뜻하지 않습니다.
+베타 완료·탭 POC 통과·물리 Windows DPI 검증을 선언하지 않습니다.
+
 ## Windows EXE 만들기
 
 1. [Actions → LUNA Library V2 - PDF4QT Windows Portable](https://github.com/MRYoonn/LUNA-Library-V2/actions/workflows/build-windows.yml) 페이지 열기.
-2. 오른쪽 **Run workflow** → Branch **feature/native-reading-toolbar** → 초록색 **Run workflow** 누르기.
+2. 오른쪽 **Run workflow** → Branch **feature/windows-beta-v0.1** → 초록색 **Run workflow** 누르기.
 3. 실행 기록에서 각 단계의 성공/실패를 확인하기. 실패하면 정확한 오류 메시지를 확인하고 수정한다.
 4. 성공하면 해당 실행 기록 맨 아래 **Artifacts → LUNA-Windows-Portable** 다운로드.
 5. ZIP 전체를 풀고 **LUNA.exe** 더블클릭. 사용자 문서 화질과 배율은 자신의 Windows에서 확인한다.

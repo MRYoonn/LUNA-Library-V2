@@ -117,6 +117,11 @@ def probe(package: Path, output: Path) -> None:
                 close(process)
             if processes[0].poll() is not None:
                 raise RuntimeError("Closing other windows closed the retained document")
+            output.mkdir(parents=True, exist_ok=True)
+            (output / "independent-documents.json").write_text(json.dumps({
+                "mode": "independent native processes and windows; no tabs", "measurements": measurements,
+                "duplicateActivation": True, "annotationIsolation": "pending", "cleanExit": "pending",
+            }, indent=2), encoding="utf-8")
             # Run the full native annotation/save test in A while B stays open.
             # B must retain its title, clean-close behavior and original bytes.
             run(package, output)

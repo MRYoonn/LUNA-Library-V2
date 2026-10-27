@@ -1750,6 +1750,8 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     search->setText(QStringLiteral("메모 검색 742"));
     if (item->isHidden()) return fail("Memo text was excluded from library search");
     search->clear();
+    if (!capturePath.isEmpty() && (!window.screen() || !window.screen()->grabWindow(0).save(capturePath + QStringLiteral(".memo.png"))))
+        return fail("Could not capture saved native paper memo");
     // Move the opened synthetic document out and back. The real controller
     // releases/reopens it; both original PDF bytes and the sidecar must survive.
     QFile beforePdf(path), beforePng(thumbnail);

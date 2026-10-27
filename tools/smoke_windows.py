@@ -88,7 +88,8 @@ def run(package: Path, screenshots_directory: Path | None = None,
                 # Preserve actual earlier captures when a later gate fails.
                 # Their presence never changes the failing process status.
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
-                for suffix, name in ((".pages.png", "luna-page-grid.png"),
+                for suffix, name in ((".memo.png", "luna-paper-memo.png"),
+                                     (".pages.png", "luna-page-grid.png"),
                                      (".hover.png", "luna-thumbnail-hover.png"),
                                      (".desktop.png", "luna-windows-desktop.png")):
                     capture = Path(str(report) + suffix)
@@ -96,6 +97,10 @@ def run(package: Path, screenshots_directory: Path | None = None,
                         shutil.copyfile(capture, screenshots_directory / name)
             status = f"exit {error.returncode}" if isinstance(error, subprocess.CalledProcessError) else "timed out"
             raise RuntimeError(f"Native smoke {status}: {detail}") from error
+        memo_capture = Path(str(report) + ".memo.png")
+        if not layout_only and screenshots_directory is not None and memo_capture.is_file():
+            screenshots_directory.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(memo_capture, screenshots_directory / "luna-paper-memo.png")
         marker = b"LUNA_SMOKE_LAYOUT_OK\n" if layout_only else b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n"
         if not report.is_file() or report.read_bytes() != marker:
             raise RuntimeError("Native window/PDF-load success marker missing")

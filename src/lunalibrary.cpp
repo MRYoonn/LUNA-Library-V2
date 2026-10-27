@@ -1117,16 +1117,18 @@ private:
             else if (pages_->currentIndex() == 2) showHistory(showingFavorites_);
         }
         if (opened) {
+            viewer_->setProperty("LunaMoveRestorePending", true);
             controller->openDocument(result.documentPath);
             auto* restore = new QTimer(this);
             connect(restore, &QTimer::timeout, this, [this, restore, target = result.documentPath, page, zoom, attempts = 0]() mutable {
                 auto* c = viewer_->getProgramController();
-                if (++attempts > 200) { restore->stop(); restore->deleteLater(); return; }
+                if (++attempts > 200) { viewer_->setProperty("LunaMoveRestorePending", false); restore->stop(); restore->deleteLater(); return; }
                 if (!viewer_->isEnabled() || !c->getDocument()) return;
                 if (QFileInfo(c->getOriginalFileName()).canonicalFilePath() == QFileInfo(target).canonicalFilePath()) {
                     c->getPdfWidget()->getDrawWidgetProxy()->zoom(zoom);
                     c->getPdfWidget()->getDrawWidgetProxy()->goToPage(page);
                 }
+                viewer_->setProperty("LunaMoveRestorePending", false);
                 restore->stop(); restore->deleteLater();
             });
             restore->start(50);
@@ -1761,7 +1763,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     auto reopened = [&](const QString& expectedPath) {
         return wait([&] {
             auto* c = window.getProgramController();
-            return window.isEnabled() && c->canClose() && !c->getIsBusy() && c->getDocument() &&
+            return !window.property("LunaMoveRestorePending").toBool() && window.isEnabled() && c->canClose() && !c->getIsBusy() && c->getDocument() &&
                 QFileInfo(c->getOriginalFileName()).canonicalFilePath() == QFileInfo(expectedPath).canonicalFilePath();
         });
     };

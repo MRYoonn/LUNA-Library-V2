@@ -7,6 +7,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "experiments/native_tabs/prepare.py", "experiments/native_tabs/main.cpp",
+    "experiments/native_tabs/run_windows.py", "experiments/native_tabs/README.md",
+    "experiments/native_tabs/HANDOFF_KO.md",
+    "tests/test_native_tabs.py",
     "tests/native_dialog/windows_job.py",
     "src/lunapagegrid.h", "tests/native_dialog/pagegrid.cpp",
     "experiments/tab_host/main.cpp", "experiments/tab_host/CMakeLists.txt",

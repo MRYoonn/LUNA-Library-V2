@@ -24,6 +24,11 @@ and Win32 `SetParent` at Qt scale 1/1.25/1.5. It records actual screenshots,
 source-byte preservation, tab switching, resizing, deliberate crash of synthetic
 A while B survives, and clean close of B. Only the synthetic automatic driver
 may exercise the deliberate crash; never use --report with user documents.
+After lifecycle checks, the driver also runs the existing native Editor
+annotation/save/reopen regression inside embedded A while B stays alive.
+These checks use Qt test events and fixture dialogs; real Win32 input and native
+modal dialogs still require separate evidence.
+
 A lifecycle success is **not POC success**: every report says `pocAccepted:false`.
 Do not convert that flag until native input, Alt+Tab, shortcuts, annotation/save
 isolation, native dialogs, close/save/discard/cancel tests pass.

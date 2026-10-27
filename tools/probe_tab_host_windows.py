@@ -101,11 +101,9 @@ def run(host, package, output):
                 results.append(evidence)
                 report.write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
                 if code != 0:
-                    # Do not leave hidden native windows behind or mask failure
-                    # by proceeding with a contaminated desktop session.
+                    # The job has already removed every synthetic child. Skip
+                    # later scales for this method, then compare the other one.
                     break
-        if results[-1]["exitCode"] != 0:
-            break
     (output / "summary.json").write_text(json.dumps({"pocAccepted": False, "runs": results,
         "remaining": ["real keyboard and pointer input", "focus and Alt+Tab", "annotation isolation",
                       "save and reopen", "modal dialogs", "unsaved close cancel", "physical OS DPI"]},

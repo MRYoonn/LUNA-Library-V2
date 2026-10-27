@@ -9,6 +9,10 @@
 #include "pdfprogramcontroller.h"
 #include "pdfdrawwidget.h"
 #include "pdfdrawspacecontroller.h"
+#include "pdfitemmodels.h"
+#include <QListView>
+#include <QTabBar>
+#include <QResizeEvent>
 
 #include <QAbstractItemView>
 #include <QApplication>
@@ -70,6 +74,7 @@
 #include <QSaveFile>
 #include <QMouseEvent>
 #include <functional>
+#include <algorithm>
 #include <QImageReader>
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
@@ -252,6 +257,36 @@ public:
         painter->drawText(QRect(r.right() - 30, r.top() + 16, 22, 24), Qt::AlignCenter,
             index.data(Qt::UserRole + 2).toBool() ? QStringLiteral("★") : QStringLiteral("☆"));
         painter->restore();
+    }
+};
+
+// Reuse the existing PDF4QT sidebar model, renderer and bounded thumbnail cache.
+// No second document or page-rendering engine is created here.
+class PageGrid final : public QListView {
+public:
+    PageGrid(QListView& native, QWidget* parent) : QListView(parent) {
+        setObjectName(QStringLiteral("LunaPageGrid"));
+        setModel(native.model());
+        setSelectionModel(native.selectionModel());
+        setViewMode(QListView::IconMode);
+        setFlow(QListView::LeftToRight);
+        setWrapping(true);
+        setMovement(QListView::Static);
+        setResizeMode(QListView::Adjust);
+        setUniformItemSizes(true);
+        setSpacing(0);
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+        setSelectionMode(QAbstractItemView::SingleSelection);
+    }
+protected:
+    void resizeEvent(QResizeEvent* event) override {
+        QListView::resizeEvent(event);
+        const int cell = qMax(40, viewport()->width() / 2);
+        setGridSize(QSize(cell, cell + 30));
+        setIconSize(QSize(cell - 16, cell - 16));
+        if (auto* thumbnails = qobject_cast<pdf::PDFThumbnailsItemModel*>(model()))
+            thumbnails->setThumbnailsSize(cell - 16);
     }
 };
 
@@ -515,7 +550,10 @@ public:
         auto* title = new QLabel(QStringLiteral("논문 목록"), heading);
         title->setObjectName(QStringLiteral("LunaLibraryTitle"));
         title->setFixedHeight(48);
-        headingLayout->addWidget(title);
+        auto* titleRow = new QHBoxLayout;
+        titleRow->setObjectName(QStringLiteral("LunaPaperHeadingLayout"));
+        titleRow->addWidget(title, 1);
+        headingLayout->addLayout(titleRow);
         auto* addFile = new QPushButton(QStringLiteral("＋  PDF 파일 추가"), heading);
         addFile->setObjectName(QStringLiteral("LunaPrimary"));
         addFile->setMinimumHeight(40);
@@ -527,13 +565,30 @@ public:
         query_->setClearButtonEnabled(true);
         query_->setMinimumHeight(34);
         headingLayout->addWidget(query_);
-        auto* mode = new QLabel(QStringLiteral("PDF 파일 보기"), heading);
-        mode->setObjectName(QStringLiteral("LunaActiveMode"));
+        auto* mode = new QTabBar(heading);
+        mode->setObjectName(QStringLiteral("LunaContentModes"));
+        mode->addTab(QStringLiteral("논문 목록"));
+        mode->addTab(QStringLiteral("페이지 보기"));
+        mode->setExpanding(true);
         headingLayout->addWidget(mode);
         docs->addWidget(heading);
         pages_ = new QStackedWidget(documents_);
         pages_->setObjectName(QStringLiteral("LunaDocumentPages"));
-        docs->addWidget(pages_, 1);
+        auto* content = new QStackedWidget(documents_);
+        content->setObjectName(QStringLiteral("LunaContentStack"));
+        content->addWidget(pages_);
+        docs->addWidget(content, 1);
+        if (auto* native = viewer_->findChild<QListView*>(QStringLiteral("thumbnailsListView"))) {
+            auto* grid = new PageGrid(*native, content);
+            content->addWidget(grid);
+            connect(grid, &QListView::clicked, this, [this](const QModelIndex& index) {
+                if (index.isValid()) viewer_->getProgramController()->getPdfWidget()->getDrawWidgetProxy()->goToPage(index.row());
+            });
+            connect(mode, &QTabBar::currentChanged, content, &QStackedWidget::setCurrentIndex);
+        } else {
+            mode->setTabEnabled(1, false);
+            mode->setTabToolTip(1, QStringLiteral("PDF4QT 페이지 미리보기 모델을 사용할 수 없습니다."));
+        }
         auto page = [this](QListWidget*& list, QLabel*& count) {
             auto* p = new QWidget(pages_);
             auto* box = new QVBoxLayout(p);
@@ -571,6 +626,15 @@ public:
             pages_->setCurrentIndex(1);
             if (!allScanned_) scanAll();
         });
+        auto* cropAction = new QAction(QStringLiteral("논문 목록 썸네일 크롭"), viewer_);
+        cropAction->setObjectName(QStringLiteral("LunaCropThumbnail"));
+        cropAction->setEnabled(false);
+        connect(cropAction, &QAction::triggered, this, [this] { startThumbnailCrop(); });
+        if (auto* selectText = viewer_->findChild<QAction*>(QStringLiteral("actionSelectText"))) {
+            auto updateCrop = [cropAction, selectText] { cropAction->setEnabled(selectText->isEnabled()); };
+            connect(selectText, &QAction::changed, cropAction, updateCrop);
+            updateCrop();
+        }
         connect(recent, &QPushButton::clicked, this, [this] { showHistory(false); });
         connect(favorites, &QPushButton::clicked, this, [this] { showHistory(true); });
         connect(query_, &QLineEdit::textChanged, this, [this](const QString& word) {
@@ -598,7 +662,8 @@ public:
     void updateMinimum() { setMinimumWidth((navigation_->isHidden() ? 0 : 190) + (documents_->isHidden() ? 0 : 300) + 1); }
     void toggleNavigation() { savePanelState(); navigation_->setVisible(navigation_->isHidden()); updateMinimum(); }
     void toggleDocuments() { savePanelState(); documents_->setVisible(documents_->isHidden()); updateMinimum(); }
-    void focusSearch() { documents_->show(); updateMinimum(); query_->setFocus(); query_->selectAll(); }
+    void showBothPanels() { navigation_->show(); documents_->show(); updateMinimum(); }
+    void focusSearch() { showBothPanels(); query_->setFocus(); query_->selectAll(); }
     QLineEdit* searchEdit() const { return query_; }
     void savePanelState() {
         if (navigation_->isHidden() || documents_->isHidden()) return;
@@ -1226,7 +1291,17 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     auto* focus = controls->addAction(QStringLiteral("집중 모드"));
     focus->setObjectName(QStringLiteral("LunaFocusMode"));
     focus->setCheckable(true);
-    QObject::connect(focus, &QAction::toggled, dock, [dock](bool enabled) { dock->setVisible(!enabled); });
+    QObject::connect(focus, &QAction::toggled, dock, [dock, library](bool enabled) {
+        if (!enabled) library->showBothPanels();
+        dock->setVisible(!enabled);
+    });
+    // Legacy individual panel actions remain available in View, not as three
+    // competing permanent controls in the approved interface.
+    for (auto* action : {folders, documents, focus}) controls->removeAction(action);
+    if (auto* view = window.findChild<QMenu*>(QStringLiteral("menuView"))) {
+        view->addAction(folders);
+        view->addAction(documents);
+    }
     auto* space = new QWidget(controls);
     space->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     controls->addWidget(space);
@@ -1272,6 +1347,7 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
 
     if (auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
         installReaderToolbar(window, *bar, *focus);
+        bar->removeAction(focus);
         // Keep the real PDF widget and all controller pointers. Only the native
         // toolbar is reparented beside it, so library panels start at the header.
         window.removeToolBar(bar);
@@ -1291,6 +1367,25 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
         documentTitle->setMinimumWidth(0);
         documentTitle->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         documentRow->addWidget(documentTitle, 1);
+        auto* panelToggle = new QToolButton(documentHeader);
+        panelToggle->setObjectName(QStringLiteral("LunaCombinedPanelToggle"));
+        panelToggle->setDefaultAction(focus);
+        panelToggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        panelToggle->setAccessibleName(QStringLiteral("라이브러리와 논문 목록 접기 / 펼치기"));
+        panelToggle->setMinimumSize(30, 30);
+        auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
+        auto placeToggle = [panelToggle, paperHeading, documentRow, documentHeader, focus](bool collapsed) {
+            paperHeading->removeWidget(panelToggle);
+            documentRow->removeWidget(panelToggle);
+            panelToggle->setParent(collapsed ? documentHeader : paperHeading->parentWidget());
+            if (collapsed) documentRow->addWidget(panelToggle);
+            else paperHeading->addWidget(panelToggle);
+            focus->setText(collapsed ? QStringLiteral("☰") : QStringLiteral("≪"));
+            focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
+            panelToggle->show();
+        };
+        QObject::connect(focus, &QAction::toggled, panelToggle, placeToggle);
+        placeToggle(false);
         QObject::connect(&window, &QWidget::windowTitleChanged, documentTitle, [&window, documentTitle] {
             QTimer::singleShot(0, documentTitle, [&window, documentTitle] {
                 const QString file = window.getProgramController()->getOriginalFileName();
@@ -1452,6 +1547,18 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         action->trigger();
         if (entry.second->isHidden()) return fail("Panel did not reopen");
     }
+    auto* combined = window.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
+    auto* focusAction = window.findChild<QAction*>(QStringLiteral("LunaFocusMode"));
+    if (!combined || !combined->isVisible() || combined->text() != QStringLiteral("≪"))
+        return fail("Combined panel collapse control is missing");
+    combined->click();
+    QCoreApplication::processEvents();
+    if (!dock->isHidden() || !combined->isVisible() || combined->text() != QStringLiteral("☰"))
+        return fail("Combined panel restore control is unreachable");
+    combined->click();
+    QCoreApplication::processEvents();
+    if (dock->isHidden() || !navigation->isVisible() || !documents->isVisible() || focusAction->isChecked())
+        return fail("Combined panel restore did not show both subpanels");
     // Exercise the real viewport crop and asynchronous hover in the temporary
     // synthetic library. Nothing here reads or modifies a user's library.
     auto* library = dynamic_cast<LibraryPanel*>(dock->widget());
@@ -1474,10 +1581,36 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     };
     if (!wait([&] { return window.isEnabled() && window.getProgramController()->canClose(); }))
         return fail("Reader busy before crop verification");
+    auto* modes = window.findChild<QTabBar*>(QStringLiteral("LunaContentModes"));
+    auto* grid = window.findChild<QListView*>(QStringLiteral("LunaPageGrid"));
+    if (!modes || modes->count() != 2 || !grid || grid->model()->rowCount() != 2)
+        return fail("Native two-page preview model missing");
+    modes->setCurrentIndex(1);
+    if (!wait([&] { return grid->isVisible() && !grid->visualRect(grid->model()->index(1, 0)).isEmpty(); }))
+        return fail("Page grid did not become visible");
+    const auto firstPage = grid->model()->index(0, 0);
+    const auto secondPage = grid->model()->index(1, 0);
+    if (grid->visualRect(firstPage).top() != grid->visualRect(secondPage).top() ||
+        grid->visualRect(firstPage).left() >= grid->visualRect(secondPage).left() || !navigation->isVisible())
+        return fail("Page previews are not two columns or hid the folder panel");
+    if (!wait([&] { return !grid->model()->data(firstPage, Qt::DecorationRole).value<QPixmap>().isNull(); }))
+        return fail("PDF4QT did not render the real page thumbnail");
+    const QPoint point = grid->visualRect(secondPage).center();
+    QMouseEvent pagePress(QEvent::MouseButtonPress, point, grid->viewport()->mapToGlobal(point), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QMouseEvent pageRelease(QEvent::MouseButtonRelease, point, grid->viewport()->mapToGlobal(point), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(grid->viewport(), &pagePress);
+    QApplication::sendEvent(grid->viewport(), &pageRelease);
+    if (!wait([&] { const auto visible = window.getProgramController()->getPdfWidget()->getDrawWidget()->getCurrentPages();
+        return std::find(visible.begin(), visible.end(), 1) != visible.end(); }))
+        return fail("Page preview click did not navigate the native document");
+    modes->setCurrentIndex(0);
+    window.getProgramController()->getPdfWidget()->getDrawWidgetProxy()->goToPage(0);
     const QFileInfo pdf(path);
     const QString thumbnail = pdf.absolutePath() + QLatin1Char('/') + pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
     if (QFileInfo::exists(thumbnail)) return fail("Synthetic crop destination already exists");
-    library->startThumbnailCrop();
+    auto* cropAction = window.findChild<QAction*>(QStringLiteral("LunaCropThumbnail"));
+    if (!cropAction || !cropAction->isEnabled()) return fail("Crop toolbar action is unavailable for loaded PDF");
+    cropAction->trigger();
     if (!library->cropOverlay_) return fail("Native crop overlay did not open");
     QKeyEvent cancel(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
     QApplication::sendEvent(library->cropOverlay_, &cancel);

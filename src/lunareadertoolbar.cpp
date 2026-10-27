@@ -54,6 +54,7 @@ public:
         p->setBrush(Qt::NoBrush);
         auto line = [p](qreal a, qreal b, qreal c, qreal d) { p->drawLine(QPointF(a,b), QPointF(c,d)); };
         if (name_ == "panel") { p->drawRoundedRect(QRectF(3,4,18,16),2,2); line(9,4,9,20); }
+        else if (name_ == "crop") { line(7,3,7,17); line(7,17,21,17); line(3,7,17,7); line(17,7,17,21); }
         else if (name_ == "open") {
             QPainterPath path; path.moveTo(3,19); path.lineTo(3,6); path.lineTo(9,6); path.lineTo(11,8);
             path.lineTo(20,8); path.lineTo(20,11); path.moveTo(3,19); path.lineTo(6,11);
@@ -254,6 +255,7 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
     bar.addSeparator();
     add("actionFind", "search", QStringLiteral("본문 검색"), QStringLiteral("PDF 본문 검색 (Ctrl+F)"));
     add("actionPrint", "print", QStringLiteral("인쇄"), QStringLiteral("PDF 인쇄 (Ctrl+P)"));
+    add("LunaCropThumbnail", "crop", QStringLiteral("논문 목록 썸네일 크롭"), QStringLiteral("PDF 화면에서 영역을 선택해 논문 목록 썸네일 PNG로 저장"));
     bar.setMovable(false); bar.setFloatable(false); bar.setOrientation(Qt::Horizontal);
     bar.setToolButtonStyle(Qt::ToolButtonIconOnly); bar.setIconSize(QSize(20,20));
     bar.setFont(QFont(QStringLiteral("Segoe UI"), 10));
@@ -279,7 +281,7 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
     auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
     auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
     if (!bar || !bar->isVisible() || bar->orientation() != Qt::Horizontal) return fail("Reading toolbar missing");
-    const QStringList allowed = {"LunaFocusMode", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "actionCreateTextHighlight", "actionStickyNoteComment", "actionDeleteAnnotation", "actionFind", "actionPrint"};
+    const QStringList allowed = {"LunaCropThumbnail", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "actionCreateTextHighlight", "actionStickyNoteComment", "actionDeleteAnnotation", "actionFind", "actionPrint"};
     int controls = 0;
     for (auto* action : bar->actions()) {
         if (action->isSeparator()) continue;
@@ -308,7 +310,7 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
             for (const auto& previous : occupied) if (previous.intersects(rect)) return fail("Toolbar controls overlap");
             occupied.append(rect);
         }
-        auto* toggle = bar->widgetForAction(window.findChild<QAction*>(QStringLiteral("LunaFocusMode")));
+        auto* toggle = window.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
         if (!toggle || !toggle->isVisible()) return fail("Library collapse button hidden by overflow");
         if (auto* more = bar->findChild<QToolButton*>(QStringLiteral("qt_toolbar_ext_button")))
             if (more->isVisible()) for (const auto& rect : occupied)

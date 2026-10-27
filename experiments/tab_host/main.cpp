@@ -20,6 +20,7 @@
 #include <QVBoxLayout>
 #include <QWindow>
 #include <array>
+#include <memory>
 
 struct Document {
     QProcess* process = nullptr;
@@ -156,6 +157,28 @@ private:
         if (control) append(VK_CONTROL, true);
         return SendInput(count, input, sizeof(INPUT)) == UINT(count);
     }
+    bool altTab() {
+        INPUT input[4]{};
+        const WORD keys[] = {VK_MENU, VK_TAB, VK_TAB, VK_MENU};
+        for (int i = 0; i < 4; ++i) {
+            input[i].type = INPUT_KEYBOARD;
+            input[i].ki.wVk = keys[i];
+            input[i].ki.dwFlags = i >= 2 ? KEYEVENTF_KEYUP : 0;
+        }
+        return SendInput(4, input, sizeof(INPUT)) == 4;
+    }
+    bool clickDocument(int index) {
+        SetForegroundWindow(reinterpret_cast<HWND>(winId()));
+        RECT bounds{};
+        if (!GetWindowRect(documents_[index].handle, &bounds)) return false;
+        SetCursorPos(bounds.left + (bounds.right - bounds.left) * 4 / 5,
+                     bounds.top + (bounds.bottom - bounds.top) * 3 / 4);
+        INPUT click[2]{};
+        click[0].type = click[1].type = INPUT_MOUSE;
+        click[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+        click[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        return SendInput(2, click, sizeof(INPUT)) == 2;
+    }
     bool searchText() {
         const wchar_t text[] = L"smoke";
         for (wchar_t character : text) {
@@ -191,7 +214,8 @@ private:
             {"nativeEditorRoundTrip", basic && editorProbe_ ? "passed" : "unverified"},
             {"annotationIsolation", "unverified"},
             {"win32SearchInputBothDocuments", basic && !editorProbe_ ? "passed" : "unverified"},
-            {"altTabTextDragAndNativeFileDialogs", "unverified"}, {"physicalDpi", "unverified"}};
+            {"altTabRoundTrip", basic && altTabDone_ ? "passed" : "unverified"},
+            {"actualTextDragAndNativeFileDialogs", "unverified"}, {"physicalDpi", "unverified"}};
         capture(QStringLiteral(".final.png"));
         QSaveFile file(report_);
         if (!file.open(QIODevice::WriteOnly) || file.write(QJsonDocument(result).toJson()) < 0 || !file.commit()) {
@@ -252,22 +276,52 @@ private:
             capture(QStringLiteral(".png"));
             tabs_->setCurrentIndex(inputDocument_);
             synchronize();
-            SetForegroundWindow(reinterpret_cast<HWND>(winId()));
-            RECT bounds{};
-            if (!GetWindowRect(documents_[inputDocument_].handle, &bounds)) {
-                finish(false, QStringLiteral("Cannot locate embedded document for actual mouse input")); return;
-            }
-            SetCursorPos(bounds.left + (bounds.right - bounds.left) * 4 / 5,
-                         bounds.top + (bounds.bottom - bounds.top) * 3 / 4);
-            INPUT click[2]{};
-            click[0].type = click[1].type = INPUT_MOUSE;
-            click[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-            click[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-            if (SendInput(2, click, sizeof(INPUT)) != 2) {
-                finish(false, QStringLiteral("Windows mouse input rejected")); return;
+            if (!clickDocument(inputDocument_)) {
+                finish(false, QStringLiteral("Windows mouse input rejected or embedded document geometry missing")); return;
             }
             ++phase_; settle_ = 0;
         } else if (phase_ == 21) {
+            if (!altTabDone_ && inputDocument_ == 0) {
+                if (altPhase_ == 0) {
+                    // An owned synthetic top-level helper makes the Alt+Tab
+                    // target deterministic without touching another app.
+                    altTarget_ = std::make_unique<QWidget>(nullptr, Qt::Window);
+                    altTarget_->setWindowTitle(QStringLiteral("LUNA synthetic Alt+Tab target"));
+                    altTarget_->resize(320, 160); altTarget_->move(20, 20); altTarget_->show();
+                    SetForegroundWindow(reinterpret_cast<HWND>(altTarget_->winId()));
+                    altPhase_ = 1; settle_ = 0; return;
+                }
+                if (++settle_ < 5) return;
+                if (altPhase_ == 1) {
+                    if (GetForegroundWindow() != reinterpret_cast<HWND>(altTarget_->winId())) {
+                        if (settle_ > 30) finish(false, QStringLiteral("Cannot activate synthetic Alt+Tab target on this desktop"));
+                        return;
+                    }
+                    if (!clickDocument(0)) { finish(false, QStringLiteral("Could not focus A before Alt+Tab")); return; }
+                    altPhase_ = 2; settle_ = 0; return;
+                }
+                if (altPhase_ == 2) {
+                    if (!altTab()) { finish(false, QStringLiteral("Windows Alt+Tab input rejected")); return; }
+                    altPhase_ = 3; settle_ = 0; return;
+                }
+                if (altPhase_ == 3) {
+                    if (GetForegroundWindow() != reinterpret_cast<HWND>(altTarget_->winId())) {
+                        if (settle_ > 30) finish(false, QStringLiteral("Alt+Tab from embedded A did not reach the synthetic target"));
+                        return;
+                    }
+                    if (!altTab()) { finish(false, QStringLiteral("Windows return Alt+Tab input rejected")); return; }
+                    altPhase_ = 4; settle_ = 0; return;
+                }
+                if (GetAncestor(GetForegroundWindow(), GA_ROOT) != reinterpret_cast<HWND>(winId())) {
+                    if (settle_ > 30) finish(false, QStringLiteral("Alt+Tab did not restore the host window"));
+                    return;
+                }
+                altTarget_->hide();
+                altTabDone_ = true;
+                // The following real Ctrl+F/text/Escape sequence verifies that
+                // keyboard input still reaches A after returning to the host.
+                settle_ = 0; return;
+            }
             if (++settle_ < 5) return;
             if (!key('F', true)) { finish(false, QStringLiteral("Windows Ctrl+F input rejected")); return; }
             ++phase_; settle_ = 0;
@@ -319,6 +373,9 @@ private:
     QTimer timer_;
     bool qt_;
     bool editorProbe_;
+    bool altTabDone_ = false;
+    int altPhase_ = 0;
+    std::unique_ptr<QWidget> altTarget_;
     QString report_;
     int ticks_ = 0, phase_ = 0, settle_ = 0, inputDocument_ = 0;
 };

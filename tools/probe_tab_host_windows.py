@@ -126,7 +126,7 @@ def run(host, package, output):
                     # later scales for this method, then compare the other one.
                     break
     (output / "summary.json").write_text(json.dumps({"pocAccepted": False, "runs": results,
-        "remaining": ["real keyboard and pointer input", "focus and Alt+Tab", "annotation isolation",
+        "remaining": ["real keyboard and pointer input", "post-switch text-drag focus", "annotation isolation",
                       "save and reopen", "modal dialogs", "unsaved close cancel", "hosted duplicate activation", "physical OS DPI"]},
         ensure_ascii=False, indent=2), encoding="utf-8")
     if len(results) != 8 or any(r["exitCode"] != 0 or not r["sourceBytesUnchanged"] for r in results):

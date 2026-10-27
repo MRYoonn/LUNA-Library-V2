@@ -22,7 +22,8 @@ foreign-window destruction, modal ownership and focus remain acceptance risks.
 The synthetic-only Python driver compares Qt `fromWinId/createWindowContainer`
 and Win32 `SetParent` at Qt scale 1/1.25/1.5. It records actual screenshots,
 source-byte preservation, tab switching, resizing, actual Win32 mouse/Ctrl+F/text/
-Escape input and document-owned search popup results, deliberate crash of synthetic
+Escape input and document-owned search popup results, Alt+Tab out-and-back
+using an owned synthetic helper window, deliberate crash of synthetic
 A while B survives, and clean close of B. Only the synthetic automatic driver
 may exercise the deliberate crash; never use --report with user documents.
 After lifecycle checks, the driver also runs the existing native Editor

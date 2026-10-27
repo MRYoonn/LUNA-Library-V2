@@ -282,6 +282,8 @@ static void verify(Tabs& host, Editor* a, Editor* b, const QString& report) {
         action(a, "editortool_activateAction")->trigger();
         require(ca->hasUnsavedChanges() && !cb->hasUnsavedChanges() &&
             !action(b, "editortool_activateAction")->isChecked(), "Plugin editing state crossed documents");
+        require(waitFor([&] { return ca->canClose() && a->isEnabled(); }),
+            "Plugin editor did not become ready for the close-cancel check");
         int pluginPrompts = 0;
         require(!answer(QMessageBox::Cancel, [&] { return host.closeTab(0); }, pluginPrompts) &&
             pluginPrompts == 1 && host.tabs->count() == 2, "Plugin-only pending edit bypassed close prompt");

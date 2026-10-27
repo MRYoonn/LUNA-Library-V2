@@ -384,10 +384,10 @@ jobs:
           if ($env:SOURCE_RUN -notmatch '^\d+$') { throw 'Invalid run ID' }
           $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN" | ConvertFrom-Json
           if ($run.conclusion -ne 'success' -or $run.head_branch -ne 'feature/windows-beta-v0.1' -or $run.path -ne '.github/workflows/build-windows.yml') { throw 'Source must be a successful Beta-branch Windows workflow' }
-          New-Item -ItemType Directory -Force evidence | Out-Null
-          $run | Select-Object id,head_sha,html_url,conclusion | ConvertTo-Json | Set-Content evidence/source-build.json
           python -B tools/preflight_public.py
           if ($LASTEXITCODE -ne 0) { throw 'Source gate failed' }
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          $run | Select-Object id,head_sha,html_url,conclusion | ConvertTo-Json | Set-Content evidence/source-build.json
       - uses: actions/download-artifact@v4
         with:
           name: LUNA-Windows-Portable

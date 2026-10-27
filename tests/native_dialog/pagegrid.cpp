@@ -7,6 +7,8 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 #include <QDebug>
+#include <QFile>
+#include <QRegularExpression>
 
 static bool waitFor(const std::function<bool()>& ready) {
     QEventLoop loop;
@@ -21,6 +23,11 @@ static bool waitFor(const std::function<bool()>& ready) {
 }
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
+    QFile theme(QString::fromUtf8(LUNA_THEME_FILE));
+    if (!theme.open(QIODevice::ReadOnly)) return 2;
+    QString stylesheet = QString::fromUtf8(theme.readAll());
+    stylesheet.replace(QRegularExpression(QStringLiteral("@[A-Z_]+@")), QStringLiteral("#4F70B5"));
+    app.setStyleSheet(stylesheet); // Real layout rules; color does not affect geometry.
     QWidget window;
     auto* layout = new QVBoxLayout(&window);
     auto* stack = new QStackedWidget(&window);

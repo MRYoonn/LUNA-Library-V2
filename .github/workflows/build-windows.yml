@@ -149,6 +149,15 @@ jobs:
           $actual = (git -C pdf4qt rev-parse HEAD).Trim()
           if ($actual -ne $env:PDF4QT_PIN) { throw "Upstream SHA mismatch" }
 
+      - name: Stabilize pinned engine source timestamps for incremental compilation
+        shell: pwsh
+        run: |
+          # Only immutable upstream files; overlay sources are written afterward
+          # with fresh timestamps and are rebuilt on every application change.
+          $env:LUNA_ENGINE_TIMESTAMP = (git -C pdf4qt show -s --format=%ct HEAD).Trim()
+          python -B -c "import os; from pathlib import Path; stamp=int(os.environ['LUNA_ENGINE_TIMESTAMP']); root=Path('pdf4qt'); files=[p for p in root.rglob('*') if p.is_file() and '.git' not in p.relative_to(root).parts]; [os.utime(p,(stamp,stamp)) for p in files]"
+          if ($LASTEXITCODE -ne 0) { throw 'Engine source timestamp normalization failed' }
+
       - name: Apply isolated LUNA target
         shell: pwsh
         run: |
@@ -249,6 +258,13 @@ jobs:
           ctest --test-dir $probe -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw "Native dialog probe failed; PDF engine build not started" }
 
+      - name: Restore public engine compilation cache
+        id: engine-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: pdf4qt/build
+          key: ${{ runner.os }}-luna-engine-release-noocr-v1-${{ env.PDF4QT_PIN }}-${{ env.VCPKG_PIN }}-qt6.11.3-${{ steps.compiler-image.outputs.identity }}
+
       - name: Configure native Windows build
         shell: pwsh
         run: |
@@ -262,6 +278,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Native compile failed" }
           cmake --install pdf4qt/build --config Release
           if ($LASTEXITCODE -ne 0) { throw "Native install failed" }
+
+      # Cache before any PDF is opened: public compiler outputs only. Every
+      # restored build still configures, compiles and runs the complete gates.
+      - name: Save public engine compilation cache
+        if: steps.engine-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: pdf4qt/build
+          key: ${{ steps.engine-cache.outputs.cache-primary-key }}
 
       - name: Create standalone portable LUNA
         shell: pwsh

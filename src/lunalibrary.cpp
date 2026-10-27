@@ -415,11 +415,32 @@ public:
         navigationScroll->setWidget(navigationContents);
         auto* nav = new QVBoxLayout(navigationContents);
         nav->setSizeConstraint(QLayout::SetMinimumSize);
-        nav->setContentsMargins(14, 20, 14, 16);
+        nav->setContentsMargins(14, 0, 14, 16);
         nav->setSpacing(9);
-        auto* section = new QLabel(QStringLiteral("내 라이브러리"), navigation_);
-        section->setObjectName(QStringLiteral("LunaSection"));
-        nav->addWidget(section);
+        auto* libraryHeader = new QWidget(navigation_);
+        libraryHeader->setFixedHeight(48);
+        auto* libraryHeaderLayout = new QHBoxLayout(libraryHeader);
+        libraryHeaderLayout->setContentsMargins(0, 0, 0, 0);
+        auto* shelf = new QLabel(libraryHeader);
+        QPixmap shelfImage(20, 20);
+        shelfImage.fill(Qt::transparent);
+        {
+            QPainter painter(&shelfImage);
+            painter.setRenderHint(QPainter::Antialiasing);
+            painter.setPen(QPen(QColor(QStringLiteral("#172B50")), 1.5));
+            painter.drawLine(2, 17, 18, 17);
+            painter.drawRect(QRectF(3, 4, 3, 11));
+            painter.drawRect(QRectF(8, 3, 3, 12));
+            painter.drawLine(13, 5, 17, 14);
+            painter.drawLine(15, 4, 19, 13);
+        }
+        shelf->setPixmap(shelfImage);
+        shelf->setAccessibleName(QStringLiteral("라이브러리"));
+        libraryHeaderLayout->addWidget(shelf);
+        auto* section = new QLabel(QStringLiteral("라이브러리"), libraryHeader);
+        section->setObjectName(QStringLiteral("LunaLibraryTitle"));
+        libraryHeaderLayout->addWidget(section, 1);
+        nav->addWidget(libraryHeader);
         auto* group = new QButtonGroup(this);
         auto navButton = [this, nav, group](const QString& text, QStyle::StandardPixmap icon) {
             auto* b = new QPushButton(style()->standardIcon(icon), text, navigation_);
@@ -489,10 +510,11 @@ public:
         docs->setSpacing(0);
         auto* heading = new QWidget(documents_);
         auto* headingLayout = new QVBoxLayout(heading);
-        headingLayout->setContentsMargins(18, 20, 18, 12);
+        headingLayout->setContentsMargins(18, 0, 18, 12);
         headingLayout->setSpacing(12);
-        auto* title = new QLabel(QStringLiteral("논문 라이브러리"), heading);
+        auto* title = new QLabel(QStringLiteral("논문 목록"), heading);
         title->setObjectName(QStringLiteral("LunaLibraryTitle"));
+        title->setFixedHeight(48);
         headingLayout->addWidget(title);
         auto* addFile = new QPushButton(QStringLiteral("＋  PDF 파일 추가"), heading);
         addFile->setObjectName(QStringLiteral("LunaPrimary"));
@@ -1243,9 +1265,9 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
         {QStringLiteral("menuTools"), QStringLiteral("도구")}, {QStringLiteral("menuHelp"), QStringLiteral("도움말")}
     };
     for (const auto& entry : menus) if (auto* menu = window.findChild<QMenu*>(entry.first)) menu->setTitle(entry.second);
-    auto* brand = new QLabel(QStringLiteral("<img src=\":/luna/LUNA-Moon.png\" width=\"24\" height=\"24\">  LUNA Library  v2"), &window);
+    auto* brand = new QLabel(QStringLiteral("<img src=\":/luna/LUNA-Moon.png\" width=\"24\" height=\"24\">  LUNA Library"), &window);
     brand->setContentsMargins(12, 6, 20, 6);
-    brand->setStyleSheet(QStringLiteral("color:%1; font-weight:700; font-size:16px;").arg(QString::fromLatin1(kNAVY)));
+    brand->setObjectName(QStringLiteral("LunaBrand"));
     window.menuBar()->setCornerWidget(brand, Qt::TopLeftCorner);
 
     if (auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {

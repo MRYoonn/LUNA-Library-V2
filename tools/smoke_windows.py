@@ -84,6 +84,16 @@ def run(package: Path, screenshots_directory: Path | None = None,
             if screenshots_directory is not None and failure_image.is_file():
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(failure_image, screenshots_directory / "luna-failure.png")
+            if screenshots_directory is not None:
+                # Preserve actual earlier captures when a later gate fails.
+                # Their presence never changes the failing process status.
+                screenshots_directory.mkdir(parents=True, exist_ok=True)
+                for suffix, name in ((".pages.png", "luna-page-grid.png"),
+                                     (".hover.png", "luna-thumbnail-hover.png"),
+                                     (".desktop.png", "luna-windows-desktop.png")):
+                    capture = Path(str(report) + suffix)
+                    if capture.is_file():
+                        shutil.copyfile(capture, screenshots_directory / name)
             status = f"exit {error.returncode}" if isinstance(error, subprocess.CalledProcessError) else "timed out"
             raise RuntimeError(f"Native smoke {status}: {detail}") from error
         marker = b"LUNA_SMOKE_LAYOUT_OK\n" if layout_only else b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n"

@@ -16,6 +16,7 @@
 #include "pdftextlayout.h"
 #include "pdfplugin.h"
 #include <QApplication>
+#include <QAbstractButton>
 #include <QAction>
 #include <QCloseEvent>
 #include <QDialog>
@@ -186,7 +187,7 @@ static bool answer(QMessageBox::StandardButton choice, const std::function<bool(
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, [&] {
         if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
-            ++prompts; box->done(choice);
+            if (auto* button = box->button(choice)) { ++prompts; button->click(); }
         }
     });
     timer.start(30); const bool result = operation(); timer.stop(); return result;

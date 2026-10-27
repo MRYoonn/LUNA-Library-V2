@@ -1002,7 +1002,10 @@ private:
         int page = 0;
         double zoom = 2.0;
         if (opened) {
-            if (!viewer_->isEnabled() || !controller->canClose()) return;
+            if (!viewer_->isEnabled() || !controller->canClose()) {
+                qWarning("LUNA paired move deferred: native reader is busy");
+                return;
+            }
             if (!controller->askForSaveDocumentBeforeClose()) return;
             // Save As may have changed the current document while prompting.
             // Do not close or relocate a different document under the old name.
@@ -1669,7 +1672,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     auto reopened = [&](const QString& expectedPath) {
         return wait([&] {
             auto* c = window.getProgramController();
-            return window.isEnabled() && c->getDocument() &&
+            return window.isEnabled() && c->canClose() && !c->getIsBusy() && c->getDocument() &&
                 QFileInfo(c->getOriginalFileName()).canonicalFilePath() == QFileInfo(expectedPath).canonicalFilePath();
         });
     };
@@ -1677,8 +1680,17 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (!reopened(movedPath) || QFileInfo::exists(path) || QFileInfo::exists(thumbnail) || !QFileInfo::exists(movedThumbnail))
         return fail("Opened PDF and sidecar did not move/reopen together");
     library->moveDocumentTo(movedPath, pdf.absolutePath());
-    if (!reopened(path) || QFileInfo::exists(movedPath) || QFileInfo::exists(movedThumbnail))
-        return fail("Opened PDF did not return to its library folder");
+    if (!reopened(path) || QFileInfo::exists(movedPath) || QFileInfo::exists(movedThumbnail)) {
+        auto* c = window.getProgramController();
+        error = QStringLiteral("Opened PDF did not return to its library folder: enabled=%1 canClose=%2 busy=%3 document=%4 sourcePdf=%5 sourcePng=%6 movedPdf=%7 movedPng=%8 currentIsSource=%9 currentIsMoved=%10")
+            .arg(window.isEnabled()).arg(c->canClose()).arg(c->getIsBusy()).arg(bool(c->getDocument()))
+            .arg(QFileInfo::exists(path)).arg(QFileInfo::exists(thumbnail))
+            .arg(QFileInfo::exists(movedPath)).arg(QFileInfo::exists(movedThumbnail))
+            .arg(QFileInfo(c->getOriginalFileName()).canonicalFilePath() == QFileInfo(path).canonicalFilePath())
+            .arg(QFileInfo(c->getOriginalFileName()).canonicalFilePath() == QFileInfo(movedPath).canonicalFilePath());
+        qWarning().noquote() << error;
+        return false;
+    }
     if (!beforePdf.open(QIODevice::ReadOnly) || !beforePng.open(QIODevice::ReadOnly) ||
         beforePdf.readAll() != pdfBytes || beforePng.readAll() != pngBytes)
         return fail("PDF/thumbnail bytes changed during paired movement");

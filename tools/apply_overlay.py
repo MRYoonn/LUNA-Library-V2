@@ -238,6 +238,7 @@ def apply(root: Path, dry_run=False) -> None:
             raise ValueError("PDF4QT source pin mismatch or unsafe symlink: " + rel)
     own = Path(__file__).resolve().parents[1] / "src"
     files = {
+        folder / "lunapagegrid.h": (own / "lunapagegrid.h").read_bytes(),
         folder / "lunalibrary.cpp": (own / "lunalibrary.cpp").read_bytes(),
         folder / "lunareadertoolbar.cpp": (own / "lunareadertoolbar.cpp").read_bytes(),
         folder / "lunareadertoolbar.h": (own / "lunareadertoolbar.h").read_bytes(),

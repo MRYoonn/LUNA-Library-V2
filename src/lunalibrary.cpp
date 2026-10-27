@@ -10,6 +10,7 @@
 #include "pdfdrawwidget.h"
 #include "pdfdrawspacecontroller.h"
 #include "pdfitemmodels.h"
+#include "lunapagegrid.h"
 #include <QListView>
 #include <QTabBar>
 #include <QResizeEvent>
@@ -265,36 +266,6 @@ public:
         painter->drawText(QRect(r.right() - 30, r.top() + 16, 22, 24), Qt::AlignCenter,
             index.data(Qt::UserRole + 2).toBool() ? QStringLiteral("★") : QStringLiteral("☆"));
         painter->restore();
-    }
-};
-
-// Reuse the existing PDF4QT sidebar model, renderer and bounded thumbnail cache.
-// No second document or page-rendering engine is created here.
-class PageGrid final : public QListView {
-public:
-    PageGrid(QListView& native, QWidget* parent) : QListView(parent) {
-        setObjectName(QStringLiteral("LunaPageGrid"));
-        setModel(native.model());
-        setSelectionModel(native.selectionModel());
-        setViewMode(QListView::IconMode);
-        setFlow(QListView::LeftToRight);
-        setWrapping(true);
-        setMovement(QListView::Static);
-        setResizeMode(QListView::Adjust);
-        setUniformItemSizes(true);
-        setSpacing(0);
-        setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
-        setSelectionMode(QAbstractItemView::SingleSelection);
-    }
-protected:
-    void resizeEvent(QResizeEvent* event) override {
-        QListView::resizeEvent(event);
-        const int cell = qMax(40, viewport()->width() / 2);
-        setGridSize(QSize(cell, cell + 30));
-        setIconSize(QSize(cell - 16, cell - 16));
-        if (auto* thumbnails = qobject_cast<pdf::PDFThumbnailsItemModel*>(model()))
-            thumbnails->setThumbnailsSize(cell - 16);
     }
 };
 
@@ -590,7 +561,10 @@ public:
         content->addWidget(pages_);
         docs->addWidget(content, 1);
         if (auto* native = viewer_->findChild<QListView*>(QStringLiteral("thumbnailsListView"))) {
-            auto* grid = new PageGrid(*native, content);
+            QPointer<pdf::PDFThumbnailsItemModel> thumbnails(qobject_cast<pdf::PDFThumbnailsItemModel*>(native->model()));
+            auto* grid = new PageGrid(*native, [thumbnails](int size) {
+                if (thumbnails) thumbnails->setThumbnailsSize(size);
+            }, content);
             content->addWidget(grid);
             connect(grid, &QListView::clicked, this, [this](const QModelIndex& index) {
                 if (index.isValid()) viewer_->getProgramController()->getPdfWidget()->getDrawWidgetProxy()->goToPage(index.row());
@@ -1620,8 +1594,8 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         return fail("Page grid did not become visible");
     const auto firstPage = grid->model()->index(0, 0);
     const auto secondPage = grid->model()->index(1, 0);
-    if (grid->visualRect(firstPage).top() != grid->visualRect(secondPage).top() ||
-        grid->visualRect(firstPage).left() >= grid->visualRect(secondPage).left() || !navigation->isVisible())
+    if (!wait([&] { return grid->visualRect(firstPage).top() == grid->visualRect(secondPage).top() &&
+        grid->visualRect(firstPage).left() < grid->visualRect(secondPage).left(); }) || !navigation->isVisible())
         return fail("Page previews are not two columns or hid the folder panel");
     if (!wait([&] { return !grid->model()->data(firstPage, Qt::DecorationRole).value<QPixmap>().isNull(); }))
         return fail("PDF4QT did not render the real page thumbnail");

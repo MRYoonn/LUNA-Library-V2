@@ -30,7 +30,7 @@ APPROVED = {
     "src/lunaeditorsmoke.cpp", "src/lunaeditorsmoke.h",
     "src/lunasavedialog.h", "tests/native_dialog/CMakeLists.txt", "tests/native_dialog/main.cpp",
 }
-APPROVED_BINARY = {'assets/icons/LUNA-Moon.ico': '5c1dec76af47b7c37e3d41e5fb05d62a02783f4f4af0247503096feb4cd7b51f', 'assets/icons/LUNA-Moon.png': '6e425c04d648d2ad0417afd82d590ba4aecab7a6e8898e84a788019e920efb59'}
+APPROVED_BINARY = {'assets/icons/LUNA-Moon.ico': '5c1dec76af47b7c37e3d41e5fb05d62a02783f4f4af0247503096feb4cd7b51f', 'assets/icons/LUNA-Moon.png': '2d08386badd6d1d3a80f6d53213ccc53296fb46590a6c45b734a83e457aba4c3'}
 APPROVED.update(APPROVED_BINARY)
 FORBIDDEN = [
     ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)),

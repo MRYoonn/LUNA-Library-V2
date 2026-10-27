@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: luna-library-v2-windows
+  group: luna-library-v2-windows-${{ inputs.native_probes_only && 'native-probes' || 'app' }}
   cancel-in-progress: false
 
 jobs:
@@ -97,6 +97,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Native probe compilation failed" }
           ctest --test-dir $probe -C Release --verbose
           if ($LASTEXITCODE -ne 0) { throw "Native Qt probes failed" }
+
+      - name: Compile isolated tab host without claiming POC execution
+        shell: pwsh
+        run: |
+          $hostBuild = Join-Path $env:RUNNER_TEMP 'luna-tab-host-build'
+          cmake -S experiments/tab_host -B $hostBuild -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw "Experimental host configuration failed" }
+          cmake --build $hostBuild --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Experimental host compile failed" }
+          Write-Host '[NOTICE] Host compilation only; no PDF embedding or POC acceptance is implied.'
 
   build-windows:
     needs: windows-packaging-preflight

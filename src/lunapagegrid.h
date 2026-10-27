@@ -27,6 +27,10 @@ public:
         setSelectionMode(QAbstractItemView::SingleSelection);
         viewport()->installEventFilter(this);
     }
+    void bindNative(QListView& native) {
+        setModel(native.model()); setSelectionModel(native.selectionModel());
+        thumbnailSize_(qMax(24, iconSize().width())); doItemsLayout(); scheduleLayout();
+    }
 protected:
     void resizeEvent(QResizeEvent* event) override {
         QListView::resizeEvent(event);

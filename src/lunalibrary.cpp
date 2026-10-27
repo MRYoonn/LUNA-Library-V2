@@ -598,8 +598,9 @@ public:
         docs->addWidget(content, 1);
         if (auto* native = viewer_->findChild<QListView*>(QStringLiteral("thumbnailsListView"))) {
             QPointer<pdf::PDFThumbnailsItemModel> thumbnails(qobject_cast<pdf::PDFThumbnailsItemModel*>(native->model()));
-            auto* grid = new PageGrid(*native, [thumbnails](int size) {
-                if (thumbnails) thumbnails->setThumbnailsSize(size);
+            auto* grid = new PageGrid(*native, [this](int size) {
+                if (auto* view = viewer_->findChild<QListView*>(QStringLiteral("thumbnailsListView")))
+                    if (auto* model = qobject_cast<pdf::PDFThumbnailsItemModel*>(view->model())) model->setThumbnailsSize(size);
             }, content);
             content->addWidget(grid);
             connect(grid, &QListView::clicked, this, [this](const QModelIndex& index) {
@@ -647,13 +648,14 @@ public:
             pages_->setCurrentIndex(1);
             if (!allScanned_) scanAll();
         });
-        auto* cropAction = new QAction(QStringLiteral("논문 목록 썸네일 크롭"), viewer_);
+        auto* cropAction = new QAction(QStringLiteral("논문 목록 썸네일 크롭"), this);
         cropAction->setObjectName(QStringLiteral("LunaCropThumbnail"));
         cropAction->setEnabled(false);
         connect(cropAction, &QAction::triggered, this, [this] { startThumbnailCrop(); });
+        cropAction_ = cropAction;
         if (auto* selectText = viewer_->findChild<QAction*>(QStringLiteral("actionSelectText"))) {
             auto updateCrop = [cropAction, selectText] { cropAction->setEnabled(selectText->isEnabled()); };
-            connect(selectText, &QAction::changed, cropAction, updateCrop);
+            cropConnection_ = connect(selectText, &QAction::changed, cropAction, updateCrop);
             updateCrop();
         }
         connect(recent, &QPushButton::clicked, this, [this] { showHistory(false); });
@@ -667,7 +669,7 @@ public:
         });
         connect(addFile, &QPushButton::clicked, this, [this] { importPdfs(); });
         connect(addFolder, &QToolButton::clicked, this, [this] { createFolder(); });
-        connect(viewer_, &QWidget::windowTitleChanged, this, [this] {
+        documentTitleConnection_ = connect(viewer_, &QWidget::windowTitleChanged, this, [this] {
             QTimer::singleShot(0, this, [this] { rememberOpenedDocument(); });
         });
         connect(split_, &QSplitter::splitterMoved, this, [this] { savePanelState(); });
@@ -680,6 +682,28 @@ public:
         split_->restoreState(settings.value(QStringLiteral("library/splitter")).toByteArray());
     }
 
+    std::function<void(const QString&)> openHandler;
+    std::function<bool(const QString&)> activateElsewhere;
+    std::function<bool(pdfviewer::PDFEditorMainWindow*, const QString&, const QString&)> movedHandler;
+    QAction* cropAction() const { return cropAction_; }
+    void bindEditor(pdfviewer::PDFEditorMainWindow& editor) {
+        if (viewer_ == &editor) return;
+        if (cropOverlay_) cropOverlay_->close();
+        hideThumbnail();
+        disconnect(documentTitleConnection_); disconnect(cropConnection_);
+        viewer_ = &editor;
+        if (auto* grid = static_cast<PageGrid*>(findChild<QListView*>(QStringLiteral("LunaPageGrid"))))
+            if (auto* native = editor.findChild<QListView*>(QStringLiteral("thumbnailsListView"))) grid->bindNative(*native);
+        auto* select = editor.findChild<QAction*>(QStringLiteral("actionSelectText"));
+        if (select) {
+            auto update = [this, select] { cropAction_->setEnabled(select->isEnabled()); };
+            cropConnection_ = connect(select, &QAction::changed, this, update); update();
+        }
+        documentTitleConnection_ = connect(&editor, &QWidget::windowTitleChanged, this, [this] {
+            QTimer::singleShot(0, this, [this] { rememberOpenedDocument(); });
+        });
+    }
+    void recordEditor(pdfviewer::PDFEditorMainWindow& editor) { rememberEditor(editor); }
     void updateMinimum() { setMinimumWidth((navigation_->isHidden() ? 0 : 190) + (documents_->isHidden() ? 0 : 300) + 1); }
     void toggleNavigation() { savePanelState(); navigation_->setVisible(navigation_->isHidden()); updateMinimum(); }
     void toggleDocuments() { savePanelState(); documents_->setVisible(documents_->isHidden()); updateMinimum(); }
@@ -756,13 +780,14 @@ private:
             .arg(historyPdfs_->count()));
         pages_->setCurrentIndex(2);
     }
-    void rememberOpenedDocument() {
-        auto* controller = viewer_->getProgramController();
-        if (!controller->getDocument()) { lastOpened_.clear(); return; }
+    void rememberOpenedDocument() { if (!window()->property("LunaClosing").toBool()) rememberEditor(*viewer_); }
+    void rememberEditor(pdfviewer::PDFEditorMainWindow& editor) {
+        auto* controller = editor.getProgramController();
+        if (!controller->getDocument()) { editor.setProperty("LunaRememberedPath", QString()); return; }
         const QFileInfo info(controller->getOriginalFileName());
         const QString path = info.canonicalFilePath();
-        if (!info.isFile() || path.isEmpty() || path == lastOpened_) return;
-        lastOpened_ = path;
+        if (!info.isFile() || path.isEmpty() || path == editor.property("LunaRememberedPath").toString()) return;
+        editor.setProperty("LunaRememberedPath", path);
         QStringList recent = savedPaths(QStringLiteral("library/recent"));
         recent.removeAll(path);
         recent.prepend(path);
@@ -778,8 +803,11 @@ private:
                 if (list->item(row)->data(Qt::UserRole).toString() == path) decorate(list->item(row), path);
         // Reuse the native PDF4QT draw-space controller: no replacement renderer.
         auto* proxy = controller->getPdfWidget()->getDrawWidgetProxy();
-        proxy->setPageLayout(pdf::PageLayout::OneColumn);
-        proxy->zoom(2.0);
+        if (!editor.property("LunaPreserveReopenView").toBool()) {
+            proxy->setPageLayout(pdf::PageLayout::OneColumn);
+            proxy->zoom(2.0);
+        }
+        editor.setProperty("LunaPreserveReopenView", false);
         if (pages_->currentIndex() == 2 && !showingFavorites_) showHistory(false);
     }
     void importPdfs() {
@@ -1050,7 +1078,8 @@ private:
     void moveDocumentTo(const QString& path, const QString& destination) {
         const QString source = QFileInfo(path).canonicalFilePath();
         if (source.isEmpty()) return;
-        if (auto* documents = independentDocuments(*viewer_); documents && documents->openElsewhere(source)) {
+        if ((activateElsewhere && activateElsewhere(source)) ||
+            (independentDocuments(*viewer_) && independentDocuments(*viewer_)->openElsewhere(source))) {
             QMessageBox::information(this, QStringLiteral("다른 창에서 열린 PDF"),
                 QStringLiteral("이 PDF를 열고 있는 LUNA 창에서 이동해 주세요. 해당 창을 활성화했습니다."));
             return;
@@ -1116,19 +1145,22 @@ private:
             if (pages_->currentIndex() == 1) scanAll();
             else if (pages_->currentIndex() == 2) showHistory(showingFavorites_);
         }
+        if (opened && result.success && movedHandler && !movedHandler(viewer_, source, result.documentPath)) return;
         if (opened) {
             viewer_->setProperty("LunaMoveRestorePending", true);
+            viewer_->setProperty("LunaPreserveReopenView", true);
             controller->openDocument(result.documentPath);
             auto* restore = new QTimer(this);
-            connect(restore, &QTimer::timeout, this, [this, restore, target = result.documentPath, page, zoom, attempts = 0]() mutable {
-                auto* c = viewer_->getProgramController();
-                if (++attempts > 200) { viewer_->setProperty("LunaMoveRestorePending", false); restore->stop(); restore->deleteLater(); return; }
-                if (!viewer_->isEnabled() || !c->getDocument()) return;
+            connect(restore, &QTimer::timeout, this, [this, restore, editor = QPointer<pdfviewer::PDFEditorMainWindow>(viewer_), target = result.documentPath, page, zoom, attempts = 0]() mutable {
+                if (!editor) { restore->stop(); restore->deleteLater(); return; }
+                auto* c = editor->getProgramController();
+                if (++attempts > 200) { editor->setProperty("LunaMoveRestorePending", false); restore->stop(); restore->deleteLater(); return; }
+                if (!editor->isEnabled() || !c->getDocument()) return;
                 if (QFileInfo(c->getOriginalFileName()).canonicalFilePath() == QFileInfo(target).canonicalFilePath()) {
                     c->getPdfWidget()->getDrawWidgetProxy()->zoom(zoom);
                     c->getPdfWidget()->getDrawWidgetProxy()->goToPage(page);
                 }
-                viewer_->setProperty("LunaMoveRestorePending", false);
+                editor->setProperty("LunaMoveRestorePending", false);
                 restore->stop(); restore->deleteLater();
             });
             restore->start(50);
@@ -1233,6 +1265,7 @@ private:
         if (item) openPdf(item->data(Qt::UserRole).toString());
     }
     void openPdf(const QString& path) {
+        if (openHandler) { openHandler(path); return; }
         if (auto* documents = independentDocuments(*viewer_)) { documents->open(path); return; }
         const QFileInfo info(path);
         if (!info.isFile() ||
@@ -1280,6 +1313,8 @@ private:
     QString hoverRequest_;
     QPointer<ThumbnailCropOverlay> cropOverlay_;
     pdfviewer::PDFEditorMainWindow* viewer_;
+    QAction* cropAction_ = nullptr;
+    QMetaObject::Connection documentTitleConnection_, cropConnection_;
     QSplitter* split_ = nullptr;
     QWidget* navigation_ = nullptr;
     QWidget* documents_ = nullptr;
@@ -1330,7 +1365,7 @@ private:
 
 } // namespace
 
-void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
+static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWindow& viewer, bool sessionShell) {
     QFile sheet(QStringLiteral(":/luna/lunalibrary.qss"));
     if (sheet.open(QIODevice::ReadOnly)) window.setStyleSheet(themeSheet(sheet.readAll()));
     // Hide the old PDF4QT sidebar: LUNA must have precisely two visible columns.
@@ -1348,7 +1383,7 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     dock->setTitleBarWidget(new QWidget(dock));
     dock->setMinimumWidth(1);
     dock->setMaximumWidth(850);
-    auto* library = new LibraryPanel(&window, dock);
+    auto* library = new LibraryPanel(&viewer, dock);
     dock->setWidget(library);
     window.addDockWidget(Qt::LeftDockWidgetArea, dock);
     dock->show();
@@ -1401,7 +1436,7 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
         globalSearch->setFocus();
         globalSearch->selectAll();
     });
-    if (auto* pdfBar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
+    if (auto* pdfBar = sessionShell ? nullptr : window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
         window.insertToolBar(pdfBar, controls);
     } else window.addToolBar(Qt::TopToolBarArea, controls);
     const QList<QPair<QString, QString>> menus = {
@@ -1416,8 +1451,8 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     brand->setObjectName(QStringLiteral("LunaBrand"));
     window.menuBar()->setCornerWidget(brand, Qt::TopLeftCorner);
 
-    if (auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
-        installReaderToolbar(window, *bar, *focus);
+    if (auto* bar = sessionShell ? nullptr : window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
+        installReaderToolbar(viewer, *bar, *focus);
         bar->removeAction(focus);
         // Keep the real PDF widget and all controller pointers. Only the native
         // toolbar is reparented beside it, so library panels start at the header.
@@ -1457,9 +1492,9 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
         };
         QObject::connect(focus, &QAction::toggled, panelToggle, placeToggle);
         placeToggle(false);
-        QObject::connect(&window, &QWidget::windowTitleChanged, documentTitle, [&window, documentTitle] {
-            QTimer::singleShot(0, documentTitle, [&window, documentTitle] {
-                const QString file = window.getProgramController()->getOriginalFileName();
+        QObject::connect(&window, &QWidget::windowTitleChanged, documentTitle, [&viewer, documentTitle] {
+            QTimer::singleShot(0, documentTitle, [&viewer, documentTitle] {
+                const QString file = viewer.getProgramController()->getOriginalFileName();
                 documentTitle->setText(file.isEmpty() ? QStringLiteral("PDF 문서") : QFileInfo(file).fileName());
                 documentTitle->setToolTip(file);
             });
@@ -1469,6 +1504,25 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
         bar->show(); // QMainWindow::removeToolBar() explicitly hides it.
         if (pdfWidget) { frameLayout->addWidget(pdfWidget, 1); pdfWidget->show(); }
         window.setCentralWidget(frame);
+    }
+    if (sessionShell) {
+        auto* frame = new QWidget(&window); frame->setObjectName(QStringLiteral("LunaPdfFrame"));
+        auto* layout = new QVBoxLayout(frame); layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(0);
+        auto* corner = new QWidget(frame); corner->setObjectName(QStringLiteral("LunaTabCorner"));
+        auto* row = new QHBoxLayout(corner); row->setContentsMargins(0, 0, 4, 0);
+        auto* toggle = new QToolButton(corner); toggle->setObjectName(QStringLiteral("LunaCombinedPanelToggle"));
+        toggle->setDefaultAction(focus); toggle->setMinimumSize(30, 30);
+        auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
+        auto place = [toggle, paperHeading, row, corner, focus](bool collapsed) {
+            paperHeading->removeWidget(toggle); row->removeWidget(toggle);
+            toggle->setParent(collapsed ? corner : paperHeading->parentWidget());
+            if (collapsed) row->addWidget(toggle); else paperHeading->addWidget(toggle);
+            focus->setText(collapsed ? QStringLiteral("☰") : QStringLiteral("≪"));
+            focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
+            corner->setVisible(collapsed); toggle->show();
+        };
+        QObject::connect(focus, &QAction::toggled, toggle, place); place(false);
+        layout->addWidget(corner); window.setCentralWidget(frame);
     }
     QObject::connect(&window, &QWidget::windowTitleChanged, &window,
         [&window](const QString& title) {
@@ -1481,8 +1535,13 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     window.restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
     window.restoreState(settings.value(QStringLiteral("window/state")).toByteArray());
     focus->setChecked(dock->isHidden());
-    hideAdvancedToolbars(window); // Old saved PDF4QT toolbar rows must not reappear.
+    hideAdvancedToolbars(viewer); // Old saved PDF4QT toolbar rows must not reappear.
     controls->hide(); // Legacy actions remain in View; this empty row has no UI role.
+    new WindowState(&window);
+}
+
+void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
+    installLibraryBase(window, window, false);
     auto* documentWindows = new IndependentDocuments(window);
     if (auto* originalOpen = window.findChild<QAction*>(QStringLiteral("actionOpen"))) {
         // Preserve the native QAction and its connections; route the public
@@ -1501,7 +1560,41 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
         if (auto* file = window.findChild<QMenu*>(QStringLiteral("menuFile")))
             file->insertAction(file->actions().isEmpty() ? nullptr : file->actions().front(), open);
     }
-    new WindowState(&window);
+}
+
+void installLibraryShell(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor) { installLibraryBase(shell, editor, true); }
+static LibraryPanel* panel(QMainWindow& shell) {
+    auto* dock = shell.findChild<QDockWidget*>(QStringLiteral("LunaLibraryDock"));
+    return dock ? dynamic_cast<LibraryPanel*>(dock->widget()) : nullptr;
+}
+void bindLibraryEditor(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor) { if (auto* p = panel(shell)) p->bindEditor(editor); }
+void recordLibraryDocument(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor) { if (auto* p = panel(shell)) p->recordEditor(editor); }
+void setLibraryDocumentRouter(QMainWindow& shell, std::function<void(const QString&)> open,
+    std::function<bool(const QString&)> elsewhere,
+    std::function<bool(pdfviewer::PDFEditorMainWindow*, const QString&, const QString&)> moved) {
+    if (auto* p = panel(shell)) { p->openHandler = std::move(open); p->activateElsewhere = std::move(elsewhere); p->movedHandler = std::move(moved); }
+}
+void prepareReaderSession(pdfviewer::PDFEditorMainWindow& editor, QMainWindow& shell) {
+    editor.setStyleSheet(shell.styleSheet());
+    for (auto* dock : editor.findChildren<QDockWidget*>()) {
+        dock->hide();
+        if (dock->objectName() == QStringLiteral("SidebarDockWidget")) {
+            dock->toggleViewAction()->setVisible(false);
+            QObject::connect(dock, &QDockWidget::visibilityChanged, dock, [dock](bool visible) { if (visible) dock->hide(); });
+        }
+    }
+    auto* focus = shell.findChild<QAction*>(QStringLiteral("LunaFocusMode"));
+    auto* crop = new QAction(QStringLiteral("썸네일 크롭"), &editor); crop->setObjectName(QStringLiteral("LunaCropThumbnail"));
+    if (auto* p = panel(shell)) {
+        auto update = [crop, original = p->cropAction()] { crop->setEnabled(original->isEnabled()); };
+        QObject::connect(p->cropAction(), &QAction::changed, crop, update); update();
+        QObject::connect(crop, &QAction::triggered, p->cropAction(), &QAction::trigger);
+    }
+    if (auto* bar = editor.findChild<QToolBar*>(QStringLiteral("mainToolBar")); bar && focus) {
+        installReaderToolbar(editor, *bar, *focus); bar->removeAction(focus);
+    }
+    if (auto* options = editor.findChild<QAction*>(QStringLiteral("actionOptions"))) options->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+O")));
+    editor.menuBar()->hide();
 }
 
 bool openInitialDocument(pdfviewer::PDFEditorMainWindow& window, const QString& path) {

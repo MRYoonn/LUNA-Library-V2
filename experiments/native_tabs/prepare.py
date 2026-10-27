@@ -12,7 +12,7 @@ import subprocess
 PIN = '67b6b9903cb4e318803342f2d428f02e1bb124e3'
 
 
-def prepare(root):
+def prepare(root, proof=True):
     root = root.resolve(strict=True)
     actual = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
     if actual != PIN:
@@ -100,6 +100,18 @@ bool PDFProgramController::trySave()
 
 bool PDFProgramController::askForSaveDocumentBeforeClose()
 {''')
+    # LUNA's registry validates/reserves Save As destinations without changing
+    # the native writer. With no listeners (the proof/legacy path), save is unchanged.
+    replace('Pdf4QtLibGui/pdfprogramcontroller.h', 'signals:',
+        'signals:\n    void lunaOpenRequested(const QString& fileName, bool* handled);\n    void lunaDocumentLoadFinished(bool success);\n    void lunaSavePathRequested(const QString& fileName, bool* allowed);\n    void lunaSavePathFinished(const QString& fileName, bool success);')
+    replace(controller, 'bool PDFProgramController::saveDocument(const QString& fileName)\n{',
+        'bool PDFProgramController::saveDocument(const QString& fileName)\n{\n    bool allowed = true;\n    Q_EMIT lunaSavePathRequested(fileName, &allowed);\n    if (!allowed) return false;')
+    replace(controller, '    return bool(result);\n}\n\nvoid PDFProgramController::savePageLayoutPerDocument()',
+        '    Q_EMIT lunaSavePathFinished(fileName, bool(result));\n    return bool(result);\n}\n\nvoid PDFProgramController::savePageLayoutPerDocument()')
+    replace(controller, 'void PDFProgramController::openDocument(const QString& fileName)\n{',
+        'void PDFProgramController::openDocument(const QString& fileName)\n{\n    bool handled = false;\n    Q_EMIT lunaOpenRequested(fileName, &handled);\n    if (handled) return;')
+    replace(controller, '    updateActionsAvailability();\n}\n\nvoid PDFProgramController::onDocumentModified',
+        '    updateActionsAvailability();\n    Q_EMIT lunaDocumentLoadFinished(bool(m_pdfDocument));\n}\n\nvoid PDFProgramController::onDocumentModified')
     # Limit replacements to the close prompt, not other dirty checks.
     old = '''    if (m_undoRedoManager && !m_undoRedoManager->isCurrentSaved())
     {
@@ -135,13 +147,16 @@ set_target_properties(LunaNativeTabs PROPERTIES
         raise ValueError('Native proof already applied')
     for path, text in planned.items():
         (root / path).write_bytes(text.replace('\n', '\r\n').encode('utf-8'))
-    destination.write_bytes(Path(__file__).with_name('main.cpp').read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n'))
-    with cmake.open('ab') as output:
-        output.write(addition.replace('\n', '\r\n').encode('utf-8'))
+    if proof:
+        destination.write_bytes(Path(__file__).with_name('main.cpp').read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n'))
+        with cmake.open('ab') as output:
+            output.write(addition.replace('\n', '\r\n').encode('utf-8'))
     print(f'[PASS] Native-session overlay applied to {len(planned)} pinned files; runtime NOT tested')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('root', type=Path)
-    prepare(parser.parse_args().root)
+    parser.add_argument('--backend-only', action='store_true')
+    args = parser.parse_args()
+    prepare(args.root, proof=not args.backend_only)

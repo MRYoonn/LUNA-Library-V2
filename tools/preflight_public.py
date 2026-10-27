@@ -7,6 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "src/lunatabs.cpp", "src/lunatabs.h",
     "experiments/native_tabs/prepare.py", "experiments/native_tabs/main.cpp",
     "experiments/native_tabs/run_windows.py", "experiments/native_tabs/README.md",
     "experiments/native_tabs/HANDOFF_KO.md",

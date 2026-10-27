@@ -48,7 +48,15 @@ public:
         });
     }
     static QString identity(const QString& path) {
-        QString result = QFileInfo(path).canonicalFilePath();
+        if (path.trimmed().isEmpty()) return {};
+        const QFileInfo file(path);
+        QString result = file.canonicalFilePath();
+        // A Save As destination can be reserved before the writer creates it.
+        // Resolve its existing parent so the identity stays stable after save.
+        if (result.isEmpty() && !file.exists() && !file.isSymLink()) {
+            const QString parent = file.dir().canonicalPath();
+            if (!parent.isEmpty()) result = QDir(parent).filePath(file.fileName());
+        }
 #ifdef Q_OS_WIN
         result = result.toCaseFolded();
 #endif

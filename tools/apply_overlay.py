@@ -16,7 +16,7 @@ BLOBS = {
 }
 CMAKE_ADDITION = """
 # LUNA_LIBRARY_V2_TARGET_BEGIN
-add_executable(LUNA luna_main.cpp lunalibrary.cpp lunareadertoolbar.cpp lunaeditorsmoke.cpp luna_icon.rc app.qrc luna_resources.qrc)
+add_executable(LUNA luna_main.cpp lunalibrary.cpp lunareadertoolbar.cpp lunaeditorsmoke.cpp lunatabs.cpp luna_icon.rc app.qrc luna_resources.qrc)
 target_link_libraries(LUNA PRIVATE Pdf4QtLibCore Pdf4QtLibWidgets Pdf4QtLibGui
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::PrintSupport Qt6::Network)
 if(MSVC)
@@ -175,7 +175,7 @@ def replace_exact(source: str, old: str, new: str) -> str:
 def make_main(src: str) -> str:
     src = replace_exact(src,
         '#include "pdfeditormainwindow.h"',
-        '#include "pdfeditormainwindow.h"\n#include "pdfprogramcontroller.h"\n#include "pdfdrawwidget.h"\n#include "pdfdrawspacecontroller.h"\n#include "lunalibrary.h"\n#include "lunareadertoolbar.h"\n#include "lunaeditorsmoke.h"')
+        '#include "pdfeditormainwindow.h"\n#include "lunatabs.h"\n#include "pdfprogramcontroller.h"\n#include "pdfdrawwidget.h"\n#include "pdfdrawspacecontroller.h"\n#include "lunalibrary.h"\n#include "lunareadertoolbar.h"\n#include "lunaeditorsmoke.h"')
     src = replace_exact(src,
         '#include <QCommandLineParser>',
         '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>\n#include <QSettings>\n#include <QFileInfo>\n#include <memory>\n#include <QJsonDocument>\n#include <QJsonObject>\n#include <QJsonArray>\n#include <QToolBar>')
@@ -223,7 +223,7 @@ def make_main(src: str) -> str:
         'QApplication::setWindowIcon(QIcon(":/luna/LUNA-Moon.ico"));')
     src = replace_exact(src,
         'pdfviewer::PDFEditorMainWindow mainWindow;\n    mainWindow.show();',
-        'std::unique_ptr<QWidget> captureHost;\n    pdfviewer::PDFEditorMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
+        'if (!parser.isSet(lunaSmokeReport) && !parser.isSet(lunaResearchReport)) return luna::runTabbedLibrary(parser.positionalArguments());\n    std::unique_ptr<QWidget> captureHost;\n    pdfviewer::PDFEditorMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
     src = replace_exact(src,
         'mainWindow.getProgramController()->openDocument(arguments.front());',
         'if (!luna::openInitialDocument(mainWindow, arguments.front())) return 0;')
@@ -238,6 +238,8 @@ def apply(root: Path, dry_run=False) -> None:
             raise ValueError("PDF4QT source pin mismatch or unsafe symlink: " + rel)
     own = Path(__file__).resolve().parents[1] / "src"
     files = {
+        folder / "lunatabs.cpp": (own / "lunatabs.cpp").read_bytes(),
+        folder / "lunatabs.h": (own / "lunatabs.h").read_bytes(),
         folder / "lunapagegrid.h": (own / "lunapagegrid.h").read_bytes(),
         folder / "lunalibrary.cpp": (own / "lunalibrary.cpp").read_bytes(),
         folder / "lunareadertoolbar.cpp": (own / "lunareadertoolbar.cpp").read_bytes(),

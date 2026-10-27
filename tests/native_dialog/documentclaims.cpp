@@ -42,6 +42,15 @@ int main(int argc, char** argv) {
     if (activated != 2) return 8;
     first.release();
     if (second.acquire(path) != Result::Acquired || luna::DocumentClaim::activateExisting(path + QStringLiteral(".missing"))) return 9;
+    first.release(); second.release();
+    const QString future = temp.path() + QStringLiteral("/아직 없는 저장 파일.pdf");
+    const QString reservedIdentity = luna::DocumentClaim::identity(future);
+    if (reservedIdentity.isEmpty() || first.acquire(future) != Result::Acquired || second.acquire(future) != Result::Existing) return 10;
+    QFile created(future); if (!created.open(QIODevice::WriteOnly)) return 11;
+    created.write("synthetic Save As destination"); created.close();
+    if (luna::DocumentClaim::identity(future) != reservedIdentity || second.acquire(future) != Result::Existing) return 12;
+    first.release();
+    if (second.acquire(future) != Result::Acquired) return 13;
     qInfo() << "[PASS] Per-document exclusive local claim, duplicate activation, fragmented messages, invalid command rejection and release";
     return 0;
 }

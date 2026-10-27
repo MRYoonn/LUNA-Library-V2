@@ -175,10 +175,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "LUNA patch failed" }
 
       - name: Apply opt-in native session proof
-        if: ${{ inputs.native_tabs_proof }}
         shell: pwsh
         run: |
-          python -B experiments/native_tabs/prepare.py pdf4qt
+          $proofArguments = @()
+          if ('${{ inputs.native_tabs_proof }}' -ne 'true') { $proofArguments += '--backend-only' }
+          python -B experiments/native_tabs/prepare.py pdf4qt @proofArguments
           if ($LASTEXITCODE -ne 0) { throw "Native session source gate failed" }
 
       - name: Identify the Windows compiler image for dependency caching
@@ -278,7 +279,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: pdf4qt/build
-          key: ${{ runner.os }}-luna-engine-release-noocr-v1-${{ env.PDF4QT_PIN }}-${{ env.VCPKG_PIN }}-qt6.11.3-${{ steps.compiler-image.outputs.identity }}
+          key: ${{ runner.os }}-luna-native-sessions-release-noocr-v2-${{ env.PDF4QT_PIN }}-${{ env.VCPKG_PIN }}-qt6.11.3-${{ steps.compiler-image.outputs.identity }}
 
       - name: Configure native Windows build
         shell: pwsh

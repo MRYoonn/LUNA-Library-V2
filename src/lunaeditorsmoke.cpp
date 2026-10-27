@@ -270,6 +270,16 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     openDialog.stop();
     if (!opened || !waitFor([&] { return controller->getDocument() && controller->getDocument()->getCatalog()->getPageCount() == 2 && select->isChecked(); }))
         return fail("Ctrl+O did not open the two-page PDF in default text-selection mode");
+    // Document creation completes before the queued LUNA reading defaults.
+    // A small two-page fixture can fit at the temporary fit zoom, so native
+    // NavigateNextPage intentionally does nothing while its scrollbar is hidden.
+    // Exercise the button only once the actual requested 200% view is usable.
+    auto* vertical = pdfWidget->getVerticalScrollbar();
+    auto* nextPage = action("actionGoToNextPage");
+    if (!waitFor([&] { return window.isEnabled() && nextPage && nextPage->isEnabled() &&
+        qAbs(proxy->getZoom() - 2.0) < 0.001 && proxy->getPageLayout() == pdf::PageLayout::OneColumn &&
+        vertical->isVisible() && vertical->maximum() > vertical->minimum() && vertical->pageStep() > 0; }))
+        return fail("Reopened PDF did not settle into enabled continuous 200% reading view");
     checkpoint("Reader phase: page navigation, zoom and advanced view menu");
     auto* pageNumber = window.findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"));
     proxy->goToPage(0);
@@ -277,8 +287,18 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     const auto firstView = proxy->getSnapshot();
     if (!firstView.getPageSnapshot(0)) return fail("First page not visible before navigation");
     const qreal initialTop = firstView.getPageSnapshot(0)->rect.top();
-    click(action("actionGoToNextPage"));
-    if (!waitFor([&] { const auto view = proxy->getSnapshot(); const auto* page = view.getPageSnapshot(0); return !page || page->rect.top() < initialTop; })) return fail("Next page toolbar action failed");
+    const int initialScroll = vertical->value();
+    int nextTriggers = 0;
+    const auto nextConnection = QObject::connect(nextPage, &QAction::triggered, &window, [&] { ++nextTriggers; });
+    click(nextPage);
+    QObject::disconnect(nextConnection);
+    if (nextTriggers != 1) return fail("Enabled next-page toolbar button did not trigger its native QAction");
+    if (!waitFor([&] { const auto view = proxy->getSnapshot(); const auto* page = view.getPageSnapshot(0);
+        return vertical->value() > initialScroll && (!page || page->rect.top() < initialTop); })) {
+        error = QStringLiteral("Next-page action triggered but viewport did not advance: scroll %1 -> %2, max %3, step %4, zoom %5")
+            .arg(initialScroll).arg(vertical->value()).arg(vertical->maximum()).arg(vertical->pageStep()).arg(proxy->getZoom());
+        return false;
+    }
     click(action("actionGoToPreviousPage"));
     if (!waitFor([&] { return pageNumber->value() == 1; })) return fail("Previous page toolbar action failed");
     pageNumber->setValue(2); QMetaObject::invokeMethod(pageNumber,"editingFinished",Qt::DirectConnection);

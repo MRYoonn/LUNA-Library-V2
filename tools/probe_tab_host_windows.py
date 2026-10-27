@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 from smoke_windows import synthetic_pdf
 
 
@@ -31,6 +32,8 @@ class SyntheticJob:
         self.kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
         self.kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
         self.kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        self.kernel.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        self.kernel.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p]
         self.handle = self.kernel.CreateJobObjectW(None, None)
         limits = Extended()
         limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
@@ -56,7 +59,24 @@ class SyntheticJob:
             raise
 
     def close(self):
-        if self.handle:
+        if not self.handle:
+            return
+        class Accounting(ctypes.Structure):
+            _fields_ = [("times", ctypes.c_int64 * 4), ("pageFaults", wintypes.DWORD),
+                        ("total", wintypes.DWORD), ("active", wintypes.DWORD), ("terminated", wintypes.DWORD)]
+        try:
+            if not self.kernel.TerminateJobObject(self.handle, 1):
+                raise ctypes.WinError(ctypes.get_last_error())
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                accounting = Accounting()
+                if not self.kernel.QueryInformationJobObject(self.handle, 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                if not accounting.active:
+                    return
+                time.sleep(0.05)
+            raise RuntimeError("Synthetic process cleanup did not finish; refusing to reuse the desktop")
+        finally:
             self.kernel.CloseHandle(self.handle)
             self.handle = None
 
@@ -107,7 +127,7 @@ def run(host, package, output):
                     break
     (output / "summary.json").write_text(json.dumps({"pocAccepted": False, "runs": results,
         "remaining": ["real keyboard and pointer input", "focus and Alt+Tab", "annotation isolation",
-                      "save and reopen", "modal dialogs", "unsaved close cancel", "physical OS DPI"]},
+                      "save and reopen", "modal dialogs", "unsaved close cancel", "hosted duplicate activation", "physical OS DPI"]},
         ensure_ascii=False, indent=2), encoding="utf-8")
     if len(results) != 8 or any(r["exitCode"] != 0 or not r["sourceBytesUnchanged"] for r in results):
         raise RuntimeError("Embedding lifecycle comparison failed; full POC remains unaccepted")

@@ -42,3 +42,10 @@ QLabel#LunaDocumentTitle { color:@NAVY@; font-weight:600; }
 QToolBar#LunaViewModes { background:transparent; border:0; spacing:3px; }
 QToolBar#LunaViewModes QToolButton { border:0; border-radius:5px; padding:6px; color:@TEXT@; }
 QToolBar#LunaViewModes QToolButton:checked { background:@SELECTION@; color:@ACTIVE_TEXT@; }
+
+QTabBar#LunaContentModes::tab { background:@PANEL@; color:@MUTED@; border:0; border-bottom:2px solid @LINE@; padding:8px 12px; }
+QTabBar#LunaContentModes::tab:selected { color:@BLUE@; border-bottom:2px solid @BLUE@; }
+QListView#LunaPageGrid { background:@PANEL@; border:0; padding:0; }
+QListView#LunaPageGrid::item { border:1px solid @LINE@; border-radius:5px; margin:4px; padding:4px; }
+QListView#LunaPageGrid::item:selected { background:@SELECTION@; border:1px solid @BLUE@; }
+QToolButton#LunaCombinedPanelToggle { color:@BLUE@; background:@PANEL@; border:1px solid @LINE@; border-radius:5px; font-size:18px; }

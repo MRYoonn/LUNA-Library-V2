@@ -542,8 +542,8 @@ public:
         addFile->setToolTip(QStringLiteral("현재 폴더에 복사합니다. 원본은 유지하며 같은 이름의 파일은 덮어쓰지 않습니다."));
         headingLayout->addWidget(addFile);
         query_ = new QLineEdit(heading);
-        query_->setObjectName(QStringLiteral("LunaSearch"));
-        query_->setPlaceholderText(QStringLiteral("파일명으로 라이브러리 검색…"));
+        query_->setObjectName(QStringLiteral("LunaGlobalSearch"));
+        query_->setPlaceholderText(QStringLiteral("파일명 검색…  Ctrl+K"));
         query_->setClearButtonEnabled(true);
         query_->setMinimumHeight(34);
         headingLayout->addWidget(query_);
@@ -1305,18 +1305,8 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
         view->addAction(folders);
         view->addAction(documents);
     }
-    auto* space = new QWidget(controls);
-    space->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    controls->addWidget(space);
-    auto* globalSearch = new QLineEdit(controls);
-    globalSearch->setObjectName(QStringLiteral("LunaGlobalSearch"));
-    globalSearch->setPlaceholderText(QStringLiteral("라이브러리 검색…  Ctrl+K"));
-    globalSearch->setMinimumWidth(240);
-    globalSearch->setMaximumWidth(400);
-    globalSearch->setClearButtonEnabled(true);
-    controls->addWidget(globalSearch);
-    QObject::connect(globalSearch, &QLineEdit::textChanged, library->searchEdit(), &QLineEdit::setText);
-    QObject::connect(library->searchEdit(), &QLineEdit::textChanged, globalSearch, &QLineEdit::setText);
+    // One filename search field in the paper panel; no duplicate toolbar row.
+    auto* globalSearch = library->searchEdit();
     auto* search = new QAction(QStringLiteral("라이브러리 검색"), &window);
     search->setObjectName(QStringLiteral("LunaSearchAction"));
     search->setShortcut(QKeySequence(QStringLiteral("Ctrl+K")));
@@ -1414,6 +1404,7 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window) {
     window.restoreState(settings.value(QStringLiteral("window/state")).toByteArray());
     focus->setChecked(dock->isHidden());
     hideAdvancedToolbars(window); // Old saved PDF4QT toolbar rows must not reappear.
+    controls->hide(); // Legacy actions remain in View; this empty row has no UI role.
     auto* documentWindows = new IndependentDocuments(window);
     if (auto* originalOpen = window.findChild<QAction*>(QStringLiteral("actionOpen"))) {
         // Preserve the native QAction and its connections; route the public

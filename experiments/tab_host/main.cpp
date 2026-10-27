@@ -14,6 +14,7 @@
 #include <QMessageBox>
 #include <QProcess>
 #include <QSaveFile>
+#include <QScreen>
 #include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -142,14 +143,56 @@ private:
             }
         }
     }
+    bool key(WORD code, bool control = false) {
+        INPUT input[4]{};
+        int count = 0;
+        auto append = [&](WORD vk, bool release) {
+            input[count].type = INPUT_KEYBOARD;
+            input[count].ki.wVk = vk;
+            input[count++].ki.dwFlags = release ? KEYEVENTF_KEYUP : 0;
+        };
+        if (control) append(VK_CONTROL, false);
+        append(code, false); append(code, true);
+        if (control) append(VK_CONTROL, true);
+        return SendInput(count, input, sizeof(INPUT)) == UINT(count);
+    }
+    bool searchText() {
+        const wchar_t text[] = L"smoke";
+        for (wchar_t character : text) {
+            if (!character) break;
+            INPUT input[2]{};
+            for (auto& event : input) { event.type = INPUT_KEYBOARD; event.ki.wScan = character; event.ki.dwFlags = KEYEVENTF_UNICODE; }
+            input[1].ki.dwFlags |= KEYEVENTF_KEYUP;
+            if (SendInput(2, input, sizeof(INPUT)) != 2) return false;
+        }
+        return key(VK_RETURN);
+    }
+    HWND searchPopup(int document, const QString& required = {}) {
+        struct Search { DWORD pid; HWND result; QString text; } state{DWORD(documents_[document].process->processId()), nullptr, required};
+        EnumWindows([](HWND window, LPARAM parameter) -> BOOL {
+            auto* state = reinterpret_cast<Search*>(parameter);
+            DWORD pid = 0; GetWindowThreadProcessId(window, &pid);
+            wchar_t title[256]{}; GetWindowTextW(window, title, 256);
+            const QString name = QString::fromWCharArray(title);
+            if (pid == state->pid && IsWindowVisible(window) && name.startsWith(QStringLiteral("Find")) && name.contains(state->text)) {
+                state->result = window; return FALSE;
+            }
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(&state));
+        return state.result;
+    }
+    void capture(const QString& suffix) {
+        if (screen()) screen()->grabWindow(0).save(report_ + suffix);
+    }
     void finish(bool basic, const QString& detail) {
         QJsonObject result{{"method", qt_ ? "qt-container" : "win32-parent"},
             {"embeddingLifecycle", basic ? "passed" : "failed"}, {"detail", detail},
             {"pocAccepted", false}, {"childCrashIsolation", basic && !editorProbe_ ? "passed" : "unverified"},
             {"nativeEditorRoundTrip", basic && editorProbe_ ? "passed" : "unverified"},
             {"annotationIsolation", "unverified"},
-            {"keyboardFocusAndDialogs", "unverified"}, {"physicalDpi", "unverified"}};
-        grab().save(report_ + QStringLiteral(".final.png"));
+            {"win32SearchInputBothDocuments", basic && !editorProbe_ ? "passed" : "unverified"},
+            {"altTabTextDragAndNativeFileDialogs", "unverified"}, {"physicalDpi", "unverified"}};
+        capture(QStringLiteral(".final.png"));
         QSaveFile file(report_);
         if (!file.open(QIODevice::WriteOnly) || file.write(QJsonDocument(result).toJson()) < 0 || !file.commit()) {
             qCritical("Cannot write experimental evidence");
@@ -206,19 +249,69 @@ private:
             }
             ++phase_;
         } else if (phase_ == 20) {
-            grab().save(report_ + QStringLiteral(".png"));
-            // Only read-only fixtures are used by the automated driver.
-            documents_[0].process->kill(); // Intentional crash of driver-owned synthetic A.
+            capture(QStringLiteral(".png"));
+            tabs_->setCurrentIndex(inputDocument_);
+            synchronize();
+            SetForegroundWindow(reinterpret_cast<HWND>(winId()));
+            RECT bounds{};
+            if (!GetWindowRect(documents_[inputDocument_].handle, &bounds)) {
+                finish(false, QStringLiteral("Cannot locate embedded document for actual mouse input")); return;
+            }
+            SetCursorPos(bounds.left + (bounds.right - bounds.left) * 4 / 5,
+                         bounds.top + (bounds.bottom - bounds.top) * 3 / 4);
+            INPUT click[2]{};
+            click[0].type = click[1].type = INPUT_MOUSE;
+            click[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+            click[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            if (SendInput(2, click, sizeof(INPUT)) != 2) {
+                finish(false, QStringLiteral("Windows mouse input rejected")); return;
+            }
+            ++phase_; settle_ = 0;
+        } else if (phase_ == 21) {
+            if (++settle_ < 5) return;
+            if (!key('F', true)) { finish(false, QStringLiteral("Windows Ctrl+F input rejected")); return; }
+            ++phase_; settle_ = 0;
+        } else if (phase_ == 22) {
+            const HWND popup = searchPopup(inputDocument_);
+            if (!popup) {
+                if (++settle_ > 50) finish(false, QStringLiteral("Real Ctrl+F did not open this document's search popup"));
+                return;
+            }
+            GUITHREADINFO info{}; info.cbSize = sizeof(info);
+            const DWORD thread = GetWindowThreadProcessId(popup, nullptr);
+            if (!GetGUIThreadInfo(thread, &info) || (info.hwndFocus != popup && !IsChild(popup, info.hwndFocus))) {
+                finish(false, QStringLiteral("Search popup exists but does not own keyboard focus")); return;
+            }
+            if (!searchText()) { finish(false, QStringLiteral("Windows search text input rejected")); return; }
+            ++phase_; settle_ = 0;
+        } else if (phase_ == 23) {
+            if (!searchPopup(inputDocument_, QStringLiteral("1/1"))) {
+                if (++settle_ > 50) finish(false, QStringLiteral("Actual typed search did not find the synthetic text"));
+                return;
+            }
+            capture(QStringLiteral(".search-%1.png").arg(inputDocument_));
+            if (!key(VK_ESCAPE)) { finish(false, QStringLiteral("Windows Escape input rejected")); return; }
+            ++phase_; settle_ = 0;
+        } else if (phase_ == 24) {
+            if (searchPopup(inputDocument_)) {
+                if (++settle_ > 50) finish(false, QStringLiteral("Actual Escape did not close the search popup"));
+                return;
+            }
+            if (inputDocument_++ == 0) phase_ = 20;
+            else phase_ = 25;
+        } else if (phase_ == 25) {
+            documents_[0].process->kill(); // Only driver-owned synthetic A.
             ++phase_;
-        } else if (phase_ == 21 && documents_[0].process->state() == QProcess::NotRunning) {
+        } else if (phase_ == 26 && documents_[0].process->state() == QProcess::NotRunning) {
             if (documents_[0].process->exitStatus() != QProcess::CrashExit || documents_[1].process->state() != QProcess::Running) {
                 finish(false, QStringLiteral("Child crash affected another document or did not terminate as expected")); return;
             }
             tabs_->setCurrentIndex(1);
             PostMessageW(documents_[1].handle, WM_CLOSE, 0, 0);
             ++phase_;
-        } else if (phase_ == 22 && documents_[1].process->state() == QProcess::NotRunning) {
-            finish(documents_[1].process->exitStatus() == QProcess::NormalExit && documents_[1].process->exitCode() == 0, QStringLiteral("Two document processes embedded, resized and switched; synthetic A crash isolated and B closed normally; interaction gates still required"));
+        } else if (phase_ == 27 && documents_[1].process->state() == QProcess::NotRunning) {
+            finish(documents_[1].process->exitStatus() == QProcess::NormalExit && documents_[1].process->exitCode() == 0,
+                QStringLiteral("Two documents embedded, switched, searched with actual Win32 input, crash-isolated and cleanly closed; remaining POC gates required"));
         }
     }
     std::array<Document, 2> documents_;
@@ -227,7 +320,7 @@ private:
     bool qt_;
     bool editorProbe_;
     QString report_;
-    int ticks_ = 0, phase_ = 0, settle_ = 0;
+    int ticks_ = 0, phase_ = 0, settle_ = 0, inputDocument_ = 0;
 };
 
 int main(int argc, char** argv) {

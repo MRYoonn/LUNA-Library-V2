@@ -581,6 +581,11 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 integrationRequire(editor && integrationWait([&] { return ready(editor); }), "Extra PDF did not load"); extra.append(editor);
             }
             integrationRequire(host.documentCount() == 5, "Five PDFs are not simultaneously open");
+            for (const QString& path : QStringList{files[0], files[1]} + QDir(directoryPath).entryList({QStringLiteral("UI-long-*.pdf")}, QDir::Files)) {
+                const QString fullPath = QFileInfo(path).isAbsolute() ? path : QDir(directoryPath).filePath(path);
+                QListWidgetItem* card = nullptr;
+                integrationRequire(integrationList(host, fullPath, &card) && card && !card->data(Qt::UserRole + 3).toString().isEmpty(), "Opened date disappeared across Windows path spellings");
+            }
             QList<QPointer<Editor>> documents{a, b}; documents.append(extra);
             QList<int> scrollPositions; QList<double> zoomValues;
             for (int i = 0; i < documents.size(); ++i) {

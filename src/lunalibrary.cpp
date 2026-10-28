@@ -447,6 +447,11 @@ public:
         for (const QString& key : dates.childKeys()) openedDates_.insert(key, dates.value(key).toString());
         dates.endGroup(); dates.beginGroup(QStringLiteral("library/memos"));
         for (const QString& key : dates.childKeys()) memos_.insert(key, dates.value(key).toString());
+        // Read existing date keys without migrating memos or changing their keys.
+        for (const QString& path : savedPaths(QStringLiteral("library/recent"))) {
+            const QString date = openedDates_.value(openedDateKey(path));
+            if (!date.isEmpty()) rememberDateAlias(path, date);
+        }
         setMinimumWidth(510);
         auto* layout = new QHBoxLayout(this);
         layout->setContentsMargins(0, 0, 0, 0);
@@ -728,7 +733,10 @@ private:
         const QString location = QDir(root_).relativeFilePath(QFileInfo(path).absolutePath());
         item->setData(Qt::UserRole + 1, location == QStringLiteral(".") ? QStringLiteral("라이브러리 폴더 · PDF") : location);
         item->setData(Qt::UserRole + 2, favorites_.contains(path));
-        const QDateTime opened = QDateTime::fromString(openedDates_.value(openedDateKey(path)), Qt::ISODate);
+        QString date = openedDates_.value(openedDateKey(path));
+        if (date.isEmpty() && datedNames_.contains(QFileInfo(path).fileName().toCaseFolded()))
+            date = displayedDates_.value(DocumentClaim::identity(path));
+        const QDateTime opened = QDateTime::fromString(date, Qt::ISODate);
         item->setData(Qt::UserRole + 3, opened.isValid() ? opened.toLocalTime().date().toString(QStringLiteral("yy.MM.dd.")) : QString());
         const QString memo = memos_.value(openedDateKey(path));
         item->setData(Qt::UserRole + 4, memo);
@@ -784,6 +792,10 @@ private:
         pages_->setCurrentIndex(2);
     }
     void rememberOpenedDocument() { if (!window()->property("LunaClosing").toBool()) rememberEditor(*viewer_); }
+    void rememberDateAlias(const QString& path, const QString& date) {
+        displayedDates_.insert(DocumentClaim::identity(path), date);
+        datedNames_.insert(QFileInfo(path).fileName().toCaseFolded());
+    }
     void rememberEditor(pdfviewer::PDFEditorMainWindow& editor) {
         auto* controller = editor.getProgramController();
         if (!controller->getDocument()) { editor.setProperty("LunaRememberedPath", QString()); return; }
@@ -799,11 +811,16 @@ private:
         const QString opened = QDateTime::currentDateTime().toString(Qt::ISODate);
         const QString key = openedDateKey(path);
         openedDates_.insert(key, opened);
+        rememberDateAlias(path, opened);
         QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
             .setValue(QStringLiteral("library/openedDates/") + key, opened);
         for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_})
             for (int row = 0; row < list->count(); ++row)
-                if (list->item(row)->data(Qt::UserRole).toString() == path) decorate(list->item(row), path);
+                if (auto* item = list->item(row)) {
+                    const QString cardPath = item->data(Qt::UserRole).toString();
+                    if (cardPath == path || (QFileInfo(cardPath).fileName().compare(info.fileName(), Qt::CaseInsensitive) == 0 &&
+                        DocumentClaim::identity(cardPath) == DocumentClaim::identity(path))) decorate(item, cardPath);
+                }
         // Reuse the native PDF4QT draw-space controller: no replacement renderer.
         auto* proxy = controller->getPdfWidget()->getDrawWidgetProxy();
         if (!editor.property("LunaPreserveReopenView").toBool()) {
@@ -1335,6 +1352,8 @@ private:
     bool showingFavorites_ = false;
     QString lastOpened_;
     QHash<QString, QString> openedDates_;
+    QHash<QString, QString> displayedDates_;
+    QSet<QString> datedNames_;
     QHash<QString, QString> memos_;
     QSet<QString> favorites_;
     QFileSystemModel* model_ = nullptr;

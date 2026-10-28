@@ -17,19 +17,19 @@ class NativeTabsContract(unittest.TestCase):
 
     def test_scripts_parse(self):
         for path in ('prepare.py', 'run_windows.py'):
-            ast.parse((ROOT / 'experiments/native_tabs' / path).read_text())
+            ast.parse((ROOT / 'experiments/native_tabs' / path).read_text(encoding='utf-8'))
 
     def test_workflow_remains_manual_and_proof_not_released(self):
-        text = (ROOT / '.github/workflows/build-windows.yml').read_text()
+        text = (ROOT / '.github/workflows/build-windows.yml').read_text(encoding='utf-8')
         self.assertIn('native_tabs_proof:', text)
         self.assertIn("if: ${{ !inputs.native_tabs_proof && steps.engine-cache.outputs.cache-hit != 'true' }}", text)
         self.assertIn('Upload LUNA Windows portable artifact\n        if: ${{ !inputs.native_tabs_proof }}', text)
 
     def test_compact_tabs_and_blue_borderless_selection_contract(self):
-        tabs = (ROOT / 'src/lunatabs.cpp').read_text()
-        library = (ROOT / 'src/lunalibrary.cpp').read_text()
-        style = (ROOT / 'src/lunalibrary.qss').read_text()
-        overlay = (ROOT / 'experiments/native_tabs/prepare.py').read_text()
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        style = (ROOT / 'src/lunalibrary.qss').read_text(encoding='utf-8')
+        overlay = (ROOT / 'experiments/native_tabs/prepare.py').read_text(encoding='utf-8')
         self.assertIn('setCornerWidget(corner, Qt::TopLeftCorner)', tabs)
         self.assertIn('setExpanding(false)', tabs)
         self.assertIn('Qt::ElideMiddle, 156', tabs)

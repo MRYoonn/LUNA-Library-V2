@@ -786,18 +786,42 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             // Native caption metrics follow the Windows non-client DPI, which
             // need not equal QT_SCALE_FACTOR used for the client contents.
             const HWND nativeHost = reinterpret_cast<HWND>(host.winId());
+            host.raise(); host.activateWindow(); SetForegroundWindow(nativeHost);
+            integrationRequire(integrationWait([&] { return GetForegroundWindow() == nativeHost; }), "Caption close target did not become the foreground window");
             TITLEBARINFOEX captionInfo{}; captionInfo.cbSize = sizeof(captionInfo);
             SendMessage(nativeHost, WM_GETTITLEBARINFOEX, 0, reinterpret_cast<LPARAM>(&captionInfo));
-            const RECT captionCloseRect = captionInfo.rgrect[5];
-            const POINT closePoint{(captionCloseRect.left + captionCloseRect.right) / 2, (captionCloseRect.top + captionCloseRect.bottom) / 2};
+            RECT captionCloseRect = captionInfo.rgrect[5];
+            POINT closePoint{(captionCloseRect.left + captionCloseRect.right) / 2, (captionCloseRect.top + captionCloseRect.bottom) / 2};
+            RECT captionFrame{}; GetWindowRect(nativeHost, &captionFrame);
+            MONITORINFO captionMonitor{}; captionMonitor.cbSize = sizeof(captionMonitor);
+            integrationRequire(GetMonitorInfo(MonitorFromWindow(nativeHost, MONITOR_DEFAULTTONEAREST), &captionMonitor), "Caption monitor work area unavailable");
+            // A Qt minimum width can exceed the hosted desktop at 150%.
+            // Keep the actual native X on-screen rather than letting Windows
+            // clamp SetCursorPos to another application's caption button.
+            if (!PtInRect(&captionMonitor.rcWork, closePoint)) {
+                const int dx = qBound(int(captionMonitor.rcWork.left + 4), int(closePoint.x), int(captionMonitor.rcWork.right - 4)) - closePoint.x;
+                const int dy = qBound(int(captionMonitor.rcWork.top + 4), int(closePoint.y), int(captionMonitor.rcWork.bottom - 4)) - closePoint.y;
+                integrationRequire(SetWindowPos(nativeHost, HWND_TOP, captionFrame.left + dx, captionFrame.top + dy, 0, 0, SWP_NOSIZE), "Could not bring native caption on-screen");
+                QCoreApplication::processEvents();
+                SendMessage(nativeHost, WM_GETTITLEBARINFOEX, 0, reinterpret_cast<LPARAM>(&captionInfo));
+                captionCloseRect = captionInfo.rgrect[5];
+                closePoint = {(captionCloseRect.left + captionCloseRect.right) / 2, (captionCloseRect.top + captionCloseRect.bottom) / 2};
+            }
             integrationRequire(captionCloseRect.right > captionCloseRect.left && captionCloseRect.bottom > captionCloseRect.top &&
                 SendMessage(nativeHost, WM_NCHITTEST, 0, MAKELPARAM(closePoint.x, closePoint.y)) == HTCLOSE,
                 "Windows caption close button geometry did not hit HTCLOSE");
             integrationRequire(SetCursorPos(closePoint.x, closePoint.y), "Could not move to native caption close button");
+            POINT captionCursor{}; GetCursorPos(&captionCursor);
+            const HWND captionTarget = GetAncestor(WindowFromPoint(captionCursor), GA_ROOT);
+            result["captionCloseInput"] = QJsonObject{{"x", int(closePoint.x)}, {"y", int(closePoint.y)},
+                {"actualX", int(captionCursor.x)}, {"actualY", int(captionCursor.y)}, {"targetIsShell", captionTarget == nativeHost}}; write();
+            integrationRequire(captionCursor.x == closePoint.x && captionCursor.y == closePoint.y && captionTarget == nativeHost,
+                "Native caption click did not target the shell at the requested position");
             INPUT caption[2]{}; caption[0].type = caption[1].type = INPUT_MOUSE; caption[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN; caption[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
             integrationRequire(SendInput(2, caption, sizeof(INPUT)) == 2 && integrationWait([&] { return cancelled == 1 && !QApplication::activeModalWidget(); }), "Native title-bar X did not run close confirmation");
             const bool windowClosed = !host.isVisible(); cancel.stop();
             integrationRequire(!windowClosed && cancelled == 1 && host.documentCount() == 2, "Integrated window Cancel removed a tab");
+            SetWindowPos(nativeHost, HWND_TOP, captionFrame.left, captionFrame.top, 0, 0, SWP_NOSIZE);
             result["integratedTabAndWindowCloseCancel"] = true;
             integrationRequire(integrationWait([&] { return ready(a) && a->findChild<QAction*>(QStringLiteral("actionSave"))->isEnabled(); }), "A did not become ready to save");
             integrationSurface(a)->setFocus(); integrationRequire(integrationKey('S', true), "Real Ctrl+S injection failed");

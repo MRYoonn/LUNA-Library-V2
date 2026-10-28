@@ -181,6 +181,7 @@ def make_main(src: str) -> str:
         '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>\n#include <QSettings>\n#include <QFileInfo>\n#include <memory>\n#include <QJsonDocument>\n#include <QJsonObject>\n#include <QJsonArray>\n#include <QToolBar>')
     src = replace_exact(src, '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);',
         '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);\n'
+        '    if (parser.isSet(lunaLifecycleTrace)) application.setProperty("LunaLifecycleTracePath", parser.value(lunaLifecycleTrace));\n'
         '    if (parser.isSet(lunaTabsRestore) && !parser.isSet(lunaTabsReport)) return 2;\n'
         '    if (parser.isSet(lunaTabsReport)) {\n'
         '        if (parser.isSet(lunaSmokeReport) || parser.isSet(lunaResearchReport)) return 2;\n'
@@ -203,6 +204,8 @@ def make_main(src: str) -> str:
         '    }')
     src = replace_exact(src, '    parser.addVersionOption();',
         '    parser.addVersionOption();\n'
+        '    QCommandLineOption lunaLifecycleTrace("luna-lifecycle-trace", "Local opt-in window lifetime trace (no document contents).", "path");\n'
+        '    lunaLifecycleTrace.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaLifecycleTrace);\n'
         '    QCommandLineOption lunaTabsReport("luna-tabs-report", "CI only: native library/tabs integration.", "path");\n'
         '    lunaTabsReport.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaTabsReport);\n'
         '    QCommandLineOption lunaTabsRestore("luna-tabs-restore", "CI only: fresh-process memo verification.");\n'

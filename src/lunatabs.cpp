@@ -47,6 +47,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLineEdit>
+#include <QLabel>
 #include <QListWidget>
 #include <QListView>
 #include <QMouseEvent>
@@ -58,6 +59,7 @@
 #include <QTabBar>
 #include <QFontMetrics>
 #include <QThread>
+#include <QWindow>
 #include <QtMath>
 #include "pdfwidgetannotation.h"
 #include "pdfcompiler.h"
@@ -126,7 +128,7 @@ public:
         if (corner) {
             auto* addCorner = new QWidget(tabs_);
             auto* addRow = new QHBoxLayout(addCorner); addRow->setContentsMargins(0, 0, 4, 0);
-            auto* plus = new QToolButton(addCorner); plus->setText(QStringLiteral("＋"));
+            auto* plus = new QToolButton(addCorner); plus->setObjectName(QStringLiteral("LunaNewTab")); plus->setText(QStringLiteral("＋"));
             plus->setAccessibleName(QStringLiteral("새 PDF 탭 열기")); plus->setToolTip(QStringLiteral("새 PDF 탭 열기")); plus->setMinimumSize(30, 30);
             addRow->addWidget(plus); tabs_->setCornerWidget(addCorner, Qt::TopRightCorner);
             connect(plus, &QToolButton::clicked, open_, &QAction::trigger);
@@ -194,10 +196,15 @@ public:
     }
     void trace(const char* event, Editor* editor = nullptr) {
         const QString path = qApp->property("LunaLifecycleTracePath").toString(); if (path.isEmpty()) return;
-        QJsonObject row{{"event", QString::fromLatin1(event)}, {"time", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+        QJsonObject row{{"ctrlWKeys", property("LunaCtrlWKeys").toInt()}, {"keyTarget", property("LunaKeyTarget").toString()}, {"event", QString::fromLatin1(event)}, {"time", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
             {"visible", isVisible()}, {"closing", closing_}, {"tabs", tabs_ ? tabs_->count() : 0},
             {"documents", documentCount()}, {"creations", property("LunaEditorCreations").toInt()},
             {"quitOnLastWindowClosed", qApp->quitOnLastWindowClosed()}};
+#ifdef Q_OS_WIN
+        DWORD processCode = 0;
+        row["nativeProcessActive"] = bool(GetExitCodeProcess(GetCurrentProcess(), &processCode)) && processCode == STILL_ACTIVE;
+        row["nativeWindowVisible"] = bool(IsWindowVisible(reinterpret_cast<HWND>(effectiveWinId())));
+#endif
         if (editor) { row["editor"] = editor->property("LunaEditorSerial").toInt(); row["editorIsWindow"] = editor->isWindow();
             row["editorQuitOnClose"] = editor->testAttribute(Qt::WA_QuitOnClose); row["document"] = bool(editor->getProgramController()->getDocument()); }
         QFile file(path); if (file.open(QIODevice::WriteOnly | QIODevice::Append)) { file.write(QJsonDocument(row).toJson(QJsonDocument::Compact)); file.write("\n"); }
@@ -206,9 +213,18 @@ public:
         trace("close-tab-request", current());
         if (QApplication::activeModalWidget()) return false;
         auto* editor = qobject_cast<Editor*>(tabs_->widget(index)); if (!editor) return false;
+        auto* owned = session(editor);
+        if (!owned || owned->loading || !editor->getProgramController()->getDocument()) { trace("empty-or-loading-close-noop", editor); return false; }
         activate(editor); auto* controller = editor->getProgramController();
         if (!controller->canClose() || !controller->askForSaveDocumentBeforeClose()) return false;
-        if (tabs_->count() == 1) { auto* empty = createEditor(); finishEditor(empty); activate(empty); }
+        if (tabs_->count() == 1) {
+            // Keep the already-owned Editor/model alive as the empty reader.
+            for (auto* popup : editor->findChildren<QDialog*>()) if (popup->isVisible() && popup->windowFlags().testFlag(Qt::Popup)) popup->reject();
+            controller->closeDocument(); owned->claim.reset(); owned->saveClaim.reset();
+            owned->identity.clear(); owned->loading = false;
+            editor->setProperty("LunaRememberedPath", QString());
+            updateTitle(editor); trace("last-document-cleared", editor); return true;
+        }
         dispose(editor); return true;
     }
     int documentCount() const { int count = 0; for (const auto& s : sessions_) if (!s->identity.isEmpty()) ++count; return count; }
@@ -231,9 +247,17 @@ private:
         auto* editor = new Editor(tabs_); editor->setWindowFlags(Qt::Widget);
         const int serial = property("LunaEditorCreations").toInt() + 1; setProperty("LunaEditorCreations", serial); editor->setProperty("LunaEditorSerial", serial);
         connect(editor, &QObject::destroyed, this, [this, serial] { setProperty("LunaLastDestroyedEditor", serial); trace("editor-destroyed"); });
-        editor->setAttribute(Qt::WA_DeleteOnClose, false); editor->installEventFilter(this);
+        editor->setAttribute(Qt::WA_DeleteOnClose, false); editor->setAttribute(Qt::WA_QuitOnClose, false); editor->installEventFilter(this);
         auto s = std::make_unique<Session>(); s->editor = editor; sessions_.push_back(std::move(s));
         tabs_->addTab(editor, QApplication::windowIcon(), QStringLiteral("PDF 열기"));
+        const int index = tabs_->indexOf(editor);
+        for (auto side : {QTabBar::LeftSide, QTabBar::RightSide}) if (auto* old = tabs_->tabBar()->tabButton(index, side)) {
+            tabs_->tabBar()->setTabButton(index, side, nullptr); old->deleteLater();
+        }
+        auto* close = new QToolButton(tabs_->tabBar()); close->setObjectName(QStringLiteral("LunaCloseTab"));
+        close->setText(QStringLiteral("×")); close->setFixedSize(18, 18); close->setToolTip(QStringLiteral("이 PDF 탭 닫기"));
+        QPointer<Editor> guarded(editor); connect(close, &QToolButton::clicked, this, [this, guarded] { if (guarded) closeTab(tabs_->indexOf(guarded)); });
+        tabs_->tabBar()->setTabButton(index, QTabBar::RightSide, close);
         trace("editor-created", editor); return editor;
     }
     void finishEditor(Editor* editor) {
@@ -363,16 +387,27 @@ private:
         for (const auto& path : paths) open(path);
     }
     bool eventFilter(QObject* object, QEvent* event) override {
-        if (event->type() == QEvent::Quit) trace("application-quit-event");
+        if (event->type() == QEvent::Quit) {
+            trace("application-quit-event");
+            if (!closing_) { trace("unapproved-quit-blocked"); event->ignore(); return true; }
+        }
         if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) {
             auto* target = qobject_cast<QWidget*>(object);
             auto* key = static_cast<QKeyEvent*>(event);
+            bool ownedInput = target && (target == this || isAncestorOf(target));
+            if (auto* nativeWindow = qobject_cast<QWindow*>(object)) {
+                for (auto* ancestor = nativeWindow; ancestor; ancestor = ancestor->parent() ? ancestor->parent() : ancestor->transientParent())
+                    if (ancestor == windowHandle()) { ownedInput = true; break; }
+            }
+            if (event->type() == QEvent::KeyPress && key->key() == Qt::Key_W && key->modifiers() == Qt::ControlModifier) {
+                setProperty("LunaKeyTarget", QString::fromLatin1(object->metaObject()->className())); trace("ctrl-w-arrival", current());
+            }
             // Intercept Ctrl+W before native Editor shortcuts and ensure it is
             // never interpreted as a top-level window close.
             if (!closing_ && !QApplication::activeModalWidget() &&
-                target && (target == this || isAncestorOf(target)) &&
+                ownedInput &&
                 key->key() == Qt::Key_W && key->modifiers() == Qt::ControlModifier) {
-                if (event->type() == QEvent::KeyPress) trace("ctrl-w-key", current());
+                if (event->type() == QEvent::KeyPress) { setProperty("LunaCtrlWKeys", property("LunaCtrlWKeys").toInt() + 1); trace("ctrl-w-key", current()); }
                 key->accept();
                 if (event->type() == QEvent::KeyPress && !key->isAutoRepeat())
                     closeTab(tabs_->currentIndex());
@@ -408,7 +443,7 @@ private:
         }
         // Children remain owned by the shell until app.exec returns. This keeps
         // the library's model alive throughout close callbacks and Qt shutdown.
-        event->accept();
+        event->accept(); trace("shell-close-approved"); qApp->quit();
     }
     QTabWidget* tabs_ = nullptr;
     QAction* open_ = nullptr;
@@ -560,6 +595,32 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         auto* tabs = host.findChild<QTabWidget*>(QStringLiteral("LunaPdfTabs")); auto* a = host.current();
         auto ready = [](Editor* e) { if (!e) return false; auto* c = e->getProgramController(); return c->getDocument() && c->canClose() && e->isEnabled() && !e->property("LunaRememberedPath").toString().isEmpty(); };
         integrationRequire(tabs && a && integrationWait([&] { return ready(a); }), "Integrated A did not load");
+        phase("menu vertical alignment and library chrome");
+        auto* menu = host.menuBar();
+        integrationRequire(menu->height() >= 40 && menu->height() <= 44, "Menu bar height is outside 40-44 logical pixels");
+        const QImage menuImage = menu->grab().toImage(); const qreal menuDpr = menuImage.devicePixelRatio(); QJsonArray centers;
+        for (auto* action : menu->actions()) {
+            if (!action->isVisible() || action->isSeparator()) continue;
+            const QRect item = menu->actionGeometry(action);
+            integrationRequire(qAbs(item.center().y() - menu->rect().center().y()) <= 1, "Menu hit rectangle is not vertically centered");
+            const QRect pixels(QPoint(qRound(item.left() * menuDpr), qRound(item.top() * menuDpr)), QSize(qRound(item.width() * menuDpr), qRound(item.height() * menuDpr)));
+            int inkTop = menuImage.height(), inkBottom = -1;
+            for (int y = pixels.top(); y <= pixels.bottom() && y < menuImage.height(); ++y) for (int x = pixels.left(); x <= pixels.right() && x < menuImage.width(); ++x) {
+                const QColor c = menuImage.pixelColor(x, y);
+                if (c.red() < 100 && c.green() < 110 && c.blue() < 140) { inkTop = qMin(inkTop, y); inkBottom = qMax(inkBottom, y); }
+            }
+            integrationRequire(inkBottom >= inkTop && qAbs((inkTop + inkBottom) / (2.0 * menuDpr) - (menu->height() - 1) / 2.0) <= 3, "Painted menu glyphs are not vertically centered");
+            centers.append(QJsonObject{{"menu", action->text()}, {"hitCenter", item.center().y()}, {"inkCenter", (inkTop + inkBottom) / (2.0 * menuDpr)}});
+        }
+        for (const char* name : {"LunaBrand", "LunaBrandIcon"}) {
+            auto* brand = host.findChild<QWidget*>(QString::fromLatin1(name));
+            integrationRequire(brand && qAbs(brand->mapTo(menu, brand->rect().center()).y() - menu->rect().center().y()) <= 1, "Brand icon/text is not vertically centered with menus");
+        }
+        auto* library = host.findChild<QWidget*>(QStringLiteral("LunaLibraryPanel")); integrationRequire(library, "Shared library missing");
+        for (auto* widget : library->findChildren<QWidget*>()) integrationRequire(!widget->inherits("QProgressBar"), "Disk usage progress widget remains in the library");
+        for (auto* label : library->findChildren<QLabel*>()) integrationRequire(!label->text().contains(QStringLiteral("디스크 사용 공간")) && !label->text().contains(QStringLiteral("저장 공간 정보 없음")), "Disk usage label remains in the library");
+        result["menuGlyphAndBrandVerticalCenters"] = centers; result["diskUsageUiAbsent"] = true;
+        integrationRequire(menu->grab().save(report + ".menu.png"), "Menu alignment capture failed");
         const QString memo = QStringLiteral("통합 메모 724");
         QListWidgetItem* paper = nullptr; QListWidget* list = nullptr;
         integrationRequire(integrationWait([&] { list = integrationList(host, files[0], &paper); return list && paper; }), "Actual library paper card missing");
@@ -711,7 +772,17 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(integrationKey('W', true), "Unsaved Ctrl+W injection failed");
             const bool cancelledKey = integrationWait([&] { return cancelled == 1 && !QApplication::activeModalWidget(); }); cancel.stop();
             integrationRequire(cancelledKey && host.isVisible() && host.documentCount() == 2 && a->getProgramController()->hasUnsavedChanges(), "Integrated Ctrl+W Cancel lost A");
-            cancelled = 0; cancel.start(30); const bool windowClosed = host.close(); cancel.stop();
+            const int annotationsBeforeRetry = integrationHighlights(a);
+            cancelled = 0; cancel.start(30); integrationSurface(a)->setFocus();
+            integrationRequire(integrationKey('W', true) && integrationWait([&] { return cancelled == 1 && !QApplication::activeModalWidget(); }), "Repeated dirty Ctrl+W did not show Cancel"); cancel.stop();
+            integrationRequire(host.current() == a && host.documentCount() == 2 && a->getProgramController()->hasUnsavedChanges() && integrationHighlights(a) == annotationsBeforeRetry, "Repeated Cancel changed the document or annotations");
+            result["repeatedDirtyCtrlWCancelPreservesAnnotations"] = true;
+            cancelled = 0; cancel.start(30);
+            RECT frame{}; integrationRequire(GetWindowRect(reinterpret_cast<HWND>(host.winId()), &frame), "Caption geometry unavailable");
+            SetCursorPos(frame.right - qRound(23 * host.devicePixelRatioF()), frame.top + qRound(15 * host.devicePixelRatioF()));
+            INPUT caption[2]{}; caption[0].type = caption[1].type = INPUT_MOUSE; caption[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN; caption[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            integrationRequire(SendInput(2, caption, sizeof(INPUT)) == 2 && integrationWait([&] { return cancelled == 1 && !QApplication::activeModalWidget(); }), "Native title-bar X did not run close confirmation");
+            const bool windowClosed = !host.isVisible(); cancel.stop();
             integrationRequire(!windowClosed && cancelled == 1 && host.documentCount() == 2, "Integrated window Cancel removed a tab");
             result["integratedTabAndWindowCloseCancel"] = true;
             integrationRequire(integrationWait([&] { return ready(a) && a->findChild<QAction*>(QStringLiteral("actionSave"))->isEnabled(); }), "A did not become ready to save");
@@ -811,26 +882,55 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         integrationRequire(host.screen()->grabWindow(0).save(report + ".final.png"), "Could not capture final integrated window");
         integrationLayouts(host, report);
         integrationRequire(integrationWait([&] { return ready(host.current()); }), "Reader remained busy after layout captures");
-        // The last PDF closes to an empty tab, never to application exit.
-        host.current()->getProgramController()->getPdfWidget()->setFocus();
-        integrationRequire(integrationKey('W', true), "Final Ctrl+W injection failed");
-        integrationRequire(integrationWait([&] {
-            return host.isVisible() && host.documentCount() == 0 &&
-                host.current() && !host.current()->getProgramController()->getDocument();
-        }), "Ctrl+W on last PDF closed the LUNA application");
+        phase("repeated Ctrl+W across two, one and empty documents");
+        const QString reopenPath = host.current()->getProgramController()->getOriginalFileName();
+        auto keyClose = [&](int focusKind) {
+            auto* focus = host.findChild<QAction*>(QStringLiteral("LunaFocusMode")); focus->setChecked(focusKind == 0 || focusKind == 3);
+            if (focus->isChecked()) { const QSize available = host.screen()->availableGeometry().size(); host.resize(available - QSize(24, 48)); host.move(8, 8); }
+            host.raise(); host.activateWindow(); SetForegroundWindow(reinterpret_cast<HWND>(host.winId())); QCoreApplication::processEvents();
+            if (focusKind == 0) integrationSurface(host.current())->setFocus();
+            else if (focusKind == 1) {
+                auto* query = host.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch"));
+                integrationRequire(integrationClick(host, query, query->rect().center()), "Search focus click failed");
+                integrationRequire(integrationWait([&] { return query->hasFocus(); }), "Search did not receive focus");
+            } else if (focusKind == 2) {
+                QListWidgetItem* card = nullptr; auto* list = integrationList(host, reopenPath, &card);
+                integrationRequire(list && integrationClick(host, list->viewport(), QPoint(20, 20)), "Paper-list focus click failed");
+                integrationRequire(integrationWait([&] { return list->hasFocus(); }), "Paper list did not receive focus");
+            } else if (auto* widget = QApplication::focusWidget()) widget->clearFocus();
+            const int delivered = host.property("LunaCtrlWKeys").toInt();
+            integrationRequire(integrationKey('W', true) && integrationWait([&] { return host.property("LunaCtrlWKeys").toInt() == delivered + 1; }), "Ctrl+W was not intercepted in the actual focus context");
+            QElapsedTimer settle; settle.start(); integrationWait([&] { return settle.elapsed() >= 120; }, 2000);
+            DWORD processCode = 0;
+            integrationRequire(host.isVisible() && IsWindowVisible(reinterpret_cast<HWND>(host.winId())) &&
+                GetExitCodeProcess(GetCurrentProcess(), &processCode) && processCode == STILL_ACTIVE && !host.property("LunaAboutToQuit").toInt(), "Ctrl+W terminated the native window/process");
+            host.trace("close-key-observed", host.current());
+        };
+        if (!restore) {
+            auto* second = host.open(files[1]); integrationRequire(second && integrationWait([&] { return ready(second); }) && host.documentCount() == 2, "Two-document repeated-close setup failed");
+            keyClose(0); integrationRequire(host.documentCount() == 1, "First of two Ctrl+W keys closed the wrong document");
+            keyClose(1); integrationRequire(host.documentCount() == 0, "Second Ctrl+W did not leave an empty window");
+            keyClose(2); integrationRequire(host.documentCount() == 0, "Third Ctrl+W changed the empty document state");
+        } else {
+            keyClose(0); integrationRequire(host.documentCount() == 0, "Single-document Ctrl+W did not leave an empty window");
+            keyClose(1); keyClose(2);
+        }
         result["ctrlWLastPdfLeavesEmptyLunaWindow"] = true;
-        phase("repeated empty Ctrl+W lifecycle");
         const QPointer<Editor> emptyEditor = host.current(); const int creations = host.property("LunaEditorCreations").toInt();
         for (int press = 0; press < 10; ++press) {
-            integrationSurface(host.current())->setFocus(); host.trace("empty-repeat-before", host.current());
-            integrationRequire(integrationKey('W', true), "Repeated empty Ctrl+W input failed");
-            QElapsedTimer settle; settle.start(); integrationWait([&] { return settle.elapsed() >= 120; }, 2000);
-            host.trace("empty-repeat-after", host.current());
-            integrationRequire(host.isVisible() && IsWindowVisible(reinterpret_cast<HWND>(host.winId())) && host.documentCount() == 0 && !host.property("LunaAboutToQuit").toInt(), "Repeated Ctrl+W terminated the main window");
+            host.trace("empty-repeat-before", host.current()); keyClose(press % 4); host.trace("empty-repeat-after", host.current());
+            integrationRequire(host.current() == emptyEditor && host.property("LunaEditorCreations").toInt() == creations && host.documentCount() == 0, "Empty Ctrl+W repeatedly creates and disposes Editors");
         }
-        result["emptyCtrlWEditorCreationsBefore"] = creations; result["emptyCtrlWEditorCreationsAfter"] = host.property("LunaEditorCreations").toInt(); write();
-        integrationRequire(host.current() == emptyEditor && host.property("LunaEditorCreations").toInt() == creations, "Empty Ctrl+W repeatedly creates and disposes Editors");
+        result["emptyCtrlWEditorCreationsBefore"] = creations; result["emptyCtrlWEditorCreationsAfter"] = host.property("LunaEditorCreations").toInt();
         result["emptyCtrlWTenStable"] = true;
+        auto* reopened = host.open(reopenPath);
+        integrationRequire(reopened == emptyEditor && integrationWait([&] { return ready(reopened); }) && integrationHighlights(reopened) == 1, "Reopening after repeated empty Ctrl+W lost the document or annotation");
+        auto* query = host.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch")); query->setFocus();
+        integrationRequire(integrationKey('F', true), "PDF search focus setup failed"); QPointer<QDialog> find;
+        integrationRequire(integrationWait([&] { for (auto* d : reopened->findChildren<QDialog*>()) if (d->isVisible() && d->inherits("pdf::PDFFindTextToolDialog")) find = d; return bool(find); }), "PDF search popup did not reopen");
+        const int delivered = host.property("LunaCtrlWKeys").toInt();
+        integrationRequire(find->findChild<QLineEdit*>()->hasFocus() && integrationKey('W', true) && integrationWait([&] { return host.property("LunaCtrlWKeys").toInt() == delivered + 1 && host.documentCount() == 0 && host.isVisible(); }), "Ctrl+W from PDF search did not safely close its document");
+        result["repeatedCtrlWFocusReopenAndPdfSearch"] = true;
         integrationRequire(integrationKey('Q', true) && integrationWait([&] { return !host.isVisible() && host.property("LunaClosing").toBool(); }), "Real Ctrl+Q did not exit LUNA normally");
         result["ctrlQNormalExit"] = true; result["accepted"] = true; phase("passed"); qApp->exit(0);
     } catch (const std::exception& error) {
@@ -843,11 +943,13 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
 int runTabbedLibrary(const QStringList& files, const QString& report, bool restore) {
     qApp->setProperty("lunaNativeSessions", true);
     if (!report.isEmpty()) qApp->setProperty("LunaLifecycleTracePath", report + ".lifecycle.jsonl");
+    const bool previousQuitPolicy = qApp->quitOnLastWindowClosed();
+    qApp->setQuitOnLastWindowClosed(false);
     NativeTabs host;
     int opened = 0;
     const QStringList initial = !report.isEmpty() && !restore ? files.mid(0, 1) : files;
     for (const auto& file : initial) if (host.open(file)) ++opened;
-    if (!files.isEmpty() && !opened) return 0;
+    if (!files.isEmpty() && !opened) { qApp->setQuitOnLastWindowClosed(previousQuitPolicy); return 0; }
     host.show();
     if (!report.isEmpty()) {
 #ifdef Q_OS_WIN
@@ -856,6 +958,7 @@ int runTabbedLibrary(const QStringList& files, const QString& report, bool resto
         return 2;
 #endif
     }
-    return qApp->exec();
+    const int result = qApp->exec();
+    qApp->setQuitOnLastWindowClosed(previousQuitPolicy); return result;
 }
 }

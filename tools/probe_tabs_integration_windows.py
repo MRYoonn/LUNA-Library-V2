@@ -21,6 +21,8 @@ def run(package, output):
         with tempfile.TemporaryDirectory(prefix='luna-tabs-integration-') as temporary:
             root = Path(temporary) / '한글 라이브러리'
             root.mkdir()
+            (root / 'UI examples' / 'Research').mkdir(parents=True)
+            (root / 'UI examples' / 'References').mkdir()
             a, b = root / 'A.pdf', root / 'B.pdf'
             a.write_bytes(synthetic_pdf(2).replace(b'smoke', b'alpha'))
             b.write_bytes(synthetic_pdf(3).replace(b'smoke', b'bravo'))
@@ -49,6 +51,16 @@ def run(package, output):
                     except subprocess.TimeoutExpired:
                         code = -1
                     result = json.loads(report.read_text(encoding='utf-8')) if report.exists() else {'accepted': False, 'error': 'No native report'}
+                    trace_path = Path(str(report) + '.lifecycle.jsonl')
+                    events = [json.loads(line) for line in trace_path.read_text(encoding='utf-8').splitlines()] if trace_path.exists() else []
+                    observations = [e for e in events if e['event'] == 'close-key-observed']
+                    lifetime_ok = bool(observations) and all(e['nativeWindowVisible'] and e['nativeProcessActive'] and not e['closing'] for e in observations)
+                    approved_quit = any(e['event'] == 'shell-close-approved' for e in events)
+                    unexpected_quit = any(e['event'] == 'about-to-quit' and not e['closing'] for e in events)
+                    result.update(nativeCloseKeyObservations=len(observations), nativeWindowAndProcessAlive=lifetime_ok,
+                                  shellApprovedQuit=approved_quit, unexpectedAboutToQuit=unexpected_quit)
+                    if result.get('accepted') and (not lifetime_ok or not approved_quit or unexpected_quit):
+                        result.update(accepted=False, error='Native lifetime trace did not establish safe close/exit')
                     result.update(exitCode=code, qtScale=scale, processPhase=phase)
                     report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
                     reports.append(result)

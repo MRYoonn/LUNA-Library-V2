@@ -37,6 +37,7 @@
 #include <QFile>
 #include <QImage>
 #include <QPixmap>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLineEdit>

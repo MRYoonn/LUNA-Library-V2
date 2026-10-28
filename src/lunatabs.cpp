@@ -571,6 +571,14 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             auto* pa = a->getProgramController()->getPdfWidget()->getDrawWidgetProxy(); auto* pb = b->getProgramController()->getPdfWidget()->getDrawWidgetProxy();
             integrationRequire(qAbs(pa->getZoom() - 2.0) < .001 && qAbs(pb->getZoom() - 2.0) < .001, "New integrated documents did not default to 200 percent");
             pa->zoom(1.25); pb->zoom(1.5);
+            auto* focus = host.findChild<QAction*>(QStringLiteral("LunaFocusMode"));
+            auto fitTabInput = [&] {
+                focus->setChecked(true);
+                const QSize available = host.screen()->availableGeometry().size();
+                host.resize(qMin(760, available.width() - 24), available.height() - 48); host.move(8, 8);
+                QCoreApplication::processEvents(); host.raise(); host.activateWindow();
+                SetForegroundWindow(reinterpret_cast<HWND>(host.winId()));
+            };
             phase("five compact tabs, scrolling and independent views");
             const QString directoryPath = QFileInfo(files[0]).absolutePath();
             const QStringList extraNames = QDir(directoryPath).entryList({QStringLiteral("UI-long-*.pdf")}, QDir::Files, QDir::Name);
@@ -586,6 +594,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 QListWidgetItem* card = nullptr;
                 integrationRequire(integrationList(host, fullPath, &card) && card && !card->data(Qt::UserRole + 3).toString().isEmpty(), "Opened date disappeared across Windows path spellings");
             }
+            fitTabInput(); // Keep real OS input inside the hosted runner's 1024px desktop, including at 150%.
             QList<QPointer<Editor>> documents{a, b}; documents.append(extra);
             QList<int> scrollPositions; QList<double> zoomValues;
             for (int i = 0; i < documents.size(); ++i) {
@@ -610,7 +619,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(integrationMove(host, tabBar, tabBar->tabRect(4).center()) && integrationWait([&] { return QToolTip::isVisible() && QToolTip::text() == tabs->tabToolTip(4); }), "Actual tab hover did not show full filename tooltip");
             QToolTip::hideText();
             integrationRequire(host.screen()->grabWindow(0).save(report + ".five-tabs.png"), "Five-tab desktop capture failed");
-            integrationLayouts(host, report + ".five-tabs");
+            focus->setChecked(false); integrationLayouts(host, report + ".five-tabs"); fitTabInput();
             tabs->setCurrentWidget(extra[0]); integrationSurface(extra[0])->setFocus();
             integrationRequire(integrationKey('W', true) && integrationWait([&] { return host.isVisible() && host.documentCount() == 4 && (!extra[0] || tabs->indexOf(extra[0]) == -1); }), "Ctrl+W did not close only the middle of five tabs");
             tabs->setCurrentWidget(extra[1]);
@@ -620,7 +629,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(extra[2] && host.closeTab(tabs->indexOf(extra[2])) && host.documentCount() == 2, "Extra-tab cleanup damaged original documents");
             tabs->setCurrentWidget(a); pa->zoom(1.25); pb->zoom(1.5);
             result["fiveTabsBoundedElidedTooltipScrollAndIndependentViews"] = true;
-            auto* focus = host.findChild<QAction*>(QStringLiteral("LunaFocusMode"));
+            focus->setChecked(false);
             auto* toggle = host.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
             integrationRequire(toggle, "Combined panel button missing");
             for (int turn = 0; turn < 10; ++turn) {

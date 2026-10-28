@@ -37,6 +37,9 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('QTabBar#LunaPdfTabBar::tab', style)
         self.assertIn('painter->fillPath(selectionPath', overlay)
         self.assertIn('PDFTextSelectionPainter selectionPainter(&m_textSelection)', overlay)
+        self.assertIn('QEvent::ShortcutOverride || event->type() == QEvent::KeyPress', tabs)
+        self.assertIn('ctrlWClosesOnlyActiveTabAndPreservesWindow', tabs)
+        self.assertIn('ctrlWLastPdfLeavesEmptyLunaWindow', tabs)
 
 if __name__ == '__main__':
     unittest.main()

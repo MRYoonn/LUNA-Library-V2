@@ -783,8 +783,17 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(host.current() == a && host.documentCount() == 2 && a->getProgramController()->hasUnsavedChanges() && integrationHighlights(a) == annotationsBeforeRetry, "Repeated Cancel changed the document or annotations");
             result["repeatedDirtyCtrlWCancelPreservesAnnotations"] = true;
             cancelled = 0; cancel.start(30);
-            RECT frame{}; integrationRequire(GetWindowRect(reinterpret_cast<HWND>(host.winId()), &frame), "Caption geometry unavailable");
-            SetCursorPos(frame.right - qRound(23 * host.devicePixelRatioF()), frame.top + qRound(15 * host.devicePixelRatioF()));
+            // Native caption metrics follow the Windows non-client DPI, which
+            // need not equal QT_SCALE_FACTOR used for the client contents.
+            const HWND nativeHost = reinterpret_cast<HWND>(host.winId());
+            TITLEBARINFOEX captionInfo{}; captionInfo.cbSize = sizeof(captionInfo);
+            SendMessage(nativeHost, WM_GETTITLEBARINFOEX, 0, reinterpret_cast<LPARAM>(&captionInfo));
+            const RECT closeButton = captionInfo.rgrect[5];
+            const POINT closePoint{(closeButton.left + closeButton.right) / 2, (closeButton.top + closeButton.bottom) / 2};
+            integrationRequire(closeButton.right > closeButton.left && closeButton.bottom > closeButton.top &&
+                SendMessage(nativeHost, WM_NCHITTEST, 0, MAKELPARAM(closePoint.x, closePoint.y)) == HTCLOSE,
+                "Windows caption close button geometry did not hit HTCLOSE");
+            integrationRequire(SetCursorPos(closePoint.x, closePoint.y), "Could not move to native caption close button");
             INPUT caption[2]{}; caption[0].type = caption[1].type = INPUT_MOUSE; caption[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN; caption[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
             integrationRequire(SendInput(2, caption, sizeof(INPUT)) == 2 && integrationWait([&] { return cancelled == 1 && !QApplication::activeModalWidget(); }), "Native title-bar X did not run close confirmation");
             const bool windowClosed = !host.isVisible(); cancel.stop();

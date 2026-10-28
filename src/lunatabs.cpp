@@ -415,7 +415,13 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
 static void verifyIntegration(NativeTabs& host, const QStringList& files, const QString& report, bool restore) {
     QJsonObject result{{"accepted", false}, {"physicalMonitorDpi", "unverified"}, {"input", "Win32 tab clicks, memo typing and shortcuts; Qt crop/highlight and dialog fixtures"}};
     auto write = [&] { QSaveFile output(report); if (output.open(QIODevice::WriteOnly)) { output.write(QJsonDocument(result).toJson()); output.commit(); } };
-    auto phase = [&](const char* text) { result["phase"] = text; write(); };
+    auto phase = [&](const char* text) {
+        const QString name = QString::fromLatin1(text); result["phase"] = name; host.setProperty("LunaIntegrationPhase", name); write();
+        QTimer::singleShot(1500, &host, [&host, report, name] {
+            if (host.property("LunaIntegrationPhase").toString() == name && host.isVisible() && host.screen())
+                host.screen()->grabWindow(0).save(report + ".pending.png");
+        });
+    };
     try {
         phase("load and persistent library");
         auto* tabs = host.findChild<QTabWidget*>(QStringLiteral("LunaPdfTabs")); auto* a = host.current();
@@ -433,7 +439,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         } else {
             integrationRequire(files.size() == 2, "Initial integrated fixture requires A and B");
             SetForegroundWindow(reinterpret_cast<HWND>(host.winId()));
-            phase("folder selection and open B through public action");
+            phase("folder selection");
             bool selectedFolder = false;
             QTimer directory; QObject::connect(&directory, &QTimer::timeout, &host, [&] {
                 if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
@@ -442,9 +448,14 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             });
             directory.start(30); auto* location = host.findChild<QPushButton*>(QStringLiteral("LunaLocation")); integrationRequire(location, "Folder picker missing"); location->click(); directory.stop();
             integrationRequire(selectedFolder, "Native folder picker did not accept the library folder");
+            phase("open B through public action");
             bool openedB = false; QTimer filePicker;
             QObject::connect(&filePicker, &QTimer::timeout, &host, [&] { if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
-                dialog->setDirectory(QFileInfo(files[1]).absolutePath()); dialog->selectFile(files[1]); openedB = true; QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
+                dialog->setDirectory(QFileInfo(files[1]).absolutePath()); dialog->selectFile(files[1]);
+                if (auto* field = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) field->setText(QFileInfo(files[1]).fileName());
+                const auto selected = dialog->selectedFiles();
+                openedB = selected.size() == 1 && DocumentClaim::identity(selected.front()) == DocumentClaim::identity(files[1]);
+                if (openedB) QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
             }});
             filePicker.start(30); host.findChild<QAction*>(QStringLiteral("LunaOpenDocuments"))->trigger(); filePicker.stop();
             integrationRequire(openedB && integrationWait([&] { return host.documentCount() == 2 && host.current() != a && ready(host.current()); }), "Public open action did not create B tab");
@@ -514,7 +525,9 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                         if (auto* yes = box->button(QMessageBox::Yes)) yes->click();
                         else if (auto* ok = box->button(QMessageBox::Ok)) { ++warnings; ok->click(); }
                     } else if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
-                        if (!selected) { selected = true; dialog->setDirectory(QFileInfo(target).absolutePath()); dialog->selectFile(target); QTimer::singleShot(0, dialog, [dialog] { QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection); }); }
+                        if (!selected) { selected = true; dialog->setDirectory(QFileInfo(target).absolutePath()); dialog->selectFile(target);
+                            if (auto* field = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) field->setText(QFileInfo(target).fileName());
+                            QTimer::singleShot(0, dialog, [dialog] { QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection); }); }
                     }
                 }); picker.start(30); b->findChild<QAction*>(QStringLiteral("actionSave_As"))->trigger(); picker.stop(); return selected;
             };

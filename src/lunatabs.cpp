@@ -788,9 +788,9 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             const HWND nativeHost = reinterpret_cast<HWND>(host.winId());
             TITLEBARINFOEX captionInfo{}; captionInfo.cbSize = sizeof(captionInfo);
             SendMessage(nativeHost, WM_GETTITLEBARINFOEX, 0, reinterpret_cast<LPARAM>(&captionInfo));
-            const RECT closeButton = captionInfo.rgrect[5];
-            const POINT closePoint{(closeButton.left + closeButton.right) / 2, (closeButton.top + closeButton.bottom) / 2};
-            integrationRequire(closeButton.right > closeButton.left && closeButton.bottom > closeButton.top &&
+            const RECT captionCloseRect = captionInfo.rgrect[5];
+            const POINT closePoint{(captionCloseRect.left + captionCloseRect.right) / 2, (captionCloseRect.top + captionCloseRect.bottom) / 2};
+            integrationRequire(captionCloseRect.right > captionCloseRect.left && captionCloseRect.bottom > captionCloseRect.top &&
                 SendMessage(nativeHost, WM_NCHITTEST, 0, MAKELPARAM(closePoint.x, closePoint.y)) == HTCLOSE,
                 "Windows caption close button geometry did not hit HTCLOSE");
             integrationRequire(SetCursorPos(closePoint.x, closePoint.y), "Could not move to native caption close button");

@@ -565,8 +565,8 @@ public:
         docs->setSpacing(0);
         auto* heading = new QWidget(documents_);
         auto* headingLayout = new QVBoxLayout(heading);
-        headingLayout->setContentsMargins(18, 0, 18, 12);
-        headingLayout->setSpacing(12);
+        headingLayout->setContentsMargins(14, 0, 14, 6);
+        headingLayout->setSpacing(6);
         auto* title = new QLabel(QStringLiteral("논문 목록"), heading);
         title->setObjectName(QStringLiteral("LunaLibraryTitle"));
         title->setFixedHeight(48);
@@ -574,11 +574,12 @@ public:
         titleRow->setObjectName(QStringLiteral("LunaPaperHeadingLayout"));
         titleRow->addWidget(title, 1);
         headingLayout->addLayout(titleRow);
-        auto* addFile = new QPushButton(QStringLiteral("＋  PDF 파일 추가"), heading);
+        auto* addFile = new QPushButton(QStringLiteral("＋ PDF"), heading);
         addFile->setObjectName(QStringLiteral("LunaPrimary"));
-        addFile->setMinimumHeight(40);
+        addFile->setMinimumHeight(28);
+        addFile->setAccessibleName(QStringLiteral("라이브러리에 PDF 파일 추가"));
         addFile->setToolTip(QStringLiteral("현재 폴더에 복사합니다. 원본은 유지하며 같은 이름의 파일은 덮어쓰지 않습니다."));
-        headingLayout->addWidget(addFile);
+        titleRow->addWidget(addFile);
         query_ = new QLineEdit(heading);
         query_->setObjectName(QStringLiteral("LunaGlobalSearch"));
         query_->setPlaceholderText(QStringLiteral("파일명 검색…  Ctrl+K"));

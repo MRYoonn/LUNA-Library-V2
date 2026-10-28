@@ -508,6 +508,8 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
         if (!integrationWait([&] { return host.size() == logical; }) || !host.grab().save(report + QStringLiteral(".%1.png").arg(pixels.width()))) { captured = false; break; }
     }
     host.setParent(nullptr, flags); host.resize(oldSize); host.move(oldPosition); host.show(); qApp->setQuitOnLastWindowClosed(quit);
+    host.raise(); host.activateWindow(); SetForegroundWindow(reinterpret_cast<HWND>(host.winId()));
+    if (host.current()) integrationSurface(host.current())->setFocus();
     integrationRequire(captured, "Production tab layout size or capture failed");
 }
 static void verifyIntegration(NativeTabs& host, const QStringList& files, const QString& report, bool restore) {
@@ -600,7 +602,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             bool scrolling = false; for (auto* button : tabBar->findChildren<QToolButton*>()) scrolling |= button->isVisible();
             integrationRequire(scrolling && tabs->tabText(4).contains(QChar(0x2026)), "Long tabs did not elide and scroll");
             QToolTip::hideText();
-            integrationRequire(integrationMove(host, tabBar, tabBar->tabRect(4).center()) && integrationWait([&] { return QToolTip::text() == tabs->tabToolTip(4); }), "Actual tab hover did not show full filename tooltip");
+            integrationRequire(integrationMove(host, tabBar, tabBar->tabRect(4).center()) && integrationWait([&] { return QToolTip::isVisible() && QToolTip::text() == tabs->tabToolTip(4); }), "Actual tab hover did not show full filename tooltip");
             QToolTip::hideText();
             integrationRequire(host.screen()->grabWindow(0).save(report + ".five-tabs.png"), "Five-tab desktop capture failed");
             integrationLayouts(host, report + ".five-tabs");
@@ -617,7 +619,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             auto* toggle = host.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
             integrationRequire(toggle, "Combined panel button missing");
             for (int turn = 0; turn < 10; ++turn) {
-                integrationRequire(!focus->isChecked() && toggle->text() == QStringLiteral("≪") && integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return focus->isChecked() && toggle->isVisible(); }), "Real collapse click failed");
+                integrationRequire(!focus->isChecked() && toggle->text() == QStringLiteral("≪") && integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return focus->isChecked() && toggle->isVisible() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8; }), "Real collapse click failed");
                 integrationRequire(toggle->text() == QStringLiteral("☰") && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8, "Restore button moved away from left edge");
                 integrationRequire(integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return !focus->isChecked(); }), "Real expand click failed");
             }

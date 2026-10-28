@@ -21,6 +21,7 @@
 #include <QMimeData>
 #include <QUrl>
 #include <QKeySequence>
+#include <QKeyEvent>
 #include <QScopedValueRollback>
 #include <QSettings>
 #include <QPointer>
@@ -107,8 +108,10 @@ public:
                 if (auto* e = current()) if (auto* action = e->findChild<QAction*>(name); action && action->isEnabled()) action->trigger();
             });
         }
-        auto* close = new QAction(this); close->setShortcut(QKeySequence(QStringLiteral("Ctrl+W"))); addAction(close);
-        connect(close, &QAction::triggered, this, [this] { closeTab(tabs_->currentIndex()); });
+        // Ctrl+W is reserved for closing only the active tab. Do not expose a
+        // competing QAction shortcut: embedded PDF4QT windows can also register
+        // document/window Close actions, and Qt may choose another shortcut.
+        // Our application event filter intercepts ShortcutOverride + KeyPress.
         finishEditor(initial);
         setLibraryDocumentRouter(*this, [this](const QString& path) { open(path); },
             [this](const QString& path) {
@@ -311,6 +314,20 @@ private:
         for (const auto& path : paths) open(path);
     }
     bool eventFilter(QObject* object, QEvent* event) override {
+        if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) {
+            auto* target = qobject_cast<QWidget*>(object);
+            auto* key = static_cast<QKeyEvent*>(event);
+            // Intercept Ctrl+W before native Editor shortcuts and ensure it is
+            // never interpreted as a top-level window close.
+            if (!closing_ && !QApplication::activeModalWidget() &&
+                target && (target == this || isAncestorOf(target)) &&
+                key->key() == Qt::Key_W && key->modifiers() == Qt::ControlModifier) {
+                key->accept();
+                if (event->type() == QEvent::KeyPress && !key->isAutoRepeat())
+                    closeTab(tabs_->currentIndex());
+                return true;
+            }
+        }
         if (event->type() == QEvent::Close) if (auto* editor = qobject_cast<Editor*>(object)) {
             static_cast<QCloseEvent*>(event)->ignore(); QPointer<Editor> guarded(editor);
             QTimer::singleShot(0, this, [this, guarded] { if (guarded) closeTab(tabs_->indexOf(guarded)); }); return true;
@@ -575,7 +592,23 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(host.open(copy) == b && host.documentCount() == 2, "Saved path was not deduplicated");
             auto* originalB = host.open(files[1]); integrationRequire(originalB && originalB != b && host.documentCount() == 3, "Old B path was not released after Save As");
             integrationRequire(integrationWait([&] { return ready(originalB); }), "Original B did not load after Save As");
-            integrationRequire(host.closeTab(tabs->indexOf(originalB)) && host.closeTab(tabs->indexOf(b)) && host.documentCount() == 1, "Closing B tabs damaged A");
+            // Real Windows Ctrl+W must close the active PDF tab, not the LUNA
+            // application or any other tab.
+            originalB->getProgramController()->getPdfWidget()->setFocus();
+            integrationRequire(integrationKey('W', true), "Real Ctrl+W injection failed for original B");
+            integrationRequire(integrationWait([&] {
+                return host.isVisible() && host.documentCount() == 2 &&
+                    tabs->indexOf(originalB) == -1 && tabs->indexOf(a) >= 0 &&
+                    tabs->indexOf(b) >= 0;
+            }), "Ctrl+W closed LUNA or the wrong PDF tab");
+            tabs->setCurrentWidget(b);
+            b->getProgramController()->getPdfWidget()->setFocus();
+            integrationRequire(integrationKey('W', true), "Real Ctrl+W injection failed for B copy");
+            integrationRequire(integrationWait([&] {
+                return host.isVisible() && host.documentCount() == 1 &&
+                    tabs->indexOf(b) == -1 && tabs->indexOf(a) >= 0;
+            }), "Second Ctrl+W closed LUNA or damaged A");
+            result["ctrlWClosesOnlyActiveTabAndPreservesWindow"] = true;
             result["rootShortcutsSearchSaveAsAndSurvivor"] = true;
             phase("inline memo, search and paired move");
             integrationRequire(integrationWait([&] { list = integrationList(host, files[0], &paper); return list && paper; }), "A paper card missing before memo"); list->scrollToItem(paper);
@@ -612,6 +645,14 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         integrationRequire(host.screen()->grabWindow(0).save(report + ".final.png"), "Could not capture final integrated window");
         integrationLayouts(host, report);
         integrationRequire(integrationWait([&] { return ready(host.current()); }), "Reader remained busy after layout captures");
+        // The last PDF closes to an empty tab, never to application exit.
+        host.current()->getProgramController()->getPdfWidget()->setFocus();
+        integrationRequire(integrationKey('W', true), "Final Ctrl+W injection failed");
+        integrationRequire(integrationWait([&] {
+            return host.isVisible() && host.documentCount() == 0 &&
+                host.current() && !host.current()->getProgramController()->getDocument();
+        }), "Ctrl+W on last PDF closed the LUNA application");
+        result["ctrlWLastPdfLeavesEmptyLunaWindow"] = true;
         integrationRequire(host.close(), "Final integrated window close refused"); result["accepted"] = true; phase("passed"); qApp->exit(0);
     } catch (const std::exception& error) {
         result["error"] = QString::fromUtf8(error.what()); result["accepted"] = false; write();

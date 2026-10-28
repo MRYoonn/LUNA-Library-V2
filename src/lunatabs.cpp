@@ -50,6 +50,7 @@
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QTabBar>
+#include <QFontMetrics>
 #include <QThread>
 #include "pdfwidgetannotation.h"
 #include "pdfcompiler.h"
@@ -77,11 +78,14 @@ public:
         tabs_ = new QTabWidget(this); tabs_->setObjectName(QStringLiteral("LunaPdfTabs"));
         tabs_->setTabsClosable(true); tabs_->setDocumentMode(true); tabs_->setMovable(true);
         tabs_->setElideMode(Qt::ElideMiddle);
+        tabs_->tabBar()->setObjectName(QStringLiteral("LunaPdfTabBar"));
+        tabs_->tabBar()->setExpanding(false);
+        tabs_->tabBar()->setUsesScrollButtons(true);
         auto* initial = createEditor();
         installLibraryShell(*this, *initial);
         auto* frame = centralWidget();
         auto* corner = findChild<QWidget*>(QStringLiteral("LunaTabCorner"));
-        if (corner) { frame->layout()->removeWidget(corner); tabs_->setCornerWidget(corner); }
+        if (corner) { frame->layout()->removeWidget(corner); tabs_->setCornerWidget(corner, Qt::TopLeftCorner); }
         static_cast<QVBoxLayout*>(frame->layout())->addWidget(tabs_);
         open_ = new QAction(QStringLiteral("PDF 열기…"), this); open_->setObjectName(QStringLiteral("LunaOpenDocuments"));
         open_->setShortcut(QKeySequence(QStringLiteral("Ctrl+O"))); addAction(open_);
@@ -272,7 +276,10 @@ private:
         if (c->hasUnsavedChanges()) text += QStringLiteral(" *");
         if (s->loading && !c->getDocument()) text += QStringLiteral(" · 여는 중");
         const int index = tabs_->indexOf(editor); if (index >= 0) {
-            tabs_->setTabText(index, text); tabs_->setTabToolTip(index, display);
+            // Keep tabs compact even when a single PDF has an extremely long filename.
+            // The full filename remains available in the tooltip and window title.
+            const QString label = tabs_->tabBar()->fontMetrics().elidedText(text, Qt::ElideMiddle, 156);
+            tabs_->setTabText(index, label); tabs_->setTabToolTip(index, display);
             for (auto side : {QTabBar::LeftSide, QTabBar::RightSide})
                 if (auto* button = qobject_cast<QAbstractButton*>(tabs_->tabBar()->tabButton(index, side)))
                     button->setEnabled(!s->identity.isEmpty() && !s->loading && c->canClose() && editor->isEnabled());

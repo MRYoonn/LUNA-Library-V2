@@ -444,15 +444,15 @@ static void integrationHighlight(NativeTabs& host, Editor* e, const QString& rep
     auto* drawSurface = integrationSurface(e);
     auto* select = e->findChild<QAction*>(QStringLiteral("actionSelectText"));
     integrationRequire(select && select->isEnabled(), "Text selection is unavailable"); select->trigger();
-    const QImage before = drawSurface->grab().toImage();
+    const QImage beforeImage = drawSurface->grab().toImage();
     auto bluePixels = [&](const QImage& image, int* newDark = nullptr) {
         const qreal dpr = image.devicePixelRatio();
         const QRect physical(qFloor(selectionBounds.x() * dpr), qFloor(selectionBounds.y() * dpr),
             qCeil(selectionBounds.width() * dpr), qCeil(selectionBounds.height() * dpr));
-        const QRect area = physical.intersected(image.rect()).intersected(before.rect()); int count = 0;
+        const QRect area = physical.intersected(image.rect()).intersected(beforeImage.rect()); int count = 0;
         if (newDark) *newDark = 0;
         for (int y = area.top(); y <= area.bottom(); ++y) for (int x = area.left(); x <= area.right(); ++x) {
-            const QColor c = image.pixelColor(x, y), old = before.pixelColor(x, y);
+            const QColor c = image.pixelColor(x, y), old = beforeImage.pixelColor(x, y);
             if (c.blue() - c.red() > 35 && c.blue() - c.green() > 15 && c.red() > 100) ++count;
             if (newDark && old.red() > 225 && old.green() > 225 && old.blue() > 225 && qGray(c.rgb()) < 80) ++*newDark;
         }

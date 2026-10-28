@@ -461,11 +461,19 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             directory.start(30); auto* location = host.findChild<QPushButton*>(QStringLiteral("LunaLocation")); integrationRequire(location, "Folder picker missing"); location->click(); directory.stop();
             integrationRequire(selectedFolder, "Native folder picker did not accept the library folder");
             phase("open B through public action");
-            bool openedB = false; QTimer filePicker;
+            bool openedB = false; QTimer filePicker; QPointer<QFileDialog> openDialog;
             QObject::connect(&filePicker, &QTimer::timeout, &host, [&] { if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                if (openDialog != dialog) {
+                    openDialog = dialog;
+                    QTimer::singleShot(8000, dialog, [dialog] { if (dialog->isVisible()) dialog->reject(); });
+                }
                 dialog->setDirectory(QFileInfo(files[1]).absolutePath()); dialog->selectFile(files[1]);
-                if (auto* field = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) field->setText(QFileInfo(files[1]).fileName());
+                if (auto* field = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) field->setText(QFileInfo(files[1]).absoluteFilePath());
                 const auto selected = dialog->selectedFiles();
+                result["openDialogSelection"] = QJsonArray::fromStringList(selected);
+                result["openDialogExpected"] = files[1];
+                result["openDialogSelectedIdentity"] = DocumentClaim::identity(selected.value(0));
+                result["openDialogExpectedIdentity"] = DocumentClaim::identity(files[1]); write();
                 openedB = selected.size() == 1 && DocumentClaim::identity(selected.front()) == DocumentClaim::identity(files[1]);
                 if (openedB) QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
             }});

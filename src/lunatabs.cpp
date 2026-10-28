@@ -936,6 +936,12 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         const int delivered = host.property("LunaCtrlWKeys").toInt();
         integrationRequire(find->findChild<QLineEdit*>()->hasFocus() && integrationKey('W', true) && integrationWait([&] { return host.property("LunaCtrlWKeys").toInt() == delivered + 1 && host.documentCount() == 0 && host.isVisible(); }), "Ctrl+W from PDF search did not safely close its document");
         result["repeatedCtrlWFocusReopenAndPdfSearch"] = true;
+        auto* fileCloseEditor = host.open(reopenPath);
+        integrationRequire(fileCloseEditor && integrationWait([&] { return ready(fileCloseEditor); }), "Native File Close reopen failed");
+        auto* fileClose = fileCloseEditor->findChild<QAction*>(QStringLiteral("actionClose"));
+        integrationRequire(fileClose && fileClose->isEnabled(), "Original native File Close is unavailable"); fileClose->trigger();
+        integrationRequire(integrationWait([&] { return host.isVisible() && host.documentCount() == 0 && host.current() == fileCloseEditor && !fileCloseEditor->getProgramController()->getDocument(); }), "Native File Close left stale ownership or closed LUNA");
+        host.trace("native-file-close-observed", host.current()); result["nativeFileCloseKeepsEmptyReader"] = true;
         integrationRequire(integrationKey('Q', true) && integrationWait([&] { return !host.isVisible() && host.property("LunaClosing").toBool(); }), "Real Ctrl+Q did not exit LUNA normally");
         result["ctrlQNormalExit"] = true; result["accepted"] = true; phase("passed"); qApp->exit(0);
     } catch (const std::exception& error) {

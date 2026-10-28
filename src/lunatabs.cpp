@@ -93,6 +93,14 @@ struct Session {
 };
 class NativeTabs final : public QMainWindow {
 public:
+    ~NativeTabs() override {
+        trace("shell-destroy"); poll_.stop(); qApp->removeEventFilter(this);
+        QObject::disconnect(qApp, nullptr, this, nullptr);
+        for (auto* editor : findChildren<Editor*>()) {
+            QObject::disconnect(editor, nullptr, this, nullptr);
+            QObject::disconnect(editor->getProgramController(), nullptr, this, nullptr);
+        }
+    }
     NativeTabs() {
         setObjectName(QStringLiteral("LunaNativeTabs"));
         setWindowTitle(QStringLiteral("LUNA Library"));

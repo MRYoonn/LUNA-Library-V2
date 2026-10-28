@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include <QListView>
+#include <QItemSelectionModel>
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QTimer>
@@ -14,7 +15,9 @@ public:
         : QListView(parent), thumbnailSize_(std::move(thumbnailSize)) {
         setObjectName(QStringLiteral("LunaPageGrid"));
         setModel(native.model());
+        auto* temporarySelection = selectionModel();
         setSelectionModel(native.selectionModel());
+        if (temporarySelection && temporarySelection != selectionModel() && temporarySelection->parent() == this) temporarySelection->deleteLater();
         setViewMode(QListView::IconMode);
         setFlow(QListView::LeftToRight);
         setWrapping(true);
@@ -28,7 +31,10 @@ public:
         viewport()->installEventFilter(this);
     }
     void bindNative(QListView& native) {
-        setModel(native.model()); setSelectionModel(native.selectionModel());
+        setModel(native.model());
+        auto* temporarySelection = selectionModel();
+        setSelectionModel(native.selectionModel());
+        if (temporarySelection && temporarySelection != selectionModel() && temporarySelection->parent() == this) temporarySelection->deleteLater();
         thumbnailSize_(qMax(24, iconSize().width())); doItemsLayout(); scheduleLayout();
     }
 protected:

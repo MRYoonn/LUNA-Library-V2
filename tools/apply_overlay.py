@@ -181,6 +181,15 @@ def make_main(src: str) -> str:
         '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>\n#include <QSettings>\n#include <QFileInfo>\n#include <memory>\n#include <QJsonDocument>\n#include <QJsonObject>\n#include <QJsonArray>\n#include <QToolBar>')
     src = replace_exact(src, '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);',
         '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);\n'
+        '    if (parser.isSet(lunaTabsRestore) && !parser.isSet(lunaTabsReport)) return 2;\n'
+        '    if (parser.isSet(lunaTabsReport)) {\n'
+        '        if (parser.isSet(lunaSmokeReport) || parser.isSet(lunaResearchReport)) return 2;\n'
+        '        if (parser.positionalArguments().size() != (parser.isSet(lunaTabsRestore) ? 1 : 2)) return 2;\n'
+        '        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);\n'
+        '        QSettings::setDefaultFormat(QSettings::IniFormat);\n'
+        '        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QFileInfo(parser.value(lunaTabsReport)).absolutePath() + "/settings");\n'
+        '        if (!parser.isSet(lunaTabsRestore)) QSettings(QSettings::IniFormat, QSettings::UserScope, "LUNA", "LUNA Library").setValue("library/root", QFileInfo(parser.positionalArguments().front()).absolutePath());\n'
+        '    }\n'
         '    if (parser.isSet(lunaLayoutOnly) && !parser.isSet(lunaSmokeReport)) return 2;\n'
         '    if (parser.isSet(lunaSmokeReport) && parser.isSet(lunaResearchReport)) return 2;\n'
         '    if (parser.isSet(lunaSmokeReport) || parser.isSet(lunaResearchReport)) {\n'
@@ -194,6 +203,10 @@ def make_main(src: str) -> str:
         '    }')
     src = replace_exact(src, '    parser.addVersionOption();',
         '    parser.addVersionOption();\n'
+        '    QCommandLineOption lunaTabsReport("luna-tabs-report", "CI only: native library/tabs integration.", "path");\n'
+        '    lunaTabsReport.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaTabsReport);\n'
+        '    QCommandLineOption lunaTabsRestore("luna-tabs-restore", "CI only: fresh-process memo verification.");\n'
+        '    lunaTabsRestore.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaTabsRestore);\n'
         '    QCommandLineOption lunaSmokeReport("luna-smoke-report",\n'
         '        "CI only: verify a two-page synthetic PDF opens, write a marker and exit.", "path");\n'
         '    lunaSmokeReport.setFlags(QCommandLineOption::HiddenFromHelp);\n'
@@ -223,7 +236,7 @@ def make_main(src: str) -> str:
         'QApplication::setWindowIcon(QIcon(":/luna/LUNA-Moon.ico"));')
     src = replace_exact(src,
         'pdfviewer::PDFEditorMainWindow mainWindow;\n    mainWindow.show();',
-        'if (!parser.isSet(lunaSmokeReport) && !parser.isSet(lunaResearchReport)) return luna::runTabbedLibrary(parser.positionalArguments());\n    std::unique_ptr<QWidget> captureHost;\n    pdfviewer::PDFEditorMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
+        'if (!parser.isSet(lunaSmokeReport) && !parser.isSet(lunaResearchReport)) return luna::runTabbedLibrary(parser.positionalArguments(), parser.value(lunaTabsReport), parser.isSet(lunaTabsRestore));\n    std::unique_ptr<QWidget> captureHost;\n    pdfviewer::PDFEditorMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
     src = replace_exact(src,
         'mainWindow.getProgramController()->openDocument(arguments.front());',
         'if (!luna::openInitialDocument(mainWindow, arguments.front())) return 0;')

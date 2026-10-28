@@ -129,6 +129,7 @@ public:
     using Finished = std::function<void(const QRect&)>;
     ThumbnailCropOverlay(QWidget* documentViewport, Finished callback)
         : QWidget(documentViewport), callback_(std::move(callback)) {
+        setObjectName(QStringLiteral("LunaThumbnailCrop"));
         setAttribute(Qt::WA_DeleteOnClose);
         setFocusPolicy(Qt::StrongFocus);
         setCursor(Qt::CrossCursor);
@@ -1089,6 +1090,7 @@ private:
             QFileInfo(controller->getOriginalFileName()).canonicalFilePath() == source;
         int page = 0;
         double zoom = 2.0;
+        pdf::PageLayout layout = pdf::PageLayout::OneColumn;
         if (opened) {
             if (!viewer_->isEnabled() || !controller->canClose()) {
                 qWarning("LUNA paired move deferred: native reader is busy");
@@ -1105,6 +1107,7 @@ private:
             const auto currentPages = controller->getPdfWidget()->getDrawWidget()->getCurrentPages();
             if (!currentPages.empty()) page = int(currentPages.front());
             zoom = controller->getPdfWidget()->getDrawWidgetProxy()->getZoom();
+            layout = controller->getPdfWidget()->getDrawWidgetProxy()->getPageLayout();
             if (cropOverlay_) cropOverlay_->close();
             controller->closeDocument();
         }
@@ -1151,12 +1154,13 @@ private:
             viewer_->setProperty("LunaPreserveReopenView", true);
             controller->openDocument(result.documentPath);
             auto* restore = new QTimer(this);
-            connect(restore, &QTimer::timeout, this, [this, restore, editor = QPointer<pdfviewer::PDFEditorMainWindow>(viewer_), target = result.documentPath, page, zoom, attempts = 0]() mutable {
+            connect(restore, &QTimer::timeout, this, [this, restore, editor = QPointer<pdfviewer::PDFEditorMainWindow>(viewer_), target = result.documentPath, page, zoom, layout, attempts = 0]() mutable {
                 if (!editor) { restore->stop(); restore->deleteLater(); return; }
                 auto* c = editor->getProgramController();
                 if (++attempts > 200) { editor->setProperty("LunaMoveRestorePending", false); restore->stop(); restore->deleteLater(); return; }
                 if (!editor->isEnabled() || !c->getDocument()) return;
                 if (QFileInfo(c->getOriginalFileName()).canonicalFilePath() == QFileInfo(target).canonicalFilePath()) {
+                    c->getPdfWidget()->getDrawWidgetProxy()->setPageLayout(layout);
                     c->getPdfWidget()->getDrawWidgetProxy()->zoom(zoom);
                     c->getPdfWidget()->getDrawWidgetProxy()->goToPage(page);
                 }
@@ -1519,7 +1523,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
             if (collapsed) row->addWidget(toggle); else paperHeading->addWidget(toggle);
             focus->setText(collapsed ? QStringLiteral("☰") : QStringLiteral("≪"));
             focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
-            corner->setVisible(collapsed); toggle->show();
+            corner->setVisible(collapsed || corner->property("lunaHasOpenButton").toBool()); toggle->show();
         };
         QObject::connect(focus, &QAction::toggled, toggle, place); place(false);
         layout->addWidget(corner); window.setCentralWidget(frame);
@@ -1594,6 +1598,12 @@ void prepareReaderSession(pdfviewer::PDFEditorMainWindow& editor, QMainWindow& s
         installReaderToolbar(editor, *bar, *focus); bar->removeAction(focus);
     }
     if (auto* options = editor.findChild<QAction*>(QStringLiteral("actionOptions"))) options->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+O")));
+    for (const auto& entry : QList<QPair<QString, QString>>{
+        {QStringLiteral("menuFile"), QStringLiteral("파일")}, {QStringLiteral("menuEdit"), QStringLiteral("편집")},
+        {QStringLiteral("menuView"), QStringLiteral("보기")}, {QStringLiteral("menuGoTo"), QStringLiteral("이동")},
+        {QStringLiteral("menuInsert"), QStringLiteral("삽입")}, {QStringLiteral("menuTools"), QStringLiteral("도구")},
+        {QStringLiteral("menuHelp"), QStringLiteral("도움말")}})
+        if (auto* menu = editor.findChild<QMenu*>(entry.first)) menu->setTitle(entry.second);
     editor.menuBar()->hide();
 }
 

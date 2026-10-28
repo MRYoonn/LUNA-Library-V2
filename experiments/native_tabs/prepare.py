@@ -129,7 +129,12 @@ bool PDFProgramController::askForSaveDocumentBeforeClose()
         '        QPoint topRightParent = m_parentDialog->mapFromGlobal(topRight);\n', '')
     replace('Pdf4QtLibWidgets/sources/pdfwidgettool.cpp',
         '        m_dialog->move(topRightParent - QPoint(m_dialog->width() * 1.1, 0));',
-        '        m_dialog->move(topRight - QPoint(qRound(m_dialog->width() * 1.1), 0));')
+        '''        const QRect available = widget->screen()->availableGeometry().adjusted(2, 2, -2, -2);
+        QPoint position = topRight - QPoint(qRound(m_dialog->width() * 1.1), 0);
+        position.setX(qBound(available.left(), position.x(), qMax(available.left(), available.right() - m_dialog->frameGeometry().width() + 1)));
+        position.setY(qBound(available.top(), position.y(), qMax(available.top(), available.bottom() - m_dialog->frameGeometry().height() + 1)));
+        m_dialog->move(position);''')
+    replace('Pdf4QtLibWidgets/sources/pdfwidgettool.cpp', '#include <QApplication>', '#include <QApplication>\n#include <QScreen>')
     cmake = root / 'Pdf4QtEditor/CMakeLists.txt'
     addition = '''
 # Opt-in architecture proof. Not installed or included in LUNA portable.

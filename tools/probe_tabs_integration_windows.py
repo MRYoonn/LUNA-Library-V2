@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Exercise the production native-tab/library path using disposable PDFs only."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+from smoke_windows import synthetic_pdf
+
+
+def run(package, output):
+    if os.name != 'nt':
+        raise RuntimeError('Actual Windows required')
+    output.mkdir(parents=True, exist_ok=True)
+    results = []
+    for scale in ('1', '1.25', '1.5'):
+        evidence = output / ('scale-' + scale)
+        evidence.mkdir()
+        with tempfile.TemporaryDirectory(prefix='luna-tabs-integration-') as temporary:
+            root = Path(temporary) / '한글 라이브러리'
+            root.mkdir()
+            a, b = root / 'A.pdf', root / 'B.pdf'
+            a.write_bytes(synthetic_pdf(2).replace(b'smoke', b'alpha'))
+            b.write_bytes(synthetic_pdf(3).replace(b'smoke', b'bravo'))
+            original_b = hashlib.sha256(b.read_bytes()).hexdigest()
+            env = os.environ.copy()
+            env.update(QT_SCALE_FACTOR=scale, QT_QPA_PLATFORM='windows', QT_FORCE_STDERR_LOGGING='1')
+            with (evidence / 'native.log').open('w', encoding='utf-8') as log:
+                reports = []
+                for phase in ('edit', 'restore'):
+                    report = evidence / (phase + '.json')
+                    target = a if phase == 'edit' else root / 'Moved' / 'A.pdf'
+                    command = [str(package / 'LUNA.exe'), '--luna-tabs-report', str(report)]
+                    if phase == 'restore':
+                        command += ['--luna-tabs-restore', str(target)]
+                    else:
+                        command += [str(a), str(b)]
+                    try:
+                        code = subprocess.run(command, cwd=package, env=env, stdout=log,
+                                              stderr=subprocess.STDOUT, timeout=180, check=False).returncode
+                    except subprocess.TimeoutExpired:
+                        code = -1
+                    result = json.loads(report.read_text(encoding='utf-8')) if report.exists() else {'accepted': False, 'error': 'No native report'}
+                    result.update(exitCode=code, qtScale=scale, processPhase=phase)
+                    report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+                    reports.append(result)
+                    if code != 0 or result.get('accepted') is not True:
+                        break
+                untouched_b = hashlib.sha256(b.read_bytes()).hexdigest() == original_b
+                results.append({'qtScale': scale, 'runs': reports, 'originalBUnchanged': untouched_b})
+                if len(reports) != 2 or not untouched_b or any(r['exitCode'] != 0 or not r.get('accepted') for r in reports):
+                    break
+    accepted = len(results) == 3 and all(len(s['runs']) == 2 and s['originalBUnchanged'] and
+        all(r['exitCode'] == 0 and r.get('accepted') is True for r in s['runs']) for s in results)
+    (output / 'summary.json').write_text(json.dumps({'accepted': accepted, 'runs': results,
+        'scope': 'production native tabs and one library; fresh EXE process restores moved PDF, crop and local memo; Qt scales are not physical monitor DPI'},
+        ensure_ascii=False, indent=2), encoding='utf-8')
+    if not accepted:
+        raise RuntimeError('Production tabs/library integration failed; inspect native phase and screenshot')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('package', type=Path)
+    parser.add_argument('output', type=Path)
+    args = parser.parse_args()
+    run(args.package.resolve(strict=True), args.output.resolve())

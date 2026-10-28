@@ -49,3 +49,7 @@ QListView#LunaPageGrid { background:@PANEL@; border:0; padding:0; }
 QListView#LunaPageGrid::item { border:1px solid @LINE@; border-radius:5px; margin:4px; padding:4px; }
 QListView#LunaPageGrid::item:selected { background:@SELECTION@; border:1px solid @BLUE@; }
 QToolButton#LunaCombinedPanelToggle { color:@BLUE@; background:@PANEL@; border:1px solid @LINE@; border-radius:5px; font-size:18px; }
+
+QTabWidget#LunaPdfTabs::pane { border: 0; background: @PANEL@; }
+QTabWidget#LunaPdfTabs QTabBar::tab { background: @CANVAS@; color: @TEXT@; border: 1px solid @LINE@; padding: 7px 12px; min-width: 80px; }
+QTabWidget#LunaPdfTabs QTabBar::tab:selected { background: @PANEL@; border-bottom: 2px solid @BLUE@; }

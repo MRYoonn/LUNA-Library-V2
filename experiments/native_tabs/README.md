@@ -1,3 +1,7 @@
+> Windows 실증 업데이트: [40584019204](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40584019204),
+> 소스 `a69be17`, 3개 Qt 배율 모두 `accepted=true`, 종료 코드 0.
+> 아래 본문은 최초 인수인계 당시의 기록입니다. 제품 라이브러리 통합 검증은 별도입니다.
+
 # Native document-session architecture proof — NOT validated yet
 
 Base: LUNA b60f5f2529760102887fa660365f037e78fc7aae.

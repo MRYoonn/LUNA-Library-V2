@@ -1,3 +1,7 @@
+> Windows 실증 업데이트: [40584019204](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40584019204),
+> 소스 `a69be17`, 3개 Qt 배율 모두 `accepted=true`, 종료 코드 0.
+> 아래 본문은 최초 인수인계 당시의 기록입니다. 제품 라이브러리 통합 검증은 별도입니다.
+
 # LUNA 다중 PDF 탭 — 소스 검토 및 구현 인수인계
 
 **결론: B(같은 프로세스의 문서별 Editor 위젯)를 선택한다. 단, Windows 검증 전이므로 승인된 해법은 아직 아니다.**

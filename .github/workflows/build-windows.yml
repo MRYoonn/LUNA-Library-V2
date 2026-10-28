@@ -364,6 +364,13 @@ jobs:
           python -B tools/probe_documents_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui"
           if ($LASTEXITCODE -ne 0) { throw "Native UI or annotation round trip failed" }
 
+      - name: Production native tabs, library and fresh-process memo restoration
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          python -B tools/probe_tabs_integration_windows.py LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/integrated"
+          if ($LASTEXITCODE -ne 0) { throw 'Production tabs/library integration failed' }
+
       - name: Public CC BY research PDF selection and annotation round trip
         if: ${{ inputs.research_pdf_probe }}
         shell: pwsh
@@ -383,7 +390,7 @@ jobs:
         if: ${{ !inputs.native_tabs_proof }}
         shell: pwsh
         run: |
-          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ pythonTests = 38; nativeQtTests = 5; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
+          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ pythonTests = 38; nativeQtTests = 5; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; astraNativeProof = '40584019204 at a69be17'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
       - name: Upload synthetic native UI screenshots
         if: ${{ !cancelled() }}

@@ -101,15 +101,16 @@ class PortableLayoutTests(unittest.TestCase):
 
 
 class NativeSmokeHarnessTests(unittest.TestCase):
-    def test_two_page_fixture_cross_reference_and_page_tree(self):
-        data = synthetic_pdf(2)
-        xref = int(data.split(b"startxref\n")[1].splitlines()[0])
-        entries = data[xref:].splitlines()[3:10]
-        self.assertEqual(len(entries), 7)
-        for number, entry in enumerate(entries, 1):
-            self.assertTrue(data[int(entry[:10]):].startswith(f"{number} 0 obj\n".encode()))
-        self.assertIn(b"/Kids [3 0 R 6 0 R] /Count 2", data)
-        self.assertIn(b"/Size 8", data)
+    def test_multi_page_fixture_cross_reference_and_page_tree(self):
+        for pages, objects, kids in ((2, 7, b"3 0 R 6 0 R"), (3, 9, b"3 0 R 6 0 R 8 0 R")):
+            data = synthetic_pdf(pages)
+            xref = int(data.split(b"startxref\n")[1].splitlines()[0])
+            entries = data[xref:].splitlines()[3:3 + objects]
+            self.assertEqual(len(entries), objects)
+            for number, entry in enumerate(entries, 1):
+                self.assertTrue(data[int(entry[:10]):].startswith(f"{number} 0 obj\n".encode()))
+            self.assertIn(b"/Kids [" + kids + f"] /Count {pages}".encode(), data)
+            self.assertIn(f"/Size {objects + 1}".encode(), data)
 
     def test_scaled_layout_checks_dpr_without_claiming_annotation_roundtrip(self):
         calls = []

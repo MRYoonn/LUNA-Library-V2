@@ -6,17 +6,16 @@ This is a **public source-only build repository**. It does not store, synchroniz
 
 ## 현재 Beta 개발 상태
 
-Draft PR #7에서 HTML v0.9를 최종 UI 기준으로 통합 중입니다. 독립 문서 창은
-임시 구조이며 최종 목표는 한 LUNA 창 안의 PDF 탭입니다. 별도
-[`experiments/tab_host`](experiments/tab_host/README.md)는 Qt 컨테이너/Win32
-연결을 비교하는 미승인 실험이며 포터블 프로그램에 포함하지 않습니다.
+Draft PR #7에서 HTML v0.9.1 UI와 네이티브 다중 PDF 탭을 통합 중입니다.
+[Astra B안 Windows 실증 40584019204](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40584019204)은
+문서별 독립 Editor·9개 플러그인과 40회 전환, 문서별 검색·저장·닫기를
+Qt 배율 100%·125%·150%에서 통과했습니다 (`a69be17`, 모든 exitCode=0, accepted=true).
+외부 HWND 수용 방식은 사용하지 않습니다.
 
-최근 기록 검사 실패는 Windows 레지스트리와 테스트 INI의 설정 형식 혼용을
-수정한 뒤 통과했습니다. run 40447039043은 C++/네이티브 CTest 4개 통과 후
-크롭 취소의 지연 삭제 검사에서 실패했습니다. 중첩 이벤트 루프에서 취소를
-보내도록 검사를 수정했으며, 이후 v0.9 UI와 함께 Windows 재검증 중입니다.
-아래의 과거 성공 기록이 현재 HEAD 전체의 성공을 뜻하지 않습니다.
-베타 완료·탭 POC 통과·물리 Windows DPI 검증을 선언하지 않습니다.
+제품 통합 빌드 40590542088 (`426c79f`)는 Windows C++ 및 기존 핵심 회귀 검사를 통과했습니다.
+실제 공유 라이브러리·탭·메모·이동·새 프로세스 복원을 함께 확인하는 통합 검사는 별도 실행합니다.
+과거 성공 기록을 최신 HEAD의 검증으로 대체하지 않습니다. 최종 Beta 완료와 물리 모니터 DPI는 미판정입니다.
+아래 날짜가 적힌 과거 상태 기록은 당시 개발 이력이며, 현재 지원 범위는 이 항목과 build-info.json을 기준으로 합니다.
 
 ## Windows EXE 만들기
 

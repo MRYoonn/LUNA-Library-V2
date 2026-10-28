@@ -14,9 +14,9 @@ import json
 
 
 def synthetic_pdf(page_count: int = 1) -> bytes:
-    """Public synthetic text with a valid cross-reference table (one or two pages)."""
-    if page_count not in (1, 2):
-        raise ValueError("Synthetic fixture supports one or two pages")
+    """Public synthetic text with a valid cross-reference table (one to three pages)."""
+    if page_count not in (1, 2, 3):
+        raise ValueError("Synthetic fixture supports one to three pages")
     content = b"BT /F1 18 Tf 40 160 Td (LUNA synthetic smoke test) Tj ET\n"
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -26,13 +26,21 @@ def synthetic_pdf(page_count: int = 1) -> bytes:
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"endstream",
     ]
-    if page_count == 2:
+    if page_count >= 2:
         objects[1] = b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>"
         second = b"BT /F1 18 Tf 40 160 Td (Second synthetic page) Tj ET\n"
         objects.extend([
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] "
             b"/Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>",
             b"<< /Length " + str(len(second)).encode() + b" >>\nstream\n" + second + b"endstream",
+        ])
+    if page_count == 3:
+        objects[1] = b"<< /Type /Pages /Kids [3 0 R 6 0 R 8 0 R] /Count 3 >>"
+        third = b"BT /F1 18 Tf 40 160 Td (Third synthetic page) Tj ET\n"
+        objects.extend([
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] "
+            b"/Resources << /Font << /F1 4 0 R >> >> /Contents 9 0 R >>",
+            b"<< /Length " + str(len(third)).encode() + b" >>\nstream\n" + third + b"endstream",
         ])
     data = bytearray(b"%PDF-1.4\n")
     offsets = []

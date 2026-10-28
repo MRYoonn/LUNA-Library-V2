@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Apply the opt-in native-session proof to an exact PDF4QT checkout.
 
-No renderer changes. Never copy V1/private source into this public experiment.
+Only LUNA text-selection presentation is adjusted; rendering and annotations are unchanged.
+Never copy V1/private source into this public experiment.
 """
 import argparse
 import hashlib
@@ -135,6 +136,15 @@ bool PDFProgramController::askForSaveDocumentBeforeClose()
         position.setY(qBound(available.top(), position.y(), qMax(available.top(), available.bottom() - m_dialog->frameGeometry().height() + 1)));
         m_dialog->move(position);''')
     replace('Pdf4QtLibWidgets/sources/pdfwidgettool.cpp', '#include <QApplication>', '#include <QApplication>\n#include <QScreen>')
+    # LUNA UI only: selected text is translucent blue, without the black box outline.
+    # Limit this to PDFSelectTextTool; Find and persistent PDF highlights are unchanged.
+    replace('Pdf4QtLibWidgets/sources/pdfwidgettool.cpp',
+        '''    pdf::PDFTextSelectionPainter textSelectionPainter(&m_textSelection);
+    textSelectionPainter.draw(painter, pageIndex, layoutGetter, pagePointToDevicePointMatrix, convertor);''',
+        '''    pdf::PDFTextSelectionPainter selectionPainter(&m_textSelection);
+    const QPainterPath selectionPath = selectionPainter.prepareGeometry(
+        pageIndex, layoutGetter, pagePointToDevicePointMatrix, nullptr);
+    painter->fillPath(selectionPath, convertor.convert(QBrush(QColor(57, 128, 222, 96))));''')
     cmake = root / 'Pdf4QtEditor/CMakeLists.txt'
     addition = '''
 # Opt-in architecture proof. Not installed or included in LUNA portable.

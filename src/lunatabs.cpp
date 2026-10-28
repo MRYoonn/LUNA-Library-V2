@@ -214,7 +214,7 @@ public:
         if (QApplication::activeModalWidget()) return false;
         auto* editor = qobject_cast<Editor*>(tabs_->widget(index)); if (!editor) return false;
         auto* owned = session(editor);
-        if (!owned || owned->loading || !editor->getProgramController()->getDocument()) { trace("empty-or-loading-close-noop", editor); return false; }
+        if (!owned || owned->loading || (!editor->getProgramController()->getDocument() && owned->identity.isEmpty())) { trace("empty-or-loading-close-noop", editor); return false; }
         activate(editor); auto* controller = editor->getProgramController();
         if (!controller->canClose() || !controller->askForSaveDocumentBeforeClose()) return false;
         if (tabs_->count() == 1) {
@@ -264,7 +264,12 @@ private:
         prepareReaderSession(*editor, *this);
         auto* controller = editor->getProgramController();
         for (const char* name : {"actionClose", "actionQuit"})
-            if (auto* action = editor->findChild<QAction*>(QString::fromLatin1(name))) connect(action, &QAction::triggered, this, [this, editor, name] { trace(name, editor); });
+            if (auto* action = editor->findChild<QAction*>(QString::fromLatin1(name))) connect(action, &QAction::triggered, this, [this, editor, name] {
+                trace(name, editor);
+                // The existing native slot runs first. Only an accepted close
+                // clears its document; synchronize the tab/claim afterwards.
+                if (QByteArray(name) == "actionClose" && !editor->getProgramController()->getDocument()) closeTab(tabs_->indexOf(editor));
+            });
         auto* original = editor->findChild<QAction*>(QStringLiteral("actionOpen"));
         if (original) {
             original->setShortcut({}); if (open_->icon().isNull()) open_->setIcon(original->icon());

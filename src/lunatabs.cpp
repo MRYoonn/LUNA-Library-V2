@@ -419,7 +419,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
     try {
         phase("load and persistent library");
         auto* tabs = host.findChild<QTabWidget*>(QStringLiteral("LunaPdfTabs")); auto* a = host.current();
-        auto ready = [](Editor* e) { auto* c = e->getProgramController(); return c->getDocument() && c->canClose() && e->isEnabled() && !e->property("LunaRememberedPath").toString().isEmpty(); };
+        auto ready = [](Editor* e) { if (!e) return false; auto* c = e->getProgramController(); return c->getDocument() && c->canClose() && e->isEnabled() && !e->property("LunaRememberedPath").toString().isEmpty(); };
         integrationRequire(tabs && a && integrationWait([&] { return ready(a); }), "Integrated A did not load");
         const QString memo = QStringLiteral("통합 메모 724");
         QListWidgetItem* paper = nullptr; QListWidget* list = nullptr;

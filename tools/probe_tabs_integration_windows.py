@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 from smoke_windows import synthetic_pdf
@@ -27,7 +26,10 @@ def run(package, output):
             b.write_bytes(synthetic_pdf(3).replace(b'smoke', b'bravo'))
             original_b = hashlib.sha256(b.read_bytes()).hexdigest()
             env = os.environ.copy()
-            env.update(QT_SCALE_FACTOR=scale, QT_QPA_PLATFORM='windows', QT_FORCE_STDERR_LOGGING='1')
+            windows_root = Path(os.environ['SystemRoot'])
+            env['PATH'] = os.pathsep.join(map(str, (package, windows_root / 'System32', windows_root)))
+            env.update(QT_SCALE_FACTOR=scale, QT_QPA_PLATFORM='windows', QT_FORCE_STDERR_LOGGING='1',
+                       QT_PLUGIN_PATH=str(package), QT_QPA_PLATFORM_PLUGIN_PATH=str(package / 'platforms'))
             with (evidence / 'native.log').open('w', encoding='utf-8') as log:
                 reports = []
                 for phase in ('edit', 'restore'):

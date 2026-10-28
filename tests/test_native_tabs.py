@@ -25,5 +25,18 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn("if: ${{ !inputs.native_tabs_proof && steps.engine-cache.outputs.cache-hit != 'true' }}", text)
         self.assertIn('Upload LUNA Windows portable artifact\n        if: ${{ !inputs.native_tabs_proof }}', text)
 
+    def test_compact_tabs_and_blue_borderless_selection_contract(self):
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text()
+        library = (ROOT / 'src/lunalibrary.cpp').read_text()
+        style = (ROOT / 'src/lunalibrary.qss').read_text()
+        overlay = (ROOT / 'experiments/native_tabs/prepare.py').read_text()
+        self.assertIn('setCornerWidget(corner, Qt::TopLeftCorner)', tabs)
+        self.assertIn('setExpanding(false)', tabs)
+        self.assertIn('Qt::ElideMiddle, 156', tabs)
+        self.assertIn('row->insertWidget(0, toggle)', library)
+        self.assertIn('QTabBar#LunaPdfTabBar::tab', style)
+        self.assertIn('painter->fillPath(selectionPath', overlay)
+        self.assertIn('PDFTextSelectionPainter selectionPainter(&m_textSelection)', overlay)
+
 if __name__ == '__main__':
     unittest.main()

@@ -13,10 +13,26 @@ int main(int argc, char** argv) {
     QFile file(path);
     if (!temp.isValid() || !file.open(QIODevice::WriteOnly)) return 1;
     file.write("synthetic document identity"); file.close();
+    QString alias = path;
+    QString aliasDirectory = temp.path();
+#ifdef Q_OS_WIN
+    const QString native = QDir::toNativeSeparators(temp.path());
+    const DWORD required = GetShortPathNameW(reinterpret_cast<LPCWSTR>(native.utf16()), nullptr, 0);
+    if (!required || required > 32768) return 14;
+    QString shortDirectory(int(required), Qt::Uninitialized);
+    const DWORD written = GetShortPathNameW(reinterpret_cast<LPCWSTR>(native.utf16()),
+        reinterpret_cast<LPWSTR>(shortDirectory.data()), required);
+    if (!written || written >= required) return 15;
+    shortDirectory.resize(int(written)); aliasDirectory = QDir::fromNativeSeparators(shortDirectory);
+    alias = QDir(aliasDirectory).filePath(QFileInfo(path).fileName());
+    qInfo() << "Windows short directory spelling differs:" << (aliasDirectory != temp.path());
+#endif
+    if (luna::DocumentClaim::identity(alias) != luna::DocumentClaim::identity(path) ||
+        luna::DocumentClaim::endpoint(alias) != luna::DocumentClaim::endpoint(path)) return 16;
     int activated = 0;
     luna::DocumentClaim first([&] { ++activated; }), second([] {});
     using Result = luna::DocumentClaim::Result;
-    const auto firstResult = first.acquire(path), secondResult = second.acquire(path);
+    const auto firstResult = first.acquire(path), secondResult = second.acquire(alias);
     if (firstResult != Result::Acquired || secondResult != Result::Existing) {
         qCritical() << "Claim ownership failed" << int(firstResult) << int(secondResult); return 2;
     }
@@ -45,10 +61,12 @@ int main(int argc, char** argv) {
     first.release(); second.release();
     const QString future = temp.path() + QStringLiteral("/아직 없는 저장 파일.pdf");
     const QString reservedIdentity = luna::DocumentClaim::identity(future);
-    if (reservedIdentity.isEmpty() || first.acquire(future) != Result::Acquired || second.acquire(future) != Result::Existing) return 10;
+    const QString futureAlias = QDir(aliasDirectory).filePath(QFileInfo(future).fileName());
+    if (reservedIdentity != luna::DocumentClaim::identity(futureAlias)) return 17;
+    if (reservedIdentity.isEmpty() || first.acquire(future) != Result::Acquired || second.acquire(futureAlias) != Result::Existing) return 10;
     QFile created(future); if (!created.open(QIODevice::WriteOnly)) return 11;
     created.write("synthetic Save As destination"); created.close();
-    if (luna::DocumentClaim::identity(future) != reservedIdentity || second.acquire(future) != Result::Existing) return 12;
+    if (luna::DocumentClaim::identity(future) != reservedIdentity || second.acquire(futureAlias) != Result::Existing) return 12;
     first.release();
     if (second.acquire(future) != Result::Acquired) return 13;
     qInfo() << "[PASS] Per-document exclusive local claim, duplicate activation, fragmented messages, invalid command rejection and release";

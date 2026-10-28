@@ -1081,6 +1081,7 @@ private:
         if (!operation) return;
         const QString source = QFileInfo(path).canonicalFilePath();
         if (source.isEmpty()) return;
+        const QString sourceIdentity = DocumentClaim::identity(source);
         if ((activateElsewhere && activateElsewhere(source)) ||
             (independentDocuments(*operation) && independentDocuments(*operation)->openElsewhere(source))) {
             QMessageBox::information(this, QStringLiteral("다른 창에서 열린 PDF"),
@@ -1089,7 +1090,7 @@ private:
         }
         auto* controller = operation->getProgramController();
         const bool opened = controller->getDocument() &&
-            QFileInfo(controller->getOriginalFileName()).canonicalFilePath() == source;
+            DocumentClaim::identity(controller->getOriginalFileName()) == sourceIdentity;
         int page = 0;
         double zoom = 2.0;
         pdf::PageLayout layout = pdf::PageLayout::OneColumn;
@@ -1101,7 +1102,7 @@ private:
             if (!controller->askForSaveDocumentBeforeClose()) return;
             // Save As may have changed the current document while prompting.
             // Do not close or relocate a different document under the old name.
-            if (QFileInfo(controller->getOriginalFileName()).canonicalFilePath() != source) {
+            if (DocumentClaim::identity(controller->getOriginalFileName()) != sourceIdentity) {
                 QMessageBox::information(this, QStringLiteral("이동 취소"),
                     QStringLiteral("저장한 문서의 경로가 변경되었습니다. 이동할 파일을 다시 선택해 주세요."));
                 return;
@@ -1119,7 +1120,7 @@ private:
             QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
             for (const QString& key : {QStringLiteral("library/favorites"), QStringLiteral("library/recent")}) {
                 QStringList paths = settings.value(key).toStringList();
-                for (QString& value : paths) if (value == source) value = result.documentPath;
+                for (QString& value : paths) if (DocumentClaim::identity(value) == sourceIdentity) value = result.documentPath;
                 paths.removeDuplicates();
                 settings.setValue(key, paths);
             }
@@ -1161,7 +1162,7 @@ private:
                 auto* c = editor->getProgramController();
                 if (++attempts > 200) { editor->setProperty("LunaMoveRestorePending", false); restore->stop(); restore->deleteLater(); return; }
                 if (!editor->isEnabled() || !c->getDocument()) return;
-                if (QFileInfo(c->getOriginalFileName()).canonicalFilePath() == QFileInfo(target).canonicalFilePath()) {
+                if (DocumentClaim::identity(c->getOriginalFileName()) == DocumentClaim::identity(target)) {
                     c->getPdfWidget()->getDrawWidgetProxy()->setPageLayout(layout);
                     c->getPdfWidget()->getDrawWidgetProxy()->zoom(zoom);
                     c->getPdfWidget()->getDrawWidgetProxy()->goToPage(page);

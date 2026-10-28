@@ -12,11 +12,14 @@
 #include <QTimer>
 #include <functional>
 #include <memory>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 
 namespace luna {
 // Per-user local IPC carries only an activation request, never document bytes
-// or commands. Each native Editor lives in its own process so PDF4QT's shared
-// plugin instances cannot be rebound to a different document/controller.
+// or commands. One claim belongs to one document session, including sessions
+// hosted in the same process; another LUNA process can only activate its owner.
 class DocumentClaim final : public QObject {
 public:
     enum class Result { Acquired, Existing, Error };
@@ -50,11 +53,11 @@ public:
     static QString identity(const QString& path) {
         if (path.trimmed().isEmpty()) return {};
         const QFileInfo file(path);
-        QString result = file.canonicalFilePath();
+        QString result = expandedExistingPath(file.canonicalFilePath());
         // A Save As destination can be reserved before the writer creates it.
         // Resolve its existing parent so the identity stays stable after save.
         if (result.isEmpty() && !file.exists() && !file.isSymLink()) {
-            const QString parent = file.dir().canonicalPath();
+            const QString parent = expandedExistingPath(file.dir().canonicalPath());
             if (!parent.isEmpty()) result = QDir(parent).filePath(file.fileName());
         }
 #ifdef Q_OS_WIN
@@ -117,6 +120,24 @@ public:
     void release() { server_.close(); lock_.reset(); path_.clear(); }
     QString path() const { return path_; }
 private:
+    static QString expandedExistingPath(const QString& path) {
+#ifdef Q_OS_WIN
+        if (path.isEmpty()) return {};
+        // QFileInfo's canonical path can retain an 8.3 component such as
+        // RUNNER~1 while Windows file dialogs return its long spelling.
+        const QString native = QDir::toNativeSeparators(path);
+        const DWORD required = GetLongPathNameW(reinterpret_cast<LPCWSTR>(native.utf16()), nullptr, 0);
+        if (!required || required > 32768) return path;
+        QString expanded(int(required), Qt::Uninitialized);
+        const DWORD written = GetLongPathNameW(reinterpret_cast<LPCWSTR>(native.utf16()),
+            reinterpret_cast<LPWSTR>(expanded.data()), required);
+        if (!written || written >= required) return path;
+        expanded.resize(int(written));
+        return QDir::fromNativeSeparators(expanded);
+#else
+        return path;
+#endif
+    }
     QLocalServer server_;
     std::unique_ptr<QLockFile> lock_;
     QString path_;

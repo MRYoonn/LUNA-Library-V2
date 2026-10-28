@@ -57,8 +57,7 @@
 #include <stdexcept>
 #include <algorithm>
 #ifdef Q_OS_WIN
-#define NOMINMAX
-#include <windows.h>
+#include <qt_windows.h>
 #endif
 
 namespace luna {
@@ -539,6 +538,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(integrationWait([&] { return search && search->windowTitle().contains("1/1"); }), "B typed search did not return 1/1");
             integrationRequire(host.screen()->availableGeometry().contains(search->frameGeometry()), "Integrated search popup extends off screen"); search->reject();
             const QByteArray savedA = integrationBytes(files[0]); int warnings = 0;
+            auto* nativeSaveAs = b->findChild<QAction*>(QStringLiteral("actionSave_As"));
+            integrationRequire(integrationWait([&] { return ready(b) && nativeSaveAs && nativeSaveAs->isEnabled(); }), "B Save As remained busy after search");
             auto saveAs = [&](const QString& target) {
                 bool selected = false; QTimer picker;
                 QObject::connect(&picker, &QTimer::timeout, &host, [&] {
@@ -547,12 +548,16 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                         else if (auto* ok = box->button(QMessageBox::Ok)) { ++warnings; ok->click(); }
                     } else if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
                         if (!selected) { selected = true; dialog->setDirectory(QFileInfo(target).absolutePath()); dialog->selectFile(target);
-                            if (auto* field = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) field->setText(QFileInfo(target).fileName());
+                            if (auto* field = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) field->setText(QFileInfo(target).absoluteFilePath());
                             QTimer::singleShot(0, dialog, [dialog] { QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection); }); }
                     }
                 }); picker.start(30); b->findChild<QAction*>(QStringLiteral("actionSave_As"))->trigger(); picker.stop(); return selected;
             };
-            integrationRequire(saveAs(files[0]) && warnings == 1 && integrationBytes(files[0]) == savedA && DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(files[1]), "Save As collision changed A or rebound B");
+            const bool selectedCollision = saveAs(files[0]);
+            result["collisionDialogSelected"] = selectedCollision; result["collisionWarnings"] = warnings;
+            result["collisionAUnchanged"] = integrationBytes(files[0]) == savedA;
+            result["collisionBPathUnchanged"] = DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(files[1]); write();
+            integrationRequire(selectedCollision && warnings == 1 && result["collisionAUnchanged"].toBool() && result["collisionBPathUnchanged"].toBool(), "Save As collision changed A or rebound B");
             const QString copy = QFileInfo(files[1]).absolutePath() + "/B-copy.pdf";
             integrationRequire(saveAs(copy) && QFileInfo::exists(copy) && DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(copy), "Save As did not update B path");
             integrationRequire(host.open(copy) == b && host.documentCount() == 2, "Saved path was not deduplicated");

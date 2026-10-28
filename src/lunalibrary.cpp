@@ -1077,22 +1077,24 @@ private:
         moveDocumentTo(path, destination);
     }
     void moveDocumentTo(const QString& path, const QString& destination) {
+        QPointer<pdfviewer::PDFEditorMainWindow> operation(viewer_);
+        if (!operation) return;
         const QString source = QFileInfo(path).canonicalFilePath();
         if (source.isEmpty()) return;
         if ((activateElsewhere && activateElsewhere(source)) ||
-            (independentDocuments(*viewer_) && independentDocuments(*viewer_)->openElsewhere(source))) {
+            (independentDocuments(*operation) && independentDocuments(*operation)->openElsewhere(source))) {
             QMessageBox::information(this, QStringLiteral("다른 창에서 열린 PDF"),
                 QStringLiteral("이 PDF를 열고 있는 LUNA 창에서 이동해 주세요. 해당 창을 활성화했습니다."));
             return;
         }
-        auto* controller = viewer_->getProgramController();
+        auto* controller = operation->getProgramController();
         const bool opened = controller->getDocument() &&
             QFileInfo(controller->getOriginalFileName()).canonicalFilePath() == source;
         int page = 0;
         double zoom = 2.0;
         pdf::PageLayout layout = pdf::PageLayout::OneColumn;
         if (opened) {
-            if (!viewer_->isEnabled() || !controller->canClose()) {
+            if (!operation->isEnabled() || !controller->canClose()) {
                 qWarning("LUNA paired move deferred: native reader is busy");
                 return;
             }
@@ -1148,13 +1150,13 @@ private:
             if (pages_->currentIndex() == 1) scanAll();
             else if (pages_->currentIndex() == 2) showHistory(showingFavorites_);
         }
-        if (opened && result.success && movedHandler && !movedHandler(viewer_, source, result.documentPath)) return;
+        if (opened && result.success && movedHandler && !movedHandler(operation.data(), source, result.documentPath)) return;
         if (opened) {
-            viewer_->setProperty("LunaMoveRestorePending", true);
-            viewer_->setProperty("LunaPreserveReopenView", true);
+            operation->setProperty("LunaMoveRestorePending", true);
+            operation->setProperty("LunaPreserveReopenView", true);
             controller->openDocument(result.documentPath);
             auto* restore = new QTimer(this);
-            connect(restore, &QTimer::timeout, this, [this, restore, editor = QPointer<pdfviewer::PDFEditorMainWindow>(viewer_), target = result.documentPath, page, zoom, layout, attempts = 0]() mutable {
+            connect(restore, &QTimer::timeout, this, [this, restore, editor = operation, target = result.documentPath, page, zoom, layout, attempts = 0]() mutable {
                 if (!editor) { restore->stop(); restore->deleteLater(); return; }
                 auto* c = editor->getProgramController();
                 if (++attempts > 200) { editor->setProperty("LunaMoveRestorePending", false); restore->stop(); restore->deleteLater(); return; }

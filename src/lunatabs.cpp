@@ -153,6 +153,7 @@ public:
         return editor;
     }
     bool closeTab(int index) {
+        if (QApplication::activeModalWidget()) return false;
         auto* editor = qobject_cast<Editor*>(tabs_->widget(index)); if (!editor) return false;
         activate(editor); auto* controller = editor->getProgramController();
         if (!controller->canClose() || !controller->askForSaveDocumentBeforeClose()) return false;
@@ -211,7 +212,10 @@ private:
             s->loading = false;
             if (!success) {
                 s->claim.reset(); s->identity.clear();
-                QTimer::singleShot(0, editor, [this, editor] { if (!closing_ && session(editor) && tabs_->count() > 1) dispose(editor); });
+                QTimer::singleShot(0, editor, [this, editor] {
+                    auto* failed = session(editor);
+                    if (!closing_ && failed && !failed->loading && failed->identity.isEmpty() && !editor->getProgramController()->getDocument() && tabs_->count() > 1) dispose(editor);
+                });
             }
             updateTitle(editor);
         });
@@ -247,7 +251,10 @@ private:
             }
         }, Qt::DirectConnection);
     }
-    void activate(Editor* editor) { if (!editor || closing_) return; tabs_->setCurrentWidget(editor); if (isMinimized()) showNormal(); raise(); activateWindow(); activateCurrent(); }
+    void activate(Editor* editor) {
+        if (!editor || closing_) return;
+        if (auto* modal = QApplication::activeModalWidget()) { pendingActivation_ = editor; modal->raise(); modal->activateWindow(); return; }
+        tabs_->setCurrentWidget(editor); if (isMinimized()) showNormal(); raise(); activateWindow(); activateCurrent(); }
     void activateCurrent() {
         auto* editor = current(); if (!editor || closing_) return;
         for (const auto& s : sessions_) if (s->editor != editor)
@@ -273,6 +280,9 @@ private:
         if (editor == current()) setWindowTitle(QStringLiteral("LUNA Library") + (display.isEmpty() ? QString() : QStringLiteral(" · ") + text));
     }
     void synchronize() {
+        if (pendingActivation_ && !QApplication::activeModalWidget()) {
+            QPointer<Editor> next = pendingActivation_; pendingActivation_.clear(); if (session(next)) activate(next);
+        }
         for (const auto& s : sessions_) {
             auto* c = s->editor->getProgramController();
             if (c->getDocument() && c->canClose() && s->editor->isEnabled()) recordLibraryDocument(*this, *s->editor);
@@ -308,6 +318,7 @@ private:
         return QMainWindow::eventFilter(object, event);
     }
     void closeEvent(QCloseEvent* event) override {
+        if (QApplication::activeModalWidget()) { event->ignore(); return; }
         for (const auto& s : sessions_) {
             activate(s->editor); auto* c = s->editor->getProgramController();
             if (!c->canClose() || !c->askForSaveDocumentBeforeClose()) { event->ignore(); return; }
@@ -328,6 +339,7 @@ private:
     QAction* quit_ = nullptr;
     QTimer poll_;
     bool closing_ = false;
+    QPointer<Editor> pendingActivation_;
     std::vector<std::unique_ptr<Session>> sessions_;
 };
 #ifdef Q_OS_WIN

@@ -537,7 +537,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(search->findChild<QLineEdit*>()->hasFocus() && integrationType("bravo") && integrationKey(VK_RETURN), "B search input failed");
             integrationRequire(integrationWait([&] { return search && search->windowTitle().contains("1/1"); }), "B typed search did not return 1/1");
             integrationRequire(host.screen()->availableGeometry().contains(search->frameGeometry()), "Integrated search popup extends off screen"); search->reject();
-            const QByteArray savedA = integrationBytes(files[0]); int warnings = 0;
+            const QByteArray savedA = integrationBytes(files[0]); int warnings = 0, unexpectedSaveMessages = 0;
             auto* nativeSaveAs = b->findChild<QAction*>(QStringLiteral("actionSave_As"));
             integrationRequire(integrationWait([&] { return ready(b) && nativeSaveAs && nativeSaveAs->isEnabled(); }), "B Save As remained busy after search");
             auto saveAs = [&](const QString& target) {
@@ -545,7 +545,11 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 QObject::connect(&picker, &QTimer::timeout, &host, [&] {
                     if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
                         if (auto* yes = box->button(QMessageBox::Yes)) yes->click();
-                        else if (auto* ok = box->button(QMessageBox::Ok)) { ++warnings; ok->click(); }
+                        else if (auto* ok = box->button(QMessageBox::Ok)) {
+                            if (box->windowTitle() == QStringLiteral("저장 경로 충돌")) ++warnings;
+                            else ++unexpectedSaveMessages;
+                            result["saveAsMessageTitle"] = box->windowTitle(); write(); ok->click();
+                        }
                     } else if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
                         if (!selected) { selected = true; dialog->setDirectory(QFileInfo(target).absolutePath()); dialog->selectFile(target);
                             if (auto* field = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) field->setText(QFileInfo(target).absoluteFilePath());
@@ -555,11 +559,12 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             };
             const bool selectedCollision = saveAs(files[0]);
             result["collisionDialogSelected"] = selectedCollision; result["collisionWarnings"] = warnings;
+            result["unexpectedSaveMessages"] = unexpectedSaveMessages;
             result["collisionAUnchanged"] = integrationBytes(files[0]) == savedA;
             result["collisionBPathUnchanged"] = DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(files[1]); write();
-            integrationRequire(selectedCollision && warnings == 1 && result["collisionAUnchanged"].toBool() && result["collisionBPathUnchanged"].toBool(), "Save As collision changed A or rebound B");
+            integrationRequire(selectedCollision && warnings == 1 && unexpectedSaveMessages == 0 && result["collisionAUnchanged"].toBool() && result["collisionBPathUnchanged"].toBool(), "Save As collision changed A or rebound B");
             const QString copy = QFileInfo(files[1]).absolutePath() + "/B-copy.pdf";
-            integrationRequire(saveAs(copy) && QFileInfo::exists(copy) && DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(copy), "Save As did not update B path");
+            integrationRequire(saveAs(copy) && unexpectedSaveMessages == 0 && QFileInfo::exists(copy) && DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(copy), "Save As did not update B path");
             integrationRequire(host.open(copy) == b && host.documentCount() == 2, "Saved path was not deduplicated");
             auto* originalB = host.open(files[1]); integrationRequire(originalB && originalB != b && host.documentCount() == 3, "Old B path was not released after Save As");
             integrationRequire(integrationWait([&] { return ready(originalB); }), "Original B did not load after Save As");

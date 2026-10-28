@@ -1523,7 +1523,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         auto place = [toggle, paperHeading, row, corner, focus](bool collapsed) {
             paperHeading->removeWidget(toggle); row->removeWidget(toggle);
             toggle->setParent(collapsed ? corner : paperHeading->parentWidget());
-            if (collapsed) row->addWidget(toggle); else paperHeading->addWidget(toggle);
+            if (collapsed) row->insertWidget(0, toggle); else paperHeading->addWidget(toggle);
             focus->setText(collapsed ? QStringLiteral("☰") : QStringLiteral("≪"));
             focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
             corner->setVisible(collapsed || corner->property("lunaHasOpenButton").toBool()); toggle->show();

@@ -443,7 +443,10 @@ static void integrationHighlight(NativeTabs& host, Editor* e, const QString& rep
     }), "Integrated highlight geometry unavailable");
     auto* drawSurface = integrationSurface(e);
     auto* select = e->findChild<QAction*>(QStringLiteral("actionSelectText"));
-    integrationRequire(select && select->isEnabled(), "Text selection is unavailable"); select->trigger();
+    integrationRequire(select && select->isEnabled(), "Text selection is unavailable");
+    if (!select->isChecked()) select->trigger();
+    auto* tools = e->getProgramController()->getToolManager();
+    integrationRequire(select->isChecked() && tools->getActiveTool() == tools->getSelectTextTool(), "Native text-selection mode is not active before drag");
     const QImage beforeImage = drawSurface->grab().toImage();
     auto bluePixels = [&](const QImage& image, int* newDark = nullptr) {
         const qreal dpr = image.devicePixelRatio();

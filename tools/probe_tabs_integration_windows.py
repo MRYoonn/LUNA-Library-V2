@@ -25,6 +25,9 @@ def run(package, output):
             a.write_bytes(synthetic_pdf(2).replace(b'smoke', b'alpha'))
             b.write_bytes(synthetic_pdf(3).replace(b'smoke', b'bravo'))
             original_b = hashlib.sha256(b.read_bytes()).hexdigest()
+            for index, word in enumerate((b'delta', b'gamma', b'omega')):
+                title = f'UI-long-{index + 1} 논문 제목 photochemical mechanisms and independent document state verification.pdf'
+                (root / title).write_bytes(synthetic_pdf(2).replace(b'smoke', word))
             env = os.environ.copy()
             windows_root = Path(os.environ['SystemRoot'])
             env['PATH'] = os.pathsep.join(map(str, (package, windows_root / 'System32', windows_root)))

@@ -93,7 +93,7 @@ constexpr const char* kNAVY = "#172B50";
 constexpr const char* kBLUE = "#4F70B5";
 constexpr const char* kCANVAS = "#F7F8FC";
 constexpr const char* kPANEL = "#FFFFFF";
-constexpr const char* kSELECTION = "#E8ECFA";
+constexpr const char* kSELECTION = "#EAF1FF";
 constexpr const char* kLINE = "#E0E4ED";
 constexpr const char* kTEXT = "#263247";
 constexpr const char* kMUTED = "#77839A";
@@ -210,9 +210,10 @@ QString openedDateKey(const QString& path) {
 class DocumentCard final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
-    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {300, 132}; }
+    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {300, 96}; }
     std::function<void(const QString&, const QString&)> saveMemo;
-    static QRect memoRect(const QRect& r) { return QRect(r.left() + 74, r.top() + 103, qMax(20, r.width() - 94), 24); }
+    static QRect memoRect(const QRect& r) { return QRect(r.left() + 74, r.top() + 70, qMax(20, r.width() - 94), 22); }
+    static QRect favoriteRect(const QRect& r) { return QRect(r.right() - 30, r.top() + 6, 22, 24); }
     QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
         auto* editor = new QLineEdit(parent);
         editor->setObjectName(QStringLiteral("LunaPaperMemoEditor"));
@@ -248,7 +249,7 @@ public:
         if (selected) painter->fillRect(QRect(r.left(), r.top(), 3, r.height()), QColor(kBLUE));
         painter->setPen(QColor(kLINE));
         painter->drawLine(r.bottomLeft(), r.bottomRight());
-        const QRect paper(r.left() + 18, r.top() + 16, 40, 64);
+        const QRect paper(r.left() + 12, r.top() + 12, 50, 68);
         painter->setBrush(Qt::white);
         painter->drawRoundedRect(paper, 4, 4);
         for (int y = 11; y <= 35; y += 6) {
@@ -256,7 +257,7 @@ public:
             painter->drawLine(paper.left() + 7, paper.top() + y, paper.right() - 7, paper.top() + y);
         }
         QFont captionFont = option.font;
-        captionFont.setPointSize(8);
+        captionFont.setPixelSize(11);
         painter->setFont(captionFont);
         painter->setPen(QColor(kBLUE));
         painter->drawText(paper.adjusted(0, 43, 0, 0), Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("PDF"));
@@ -273,22 +274,22 @@ public:
             painter->drawImage(QRect(paper.center() - QPoint(size.width()/2,size.height()/2), size), thumbnail);
         }
         QFont title = option.font;
-        title.setPointSize(10);
+        title.setPixelSize(13);
         title.setBold(true);
         painter->setFont(title);
         painter->setPen(QColor(kNAVY));
-        const QRect text(r.left() + 74, r.top() + 14, qMax(20, r.width() - 112), 40);
+        const QRect text(r.left() + 74, r.top() + 5, qMax(20, r.width() - 112), 2 * QFontMetrics(title).lineSpacing());
         painter->save();
         painter->setClipRect(text, Qt::IntersectClip);
         painter->drawText(text, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap | Qt::TextWrapAnywhere, index.data().toString());
         painter->restore();
         painter->setFont(captionFont);
         painter->setPen(QColor(kMUTED));
-        painter->drawText(QRect(text.left(), r.top() + 58, qMax(20, r.width() - 94), 18),
+        painter->drawText(QRect(text.left(), r.top() + 38, qMax(20, r.width() - 94), 14),
             Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("저널·연도 미확인"));
         const QString opened = index.data(Qt::UserRole + 3).toString();
         const QString metadata = (opened.isEmpty() ? QStringLiteral("열람 기록 없음") : opened) + QStringLiteral(" / 저자 미확인");
-        painter->drawText(QRect(text.left(), r.top() + 78, qMax(20, r.width() - 94), 18),
+        painter->drawText(QRect(text.left(), r.top() + 53, qMax(20, r.width() - 94), 14),
             Qt::AlignLeft | Qt::AlignVCenter,
             QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, qMax(20, r.width() - 94)));
         const QString memo = index.data(Qt::UserRole + 4).toString();
@@ -298,7 +299,7 @@ public:
             QFontMetrics(captionFont).elidedText(memo.isEmpty() ? QStringLiteral("+ 메모 추가") : memo, Qt::ElideRight, note.width()));
         painter->setFont(option.font);
         painter->setPen(QColor(index.data(Qt::UserRole + 2).toBool() ? kBLUE : kSTAR_OFF));
-        painter->drawText(QRect(r.right() - 30, r.top() + 16, 22, 24), Qt::AlignCenter,
+        painter->drawText(favoriteRect(r), Qt::AlignCenter,
             index.data(Qt::UserRole + 2).toBool() ? QStringLiteral("★") : QStringLiteral("☆"));
         painter->restore();
     }
@@ -1065,7 +1066,7 @@ private:
             else if (chosen == move) moveDocument(path);
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
-            if (list->viewport()->mapFromGlobal(QCursor::pos()).x() >= list->viewport()->width() - 36)
+            if (DocumentCard::favoriteRect(list->visualItemRect(item)).contains(list->viewport()->mapFromGlobal(QCursor::pos())))
                 toggleFavorite(item->data(Qt::UserRole).toString());
         });
         return list;
@@ -1486,12 +1487,13 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         panelToggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
         panelToggle->setAccessibleName(QStringLiteral("라이브러리와 논문 목록 접기 / 펼치기"));
         panelToggle->setMinimumSize(30, 30);
+        panelToggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
         auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
         auto placeToggle = [panelToggle, paperHeading, documentRow, documentHeader, focus](bool collapsed) {
             paperHeading->removeWidget(panelToggle);
             documentRow->removeWidget(panelToggle);
             panelToggle->setParent(collapsed ? documentHeader : paperHeading->parentWidget());
-            if (collapsed) documentRow->addWidget(panelToggle);
+            if (collapsed) documentRow->insertWidget(0, panelToggle);
             else paperHeading->addWidget(panelToggle);
             focus->setText(collapsed ? QStringLiteral("☰") : QStringLiteral("≪"));
             focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
@@ -1519,6 +1521,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         auto* row = new QHBoxLayout(corner); row->setContentsMargins(0, 0, 4, 0);
         auto* toggle = new QToolButton(corner); toggle->setObjectName(QStringLiteral("LunaCombinedPanelToggle"));
         toggle->setDefaultAction(focus); toggle->setMinimumSize(30, 30);
+        toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
         auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
         auto place = [toggle, paperHeading, row, corner, focus](bool collapsed) {
             paperHeading->removeWidget(toggle); row->removeWidget(toggle);

@@ -1,6 +1,7 @@
 /* LUNA light theme. @TOKENS@ are expanded from the shared C++ palette. */
 QWidget#LunaLibraryPanel { background:@CANVAS@; color:@TEXT@; font-family:"Segoe UI","Malgun Gothic"; font-size:13px; }
-QWidget#LunaNavigation, QWidget#LunaNavigationContents { background:@CANVAS@; border-right:1px solid @LINE@; }
+QWidget#LunaNavigation { background:@CANVAS@; border-right:1px solid @LINE@; }
+QWidget#LunaNavigationContents { background:@CANVAS@; border:0; }
 QWidget#LunaDocuments { background:@PANEL@; border-right:1px solid @LINE@; }
 QLabel#LunaBrand { color:#172B50; font-family:"Malgun Gothic"; font-size:20px; font-weight:700; }
 QLabel#LunaSection { color:@MUTED@; font-size:12px; font-weight:600; }
@@ -22,6 +23,7 @@ QWidget#LunaLibraryPanel QTreeView { background:transparent; border:0; outline:0
 QWidget#LunaLibraryPanel QTreeView::item { padding:7px 0; border-radius:5px; }
 QWidget#LunaLibraryPanel QTreeView::item:selected { background:@SELECTION@; color:@ACTIVE_TEXT@; }
 QListWidget#LunaDocumentList { background:white; border:0; outline:0; }
+QLineEdit#LunaPaperMemoEditor { background:white; color:@TEXT@; border:1px solid @BLUE@; border-radius:4px; padding:1px 4px; font-size:11px; }
 QWidget#LunaLibraryPanel QProgressBar { border:0; background:@LINE@; border-radius:3px; }
 QWidget#LunaLibraryPanel QProgressBar::chunk { background:@BLUE@; border-radius:3px; }
 QSplitter#LunaLibrarySplitter::handle { background:@LINE@; }
@@ -36,7 +38,7 @@ QToolBar#mainToolBar QToolButton:disabled { color:@MUTED@; }
 QToolBar#mainToolBar QAbstractSpinBox { background:@CANVAS@; color:@TEXT@; border:1px solid @LINE@; border-radius:5px; min-height:24px; }
 QToolBar#mainToolBar::separator { background:@LINE@; width:1px; margin:7px 3px; }
 QMenuBar { background:@CANVAS@; color:@TEXT@; font-size:13px; padding:2px 6px; }
-QMenuBar::item { padding:5px 8px; border-radius:4px; }
+QMenuBar::item { padding:4px 8px; border-radius:4px; }
 QMenuBar::item:selected { background:@SELECTION@; }
 QWidget#LunaDocumentHeader { background:@CANVAS@; border-bottom:1px solid @LINE@; }
 QLabel#LunaDocumentTitle { color:@NAVY@; font-weight:600; }
@@ -55,4 +57,4 @@ QTabWidget#LunaPdfTabs::pane { border: 0; background: @PANEL@; }
 QTabBar#LunaPdfTabBar { background:@CANVAS@; }
 QTabBar#LunaPdfTabBar::tab { background:@CANVAS@; color:@TEXT@; font-size:12px; border:1px solid @LINE@; border-bottom:2px solid @LINE@; padding:5px 8px; min-width:68px; }
 QTabBar#LunaPdfTabBar::tab:hover { background:@HOVER@; }
-QTabBar#LunaPdfTabBar::tab:selected { background:@PANEL@; color:@NAVY@; border-bottom:2px solid @BLUE@; font-weight:600; }
+QTabBar#LunaPdfTabBar::tab:selected { background:@HOVER@; color:@NAVY@; border-bottom:2px solid @BLUE@; font-weight:600; }

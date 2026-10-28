@@ -34,6 +34,10 @@
 #include <vector>
 
 #include <QAbstractButton>
+#include <QClipboard>
+#include <QToolTip>
+#include <QScrollBar>
+#include "pdfwidgettool.h"
 #include <QElapsedTimer>
 #include <QFile>
 #include <QImage>
@@ -53,6 +57,7 @@
 #include <QTabBar>
 #include <QFontMetrics>
 #include <QThread>
+#include <QtMath>
 #include "pdfwidgetannotation.h"
 #include "pdfcompiler.h"
 #include "pdftextlayout.h"
@@ -64,6 +69,21 @@
 
 namespace luna {
 using Editor = pdfviewer::PDFEditorMainWindow;
+// Presentation only: bound the entire tab, including its icon and close button.
+class CompactPdfTabBar final : public QTabBar {
+public:
+    using QTabBar::QTabBar;
+protected:
+    QSize tabSizeHint(int index) const override {
+        const QSize natural = QTabBar::tabSizeHint(index);
+        return {qBound(160, natural.width(), 190), qMax(30, fontMetrics().height() + 12)};
+    }
+    QSize minimumTabSizeHint(int index) const override { return tabSizeHint(index); }
+};
+class PdfTabs final : public QTabWidget {
+public:
+    explicit PdfTabs(QWidget* parent) : QTabWidget(parent) { setTabBar(new CompactPdfTabBar(this)); }
+};
 struct Session {
     QPointer<Editor> editor;
     QString identity;
@@ -76,7 +96,7 @@ public:
         setObjectName(QStringLiteral("LunaNativeTabs"));
         setWindowTitle(QStringLiteral("LUNA Library"));
         setWindowIcon(QApplication::windowIcon());
-        tabs_ = new QTabWidget(this); tabs_->setObjectName(QStringLiteral("LunaPdfTabs"));
+        tabs_ = new PdfTabs(this); tabs_->setObjectName(QStringLiteral("LunaPdfTabs"));
         tabs_->setTabsClosable(true); tabs_->setDocumentMode(true); tabs_->setMovable(true);
         tabs_->setElideMode(Qt::ElideMiddle);
         tabs_->tabBar()->setObjectName(QStringLiteral("LunaPdfTabBar"));
@@ -93,11 +113,13 @@ public:
         open_->setToolTip(QStringLiteral("여러 PDF를 탭으로 열기 (Ctrl+O)"));
         connect(open_, &QAction::triggered, this, [this] { chooseFiles(); });
         if (corner) {
-            auto* plus = new QToolButton(corner); plus->setText(QStringLiteral("＋"));
+            auto* addCorner = new QWidget(tabs_);
+            auto* addRow = new QHBoxLayout(addCorner); addRow->setContentsMargins(0, 0, 4, 0);
+            auto* plus = new QToolButton(addCorner); plus->setText(QStringLiteral("＋"));
             plus->setAccessibleName(QStringLiteral("새 PDF 탭 열기")); plus->setToolTip(QStringLiteral("새 PDF 탭 열기")); plus->setMinimumSize(30, 30);
-            static_cast<QHBoxLayout*>(corner->layout())->addWidget(plus);
+            addRow->addWidget(plus); tabs_->setCornerWidget(addCorner, Qt::TopRightCorner);
             connect(plus, &QToolButton::clicked, open_, &QAction::trigger);
-            corner->setProperty("lunaHasOpenButton", true); corner->show();
+            corner->setVisible(findChild<QAction*>(QStringLiteral("LunaFocusMode"))->isChecked());
         }
         quit_ = new QAction(QStringLiteral("끝내기"), this); quit_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q"))); addAction(quit_);
         connect(quit_, &QAction::triggered, this, &QWidget::close);
@@ -385,10 +407,13 @@ static bool integrationType(const QString& text) {
     for (QChar ch : text) { INPUT input[2]{}; for (auto& i : input) { i.type = INPUT_KEYBOARD; i.ki.wScan = ch.unicode(); i.ki.dwFlags = KEYEVENTF_UNICODE; } input[1].ki.dwFlags |= KEYEVENTF_KEYUP; if (SendInput(2, input, sizeof(INPUT)) != 2) return false; }
     return true;
 }
-static bool integrationClick(NativeTabs& host, QWidget* widget, QPoint point, bool right = false) {
+static bool integrationMove(NativeTabs& host, QWidget* widget, QPoint point) {
     const QPoint local = widget->mapTo(&host, point); POINT physical{0, 0}; ClientToScreen(reinterpret_cast<HWND>(host.winId()), &physical);
     physical.x += qRound(local.x() * host.devicePixelRatioF()); physical.y += qRound(local.y() * host.devicePixelRatioF());
-    if (!SetCursorPos(physical.x, physical.y)) return false;
+    return SetCursorPos(physical.x, physical.y);
+}
+static bool integrationClick(NativeTabs& host, QWidget* widget, QPoint point, bool right = false) {
+    if (!integrationMove(host, widget, point)) return false;
     INPUT input[2]{}; input[0].type = input[1].type = INPUT_MOUSE;
     input[0].mi.dwFlags = right ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN;
     input[1].mi.dwFlags = right ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP;
@@ -403,18 +428,55 @@ static int integrationHighlights(Editor* e) {
 static void integrationMouse(QWidget* widget, QEvent::Type type, QPoint point, Qt::MouseButton button, Qt::MouseButtons held) {
     QMouseEvent event(type, QPointF(point), QPointF(widget->mapToGlobal(point)), button, held, Qt::NoModifier); QApplication::sendEvent(widget, &event);
 }
-static void integrationHighlight(Editor* e) {
+static void integrationHighlight(NativeTabs& host, Editor* e, const QString& report) {
     auto* proxy = e->getProgramController()->getPdfWidget()->getDrawWidgetProxy(); const double zoom = proxy->getZoom(); proxy->zoom(1.0); proxy->goToPage(0);
-    QPoint from, to;
+    QPoint from, to; QRect selectionBounds;
     integrationRequire(integrationWait([&] {
         pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(0);
         if (layout.getTextBlocks().empty() || layout.getTextBlocks().front().getLines().empty()) return false;
         const auto& chars = layout.getTextBlocks().front().getLines().front().getCharacters(); const auto view = proxy->getSnapshot(); const auto* page = view.getPageSnapshot(0);
         if (chars.size() < 8 || !page) return false;
+        selectionBounds = page->pageToDeviceMatrix.mapRect(chars[0].boundingBox.boundingRect().united(chars[7].boundingBox.boundingRect())).toAlignedRect().adjusted(-4, -4, 4, 4);
         from = page->pageToDeviceMatrix.map(chars[0].boundingBox.boundingRect().center() - QPointF(1, 0)).toPoint();
         to = page->pageToDeviceMatrix.map(chars[7].boundingBox.boundingRect().center() + QPointF(1, -2)).toPoint();
         return integrationSurface(e)->rect().contains(from) && integrationSurface(e)->rect().contains(to);
     }), "Integrated highlight geometry unavailable");
+    auto* drawSurface = integrationSurface(e);
+    auto* select = e->findChild<QAction*>(QStringLiteral("actionSelectText"));
+    integrationRequire(select && select->isEnabled(), "Text selection is unavailable"); select->trigger();
+    const QImage before = drawSurface->grab().toImage();
+    auto bluePixels = [&](const QImage& image, int* newDark = nullptr) {
+        const qreal dpr = image.devicePixelRatio();
+        const QRect physical(qFloor(selectionBounds.x() * dpr), qFloor(selectionBounds.y() * dpr),
+            qCeil(selectionBounds.width() * dpr), qCeil(selectionBounds.height() * dpr));
+        const QRect area = physical.intersected(image.rect()).intersected(before.rect()); int count = 0;
+        if (newDark) *newDark = 0;
+        for (int y = area.top(); y <= area.bottom(); ++y) for (int x = area.left(); x <= area.right(); ++x) {
+            const QColor c = image.pixelColor(x, y), old = before.pixelColor(x, y);
+            if (c.blue() - c.red() > 35 && c.blue() - c.green() > 15 && c.red() > 100) ++count;
+            if (newDark && old.red() > 225 && old.green() > 225 && old.blue() > 225 && qGray(c.rgb()) < 80) ++*newDark;
+        }
+        return count;
+    };
+    drawSurface->setFocus(); integrationRequire(integrationMove(host, drawSurface, from), "Text drag cursor positioning failed");
+    INPUT mouse{}; mouse.type = INPUT_MOUSE; mouse.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    integrationRequire(SendInput(1, &mouse, sizeof(INPUT)) == 1, "Text drag press failed");
+    QCoreApplication::processEvents();
+    for (int step = 1; step <= 8; ++step) {
+        integrationRequire(integrationMove(host, drawSurface, from + (to - from) * step / 8), "Text drag motion failed");
+        QCoreApplication::processEvents(); QThread::msleep(15);
+    }
+    const bool liveBlue = integrationWait([&] { return bluePixels(drawSurface->grab().toImage()) > 30; });
+    mouse.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    integrationRequire(SendInput(1, &mouse, sizeof(INPUT)) == 1, "Text drag release failed");
+    integrationRequire(liveBlue, "Dragging did not display translucent blue selection");
+    auto* nativeSelection = e->getProgramController()->getToolManager()->getSelectTextTool();
+    integrationRequire(integrationWait([&] { return nativeSelection->getSelectedText().contains(QStringLiteral("LUNA")); }), "Real mouse text selection failed");
+    int newDark = 0;
+    integrationRequire(bluePixels(drawSurface->grab().toImage(), &newDark) > 30 && newDark == 0, "Selection did not persist or added a dark outline");
+    QApplication::clipboard()->clear();
+    integrationRequire(integrationKey('C', true) && integrationWait([&] { return QApplication::clipboard()->text() == nativeSelection->getSelectedText(); }), "Real Ctrl+C did not copy selected text");
+    integrationRequire(host.screen()->grabWindow(0).save(report + ".selection.png"), "Selection screenshot failed");
     auto* action = e->findChild<QAction*>(QStringLiteral("actionCreateTextHighlight")); integrationRequire(action && action->isEnabled(), "Integrated highlighter unavailable"); action->trigger();
     auto* draw = integrationSurface(e); const int before = integrationHighlights(e);
     integrationMouse(draw, QEvent::MouseMove, from, Qt::NoButton, Qt::NoButton);
@@ -507,7 +569,59 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             auto* pa = a->getProgramController()->getPdfWidget()->getDrawWidgetProxy(); auto* pb = b->getProgramController()->getPdfWidget()->getDrawWidgetProxy();
             integrationRequire(qAbs(pa->getZoom() - 2.0) < .001 && qAbs(pb->getZoom() - 2.0) < .001, "New integrated documents did not default to 200 percent");
             pa->zoom(1.25); pb->zoom(1.5);
+            phase("five compact tabs, scrolling and independent views");
+            const QString directoryPath = QFileInfo(files[0]).absolutePath();
+            const QStringList extraNames = QDir(directoryPath).entryList({QStringLiteral("UI-long-*.pdf")}, QDir::Files, QDir::Name);
+            integrationRequire(extraNames.size() == 3, "Five-document fixture missing");
+            QList<QPointer<Editor>> extra;
+            for (const QString& name : extraNames) {
+                QPointer<Editor> editor = host.open(QDir(directoryPath).filePath(name));
+                integrationRequire(editor && integrationWait([&] { return ready(editor); }), "Extra PDF did not load"); extra.append(editor);
+            }
+            integrationRequire(host.documentCount() == 5, "Five PDFs are not simultaneously open");
+            QList<QPointer<Editor>> documents{a, b}; documents.append(extra);
+            QList<int> scrollPositions; QList<double> zoomValues;
+            for (int i = 0; i < documents.size(); ++i) {
+                auto* editor = documents[i].data(); tabs->setCurrentWidget(editor);
+                const double zoom = 1.25 + i * .1; auto* widget = editor->getProgramController()->getPdfWidget();
+                widget->getDrawWidgetProxy()->zoom(zoom); QCoreApplication::processEvents();
+                auto* scroll = widget->getVerticalScrollbar(); scroll->setValue(scroll->maximum() / 3);
+                scrollPositions.append(scroll->value()); zoomValues.append(zoom);
+                const QRect tab = tabs->tabBar()->tabRect(tabs->indexOf(editor));
+                integrationRequire(tab.width() >= 160 && tab.width() <= 190 && tab.height() <= 38, "Whole tab bounds exceed compact design");
+            }
+            for (int turn = 0; turn < 10; ++turn) for (int i = 0; i < documents.size(); ++i) {
+                tabs->setCurrentWidget(documents[i]); QCoreApplication::processEvents();
+                auto* widget = documents[i]->getProgramController()->getPdfWidget();
+                integrationRequire(qAbs(widget->getDrawWidgetProxy()->getZoom() - zoomValues[i]) < .001 && widget->getVerticalScrollbar()->value() == scrollPositions[i], "Five-tab switch changed independent position or zoom");
+            }
+            auto* tabBar = tabs->tabBar();
+            integrationRequire(tabBar->usesScrollButtons() && tabBar->elideMode() == Qt::ElideMiddle, "Tab scroll/elision mode changed");
+            bool scrolling = false; for (auto* button : tabBar->findChildren<QToolButton*>()) scrolling |= button->isVisible();
+            integrationRequire(scrolling && tabs->tabText(4).contains(QChar(0x2026)), "Long tabs did not elide and scroll");
+            QToolTip::hideText();
+            integrationRequire(integrationMove(host, tabBar, tabBar->tabRect(4).center()) && integrationWait([&] { return QToolTip::text() == tabs->tabToolTip(4); }), "Actual tab hover did not show full filename tooltip");
+            QToolTip::hideText();
+            integrationRequire(host.screen()->grabWindow(0).save(report + ".five-tabs.png"), "Five-tab desktop capture failed");
+            integrationLayouts(host, report + ".five-tabs");
+            tabs->setCurrentWidget(extra[0]); integrationSurface(extra[0])->setFocus();
+            integrationRequire(integrationKey('W', true) && integrationWait([&] { return host.isVisible() && host.documentCount() == 4 && (!extra[0] || tabs->indexOf(extra[0]) == -1); }), "Ctrl+W did not close only the middle of five tabs");
+            tabs->setCurrentWidget(extra[1]);
+            QWidget* closeButton = tabBar->tabButton(tabs->indexOf(extra[1]), QTabBar::RightSide);
+            if (!closeButton) closeButton = tabBar->tabButton(tabs->indexOf(extra[1]), QTabBar::LeftSide);
+            integrationRequire(closeButton && integrationClick(host, closeButton, closeButton->rect().center()) && integrationWait([&] { return host.isVisible() && host.documentCount() == 3 && (!extra[1] || tabs->indexOf(extra[1]) == -1); }), "Tab X closed the wrong document or window");
+            integrationRequire(extra[2] && host.closeTab(tabs->indexOf(extra[2])) && host.documentCount() == 2, "Extra-tab cleanup damaged original documents");
+            tabs->setCurrentWidget(a); pa->zoom(1.25); pb->zoom(1.5);
+            result["fiveTabsBoundedElidedTooltipScrollAndIndependentViews"] = true;
             auto* focus = host.findChild<QAction*>(QStringLiteral("LunaFocusMode"));
+            auto* toggle = host.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
+            integrationRequire(toggle, "Combined panel button missing");
+            for (int turn = 0; turn < 10; ++turn) {
+                integrationRequire(!focus->isChecked() && toggle->text() == QStringLiteral("≪") && integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return focus->isChecked() && toggle->isVisible(); }), "Real collapse click failed");
+                integrationRequire(toggle->text() == QStringLiteral("☰") && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8, "Restore button moved away from left edge");
+                integrationRequire(integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return !focus->isChecked(); }), "Real expand click failed");
+            }
+            result["tenRealPanelToggleCyclesPinnedLeft"] = true;
             auto collapse = [&] {
                 focus->setChecked(true);
                 host.resize(host.screen()->availableGeometry().size() - QSize(24, 48)); host.move(8, 8);
@@ -536,7 +650,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationMouse(overlay, QEvent::MouseButtonRelease, {200, 200}, Qt::LeftButton, Qt::NoButton);
             integrationRequire(integrationWait([&] { return QFileInfo::exists(thumbnail) && !QImage(thumbnail).isNull(); }) && !QFileInfo::exists(QFileInfo(files[1]).absolutePath() + "/B.luna-thumb.png"), "Crop wrote to the wrong PDF or no image");
             result["activeNativePagesAndCrop"] = true;
-            phase("A highlight and real Ctrl+S"); integrationHighlight(a);
+            phase("A highlight and real Ctrl+S"); integrationHighlight(host, a, report); result["realDragBlueBorderlessSelectionAndCtrlC"] = true;
             integrationRequire(integrationHighlights(b) == 0, "Integrated A annotation crossed to B");
             integrationRequire(integrationWait([&] { return ready(a); }), "A remained busy before close-cancel check");
             int cancelled = 0; QTimer cancel;
@@ -544,8 +658,10 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
                     if (auto* button = box->button(QMessageBox::Cancel)) { ++cancelled; button->click(); }
             });
-            cancel.start(30); const bool tabClosed = host.closeTab(tabs->indexOf(a)); cancel.stop();
-            integrationRequire(!tabClosed && cancelled == 1 && host.documentCount() == 2 && a->getProgramController()->hasUnsavedChanges(), "Integrated tab Cancel lost A");
+            cancel.start(30); integrationSurface(a)->setFocus();
+            integrationRequire(integrationKey('W', true), "Unsaved Ctrl+W injection failed");
+            const bool cancelledKey = integrationWait([&] { return cancelled == 1 && !QApplication::activeModalWidget(); }); cancel.stop();
+            integrationRequire(cancelledKey && host.isVisible() && host.documentCount() == 2 && a->getProgramController()->hasUnsavedChanges(), "Integrated Ctrl+W Cancel lost A");
             cancelled = 0; cancel.start(30); const bool windowClosed = host.close(); cancel.stop();
             integrationRequire(!windowClosed && cancelled == 1 && host.documentCount() == 2, "Integrated window Cancel removed a tab");
             result["integratedTabAndWindowCloseCancel"] = true;
@@ -613,11 +729,12 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             phase("inline memo, search and paired move");
             integrationRequire(integrationWait([&] { list = integrationList(host, files[0], &paper); return list && paper; }), "A paper card missing before memo"); list->scrollToItem(paper);
             const QRect card = list->visualItemRect(paper);
-            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 100, card.top() + 114}), "Real memo mouse input failed");
+            integrationRequire(card.height() == 96, "Paper card height differs from the compact design");
+            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 100, card.top() + 81}), "Real memo mouse input failed");
             QLineEdit* edit = nullptr; integrationRequire(integrationWait([&] { edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")); return edit && edit->hasFocus(); }), "Inline memo editor did not focus");
             integrationRequire(integrationType(QStringLiteral("초기 메모")) && integrationKey(VK_RETURN), "Real memo typing/Enter failed");
             integrationRequire(integrationWait([&] { return paper->data(Qt::UserRole + 4).toString() == QStringLiteral("초기 메모"); }), "Memo Enter did not persist");
-            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 100, card.top() + 114}), "Memo edit mouse input failed");
+            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 100, card.top() + 81}), "Memo edit mouse input failed");
             integrationRequire(integrationWait([&] { edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")); return edit && edit->hasFocus(); }), "Memo edit did not reopen");
             integrationRequire(integrationKey('A', true) && integrationType(memo), "Memo replacement input failed");
             auto* query = host.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch")); integrationRequire(integrationClick(host, query, query->rect().center()), "Memo focus-out click failed");
@@ -653,7 +770,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 host.current() && !host.current()->getProgramController()->getDocument();
         }), "Ctrl+W on last PDF closed the LUNA application");
         result["ctrlWLastPdfLeavesEmptyLunaWindow"] = true;
-        integrationRequire(host.close(), "Final integrated window close refused"); result["accepted"] = true; phase("passed"); qApp->exit(0);
+        integrationRequire(integrationKey('Q', true) && integrationWait([&] { return !host.isVisible() && host.property("LunaClosing").toBool(); }), "Real Ctrl+Q did not exit LUNA normally");
+        result["ctrlQNormalExit"] = true; result["accepted"] = true; phase("passed"); qApp->exit(0);
     } catch (const std::exception& error) {
         result["error"] = QString::fromUtf8(error.what()); result["accepted"] = false; write();
         if (host.screen()) host.screen()->grabWindow(0).save(report + ".failure.png"); qApp->exit(1);

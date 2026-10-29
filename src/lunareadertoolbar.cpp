@@ -63,6 +63,7 @@ public:
         } else if (name_ == "recent") {
             p->drawEllipse(QRectF(3,3,18,18)); line(12,6,12,12); line(12,12,16,14);
         } else if (name_ == "star") {
+            if (state==QIcon::On) p->setBrush(color);
             QPainterPath path; path.moveTo(12,3); path.lineTo(15,9); path.lineTo(22,10); path.lineTo(17,15); path.lineTo(18,22); path.lineTo(12,18); path.lineTo(6,22); path.lineTo(7,15); path.lineTo(2,10); path.lineTo(9,9); path.closeSubpath(); p->drawPath(path);
         } else if (name_ == "panel") { p->drawRoundedRect(QRectF(3,4,18,16),2,2); line(9,4,9,20); }
         else if (name_ == "crop") { line(7,3,7,17); line(7,17,21,17); line(3,7,17,7); line(17,7,17,21); }

@@ -350,10 +350,8 @@ public:
             Qt::AlignCenter, memo.isEmpty() ? QIcon::Disabled : QIcon::Normal, memo.isEmpty() ? QIcon::Off : QIcon::On);
         painter->drawText(note.adjusted(18, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter,
             QFontMetrics(captionFont).elidedText(memo.isEmpty() ? QStringLiteral("+ 메모 추가") : memo, Qt::ElideRight, note.width() - 18));
-        painter->setFont(option.font);
-        painter->setPen(QColor(index.data(Qt::UserRole + 2).toBool() ? kBLUE : kSTAR_OFF));
-        painter->drawText(favoriteRect(r), Qt::AlignCenter,
-            index.data(Qt::UserRole + 2).toBool() ? QStringLiteral("★") : QStringLiteral("☆"));
+        readerIcon(QStringLiteral("star")).paint(painter,favoriteRect(r).adjusted(2,3,-2,-3),Qt::AlignCenter,QIcon::Normal,
+            index.data(Qt::UserRole + 2).toBool() ? QIcon::On : QIcon::Off);
         painter->restore();
     }
 };
@@ -638,7 +636,8 @@ public:
         titleRow->setObjectName(QStringLiteral("LunaPaperHeadingLayout"));
         titleRow->addWidget(title, 1);
         headingLayout->addLayout(titleRow);
-        auto* addFile = new QPushButton(QStringLiteral("＋ PDF"), heading);
+        auto* addFile = new QPushButton(readerIcon("add",Qt::white),QStringLiteral("PDF 추가"), heading);
+        addFile->setIconSize({18,18});
         addFile->setObjectName(QStringLiteral("LunaPrimary"));
         addFile->setMinimumHeight(28);
         addFile->setAccessibleName(QStringLiteral("라이브러리에 PDF 파일 추가"));
@@ -1394,8 +1393,7 @@ private:
             QFileInfo info(path);
             if (!info.isFile() || info.suffix().compare(
                     QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
-            auto* item = new QListWidgetItem(
-                style()->standardIcon(QStyle::SP_FileIcon), info.completeBaseName(), list);
+            auto* item = new QListWidgetItem(readerIcon("documents"), info.completeBaseName(), list);
             decorate(item, path);
             item->setHidden(!query_->text().isEmpty() &&
                              !item->text().contains(query_->text(), Qt::CaseInsensitive));
@@ -1547,12 +1545,12 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     controls->setMovable(false);
     controls->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     controls->setIconSize(QSize(18, 18));
-    auto* folders = controls->addAction(window.style()->standardIcon(QStyle::SP_DirIcon), QStringLiteral("폴더"));
+    auto* folders = controls->addAction(readerIcon("folder"), QStringLiteral("폴더"));
     folders->setObjectName(QStringLiteral("LunaToggleNavigation"));
     folders->setCheckable(true);
     folders->setChecked(true);
     QObject::connect(folders, &QAction::triggered, library, [library] { library->toggleNavigation(); });
-    auto* documents = controls->addAction(window.style()->standardIcon(QStyle::SP_FileDialogDetailedView), QStringLiteral("목록"));
+    auto* documents = controls->addAction(readerIcon("documents"), QStringLiteral("목록"));
     documents->setObjectName(QStringLiteral("LunaToggleDocuments"));
     documents->setCheckable(true);
     documents->setChecked(true);

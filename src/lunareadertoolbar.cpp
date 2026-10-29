@@ -254,15 +254,15 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
     add("actionDeleteAnnotation", "erase", QStringLiteral("주석 삭제"), QStringLiteral("클릭한 주석만 삭제합니다. PDF 본문·원본 객체는 삭제하지 않습니다. Esc: 텍스트 선택."));
     // Original actions stay in their advanced menus with original connections.
     for (auto pair : {qMakePair("actionCreateTextHighlight", false), qMakePair("actionDeleteAnnotation", true)}) {
-        auto* original = nativeAction(window, pair.first); if (!original) continue;
+        auto* nativeSource = nativeAction(window, pair.first); if (!nativeSource) continue;
         auto* action = new QAction(readerIcon(pair.second ? "erase" : "highlight"), pair.second ? QStringLiteral("선택 범위 형광펜 지우기") : QStringLiteral("선택 문장 강조"), &window);
         action->setObjectName(pair.second ? "LunaEraseHighlightSelection" : "LunaApplyHighlight");
         action->setToolTip(pair.second ? QStringLiteral("선택한 텍스트 범위의 형광펜만 지우기. 메모와 PDF 원본은 유지합니다.") : QStringLiteral("선택 문장 강조. 길게 누르기: 색상 선택"));
-        bar.insertAction(original, action); bar.removeAction(original);
+        bar.insertAction(nativeSource, action); bar.removeAction(nativeSource);
         QObject::connect(action, &QAction::triggered, &window, [&window, erase = pair.second] { applySelectedHighlight(window, erase); });
         auto* refresh = new QTimer(action); refresh->setInterval(100);
-        QObject::connect(refresh, &QTimer::timeout, action, [&window, action, original] {
-            action->setEnabled(original->isEnabled() && !window.getProgramController()->getToolManager()->getSelectTextTool()->lunaTextSelection().isEmpty());
+        QObject::connect(refresh, &QTimer::timeout, action, [&window, action, nativeSource] {
+            action->setEnabled(nativeSource->isEnabled() && !window.getProgramController()->getToolManager()->getSelectTextTool()->lunaTextSelection().isEmpty());
         }); refresh->start(); action->setEnabled(false);
         if (!pair.second) if (auto* button = qobject_cast<QToolButton*>(bar.widgetForAction(action))) {
             auto* menu = new QMenu(button); menu->setObjectName("LunaHighlightColors");

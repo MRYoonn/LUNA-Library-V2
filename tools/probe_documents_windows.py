@@ -18,6 +18,7 @@ def probe(package: Path, output: Path) -> None:
     if sys.platform != "win32":
         raise RuntimeError("Independent document integration requires native Windows")
     package = package.resolve(strict=True)
+    output.mkdir(parents=True, exist_ok=True)
     executable = package / "LUNA.exe"
     user = ctypes.WinDLL("user32", use_last_error=True)
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -94,7 +95,8 @@ def probe(package: Path, output: Path) -> None:
                 path = root / f"한글 independent document {index:02}.pdf"
                 path.write_bytes(synthetic_pdf(2))
                 fixtures.append(path)
-                process = subprocess.Popen([str(executable), str(path)], cwd=root, env=child_env)
+                with (output / f'independent-{index}.log').open('w', encoding='utf-8') as native_log:
+                    process = subprocess.Popen([str(executable), '--luna-lifecycle-trace', str(output / f'independent-{index}.jsonl'), str(path)], cwd=root, env=child_env, stdout=native_log, stderr=subprocess.STDOUT)
                 processes.append(process)
                 deadline = time.monotonic() + 25
                 while time.monotonic() < deadline:
@@ -136,6 +138,23 @@ def probe(package: Path, output: Path) -> None:
                 "duplicateActivation": True, "annotationIsolation": True, "cleanExit": True,
             }, indent=2), encoding="utf-8")
             print("[PASS] Native 2/5/10 independent PDF windows, duplicate activation, annotation isolation, Unicode paths and clean close")
+        except Exception:
+            observations = []
+            for process in processes:
+                frames = []
+                for hwnd in windows(process.pid):
+                    title = ctypes.create_unicode_buffer(1024)
+                    user.GetWindowTextW(hwnd, title, len(title))
+                    frames.append({'title': title.value, 'enabled': bool(user.IsWindowEnabled(hwnd))})
+                observations.append({'pid':process.pid, 'exitCode':process.poll(), 'visibleWindows':frames})
+            (output / 'independent-failure.json').write_text(json.dumps(observations,ensure_ascii=False,indent=2),encoding='utf-8')
+            try:
+                screenshot_env = os.environ.copy()
+                screenshot_env['LUNA_TEST_FAILURE_SCREENSHOT'] = str(output / 'independent-failure.png')
+                subprocess.run(['pwsh','-NoProfile','-Command', 'Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $r=[Windows.Forms.SystemInformation]::VirtualScreen; $b=[Drawing.Bitmap]::new($r.Width,$r.Height); $g=[Drawing.Graphics]::FromImage($b); $g.CopyFromScreen($r.Location,[Drawing.Point]::Empty,$r.Size); $b.Save($env:LUNA_TEST_FAILURE_SCREENSHOT,[Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $b.Dispose()'],env=screenshot_env,check=True,timeout=15,stdout=subprocess.DEVNULL)
+            except (OSError,subprocess.SubprocessError):
+                pass  # The original failure and process evidence are retained.
+            raise
         finally:
             for process in processes:
                 if process.poll() is None:

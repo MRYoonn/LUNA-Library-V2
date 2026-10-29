@@ -54,7 +54,7 @@ private:
         auto* c = editor_.getProgramController(); auto* m = c->getPdfWidget()->getAnnotationManager();
         if (!c->getDocument() || !c->canClose() || !editor_.isEnabled() || !m->isModificationAllowed()) return false;
         bool allowed = false;
-        for (pdf::PDFInteger p = 0; p < c->getDocument()->getCatalog()->getPageCount() && !allowed; ++p)
+        for (pdf::PDFInteger p = 0; p < pdf::PDFInteger(c->getDocument()->getCatalog()->getPageCount()) && !allowed; ++p)
             for (const auto& item : m->getPageAnnotations(p).annotations)
                 if (item.annotation->getSelfReference() == reference && item.annotation->getType() == pdf::AnnotationType::Text) allowed = m->canModifyAnnotation(item);
         if (!allowed) return false;
@@ -131,7 +131,7 @@ private:
         }
         for (auto it = cards_.begin(); it != cards_.end();) {
             bool exists = false;
-            if (it->second.page < doc->getCatalog()->getPageCount())
+            if (it->second.page >= 0 && it->second.page < pdf::PDFInteger(doc->getCatalog()->getPageCount()))
                 for (const auto& item : widget->getAnnotationManager()->getPageAnnotations(it->second.page).annotations)
                     exists |= item.annotation->getSelfReference() == it->first && item.annotation->getType() == pdf::AnnotationType::Text;
             if (!exists) { delete it->second.frame; it = cards_.erase(it); }

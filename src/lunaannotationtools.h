@@ -45,7 +45,7 @@ inline bool applySelectedHighlight(pdfviewer::PDFEditorMainWindow& window, bool 
     if (!document || !controller->canClose() || !window.isEnabled() || !manager->isModificationAllowed() || tool->lunaTextSelection().isEmpty()) return false;
     const pdf::PDFTextSelection selection = tool->lunaTextSelection(); pdf::PDFTextSelectionPainter painter(&selection);
     pdf::PDFDocumentModifier modifier(document); modifier.markAnnotationsChanged(); auto* builder = modifier.getBuilder();
-    for (pdf::PDFInteger page = 0; page < document->getCatalog()->getPageCount(); ++page) {
+    for (pdf::PDFInteger page = 0; page < pdf::PDFInteger(document->getCatalog()->getPageCount()); ++page) {
         if (selection.begin(page) == selection.end(page)) continue;
         auto layout = controller->getPdfWidget()->getDrawWidgetProxy()->getTextLayoutCompiler()->getTextLayoutLazy(page);
         QPolygonF selected; painter.prepareGeometry(page, layout, QTransform(), &selected);

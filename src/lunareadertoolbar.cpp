@@ -45,6 +45,8 @@ class ReaderIcon final : public QIconEngine {
 public:
     explicit ReaderIcon(QString name) {
         if (name == QStringLiteral("panel")) name = QStringLiteral("panel-close");
+        ink_ = name == QStringLiteral("library") ? QByteArray("#2671C6") :
+            (QStringList{QStringLiteral("folder"), QStringLiteral("documents"), QStringLiteral("recent"), QStringLiteral("star")}.contains(name) ? QByteArray("#265A9C") : QByteArray("#173869"));
         QFile source(QStringLiteral(":/luna/icons/ui-%1.svg").arg(name));
         if (source.open(QIODevice::ReadOnly)) svg_ = source.readAll();
     }
@@ -56,12 +58,12 @@ public:
     }
     void paint(QPainter* painter, const QRect& rect, QIcon::Mode mode, QIcon::State state) override {
         QByteArray svg = svg_;
-        svg.replace("currentColor", mode == QIcon::Disabled ? "#9CAAC0" :
-            (state == QIcon::On || mode == QIcon::Selected ? "#1C65BC" : "#173869"));
+        svg.replace("currentColor", mode == QIcon::Disabled ? QByteArray("#9CAAC0") :
+            (state == QIcon::On || mode == QIcon::Selected ? QByteArray("#1C65BC") : ink_));
         QSvgRenderer renderer(svg); renderer.render(painter, QRectF(rect));
     }
 private:
-    QByteArray svg_;
+    QByteArray svg_, ink_;
 };
 
 QAction* nativeAction(pdfviewer::PDFEditorMainWindow& window, const char* name) {
@@ -193,7 +195,7 @@ public:
         shell.addToolBar(Qt::TopToolBarArea, bar_);
         page_ = new QSpinBox; page_->setObjectName(QStringLiteral("LunaCommonPage"));
         page_->setButtonSymbols(QAbstractSpinBox::NoButtons); page_->setAlignment(Qt::AlignCenter);
-        page_->setFixedWidth(78); page_->setToolTip(QStringLiteral("현재 페이지 / 전체 페이지 · Enter로 이동"));
+        page_->setFixedWidth(68); page_->setToolTip(QStringLiteral("현재 페이지 / 전체 페이지 · Enter로 이동"));
         page_->setAccessibleName(QStringLiteral("현재 페이지 / 전체 페이지"));
         pageAction_ = new QWidgetAction(bar_); pageAction_->setText(QStringLiteral("페이지 이동")); pageAction_->setDefaultWidget(page_);
         zoom_ = new QComboBox; zoom_->setObjectName(QStringLiteral("LunaCommonZoom"));
@@ -227,8 +229,10 @@ public:
         // Finish an old tab's view edit before changing its recipient. A late
         // focus-out must never apply one document's page/zoom text to another.
         page_->clearFocus(); zoom_->lineEdit()->clearFocus(); zoom_->clearFocus();
+        if (editor_) editor_->removeEventFilter(this);
         for (auto* action : bar_->actions()) bar_->removeAction(action);
         editor_ = &editor;
+        editor.installEventFilter(this);
         auto add = [this](const char* name) { if (auto* action = nativeAction(*editor_, name)) bar_->addAction(action); };
         if (auto* open = shell_.findChild<QAction*>(QStringLiteral("LunaOpenDocuments"), Qt::FindDirectChildrenOnly)) bar_->addAction(open);
         add("actionSave"); bar_->addAction(separators_[0]);
@@ -239,12 +243,17 @@ public:
         synchronize();
     }
     void unbind() {
-        poll_.stop(); editor_.clear();
+        poll_.stop(); if (editor_) editor_->removeEventFilter(this); editor_.clear();
         for (auto* action : bar_->actions()) bar_->removeAction(action);
     }
 private:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (watched == editor_ && event->type() == QEvent::EnabledChange) bar_->setEnabled(editor_->isEnabled());
+        return QObject::eventFilter(watched, event);
+    }
     void synchronize() {
         if (!editor_ || !editor_->getProgramController()) return;
+        bar_->setEnabled(editor_->isEnabled());
         auto* nativePage = editor_->findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"));
         auto* nativeCount = editor_->findChild<QLabel*>(QStringLiteral("pageNumberLabel"));
         auto* nativeZoom = editor_->findChild<QDoubleSpinBox*>(QStringLiteral("pageZoomSpinBox"));

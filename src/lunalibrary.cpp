@@ -61,6 +61,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardPaths>
@@ -764,8 +765,24 @@ public:
         documentTitleConnection_ = connect(&editor, &QWidget::windowTitleChanged, this, [this] {
             QTimer::singleShot(0, this, [this] { rememberOpenedDocument(); });
         });
+        selectActiveCard();
     }
     void recordEditor(pdfviewer::PDFEditorMainWindow& editor) { rememberEditor(editor); }
+    void selectActiveCard() {
+        if (!viewer_ || !viewer_->getProgramController() || !viewer_->getProgramController()->getDocument()) return;
+        const QString path = viewer_->getProgramController()->getOriginalFileName();
+        const QString active = DocumentClaim::identity(path);
+        const QString filename = QFileInfo(path).fileName();
+        for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) {
+            const QSignalBlocker block(list);
+            for (int row = 0; row < list->count(); ++row) {
+                auto* item = list->item(row); const QString candidate = item->data(Qt::UserRole).toString();
+                const bool selected = candidate == path || (QFileInfo(candidate).fileName().compare(filename, Qt::CaseInsensitive) == 0 && DocumentClaim::identity(candidate) == active);
+                item->setSelected(selected);
+                if (selected) list->setCurrentItem(item, QItemSelectionModel::NoUpdate);
+            }
+        }
+    }
     void updateMinimum() { setMinimumWidth((navigation_->isHidden() ? 0 : 192) + (documents_->isHidden() ? 0 : 285) + 5); }
     void toggleNavigation() { savePanelState(); navigation_->setVisible(navigation_->isHidden()); updateMinimum(); }
     void toggleDocuments() { savePanelState(); documents_->setVisible(documents_->isHidden()); updateMinimum(); }
@@ -893,6 +910,7 @@ private:
             proxy->zoom(2.0);
         }
         editor.setProperty("LunaPreserveReopenView", false);
+        if (viewer_ == &editor) selectActiveCard();
         if (pages_->currentIndex() == 2 && !showingFavorites_) showHistory(false);
     }
     void importPdfs() {
@@ -1345,6 +1363,8 @@ private:
         } else {
             count->setText(QStringLiteral("PDF 검색 중… %1개").arg(list->count()));
         }
+        queueNavigationCounts();
+        selectActiveCard();
     }
     void openItem(QListWidgetItem* item) {
         if (item) openPdf(item->data(Qt::UserRole).toString());

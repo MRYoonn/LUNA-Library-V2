@@ -438,6 +438,7 @@ private:
         trace("editor-dispose", editor);
         // Rebind the one library before deleting its previous model/controller.
         if (current() == editor) for (const auto& s : sessions_) if (s->editor != editor) { activate(s->editor); break; }
+        releaseReaderAdapters(*editor);
         editor->getProgramController()->closeDocument(); editor->removeEventFilter(this);
         trace("disposed-document-closed", editor);
         tabs_->removeTab(tabs_->indexOf(editor));
@@ -509,6 +510,7 @@ private:
         setLibraryDocumentRouter(*this, {}, {}, {});
         for (const auto& s : sessions_) {
             s->editor->removeEventFilter(this);
+            releaseReaderAdapters(*s->editor);
             s->editor->getProgramController()->closeDocument();
         }
         // Children remain owned by the shell until app.exec returns. This keeps

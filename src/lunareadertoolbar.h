@@ -10,5 +10,6 @@ namespace luna {
 QIcon readerIcon(const QString& name, const QColor& tint = {});
 void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar, QAction& libraryToggle);
 void hideAdvancedToolbars(pdfviewer::PDFEditorMainWindow& window);
+void releaseReaderAdapters(pdfviewer::PDFEditorMainWindow& window);
 bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error, bool geometry);
 }

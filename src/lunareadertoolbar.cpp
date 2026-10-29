@@ -113,6 +113,7 @@ bool inMenu(pdfviewer::PDFEditorMainWindow& window, QAction* action) {
 class ReadingInteraction final : public QObject {
 public:
     explicit ReadingInteraction(pdfviewer::PDFEditorMainWindow& window) : QObject(&window), window_(window) {
+        setObjectName("LunaReadingInteraction");
         auto* controller = window_.getProgramController();
         draw_ = controller->getPdfWidget()->getDrawWidget()->getWidget();
         draw_->installEventFilter(this);
@@ -196,6 +197,11 @@ private:
 QIcon readerIcon(const QString& name, const QColor& tint) {
     if (name == "panel-left-close" || name == "panel-left-open") return QIcon(QStringLiteral(":/luna/") + name + QStringLiteral(".svg"));
     return QIcon(new ReaderIcon(name, tint));
+}
+
+void releaseReaderAdapters(pdfviewer::PDFEditorMainWindow& window) {
+    for (const char* name : {"LunaStickyNotesController", "LunaReadingInteraction"})
+        delete window.findChild<QObject*>(QString::fromLatin1(name));
 }
 
 void hideAdvancedToolbars(pdfviewer::PDFEditorMainWindow& window) {

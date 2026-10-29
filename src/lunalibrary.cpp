@@ -877,7 +877,12 @@ private:
             if (key=="journal" || key=="journalname" || key=="publicationname") embedded["journal"]=value;
             else if (key=="volume" || key=="issue") embedded[QString::fromLatin1(key)]=value;
             else if (key=="pages" || key=="pagerange") embedded["page"]=value;
-            else if ((key=="year" || key=="publicationyear") && QRegularExpression("^[0-9]{4}$").match(value).hasMatch() && value.toInt()>0) embedded["year"]=value;
+            else if (key=="year" || key=="publicationyear") {
+                // PDF4QT parses a four-digit custom value as a PDF date.
+                // Only explicitly named publication fields qualify here.
+                const QString year=extra.second.metaType().id()==QMetaType::QDateTime ? QString::number(extra.second.toDateTime().date().year()) : value;
+                if (QRegularExpression("^[0-9]{4}$").match(year).hasMatch() && year.toInt()>0) embedded["year"]=year;
+            }
         }
         bibliography_.ingest(DocumentClaim::identity(path),metadata->title,metadata->author,doiMetadata,embedded);
         // Relocation reopens the same document for file-handle safety; it is

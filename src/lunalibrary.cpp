@@ -843,6 +843,9 @@ private:
         const QString path = info.canonicalFilePath();
         if (!info.isFile() || path.isEmpty() || path == editor.property("LunaRememberedPath").toString()) return;
         editor.setProperty("LunaRememberedPath", path);
+        // Relocation reopens the same document for file-handle safety; it is
+        // not a new reading event. Its existing history was migrated already.
+        if (editor.property("LunaMoveRestorePending").toBool()) return;
         QStringList recent = savedPaths(QStringLiteral("library/recent"));
         recent.removeAll(path);
         recent.prepend(path);

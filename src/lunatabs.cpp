@@ -1021,6 +1021,10 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(integrationWait([&] { return query->text() == QStringLiteral("724"); }) && !paper->isHidden(), "Paper memo search excluded A"); query->clear();
             integrationRequire(host.screen()->grabWindow(0).save(report + ".memo.png"), "Could not capture integrated memo");
             const QByteArray originalThumb = integrationBytes(thumbnail); const QString moved = QFileInfo(files[0]).absolutePath() + "/Moved"; QDir().mkpath(moved);
+            list->setCurrentItem(paper); list->setFocus();
+            if (!paper->data(Qt::UserRole + 2).toBool()) integrationRequire(integrationKey('D',true) && integrationWait([&] { return paper->data(Qt::UserRole + 2).toBool(); }), "Favorite setup before relocation failed");
+            QSettings relocationSettings(QSettings::defaultFormat(),QSettings::UserScope,QStringLiteral("LUNA"),QStringLiteral("LUNA Library"));
+            const QVariantMap historyBefore = [&] { QVariantMap values; relocationSettings.beginGroup("library/openedDates"); for (const auto& key : relocationSettings.childKeys()) values.insert(key,relocationSettings.value(key)); relocationSettings.endGroup(); return values; }();
             bool menuChosen = false; QTimer moveUi;
             QObject::connect(&moveUi, &QTimer::timeout, &host, [&] {
                 if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) integrationDirectory(dialog, moved);
@@ -1043,6 +1047,16 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(integrationKey(VK_F2) && integrationWait([&] { return QFileInfo::exists(renamedPdf) && ready(a) && DocumentClaim::identity(a->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(renamedPdf); }), "F2 did not rename and reopen the active PDF"); renameUi.stop();
             integrationRequire(!QFileInfo::exists(movedPdf) && !QFileInfo::exists(movedThumb) && integrationBytes(renamedPdf) == savedA && integrationBytes(renamedThumb) == originalThumb && tabs->tabToolTip(tabs->indexOf(a)).contains(QStringLiteral("Renamed A")), "Rename lost file bytes, thumbnail or active tab path");
             integrationRequire(integrationWait([&] { list = integrationList(host, renamedPdf, &paper); return list && paper && paper->data(Qt::UserRole + 4).toString() == memo; }), "Rename lost the paper memo");
+            integrationRequire(paper->data(Qt::UserRole + 2).toBool(), "Rename lost the favorite flag");
+            for (const auto* group : {"library/recent", "library/favorites"}) {
+                const QStringList paths = relocationSettings.value(group).toStringList(); bool found = false;
+                for (const auto& value : paths) { integrationRequire(DocumentClaim::identity(value) != DocumentClaim::identity(movedPdf) && DocumentClaim::identity(value) != DocumentClaim::identity(files[0]), "Rename left a stale library history/favorite path"); found |= DocumentClaim::identity(value) == DocumentClaim::identity(renamedPdf); }
+                integrationRequire(found, "Renamed PDF missing from recent/favorites");
+            }
+            relocationSettings.beginGroup("library/openedDates");
+            const auto newDates = relocationSettings.childKeys(); bool preservedDate = false;
+            for (const auto& key : newDates) if (!historyBefore.contains(key)) preservedDate |= historyBefore.values().contains(relocationSettings.value(key));
+            relocationSettings.endGroup(); integrationRequire(preservedDate, "Relocation replaced the original reading timestamp");
             result["nativeRenamePdfThumbnailMemoAndTab"] = true; result["movedPdf"] = renamedPdf;
         }
         integrationRequire(host.screen()->grabWindow(0).save(report + ".final.png"), "Could not capture final integrated window");

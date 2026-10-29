@@ -562,6 +562,26 @@ static bool integrationClick(NativeTabs& host, QWidget* widget, QPoint point, bo
     input[1].mi.dwFlags = right ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP;
     return SendInput(2, input, sizeof(INPUT)) == 2;
 }
+static bool integrationPanelClick(NativeTabs& host, QWidget* widget) {
+    // Toggling reparents this button and relayouts the dock/tab corner. QAction
+    // state changes before the Windows/Qt geometry has settled. Require a
+    // stationary, visible target before ONE real click; never retry a missed
+    // click or trigger the action directly to make this acceptance pass.
+    QRect previous; QElapsedTimer stable; stable.start();
+    const bool ready = integrationWait([&] {
+        const QRect rect(widget->mapToGlobal(QPoint()), widget->size());
+        if (rect != previous) { previous = rect; stable.restart(); }
+        return widget->isVisible() && widget->isEnabled() && stable.elapsed() >= 150;
+    });
+    const QPoint local = widget->mapTo(&host, widget->rect().center());
+    const bool hit = QApplication::widgetAt(widget->mapToGlobal(widget->rect().center())) == widget;
+    auto records = host.property("LunaPanelClickDiagnostics").toJsonArray();
+    records.append(QJsonObject{{"ready", ready}, {"x", local.x()}, {"y", local.y()},
+        {"width", widget->width()}, {"height", widget->height()}, {"dpr", host.devicePixelRatioF()},
+        {"qtHitIsButton", hit}});
+    host.setProperty("LunaPanelClickDiagnostics", records);
+    return ready && hit && integrationClick(host, widget, widget->rect().center());
+}
 static QWidget* integrationSurface(Editor* e) { return e->getProgramController()->getPdfWidget()->getDrawWidget()->getWidget(); }
 static int integrationHighlights(Editor* e) {
     int count = 0; for (const auto& item : e->getProgramController()->getPdfWidget()->getAnnotationManager()->getPageAnnotations(0).annotations)
@@ -660,7 +680,7 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
 }
 static void verifyIntegration(NativeTabs& host, const QStringList& files, const QString& report, bool restore) {
     QJsonObject result{{"accepted", false}, {"physicalMonitorDpi", "unverified"}, {"input", "Win32 tab clicks, memo typing and shortcuts; Qt crop/highlight and dialog fixtures"}};
-    auto write = [&] { QSaveFile output(report); if (output.open(QIODevice::WriteOnly)) { output.write(QJsonDocument(result).toJson()); output.commit(); } };
+    auto write = [&] { result["panelClickDiagnostics"] = host.property("LunaPanelClickDiagnostics").toJsonArray(); QSaveFile output(report); if (output.open(QIODevice::WriteOnly)) { output.write(QJsonDocument(result).toJson()); output.commit(); } };
     auto phase = [&](const char* text) {
         const QString name = QString::fromLatin1(text); result["phase"] = name; host.setProperty("LunaIntegrationPhase", name); write();
         QTimer::singleShot(1500, &host, [&host, report, name] {
@@ -805,9 +825,9 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             auto* toggle = host.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
             integrationRequire(toggle, "Combined panel button missing");
             for (int turn = 0; turn < 10; ++turn) {
-                integrationRequire(!focus->isChecked() && toggle->text() == QStringLiteral("≪") && integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return focus->isChecked() && toggle->isVisible() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8; }), "Real collapse click failed");
+                integrationRequire(!focus->isChecked() && toggle->text() == QStringLiteral("≪") && integrationPanelClick(host, toggle) && integrationWait([&] { return focus->isChecked() && toggle->isVisible() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8; }), "Real collapse click failed");
                 integrationRequire(toggle->text() == QStringLiteral("☰") && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8, "Restore button moved away from left edge");
-                integrationRequire(integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return !focus->isChecked(); }), "Real expand click failed");
+                integrationRequire(integrationPanelClick(host, toggle) && integrationWait([&] { return !focus->isChecked(); }), "Real expand click failed");
             }
             result["tenRealPanelToggleCyclesPinnedLeft"] = true;
             auto collapse = [&] {

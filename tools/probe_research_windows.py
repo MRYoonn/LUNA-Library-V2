@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Pinned CC BY publisher fixture; no research PDF is committed or packaged."""
+import argparse
+import hashlib
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+from urllib.request import Request, urlopen
+
+URL = "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0000308&type=printable"
+SHA256 = "b52ca44dfd09d240543b80315f0cd43fe9ba7946f2b5650d5580213ed5d9186c"
+CREDIT = """Piwowar HA, Day RS, Fridsma DB (2007).
+Sharing Detailed Research Data Is Associated with Increased Citation Rate.
+PLOS ONE 2(3): e308. https://doi.org/10.1371/journal.pone.0000308
+Publisher states Creative Commons Attribution License; unrestricted use,
+distribution and reproduction with credit to original authors and source.
+Source: https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0000308
+The research screenshot shows the native LUNA/PDF4QT rendering of this public
+article. Test-only highlights were added by automated validation.
+The PDF itself is downloaded only into a temporary test directory and is not
+included in the app portable package or repository.
+"""
+
+
+def probe(package: Path, output: Path):
+    if sys.platform != "win32":
+        raise RuntimeError("Public research integration requires native Windows")
+    package = package.resolve(strict=True)
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "PUBLIC_PAPER_CREDIT.txt").write_text(CREDIT, encoding="utf-8")
+    request = Request(URL, headers={"User-Agent": "LUNA-public-fixture-validation"})
+    with urlopen(request, timeout=30) as response:
+        data = response.read(2_000_001)
+    if len(data) > 2_000_000 or hashlib.sha256(data).hexdigest() != SHA256:
+        raise RuntimeError("Public publisher fixture changed; expected checksum was not bypassed")
+    environment = os.environ.copy()
+    system = Path(os.environ["SystemRoot"])
+    environment.update(PATH=os.pathsep.join(map(str, (package, system / "System32", system))),
+        QT_PLUGIN_PATH=str(package), QT_QPA_PLATFORM_PLUGIN_PATH=str(package / "platforms"),
+        QT_QPA_PLATFORM="windows", QT_SCALE_FACTOR="1", QT_FORCE_STDERR_LOGGING="1")
+    with tempfile.TemporaryDirectory(prefix="luna-public-research-") as temporary:
+        root = Path(temporary)
+        pdf = root / "public-research.pdf"
+        report = root / "research.txt"
+        pdf.write_bytes(data)
+        try:
+            subprocess.run([str(package / "LUNA.exe"), "--luna-research-report", str(report), str(pdf)],
+                cwd=root, env=environment, check=True, timeout=90)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            failure = Path(str(report) + ".failure.png")
+            if failure.is_file(): shutil.copyfile(failure, output / "research-failure.png")
+            detail = report.read_text(encoding="utf-8")[:512] if report.is_file() else "No native research diagnostic"
+            raise RuntimeError(detail) from error
+        if report.read_bytes() != b"LUNA_RESEARCH_ROUNDTRIP_OK\n" or pdf.read_bytes() != data:
+            raise RuntimeError("Research marker or original-byte preservation failed")
+        screenshot = Path(str(report) + ".png")
+        annotated = Path(str(report) + ".annotated.pdf")
+        if not screenshot.is_file() or not annotated.read_bytes().startswith(b"%PDF-"):
+            raise RuntimeError("Research capture or annotated copy missing")
+        shutil.copyfile(screenshot, output / "research-native.png")
+    print("[PASS] Pinned public CC BY five-page paper: native two-column and figure-caption selection/copy, highlights, Save As and reopen; original unchanged")
+    print("[NOTICE] This public-paper check is separate from synthetic PDF regressions; other papers and long-session use are not implied.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("directory", type=Path)
+    parser.add_argument("--screenshots-directory", type=Path, required=True)
+    args = parser.parse_args()
+    probe(args.directory, args.screenshots_directory)

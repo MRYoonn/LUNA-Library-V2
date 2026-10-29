@@ -2,6 +2,7 @@
 // Drives native Editor actions and widget events; no alternate PDF renderer.
 #include "lunaeditorsmoke.h"
 #include "lunasavedialog.h"
+#include "lunalibrary.h"
 #include "lunareadertoolbar.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -12,6 +13,8 @@
 #include "pdfwidgettool.h"
 #include "pdftextlayout.h"
 #include "pdfannotationstyle.h"
+#include "pdfpage.h"
+#include "pdfundoredomanager.h"
 
 #include <QAction>
 #include <QApplication>
@@ -36,6 +39,8 @@
 #include <QPointer>
 #include <QPrintDialog>
 #include <QPrinterInfo>
+#include <QScreen>
+#include <QIcon>
 #include <functional>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
@@ -111,6 +116,111 @@ void key(QWidget* widget, int code, Qt::KeyboardModifiers modifiers) {
 }
 }
 
+bool verifyResearchRoundTrip(pdfviewer::PDFEditorMainWindow& window,
+                             const QString& reportPath, QString& error) {
+    auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
+    auto* controller = window.getProgramController();
+    auto* pdfWidget = controller->getPdfWidget();
+    auto* proxy = pdfWidget->getDrawWidgetProxy();
+    auto* widget = pdfWidget->getDrawWidget()->getWidget();
+    const QString original = controller->getOriginalFileName();
+    const QByteArray originalBytes = readFile(original);
+    const QString saved = reportPath + QStringLiteral(".annotated.pdf");
+    if (originalBytes.isEmpty() || QFileInfo::exists(saved) || !controller->getDocument() ||
+        controller->getDocument()->getCatalog()->getPageCount() != 5) return fail("Unexpected public research fixture");
+    auto action = [&](const char* name) { return window.findChild<QAction*>(QString::fromLatin1(name)); };
+    auto* select = action("actionSelectText");
+    auto* highlight = action("actionCreateTextHighlight");
+    auto* saveAs = action("actionSave_As");
+    if (!select || !highlight || !saveAs) return fail("Native research actions missing");
+    if (auto* focus = action("LunaFocusMode"); focus && !focus->isChecked()) focus->trigger();
+    proxy->zoom(1.0); proxy->setPageLayout(pdf::PageLayout::OneColumn);
+    auto highlights = [&] {
+        int count = 0;
+        for (const auto& annotation : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations)
+            if (annotation.annotation->getType() == pdf::AnnotationType::Highlight) ++count;
+        return count;
+    };
+    const int initialHighlights = highlights();
+    for (int sample = 0; sample < 3; ++sample) {
+        const int pageIndex = sample == 2 ? 1 : 0;
+        proxy->goToPage(pageIndex);
+        QPoint start, end;
+        QString expected;
+        if (!waitFor([&] {
+            if (!window.isEnabled() || !select->isEnabled()) return false;
+            pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(pageIndex);
+            const auto snapshot = proxy->getSnapshot();
+            const auto* page = snapshot.getPageSnapshot(pageIndex);
+            if (!page) return false;
+            const auto box = controller->getDocument()->getCatalog()->getPage(pageIndex)->getMediaBox();
+            for (const auto& block : layout.getTextBlocks()) for (const auto& line : block.getLines()) {
+                const auto& chars = line.getCharacters();
+                if (chars.size() < 12 || chars.front().fontSize > 14 || chars.front().fontSize < 6) continue;
+                const auto first = chars.front().boundingBox.boundingRect().center();
+                const auto last = chars.back().boundingBox.boundingRect().center();
+                QString text;
+                for (const auto& character : chars) text += character.character;
+                if (sample == 0 && (last.x() >= box.width() / 2 || first.y() > box.height() * .75)) continue;
+                if (sample == 1 && (first.x() < box.width() / 2 || first.y() > box.height() * .75)) continue;
+                if (sample == 2 && !text.contains(QStringLiteral("Figure 1"))) continue;
+                const QPointF from = first - QPointF(1,0);
+                const QPointF to = chars[8].boundingBox.boundingRect().center() + QPointF(1,-2);
+                start = page->pageToDeviceMatrix.map(from).toPoint();
+                end = page->pageToDeviceMatrix.map(to).toPoint();
+                if (!widget->rect().contains(start) || !widget->rect().contains(end)) {
+                    if (sample == 2) {
+                        proxy->goToPageAndEnsureVisible(pageIndex, QRectF(from, to).normalized().adjusted(-10,-10,10,10));
+                        return false;
+                    }
+                    continue;
+                }
+                const auto inverse = page->pageToDeviceMatrix.inverted();
+                expected = layout.getTextFromSelection(layout.createTextSelection(pageIndex,
+                    inverse.map(QPointF(start)), inverse.map(QPointF(end))), pageIndex).simplified();
+                if (expected.size() >= 4) return true;
+            }
+            return false;
+        })) return fail("Public paper column or figure-caption glyphs unavailable");
+        if (!select->isChecked()) select->trigger();
+        mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+        mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
+        mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+        if (controller->getToolManager()->getSelectTextTool()->getSelectedText().simplified() != expected)
+            return fail("Public paper native column/caption drag selected unexpected text");
+        QApplication::clipboard()->clear(); key(widget,Qt::Key_C,Qt::ControlModifier);
+        if (!waitFor([&] { return QApplication::clipboard()->text().simplified() == expected; }))
+            return fail("Public paper selected text did not copy");
+        if (sample < 2) {
+            highlight->trigger();
+            mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+            mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
+            mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+            if (!waitFor([&] { return highlights() == initialHighlights + sample + 1 && select->isChecked(); }))
+                return fail("Public paper column highlight failed");
+        }
+    }
+    if (!waitFor([&] { return window.isEnabled() && saveAs->isEnabled(); })) return fail("Public paper save remained busy");
+    bool chosen = false;
+    QTimer choose;
+    QObject::connect(&choose, &QTimer::timeout, &window, [&] {
+        if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+            chosen = selectSyntheticCopy(*dialog, saved, error);
+            QMetaObject::invokeMethod(dialog, chosen ? "accept" : "reject", Qt::DirectConnection);
+        }
+    });
+    choose.start(30); saveAs->trigger(); choose.stop();
+    if (!chosen || !QFileInfo::exists(saved) || readFile(original) != originalBytes)
+        return fail("Public paper Save As did not preserve original and produce a copy");
+    controller->closeDocument(); controller->openDocument(saved);
+    if (!waitFor([&] { return controller->getDocument() && window.isEnabled() && controller->getDocument()->getCatalog()->getPageCount() == 5; }) ||
+        highlights() != initialHighlights + 2) return fail("Public paper annotations did not survive native reopen");
+    proxy->zoom(.7); proxy->goToPage(0);
+    QCoreApplication::processEvents();
+    if (!window.grab().save(reportPath + QStringLiteral(".png"))) return fail("Public paper capture failed");
+    return true;
+}
+
 bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
                            const QString& reportPath, QString& error) {
     auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
@@ -160,6 +270,16 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     openDialog.stop();
     if (!opened || !waitFor([&] { return controller->getDocument() && controller->getDocument()->getCatalog()->getPageCount() == 2 && select->isChecked(); }))
         return fail("Ctrl+O did not open the two-page PDF in default text-selection mode");
+    // Document creation completes before the queued LUNA reading defaults.
+    // A small two-page fixture can fit at the temporary fit zoom, so native
+    // NavigateNextPage intentionally does nothing while its scrollbar is hidden.
+    // Exercise the button only once the actual requested 200% view is usable.
+    auto* vertical = pdfWidget->getVerticalScrollbar();
+    auto* nextPage = action("actionGoToNextPage");
+    if (!waitFor([&] { return window.isEnabled() && nextPage && nextPage->isEnabled() &&
+        qAbs(proxy->getZoom() - 2.0) < 0.001 && proxy->getPageLayout() == pdf::PageLayout::OneColumn &&
+        vertical->isVisible() && vertical->maximum() > vertical->minimum() && vertical->pageStep() > 0; }))
+        return fail("Reopened PDF did not settle into enabled continuous 200% reading view");
     checkpoint("Reader phase: page navigation, zoom and advanced view menu");
     auto* pageNumber = window.findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"));
     proxy->goToPage(0);
@@ -167,8 +287,18 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     const auto firstView = proxy->getSnapshot();
     if (!firstView.getPageSnapshot(0)) return fail("First page not visible before navigation");
     const qreal initialTop = firstView.getPageSnapshot(0)->rect.top();
-    click(action("actionGoToNextPage"));
-    if (!waitFor([&] { const auto view = proxy->getSnapshot(); const auto* page = view.getPageSnapshot(0); return !page || page->rect.top() < initialTop; })) return fail("Next page toolbar action failed");
+    const int initialScroll = vertical->value();
+    int nextTriggers = 0;
+    const auto nextConnection = QObject::connect(nextPage, &QAction::triggered, &window, [&] { ++nextTriggers; });
+    click(nextPage);
+    QObject::disconnect(nextConnection);
+    if (nextTriggers != 1) return fail("Enabled next-page toolbar button did not trigger its native QAction");
+    if (!waitFor([&] { const auto view = proxy->getSnapshot(); const auto* page = view.getPageSnapshot(0);
+        return vertical->value() > initialScroll && (!page || page->rect.top() < initialTop); })) {
+        error = QStringLiteral("Next-page action triggered but viewport did not advance: scroll %1 -> %2, max %3, step %4, zoom %5")
+            .arg(initialScroll).arg(vertical->value()).arg(vertical->maximum()).arg(vertical->pageStep()).arg(proxy->getZoom());
+        return false;
+    }
     click(action("actionGoToPreviousPage"));
     if (!waitFor([&] { return pageNumber->value() == 1; })) return fail("Previous page toolbar action failed");
     pageNumber->setValue(2); QMetaObject::invokeMethod(pageNumber,"editingFinished",Qt::DirectConnection);
@@ -358,6 +488,7 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     checkpoint("Editor phase: native Save As dialog");
     if (!waitFor([&] { return saveAs->isEnabled() && window.isEnabled(); }))
         return fail("Native Save As action remained unavailable");
+    if (!verifyCancelledLibraryMove(window, error)) return false;
     bool choseCopy = false;
     QString selectionError;
     QTimer chooseFile;
@@ -425,6 +556,28 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         return fail("Annotation eraser damaged PDF text");
     int saves = 0;
     if (!waitFor([&] { return action("actionSave")->isEnabled() && window.isEnabled(); })) return fail("Native save remained busy after erasing");
+#ifdef Q_OS_WIN
+    checkpoint("Reader phase: locked-file save failure preserves disk and unsaved edits");
+    const QByteArray beforeFailedSave = readFile(saved);
+    auto* undoState = controller->findChild<pdfviewer::PDFUndoRedoManager*>();
+    if (!undoState || undoState->isCurrentSaved()) return fail("Save-failure fixture has no unsaved edits");
+    const HANDLE locked = CreateFileW(reinterpret_cast<LPCWSTR>(saved.utf16()), GENERIC_READ,
+        FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (locked == INVALID_HANDLE_VALUE) return fail("Cannot lock synthetic save-failure target");
+    bool sawSaveError = false;
+    QTimer dismissError;
+    QObject::connect(&dismissError, &QTimer::timeout, &window, [&] {
+        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+            sawSaveError = box->icon() == QMessageBox::Critical;
+            box->accept();
+        }
+    });
+    dismissError.start(30); widget->setFocus(); key(widget,Qt::Key_S,Qt::ControlModifier); dismissError.stop();
+    CloseHandle(locked);
+    if (!sawSaveError || readFile(saved) != beforeFailedSave || undoState->isCurrentSaved() ||
+        annotations(pdf::AnnotationType::Highlight) != 0 || annotations(pdf::AnnotationType::Text) != 1)
+        return fail("Native failed save lost original bytes or unsaved annotation state");
+#endif
     const auto saveConnection = QObject::connect(action("actionSave"), &QAction::triggered, &window, [&] { ++saves; });
     widget->setFocus(); key(widget, Qt::Key_S, Qt::ControlModifier);
     QObject::disconnect(saveConnection);
@@ -433,7 +586,14 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!waitFor([&] { return controller->getDocument() && select->isChecked(); }) || annotations(pdf::AnnotationType::Highlight) != 0 || annotations(pdf::AnnotationType::Text) != 1)
         return fail("Deleted annotation returned after save and reopen");
     // Restore a native highlight for the final reading-layout captures.
+    // A document and the checked selection action can precede completion of
+    // asynchronous text indexing. The native controller disables the window
+    // while busy; clicking its disabled tool button is correctly ignored.
+    if (!waitFor([&] { return window.isEnabled() && highlight->isEnabled(); }))
+        return fail("Native reader remained busy after final reopen");
     proxy->zoom(1.0); proxy->goToPage(0); click(highlight);
+    if (!highlight->isChecked() || !controller->getToolManager()->getActiveTool())
+        return fail("Native highlighter did not activate after final reopen");
     if (!chooseColor(Qt::yellow)) return fail("Native highlight color reset failed");
     if (!waitFor([&] { return points(start,end,notePoint); })) return fail("Final glyph points outside viewport");
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
@@ -479,6 +639,26 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
 
     proxy->setPageLayout(pdf::PageLayout::OneColumn);
     proxy->zoom(2.0);
+#ifdef Q_OS_WIN
+    // Verify the live native window exposes both shell icon sizes. Also compare
+    // Qt's applied icon pixels with the official resource, not just a filename.
+    const HWND nativeWindow = reinterpret_cast<HWND>(window.winId());
+    auto iconHandle = [&](WPARAM kind, int fallback) {
+        auto handle = SendMessageW(nativeWindow, WM_GETICON, kind, 0);
+        return handle ? handle : GetClassLongPtrW(nativeWindow, fallback);
+    };
+    if (!iconHandle(ICON_BIG, GCLP_HICON) || !iconHandle(ICON_SMALL, GCLP_HICONSM))
+        return fail("Native window/titlebar shell icon handles missing");
+    const QIcon official(QStringLiteral(":/luna/LUNA-Moon.ico"));
+    if (official.isNull() || window.windowIcon().pixmap(32,32).toImage() != official.pixmap(32,32).toImage())
+        return fail("Live window icon differs from official moon resource");
+    // Actual isolated hosted Windows desktop, before the later off-screen Qt
+    // layout captures. This includes shell/taskbar context for visual review.
+    window.activateWindow();
+    QCoreApplication::processEvents();
+    if (!window.screen() || !window.screen()->grabWindow(0).save(reportPath + QStringLiteral(".desktop.png")))
+        return fail("Could not capture actual Windows desktop for shell icon review");
+#endif
     return true;
 }
 }

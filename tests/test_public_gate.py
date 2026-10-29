@@ -20,6 +20,10 @@ class PublicGate(unittest.TestCase):
         self.temp.cleanup()
     def test_normal_sources(self):
         self.assertEqual(check(self.root), [])
+    def test_modified_official_icon_blocked(self):
+        with (self.root / "assets/icons/LUNA-Moon.ico").open("ab") as stream:
+            stream.write(b"unexpected")
+        self.assertTrue(any("Unapproved icon" in e for e in check(self.root)))
     def test_pdf_file_blocked(self):
         (self.root / "private.pdf").write_bytes(b"%PDF-1.7 synthetic test")
         self.assertTrue(any("Unexpected" in e for e in check(self.root)))

@@ -14,9 +14,9 @@ import json
 
 
 def synthetic_pdf(page_count: int = 1) -> bytes:
-    """Public synthetic text with a valid cross-reference table (one or two pages)."""
-    if page_count not in (1, 2):
-        raise ValueError("Synthetic fixture supports one or two pages")
+    """Public synthetic text with a valid cross-reference table (one to three pages)."""
+    if page_count not in (1, 2, 3):
+        raise ValueError("Synthetic fixture supports one to three pages")
     content = b"BT /F1 18 Tf 40 160 Td (LUNA synthetic smoke test) Tj ET\n"
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -26,13 +26,21 @@ def synthetic_pdf(page_count: int = 1) -> bytes:
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"endstream",
     ]
-    if page_count == 2:
+    if page_count >= 2:
         objects[1] = b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>"
         second = b"BT /F1 18 Tf 40 160 Td (Second synthetic page) Tj ET\n"
         objects.extend([
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] "
             b"/Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>",
             b"<< /Length " + str(len(second)).encode() + b" >>\nstream\n" + second + b"endstream",
+        ])
+    if page_count == 3:
+        objects[1] = b"<< /Type /Pages /Kids [3 0 R 6 0 R 8 0 R] /Count 3 >>"
+        third = b"BT /F1 18 Tf 40 160 Td (Third synthetic page) Tj ET\n"
+        objects.extend([
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] "
+            b"/Resources << /Font << /F1 4 0 R >> >> /Contents 9 0 R >>",
+            b"<< /Length " + str(len(third)).encode() + b" >>\nstream\n" + third + b"endstream",
         ])
     data = bytearray(b"%PDF-1.4\n")
     offsets = []
@@ -60,6 +68,7 @@ def run(package: Path, screenshots_directory: Path | None = None,
     child_env["QT_PLUGIN_PATH"] = str(package)
     child_env["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(package / "platforms")
     child_env["QT_QPA_PLATFORM"] = "windows"
+    child_env["QT_FORCE_STDERR_LOGGING"] = "1"
     child_env["QT_SCALE_FACTOR"] = str(scale)
     # Qt otherwise may show --version/errors in a blocking GUI message box.
     child_env["QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES"] = "1"
@@ -83,8 +92,23 @@ def run(package: Path, screenshots_directory: Path | None = None,
             if screenshots_directory is not None and failure_image.is_file():
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(failure_image, screenshots_directory / "luna-failure.png")
+            if screenshots_directory is not None:
+                # Preserve actual earlier captures when a later gate fails.
+                # Their presence never changes the failing process status.
+                screenshots_directory.mkdir(parents=True, exist_ok=True)
+                for suffix, name in ((".memo.png", "luna-paper-memo.png"),
+                                     (".pages.png", "luna-page-grid.png"),
+                                     (".hover.png", "luna-thumbnail-hover.png"),
+                                     (".desktop.png", "luna-windows-desktop.png")):
+                    capture = Path(str(report) + suffix)
+                    if capture.is_file():
+                        shutil.copyfile(capture, screenshots_directory / name)
             status = f"exit {error.returncode}" if isinstance(error, subprocess.CalledProcessError) else "timed out"
             raise RuntimeError(f"Native smoke {status}: {detail}") from error
+        memo_capture = Path(str(report) + ".memo.png")
+        if not layout_only and screenshots_directory is not None and memo_capture.is_file():
+            screenshots_directory.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(memo_capture, screenshots_directory / "luna-paper-memo.png")
         marker = b"LUNA_SMOKE_LAYOUT_OK\n" if layout_only else b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n"
         if not report.is_file() or report.read_bytes() != marker:
             raise RuntimeError("Native window/PDF-load success marker missing")
@@ -109,6 +133,24 @@ def run(package: Path, screenshots_directory: Path | None = None,
             if screenshots_directory is not None:
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(image, screenshots_directory / target_name)
+        if not layout_only:
+            pages = Path(str(report) + ".pages.png")
+            if not pages.is_file() or not pages.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+                raise RuntimeError("Native two-column PDF page preview capture missing")
+            if screenshots_directory is not None:
+                screenshots_directory.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(pages, screenshots_directory / "luna-page-grid.png")
+            hover = Path(str(report) + ".hover.png")
+            if not hover.is_file() or not hover.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+                raise RuntimeError("Native thumbnail hover capture missing")
+            if screenshots_directory is not None:
+                screenshots_directory.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(hover, screenshots_directory / "luna-thumbnail-hover.png")
+            desktop = Path(str(report) + ".desktop.png")
+            if not desktop.is_file() or not desktop.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+                raise RuntimeError("Actual Windows shell icon review capture missing")
+            if screenshots_directory is not None:
+                shutil.copyfile(desktop, screenshots_directory / "luna-windows-desktop.png")
         metadata = Path(str(report) + ".layout.json")
         if layout_only:
             if not metadata.is_file():
@@ -125,6 +167,7 @@ def run(package: Path, screenshots_directory: Path | None = None,
         print("[NOTICE] Per-process Qt scaling; physical monitor / OS per-monitor DPI changes remain separate checks.")
         return
     print("[PASS] Native library search, favorites, recent history, panel visibility and PDF reopen")
+    print("[PASS] Native viewport crop/cancel, atomic PNG sidecar, asynchronous hover, 165ms fade and screen bounds")
     print("[PASS] Continuous layout at 200% and exact 1366x768 / 1920x1080 Qt layout captures")
     print("[PASS] Native text selection, highlight drag, sticky note, Save As and annotation disk round trip")
     print("[PASS] Original synthetic PDF bytes preserved; note contents and highlight color survive reopen")

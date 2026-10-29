@@ -4,10 +4,23 @@
 
 This is a **public source-only build repository**. It does not store, synchronize or receive your PDF files, annotations, research notes, cloud credentials or local databases.
 
+## 현재 Beta 개발 상태
+
+Draft PR #7에서 HTML v0.9.1 UI와 네이티브 다중 PDF 탭을 통합 중입니다.
+[Astra B안 Windows 실증 40584019204](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/40584019204)은
+문서별 독립 Editor·9개 플러그인과 40회 전환, 문서별 검색·저장·닫기를
+Qt 배율 100%·125%·150%에서 통과했습니다 (`a69be17`, 모든 exitCode=0, accepted=true).
+외부 HWND 수용 방식은 사용하지 않습니다.
+
+제품 통합 빌드 40590542088 (`426c79f`)는 Windows C++ 및 기존 핵심 회귀 검사를 통과했습니다.
+실제 공유 라이브러리·탭·메모·이동·새 프로세스 복원을 함께 확인하는 통합 검사는 별도 실행합니다.
+과거 성공 기록을 최신 HEAD의 검증으로 대체하지 않습니다. 최종 Beta 완료와 물리 모니터 DPI는 미판정입니다.
+아래 날짜가 적힌 과거 상태 기록은 당시 개발 이력이며, 현재 지원 범위는 이 항목과 build-info.json을 기준으로 합니다.
+
 ## Windows EXE 만들기
 
 1. [Actions → LUNA Library V2 - PDF4QT Windows Portable](https://github.com/MRYoonn/LUNA-Library-V2/actions/workflows/build-windows.yml) 페이지 열기.
-2. 오른쪽 **Run workflow** → Branch **feature/native-reading-toolbar** → 초록색 **Run workflow** 누르기.
+2. 오른쪽 **Run workflow** → Branch **feature/windows-beta-v0.1** → 초록색 **Run workflow** 누르기.
 3. 실행 기록에서 각 단계의 성공/실패를 확인하기. 실패하면 정확한 오류 메시지를 확인하고 수정한다.
 4. 성공하면 해당 실행 기록 맨 아래 **Artifacts → LUNA-Windows-Portable** 다운로드.
 5. ZIP 전체를 풀고 **LUNA.exe** 더블클릭. 사용자 문서 화질과 배율은 자신의 Windows에서 확인한다.
@@ -174,9 +187,15 @@ PDF4QT의 저장 확인을 유지한다. 동기화 폴더에서는 두 PC가 같
 
 ## MYBOX 로컬 폴더 동기화 준비
 
-예정 파일 구조는 같은 폴더의 `paper.pdf`와 `paper.luna-thumb.png`이다.
-하이라이트·메모는 사용자가 저장한 PDF 안에 들어간다. 썸네일 생성·묶음 이동은
-후속 구현 대상이며, 현재 썸네일 자동 추적을 제공한다고 표시하지 않는다.
+파일 구조는 같은 폴더의 `paper.pdf`와 `paper.luna-thumb.png`이다.
+하이라이트·메모는 사용자가 저장한 PDF 안에 들어간다. 베타 개발 브랜치에서는
+논문 목록의 우클릭 메뉴로 현재 PDF 화면을 크롭해 썸네일을 지정하고,
+PDF와 썸네일을 같은 드라이브의 다른 폴더로 함께 이동할 수 있다.
+대상 이름 충돌 시 덮어쓰지 않으며, 다른 드라이브로의 이동은 지원하지 않는다.
+부분 실패 시 되돌리기를 시도하고, 복원이 불가능한 썸네일의 보존 위치를 알린다.
+열린 PDF 이동은 기존 저장 확인 후 문서를 닫고 새 경로로 다시 연다.
+이 기능들의 Windows 통합 검증은 진행 중이며, 베타 완료를 뜻하지 않는다.
+외부 탐색기에서 PDF만 이동했을 때 썸네일을 자동 추적하지 않는다.
 북마크 JSON은 사용자가 명시적으로 내보낸 별도 파일이다.
 창 크기·최근 열람·즐겨찾기 등 QSettings는 PC별로 유지하며 공유 SQLite를 만들지 않는다.
 
@@ -197,4 +216,18 @@ PDF4QT 원본: [JakubMelka/PDF4QT](https://github.com/JakubMelka/PDF4QT), MIT li
 
 ## 상태 (2026-10-26)
 
-**P0 포터블·P1 네이티브 UI/간결한 읽기 툴바·P2 Editor 합성 주석 저장/재열기 Windows 자동 검사 통과.** 메모 편집·삭제, 색상 선택, 인쇄 창 열기·취소 및 Qt125%/150% 배치도 확인했다. 썸네일·태그·폴더 이름 변경/이동·다중 문서 탭은 후속 작업이다. 실제 사용자 문서, 북마크 JSON 왕복, 물리 모니터의 OS 배율 변경 및 실제 인쇄 출력은 미검증이다. 기존 비공개 저장소 변경 및 PR 자동 병합 없음.
+**기존 P0 포터블·P1 읽기 툴바·P2 Editor 합성 주석 저장/재열기 Windows 검사 결과는 보존한다.**
+PR #7은 베타 통합 개발 중이다. 썸네일 크롭·비동기 캐시·호버·동반 이동과 공식 달 아이콘은
+구현했으며, 최신 Windows 통합 검증은 별도 진행 중이다. 캐시와 파일 이동의 Linux Qt C++
+검사는 통과했지만 Windows 실행 검사를 대체하지 않는다.
+다중 문서는 **탭 대신 문서별 독립 프로세스·창 방식**을 사용한다. Ctrl+O에서 여러 PDF를
+선택하거나 목록·드래그 앤 드롭으로 열 수 있다. 같은 PDF는 기존 창을 활성화하고,
+각 창은 자체 PDF4QT Controller·주석·저장 상태를 가진다. 다른 창에서 열린 PDF는
+그 창으로 전환한 뒤 이동해야 한다. 창별 미저장 변경 확인은 PDF4QT 기능을 유지한다.
+이 방식의 Windows 2·5·10개 문서 및 주석 분리 검증은 진행 중이다.
+원본 `PDFProgramController::loadPlugins()`는 `QPluginLoader::instance()`의 플러그인에
+`setDataExchangeInterface(this)`와 `setWidget(m_pdfWidget)`를 설정한다. 같은 프로세스에
+여러 Editor를 넣으면 공유 플러그인의 참조가 바뀌므로, 엔진을 수정하지 않는 베타에서는
+프로세스를 분리한다. 작동하는 탭 UI를 제공한다고 표시하지 않는다.
+실제 학술 PDF, 물리 모니터 OS 배율, 장시간 사용 검증 및 최종 Beta ZIP은 남아 있다.
+태그와 DOI 추출 등 제외 기능은 개발하지 않는다. main 자동 병합·공개 Release 게시 없음.

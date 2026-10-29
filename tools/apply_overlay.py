@@ -16,9 +16,9 @@ BLOBS = {
 }
 CMAKE_ADDITION = """
 # LUNA_LIBRARY_V2_TARGET_BEGIN
-add_executable(LUNA luna_main.cpp lunalibrary.cpp lunareadertoolbar.cpp lunaeditorsmoke.cpp icon.rc app.qrc luna_resources.qrc)
+add_executable(LUNA luna_main.cpp lunalibrary.cpp lunareadertoolbar.cpp lunaeditorsmoke.cpp lunatabs.cpp luna_icon.rc app.qrc luna_resources.qrc)
 target_link_libraries(LUNA PRIVATE Pdf4QtLibCore Pdf4QtLibWidgets Pdf4QtLibGui
-    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::PrintSupport)
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::PrintSupport Qt6::Network)
 if(MSVC)
     target_compile_options(LUNA PRIVATE /utf-8)
 endif()
@@ -35,6 +35,28 @@ install(TARGETS LUNA RUNTIME DESTINATION ${PDF4QT_INSTALL_BIN_DIR}
 # A marker is written only after a one-page synthetic document has been loaded.
 # Annotation persistence is checked through the native Editor actions.
 SMOKE_CHECK = r'''
+    if (parser.isSet(lunaResearchReport))
+    {
+        if (arguments.size() != 1) return 2;
+        auto* poll = new QTimer(&mainWindow);
+        poll->setInterval(200);
+        QObject::connect(poll, &QTimer::timeout, &mainWindow,
+            [&application, &mainWindow, &parser, lunaResearchReport, poll, attempts = 0]() mutable {
+                auto* controller = mainWindow.getProgramController();
+                if (++attempts > 300) { application.exit(12); return; }
+                if (attempts < 10 || !mainWindow.isEnabled() || !controller->getDocument()) return;
+                poll->stop();
+                QString error;
+                const bool passed = luna::verifyResearchRoundTrip(mainWindow, parser.value(lunaResearchReport), error);
+                if (!passed) mainWindow.grab().save(parser.value(lunaResearchReport) + ".failure.png");
+                QSaveFile report(parser.value(lunaResearchReport));
+                if (!report.open(QIODevice::WriteOnly)) { application.exit(13); return; }
+                report.write(passed ? QByteArray("LUNA_RESEARCH_ROUNDTRIP_OK\n") : error.toUtf8());
+                if (!report.commit()) { application.exit(13); return; }
+                application.exit(passed ? 0 : 12);
+            });
+        poll->start();
+    }
     if (parser.isSet(lunaSmokeReport))
     {
         if (arguments.size() != 1) return 2;
@@ -59,7 +81,7 @@ SMOKE_CHECK = r'''
                 if (phase == 0) {
                     poll->stop();
                     QString error;
-                    if (!parser.isSet(lunaLayoutOnly) && !luna::verifyLibraryUi(mainWindow, error)) { fail(5, error.toUtf8()); return; }
+                    if (!parser.isSet(lunaLayoutOnly) && !luna::verifyLibraryUi(mainWindow, error, parser.value(lunaSmokeReport))) { fail(5, error.toUtf8()); return; }
                     poll->start();
                     phase = 1;
                     attempts = 0;
@@ -153,28 +175,48 @@ def replace_exact(source: str, old: str, new: str) -> str:
 def make_main(src: str) -> str:
     src = replace_exact(src,
         '#include "pdfeditormainwindow.h"',
-        '#include "pdfeditormainwindow.h"\n#include "pdfprogramcontroller.h"\n#include "pdfdrawwidget.h"\n#include "pdfdrawspacecontroller.h"\n#include "lunalibrary.h"\n#include "lunareadertoolbar.h"\n#include "lunaeditorsmoke.h"')
+        '#include "pdfeditormainwindow.h"\n#include "lunatabs.h"\n#include "pdfprogramcontroller.h"\n#include "pdfdrawwidget.h"\n#include "pdfdrawspacecontroller.h"\n#include "lunalibrary.h"\n#include "lunareadertoolbar.h"\n#include "lunaeditorsmoke.h"')
     src = replace_exact(src,
         '#include <QCommandLineParser>',
         '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>\n#include <QSettings>\n#include <QFileInfo>\n#include <memory>\n#include <QJsonDocument>\n#include <QJsonObject>\n#include <QJsonArray>\n#include <QToolBar>')
     src = replace_exact(src, '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);',
         '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);\n'
+        '    if (parser.isSet(lunaLifecycleTrace)) application.setProperty("LunaLifecycleTracePath", parser.value(lunaLifecycleTrace));\n'
+        '    if (parser.isSet(lunaTabsRestore) && !parser.isSet(lunaTabsReport)) return 2;\n'
+        '    if (parser.isSet(lunaTabsReport)) {\n'
+        '        if (parser.isSet(lunaSmokeReport) || parser.isSet(lunaResearchReport)) return 2;\n'
+        '        if (parser.positionalArguments().size() != (parser.isSet(lunaTabsRestore) ? 1 : 2)) return 2;\n'
+        '        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);\n'
+        '        QSettings::setDefaultFormat(QSettings::IniFormat);\n'
+        '        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QFileInfo(parser.value(lunaTabsReport)).absolutePath() + "/settings");\n'
+        '        if (!parser.isSet(lunaTabsRestore)) QSettings(QSettings::IniFormat, QSettings::UserScope, "LUNA", "LUNA Library").setValue("library/root", QFileInfo(parser.positionalArguments().front()).absolutePath());\n'
+        '    }\n'
         '    if (parser.isSet(lunaLayoutOnly) && !parser.isSet(lunaSmokeReport)) return 2;\n'
-        '    if (parser.isSet(lunaSmokeReport)) {\n'
+        '    if (parser.isSet(lunaSmokeReport) && parser.isSet(lunaResearchReport)) return 2;\n'
+        '    if (parser.isSet(lunaSmokeReport) || parser.isSet(lunaResearchReport)) {\n'
         '        if (parser.positionalArguments().size() != 1) return 2;\n'
         '        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);\n'
         '        QSettings::setDefaultFormat(QSettings::IniFormat);\n'
         '        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,\n'
-        '            QFileInfo(parser.value(lunaSmokeReport)).absolutePath() + "/settings");\n'
-        '        QSettings("LUNA", "LUNA Library").setValue("library/root",\n'
+        '            QFileInfo(parser.value(parser.isSet(lunaResearchReport) ? lunaResearchReport : lunaSmokeReport)).absolutePath() + "/settings");\n'
+        '        QSettings(QSettings::IniFormat, QSettings::UserScope, "LUNA", "LUNA Library").setValue("library/root",\n'
         '            QFileInfo(parser.positionalArguments().front()).absolutePath());\n'
         '    }')
     src = replace_exact(src, '    parser.addVersionOption();',
         '    parser.addVersionOption();\n'
+        '    QCommandLineOption lunaLifecycleTrace("luna-lifecycle-trace", "Local opt-in window lifetime trace (no document contents).", "path");\n'
+        '    lunaLifecycleTrace.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaLifecycleTrace);\n'
+        '    QCommandLineOption lunaTabsReport("luna-tabs-report", "CI only: native library/tabs integration.", "path");\n'
+        '    lunaTabsReport.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaTabsReport);\n'
+        '    QCommandLineOption lunaTabsRestore("luna-tabs-restore", "CI only: fresh-process memo verification.");\n'
+        '    lunaTabsRestore.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaTabsRestore);\n'
         '    QCommandLineOption lunaSmokeReport("luna-smoke-report",\n'
         '        "CI only: verify a two-page synthetic PDF opens, write a marker and exit.", "path");\n'
         '    lunaSmokeReport.setFlags(QCommandLineOption::HiddenFromHelp);\n'
         '    parser.addOption(lunaSmokeReport);\n'
+        '    QCommandLineOption lunaResearchReport("luna-research-report", "CI only: verify the pinned public research PDF.", "path");\n'
+        '    lunaResearchReport.setFlags(QCommandLineOption::HiddenFromHelp);\n'
+        '    parser.addOption(lunaResearchReport);\n'
         '    QCommandLineOption lunaLayoutOnly("luna-layout-only", "CI only: scaled layout checks without modifying the PDF.");\n'
         '    lunaLayoutOnly.setFlags(QCommandLineOption::HiddenFromHelp);\n'
         '    parser.addOption(lunaLayoutOnly);')
@@ -194,19 +236,13 @@ def make_main(src: str) -> str:
         'isLightGui = !parser.isSet(darkGui);')
     src = replace_exact(src,
         'QIcon appIcon(":/app-icon.svg");\n    QApplication::setWindowIcon(appIcon);',
-        'QPixmap lunaIcon(64, 64);\n'
-        '    lunaIcon.fill(Qt::transparent);\n'
-        '    {\n'
-        '        QPainter painter(&lunaIcon);\n'
-        '        painter.setRenderHint(QPainter::Antialiasing);\n'
-        '        QPainterPath outer; outer.addEllipse(QRectF(8, 7, 49, 49));\n'
-        '        QPainterPath inner; inner.addEllipse(QRectF(24, 1, 47, 47));\n'
-        '        painter.fillPath(outer.subtracted(inner), QColor("#3B82F6"));\n'
-        '    }\n'
-        '    QApplication::setWindowIcon(QIcon(lunaIcon));')
+        'QApplication::setWindowIcon(QIcon(":/luna/LUNA-Moon.ico"));')
     src = replace_exact(src,
         'pdfviewer::PDFEditorMainWindow mainWindow;\n    mainWindow.show();',
-        'std::unique_ptr<QWidget> captureHost;\n    pdfviewer::PDFEditorMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
+        'if (!parser.isSet(lunaSmokeReport) && !parser.isSet(lunaResearchReport)) return luna::runTabbedLibrary(parser.positionalArguments(), parser.value(lunaTabsReport), parser.isSet(lunaTabsRestore));\n    std::unique_ptr<QWidget> captureHost;\n    pdfviewer::PDFEditorMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
+    src = replace_exact(src,
+        'mainWindow.getProgramController()->openDocument(arguments.front());',
+        'if (!luna::openInitialDocument(mainWindow, arguments.front())) return 0;')
     return src
 
 def apply(root: Path, dry_run=False) -> None:
@@ -218,15 +254,24 @@ def apply(root: Path, dry_run=False) -> None:
             raise ValueError("PDF4QT source pin mismatch or unsafe symlink: " + rel)
     own = Path(__file__).resolve().parents[1] / "src"
     files = {
+        folder / "lunatabs.cpp": (own / "lunatabs.cpp").read_bytes(),
+        folder / "lunatabs.h": (own / "lunatabs.h").read_bytes(),
+        folder / "lunapagegrid.h": (own / "lunapagegrid.h").read_bytes(),
         folder / "lunalibrary.cpp": (own / "lunalibrary.cpp").read_bytes(),
         folder / "lunareadertoolbar.cpp": (own / "lunareadertoolbar.cpp").read_bytes(),
         folder / "lunareadertoolbar.h": (own / "lunareadertoolbar.h").read_bytes(),
         folder / "lunaeditorsmoke.cpp": (own / "lunaeditorsmoke.cpp").read_bytes(),
         folder / "lunaeditorsmoke.h": (own / "lunaeditorsmoke.h").read_bytes(),
+        folder / "lunathumbnailcache.h": (own / "lunathumbnailcache.h").read_bytes(),
+        folder / "lunafilemove.h": (own / "lunafilemove.h").read_bytes(),
+        folder / "lunadocumentclaim.h": (own / "lunadocumentclaim.h").read_bytes(),
         folder / "lunasavedialog.h": (own / "lunasavedialog.h").read_bytes(),
         folder / "lunalibrary.h": (own / "lunalibrary.h").read_bytes(),
         folder / "lunalibrary.qss": (own / "lunalibrary.qss").read_bytes(),
-        folder / "luna_resources.qrc": b'<RCC><qresource prefix="/luna"><file>lunalibrary.qss</file></qresource></RCC>\n',
+        folder / "LUNA-Moon.ico": (own.parent / "assets/icons/LUNA-Moon.ico").read_bytes(),
+        folder / "LUNA-Moon.png": (own.parent / "assets/icons/LUNA-Moon.png").read_bytes(),
+        folder / "luna_icon.rc": b'IDI_ICON1 ICON DISCARDABLE "LUNA-Moon.ico"\n',
+        folder / "luna_resources.qrc": b'<RCC><qresource prefix="/luna"><file>lunalibrary.qss</file><file>LUNA-Moon.ico</file><file>LUNA-Moon.png</file></qresource></RCC>\n',
         folder / "luna_main.cpp": make_main(main.read_text(encoding="utf-8")
             .replace("\r\n", "\n")).encode("utf-8"),
     }

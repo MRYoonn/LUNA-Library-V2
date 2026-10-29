@@ -4,6 +4,26 @@ name: LUNA Library V2 - PDF4QT Windows Portable
 on:
   workflow_dispatch:
     inputs:
+      p0_lifetime_debug:
+        description: 'Diagnose unchanged b5 EXE and validate a private local crash capture kit; never a release'
+        type: boolean
+        default: false
+      native_tabs_proof:
+        description: 'Isolated native-session architecture proof; never release portable'
+        type: boolean
+        default: false
+      tab_host_source_run:
+        description: 'Experimental host only: successful full Beta Windows source run ID'
+        type: string
+        default: ''
+      research_pdf_probe:
+        description: 'Optional precise public research PDF glyph/selection check (not a core Beta gate)'
+        type: boolean
+        default: false
+      native_probes_only:
+        description: 'Run standalone native Qt probes without compiling the PDF engine'
+        type: boolean
+        default: false
       packaging_preflight_only:
         description: 'Validate Windows runtime staging without compiling PDF4QT'
         type: boolean
@@ -17,11 +37,19 @@ permissions:
   contents: read
 
 concurrency:
-  group: luna-library-v2-windows
+  group: luna-library-v2-windows-${{ inputs.p0_lifetime_debug && 'p0-lifetime' || inputs.native_probes_only && 'native-probes' || inputs.tab_host_source_run != '' && 'tab-host' || 'app' }}
   cancel-in-progress: false
 
 jobs:
+  p0-lifetime-debug:
+    if: inputs.p0_lifetime_debug
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/p0-editor-lifetime.yml
+
   windows-packaging-preflight:
+    if: ${{ !inputs.p0_lifetime_debug }}
     runs-on: windows-2022
     timeout-minutes: 10
     permissions:
@@ -38,6 +66,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Public security gate blocked build" }
           python -B -m unittest discover -s tests -p 'test_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw "Regression tests failed" }
+          python -B tests/native_dialog/windows_job.py
+          if ($LASTEXITCODE -ne 0) { throw "Synthetic Windows process containment failed" }
       - name: Validate official x64 CRT staging on the actual Windows image
         shell: pwsh
         run: |
@@ -59,13 +89,56 @@ jobs:
         run: |
           & ./tools/probe_print_windows.ps1 -Package "$env:RUNNER_TEMP/luna-verified-reader"
 
+  native-probes:
+    needs: windows-packaging-preflight
+    if: inputs.native_probes_only
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+          cache: 'false'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Compile and run native Qt probes
+        shell: pwsh
+        run: |
+          $env:QT_FORCE_STDERR_LOGGING = '1'
+          $probe = Join-Path $env:RUNNER_TEMP 'luna-native-probes'
+          cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw "Native probe configuration failed" }
+          cmake --build $probe --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Native probe compilation failed" }
+          ctest --test-dir $probe -C Release --verbose
+          if ($LASTEXITCODE -ne 0) { throw "Native Qt probes failed" }
+
+      - name: Compile isolated tab host without claiming POC execution
+        shell: pwsh
+        run: |
+          $hostBuild = Join-Path $env:RUNNER_TEMP 'luna-tab-host-build'
+          cmake -S experiments/tab_host -B $hostBuild -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw "Experimental host configuration failed" }
+          cmake --build $hostBuild --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Experimental host compile failed" }
+          Write-Host '[NOTICE] Host compilation only; no PDF embedding or POC acceptance is implied.'
+
   build-windows:
     needs: windows-packaging-preflight
-    if: ${{ !inputs.packaging_preflight_only }}
+    if: ${{ !inputs.packaging_preflight_only && !inputs.native_probes_only && !inputs.tab_host_source_run }}
     runs-on: windows-2022
     timeout-minutes: 180
     env:
       PDF4QT_PIN: 67b6b9903cb4e318803342f2d428f02e1bb124e3
+      # Same public vcpkg revision used by the preserved successful Build 20.
+      VCPKG_PIN: 817892b0ecbc6af994dd6df999c73faf795adbf2
       VCPKG_ROOT: ${{ github.workspace }}\vcpkg
       VCPKG_INSTALLED_DIR: ${{ github.workspace }}\vcpkg_installed
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-binary-cache
@@ -96,6 +169,15 @@ jobs:
           $actual = (git -C pdf4qt rev-parse HEAD).Trim()
           if ($actual -ne $env:PDF4QT_PIN) { throw "Upstream SHA mismatch" }
 
+      - name: Stabilize pinned engine source timestamps for incremental compilation
+        shell: pwsh
+        run: |
+          # Only immutable upstream files; overlay sources are written afterward
+          # with fresh timestamps and are rebuilt on every application change.
+          $env:LUNA_ENGINE_TIMESTAMP = (git -C pdf4qt show -s --format=%ct HEAD).Trim()
+          python -B -c "import os; from pathlib import Path; stamp=int(os.environ['LUNA_ENGINE_TIMESTAMP']); root=Path('pdf4qt'); files=[p for p in root.rglob('*') if p.is_file() and '.git' not in p.relative_to(root).parts]; [os.utime(p,(stamp,stamp)) for p in files]"
+          if ($LASTEXITCODE -ne 0) { throw 'Engine source timestamp normalization failed' }
+
       - name: Apply isolated LUNA target
         shell: pwsh
         run: |
@@ -103,6 +185,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Source pin mismatch" }
           python tools/apply_overlay.py pdf4qt
           if ($LASTEXITCODE -ne 0) { throw "LUNA patch failed" }
+
+      - name: Apply opt-in native session proof
+        shell: pwsh
+        run: |
+          $proofArguments = @()
+          if ('${{ inputs.native_tabs_proof }}' -ne 'true') { $proofArguments += '--backend-only' }
+          python -B experiments/native_tabs/prepare.py pdf4qt @proofArguments
+          if ($LASTEXITCODE -ne 0) { throw "Native session source gate failed" }
+
+      - name: Identify the Windows compiler image for dependency caching
+        id: compiler-image
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $toolset = (Get-Content (Join-Path $installation 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
+          if (-not $toolset) { throw 'Could not identify MSVC version' }
+          "identity=$($env:ImageVersion)-$toolset" >> $env:GITHUB_OUTPUT
 
       # Public dependency cache only; contains no user documents or authentication data.
       - name: Cache public vcpkg archives
@@ -112,7 +212,10 @@ jobs:
           path: |
             vcpkg-binary-cache
             vcpkg/downloads
-          key: ${{ runner.os }}-pdf4qt-vcpkg-${{ hashFiles('pdf4qt/vcpkg.json', 'pdf4qt/vcpkg-configuration.json') }}
+          key: ${{ runner.os }}-pdf4qt-vcpkg-${{ env.VCPKG_PIN }}-${{ steps.compiler-image.outputs.identity }}-${{ hashFiles('pdf4qt/vcpkg.json', 'pdf4qt/vcpkg-configuration.json') }}
+          restore-keys: |
+            ${{ runner.os }}-pdf4qt-vcpkg-${{ env.VCPKG_PIN }}-${{ steps.compiler-image.outputs.identity }}-
+            ${{ runner.os }}-pdf4qt-vcpkg-${{ hashFiles('pdf4qt/vcpkg.json', 'pdf4qt/vcpkg-configuration.json') }}
 
       # LUNA first-use beta excludes OCR. Skip unnecessary Windows packages.
       # This changes only the ephemeral public PDF4QT checkout, never the pinned source.
@@ -134,10 +237,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "vcpkg init failed" }
           git -C vcpkg remote add origin https://github.com/microsoft/vcpkg.git
           if ($LASTEXITCODE -ne 0) { throw "vcpkg remote setup failed" }
-          git -C vcpkg fetch --depth 1 origin HEAD
+          git -C vcpkg fetch --depth 1 origin $env:VCPKG_PIN
           if ($LASTEXITCODE -ne 0) { throw "vcpkg fetch failed" }
           git -C vcpkg checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -ne 0) { throw "vcpkg checkout failed" }
+          if ((git -C vcpkg rev-parse HEAD).Trim() -ne $env:VCPKG_PIN) { throw "vcpkg revision mismatch" }
           $baseline = (Get-Content -Raw pdf4qt/vcpkg.json | ConvertFrom-Json).'builtin-baseline'
           git -C vcpkg fetch --depth 1 origin $baseline
           if ($LASTEXITCODE -ne 0) { throw "vcpkg baseline missing" }
@@ -173,6 +277,7 @@ jobs:
       - name: Test native Save As dialog before compiling the PDF engine
         shell: pwsh
         run: |
+          $env:QT_FORCE_STDERR_LOGGING = '1'
           $probe = Join-Path $env:RUNNER_TEMP 'luna-dialog-build'
           cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
           if ($LASTEXITCODE -ne 0) { throw "Native dialog probe configuration failed" }
@@ -180,6 +285,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Native dialog probe compile failed" }
           ctest --test-dir $probe -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw "Native dialog probe failed; PDF engine build not started" }
+
+      - name: Restore public engine compilation cache
+        id: engine-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: pdf4qt/build
+          key: ${{ runner.os }}-luna-native-sessions-release-noocr-v2-${{ env.PDF4QT_PIN }}-${{ env.VCPKG_PIN }}-qt6.11.3-${{ steps.compiler-image.outputs.identity }}
 
       - name: Configure native Windows build
         shell: pwsh
@@ -195,6 +307,15 @@ jobs:
           cmake --install pdf4qt/build --config Release
           if ($LASTEXITCODE -ne 0) { throw "Native install failed" }
 
+      # Cache before any PDF is opened: public compiler outputs only. Every
+      # restored build still configures, compiles and runs the complete gates.
+      - name: Save public engine compilation cache
+        if: ${{ !inputs.native_tabs_proof && steps.engine-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: pdf4qt/build
+          key: ${{ steps.engine-cache.outputs.cache-primary-key }}
+
       - name: Create standalone portable LUNA
         shell: pwsh
         run: |
@@ -207,6 +328,13 @@ jobs:
           Copy-Item 'pdf4qt/LICENSE' "$output/PDF4QT_LICENSE.txt"
           Copy-Item 'pdf4qt/3rdparty_licenses' "$output/third_party_licenses" -Recurse
           Copy-Item 'LICENSE_NOTICE.md' "$output/LUNA_LICENSE_NOTICE.md"
+          Copy-Item 'USER_GUIDE_KO.md' "$output/USER_GUIDE_KO.md"
+          Copy-Item 'tools/Start-Luna-Diagnostics.*' $output
+          Copy-Item 'tools/*Crash*.ps1','tools/*Crash*.cmd','CRASH_DIAGNOSTICS_KO.md' $output
+          $diagnosticTokens = $null; $diagnosticErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $output 'Start-Luna-Diagnostics.ps1'), [ref]$diagnosticTokens, [ref]$diagnosticErrors) | Out-Null
+          if ($diagnosticErrors.Count) { throw 'Diagnostic launcher PowerShell syntax failed' }
+          @{ product = 'LUNA Library'; status = 'development verification'; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; validation = 'pending' } | ConvertTo-Json | Set-Content -Encoding utf8 "$output/build-info.json"
           # App-local redistributable DLLs make this portable on a clean PC.
           # windeployqt's release --compiler-runtime bundles a separate installer,
           # and cannot locate Visual Studio at all without VCINSTALLDIR.
@@ -220,17 +348,52 @@ jobs:
           if ($private.Count -gt 0) { throw "Sensitive artifact blocked" }
           Get-FileHash "$output/LUNA.exe" -Algorithm SHA256 | Format-List
 
+      - name: Execute native two-document session acceptance
+        if: ${{ inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          $exe = @(Get-ChildItem pdf4qt/build -Recurse -Filter LunaNativeTabs.exe -File)
+          if ($exe.Count -ne 1) { throw 'Expected one native proof executable' }
+          $proof = Join-Path $env:RUNNER_TEMP 'luna-native-proof-package'
+          Copy-Item LUNA-Windows-Portable $proof -Recurse
+          Copy-Item $exe[0].FullName (Join-Path $proof 'LunaNativeTabs.exe')
+          python -B experiments/native_tabs/run_windows.py "$proof/LunaNativeTabs.exe" "$env:RUNNER_TEMP/luna-native-tabs-evidence"
+          if ($LASTEXITCODE -ne 0) { throw 'Native runtime acceptance failed; compilation is not success' }
+
+      - name: Upload native session evidence even on failure
+        if: ${{ always() && inputs.native_tabs_proof }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-native-tabs-evidence
+          path: ${{ runner.temp }}/luna-native-tabs-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Verify portable package layout
         shell: pwsh
         run: |
           python -B tools/verify_portable.py LUNA-Windows-Portable
           if ($LASTEXITCODE -ne 0) { throw "Portable package verification failed" }
 
-      - name: Native UI and synthetic annotation round trip
+      - name: Independent document windows and native annotation round trip
         shell: pwsh
         run: |
-          python -B tools/smoke_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui"
+          python -B tools/probe_documents_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui"
           if ($LASTEXITCODE -ne 0) { throw "Native UI or annotation round trip failed" }
+
+      - name: Production native tabs, library and fresh-process memo restoration
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          python -B tools/probe_tabs_integration_windows.py LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/integrated"
+          if ($LASTEXITCODE -ne 0) { throw 'Production tabs/library integration failed' }
+
+      - name: Public CC BY research PDF selection and annotation round trip
+        if: ${{ inputs.research_pdf_probe }}
+        shell: pwsh
+        run: |
+          python -B tools/probe_research_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui/research"
+          if ($LASTEXITCODE -ne 0) { throw "Public research PDF verification failed" }
 
       - name: Native Windows Qt 125 and 150 percent layout checks
         shell: pwsh
@@ -239,6 +402,30 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Native Qt 125 percent layout failed" }
           python -B tools/smoke_windows.py LUNA-Windows-Portable --layout-only --scale 1.5 --screenshots-directory "$env:RUNNER_TEMP/luna-ui/scale150"
           if ($LASTEXITCODE -ne 0) { throw "Native Qt 150 percent layout failed" }
+
+      - name: Regress legacy layout restoration and actual Ctrl+W disposal under CDB and full page heap
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          . ./tools/Luna-Crash-Tools.ps1
+          $cdb=Get-LunaCdb
+          $gflags=Join-Path (Split-Path $cdb) 'gflags.exe'
+          $evidence=Join-Path $env:RUNNER_TEMP 'luna-ui/legacy-layout-lifetime'
+          New-Item -ItemType Directory -Force $evidence | Out-Null
+          & "$env:RUNNER_TEMP/luna-dialog-build/Release/luna-native-windowstate.exe" --export-legacy "$evidence/legacy-state.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic legacy layout generation failed' }
+          try {
+            & $gflags /p /enable LUNA.exe /full
+            if ($LASTEXITCODE -ne 0) { throw 'Full page heap not enabled' }
+            python -B tools/probe_editor_lifetime_windows.py LUNA-Windows-Portable "$evidence/fixed" --debugger "$cdb" --legacy-state "$evidence/legacy-state.json" --state-reader "$env:RUNNER_TEMP/luna-dialog-build/Release/luna-native-windowstate.exe"
+            if ($LASTEXITCODE -ne 0) { throw 'Legacy-layout Ctrl+W regression failed' }
+          } finally { & $gflags /p /disable LUNA.exe }
+
+      - name: Record validation scope in the portable package
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ userPcRepeatedCtrlW = 'PENDING ACTUAL PC RECHECK: legacy-layout disposal regression passed under CDB/page heap; CI alone is not a fix confirmation'; pythonTests = 39; nativeQtTests = 6; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
       - name: Upload synthetic native UI screenshots
         if: ${{ !cancelled() }}
@@ -250,9 +437,66 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload LUNA Windows portable artifact
+        if: ${{ !inputs.native_tabs_proof }}
         uses: actions/upload-artifact@v4
         with:
           name: LUNA-Windows-Portable
           path: LUNA-Windows-Portable/
           retention-days: 7
+          if-no-files-found: error
+
+  tab-host-experiment:
+    needs: windows-packaging-preflight
+    if: inputs.tab_host_source_run
+    permissions:
+      contents: read
+      actions: read
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require a successful full Windows source build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.tab_host_source_run }}
+        run: |
+          if ($env:SOURCE_RUN -notmatch '^\d+$') { throw 'Invalid run ID' }
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN" | ConvertFrom-Json
+          if ($run.conclusion -ne 'success' -or $run.head_branch -ne 'feature/windows-beta-v0.1' -or $run.path -ne '.github/workflows/build-windows.yml') { throw 'Source must be a successful Beta-branch Windows workflow' }
+          python -B tools/preflight_public.py
+          if ($LASTEXITCODE -ne 0) { throw 'Source gate failed' }
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          $run | Select-Object id,head_sha,html_url,conclusion | ConvertTo-Json | Set-Content evidence/source-build.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: LUNA-Windows-Portable
+          run-id: ${{ inputs.tab_host_source_run }}
+          github-token: ${{ github.token }}
+          path: portable
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          cache: 'false'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Compile isolated host and compare native embedding
+        shell: pwsh
+        run: |
+          cmake -S experiments/tab_host -B tab-host-build -G 'Visual Studio 17 2022' -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Host configuration failed' }
+          cmake --build tab-host-build --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Host compile failed' }
+          python -B tools/probe_tab_host_windows.py --host tab-host-build/Release/luna-tab-host.exe --package portable --output evidence
+          if ($LASTEXITCODE -ne 0) { throw 'Embedding lifecycle failed; POC not accepted' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-tab-host-experimental-evidence
+          path: evidence
           if-no-files-found: error

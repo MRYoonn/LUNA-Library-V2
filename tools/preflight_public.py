@@ -1,14 +1,38 @@
 #!/usr/bin/env python3
 """Public LUNA release gate. Stop on any suspicious file or source content."""
 from pathlib import Path
+import hashlib
 import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "tests/native_dialog/windowstate.cpp",
+    "tools/probe_editor_lifetime_windows.py",
+    ".github/workflows/p0-editor-lifetime.yml",
+    "tools/Luna-Crash-Tools.ps1", "tools/Start-Luna-Crash-Diagnostics.ps1", "tools/Start-Luna-Crash-Diagnostics.cmd",
+    "tools/Analyze-Luna-Crash.ps1", "tools/Analyze-Luna-Crash.cmd", "tools/probe_crash_collector_windows.py",
+    "tests/crash_collector/CMakeLists.txt", "tests/crash_collector/main.cpp", "CRASH_DIAGNOSTICS_KO.md",
+    "tools/Start-Luna-Diagnostics.ps1", "tools/Start-Luna-Diagnostics.cmd",
+    "tools/probe_tabs_integration_windows.py",
+    "src/lunatabs.cpp", "src/lunatabs.h",
+    "experiments/native_tabs/prepare.py", "experiments/native_tabs/main.cpp",
+    "experiments/native_tabs/run_windows.py", "experiments/native_tabs/README.md",
+    "experiments/native_tabs/HANDOFF_KO.md",
+    "tests/test_native_tabs.py",
+    "tests/native_dialog/windows_job.py",
+    "src/lunapagegrid.h", "tests/native_dialog/pagegrid.cpp",
+    "experiments/tab_host/main.cpp", "experiments/tab_host/CMakeLists.txt",
+    "experiments/tab_host/README.md", "tools/probe_tab_host_windows.py",
     "README.md", "SECURITY_POLICY.md", "LICENSE_NOTICE.md", ".gitignore",
+    "USER_GUIDE_KO.md",
     ".github/workflows/build-windows.yml",
-    "src/lunalibrary.cpp", "src/lunalibrary.h",
+    "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunathumbnailcache.h",
+    "tests/native_dialog/thumbnails.cpp",
+    "src/lunafilemove.h", "tests/native_dialog/filemoves.cpp",
+    "src/lunadocumentclaim.h", "tests/native_dialog/documentclaims.cpp",
+    "tools/probe_documents_windows.py",
+    "tools/probe_research_windows.py",
     "tools/apply_overlay.py", "tools/preflight_public.py",
     "tests/test_public_gate.py",
     "tools/verify_portable.py", "tests/test_portable.py",
@@ -20,6 +44,8 @@ APPROVED = {
     "src/lunaeditorsmoke.cpp", "src/lunaeditorsmoke.h",
     "src/lunasavedialog.h", "tests/native_dialog/CMakeLists.txt", "tests/native_dialog/main.cpp",
 }
+APPROVED_BINARY = {'assets/icons/LUNA-Moon.ico': '5c1dec76af47b7c37e3d41e5fb05d62a02783f4f4af0247503096feb4cd7b51f', 'assets/icons/LUNA-Moon.png': '2d08386badd6d1d3a80f6d53213ccc53296fb46590a6c45b734a83e457aba4c3'}
+APPROVED.update(APPROVED_BINARY)
 FORBIDDEN = [
     ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)),
     ("phone", re.compile(r"(?<!\d)01[016789][-. ]?\d{3,4}[-. ]?\d{4}(?!\d)")),
@@ -50,6 +76,10 @@ def check(root=ROOT):
             continue
         if path.stat().st_size > 200_000:
             errors.append("Unexpected file size: " + name)
+            continue
+        if name in APPROVED_BINARY:
+            if hashlib.sha256(path.read_bytes()).hexdigest() != APPROVED_BINARY[name]:
+                errors.append("Unapproved icon content: " + name)
             continue
         try:
             data = path.read_text(encoding="utf-8")
@@ -83,5 +113,5 @@ if __name__ == "__main__":
     if failures:
         print("[BLOCK] PUBLIC RELEASE HALTED", file=sys.stderr)
         sys.exit(1)
-    print("[PASS] " + str(len(APPROVED)) + " public text files, no flagged private items")
+    print("[PASS] " + str(len(APPROVED)) + " approved source/icon files, no flagged private items")
     print("[NOTICE] Heuristic scan is not a guarantee of zero sensitive data.")

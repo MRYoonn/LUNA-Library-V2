@@ -108,6 +108,14 @@ jobs:
           ctest --test-dir $probe -C Release --verbose
           if ($LASTEXITCODE -ne 0) { throw "Native Qt probes failed" }
 
+      - name: Verify public DOI against live Crossref using the unchanged product module
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'luna-native-probes'
+          $env:PATH = "$env:QT_ROOT_DIR/bin;$env:PATH"
+          & "$probe/Release/luna-native-bibliography.exe" --live-crossref
+          if ($LASTEXITCODE -ne 0) { throw 'Live public DOI lookup failed; do not report Windows network verification as PASS' }
+
       - name: Compile isolated tab host without claiming POC execution
         shell: pwsh
         run: |

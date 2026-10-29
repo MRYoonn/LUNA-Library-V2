@@ -49,6 +49,29 @@ jobs:
           $cdb=Get-LunaCdb
           "LUNA_CDB=$cdb" >> $env:GITHUB_ENV
           New-Item -ItemType Directory -Force evidence | Out-Null
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+          cache: 'false'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Compile minimal Qt legacy-state ownership reproducer
+        shell: pwsh
+        run: |
+          $env:QT_FORCE_STDERR_LOGGING = '1'
+          cmake -S tests/native_dialog -B layout-fixture -G 'Visual Studio 17 2022' -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Layout fixture configuration failed' }
+          cmake --build layout-fixture --config Release --target luna-native-windowstate
+          if ($LASTEXITCODE -ne 0) { throw 'Layout fixture compilation failed' }
+          & layout-fixture/Release/luna-native-windowstate.exe --export-legacy evidence/legacy-state.json
+          if ($LASTEXITCODE -ne 0) { throw 'Legacy-state generation failed' }
+          & $env:LUNA_CDB -G -logo evidence/legacy-layout-cdb.log -c 'sxd -c2 ".echo LUNA_LAYOUT_AV;.exr -1;.ecxr;kv;q" av;g' layout-fixture/Release/luna-native-windowstate.exe --unsafe
+          $log=Get-Content evidence/legacy-layout-cdb.log -Raw
+          if ($log -notmatch '(?m)^LUNA_LAYOUT_AV\s*$' -or $log -notmatch 'QWidgetItem::isEmpty') { throw 'Exact Qt QWidgetItem legacy-layout crash was not reproduced; do not infer root cause' }
       - name: Compile disposable native AV fixture only
         shell: pwsh
         run: |
@@ -83,12 +106,20 @@ jobs:
             python -B tools/probe_editor_lifetime_windows.py original-b5 evidence/integrated --debugger "$env:LUNA_CDB"
             if ($LASTEXITCODE -ne 0) { throw 'Instrumented replay failed; inspect actual CDB stack, do not report P0 fixed' }
           } finally { & $gflags /p /disable LUNA.exe }
+      - name: Replay unchanged b5 with a synthetic legacy window state and require the actual QWidgetItem crash
+        shell: pwsh
+        run: |
+          python -B tools/probe_editor_lifetime_windows.py original-b5 evidence/legacy-baseline --debugger "$env:LUNA_CDB" --legacy-state evidence/legacy-state.json --expect-layout-crash
+          if ($LASTEXITCODE -ne 0) { throw 'Actual baseline legacy-state crash not established' }
       - name: Publish only synthetic-safe evidence, excluding every dump and private analysis
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: LUNA-P0-lifetime-evidence-synthetic-only
           path: |
+            evidence/legacy-state.json
+            evidence/legacy-layout-cdb.log
+            evidence/legacy-baseline/
             evidence/integrated/
             evidence/collector/collector-summary.json
             evidence/collector/capture-launcher.log

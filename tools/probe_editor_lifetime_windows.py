@@ -4,6 +4,7 @@ Runs the unchanged production EXE, no internal acceptance mode and no real PDFs.
 The full production regression remains in its existing build workflow.
 """
 import argparse
+import base64
 import ctypes
 from ctypes import wintypes
 import json
@@ -15,7 +16,7 @@ import tempfile
 import time
 from smoke_windows import synthetic_pdf
 
-def run(package, output, debugger):
+def run(package, output, debugger, legacy_state=None, expect_layout_crash=False):
     if os.name!='nt':raise RuntimeError('Actual Windows required')
     import winreg
     output.mkdir(parents=True,exist_ok=True)
@@ -73,12 +74,15 @@ def run(package, output, debugger):
                             try:winreg.DeleteValue(store,name)
                             except FileNotFoundError:pass
                             if name=='root':winreg.SetValueEx(store,name,0,winreg.REG_SZ,str(root))
+                            if name=='state' and legacy_state:
+                                winreg.SetValueEx(store,name,0,winreg.REG_BINARY,base64.b64decode(json.loads(legacy_state.read_text(encoding='utf-8-sig'))['stateBase64']))
                     env=dict(os.environ,QT_QPA_PLATFORM='windows',QT_SCALE_FACTOR=str(scale),QT_FORCE_STDERR_LOGGING='1')
                     system=Path(os.environ['SystemRoot']);env['PATH']=os.pathsep.join(map(str,(package,system/'System32',system)))
                     env.update(QT_PLUGIN_PATH=str(package),QT_QPA_PLATFORM_PLUGIN_PATH=str(package/'platforms'))
                     trace=case/'lifecycle.jsonl';debug_log=case/'cdb.log'
                     commands='sxd -c2 ".echo LUNA_UNHANDLED_ACCESS_VIOLATION;.exr -1;.ecxr;kv;~*kb;lm;q" av;sxe -c ".echo LUNA_HEAP_BREAK;kv;~*kb;q" bpe;sxe -c ".echo LUNA_DEBUGGEE_EXIT;.lastevent;q" epr;g'
                     result={'accepted':False,'qtScale':scale,'case':repeat+1,'input':'external Win32 keys and library-card double clicks; unchanged b5 EXE, no self-test mode','p0ActualPc':'UNRESOLVED'}
+                    result['legacyWindowStateSeeded']=bool(legacy_state)
                     child=None;main=None
                     def rows():
                         events=[]
@@ -149,6 +153,9 @@ def run(package, output, debugger):
                                 if main:user.PostMessageW(main,0x10,0,0)
                                 try:child.wait(timeout=30)
                                 except subprocess.TimeoutExpired:child.kill();child.wait()
+                    if expect_layout_crash and debug_log.exists():
+                        transcript=debug_log.read_text(errors='replace')
+                        result['baselineLayoutCrashReproduced']=bool(re.search(r'(?m)^LUNA_UNHANDLED_ACCESS_VIOLATION\s*$',transcript) and 'QWidgetItem::isEmpty' in transcript and any(r['event']=='editor-destroyed' and r.get('destroyedEditor')==1 for r in rows()))
                     (case/'result.json').write_text(json.dumps(result,indent=2),encoding='utf-8');results.append(result)
                     if not result['accepted']:break
             if results and not results[-1]['accepted']:break
@@ -160,9 +167,14 @@ def run(package, output, debugger):
                     except FileNotFoundError:pass
                 else:winreg.SetValueEx(store,name,0,previous[1],previous[0])
     accepted=len(results)==6 and all(r['accepted'] for r in results)
-    (output/'summary.json').write_text(json.dumps({'accepted':accepted,'runs':results,'scope':'focused synthetic library-open lifecycle replay under CDB/page heap; does not resolve actual-PC AV'},indent=2),encoding='utf-8')
+    reproduced=bool(expect_layout_crash and len(results)==1 and results[0].get('baselineLayoutCrashReproduced'))
+    (output/'summary.json').write_text(json.dumps({'accepted':accepted,'baselineLayoutCrashReproduced':reproduced,'runs':results,'scope':'focused synthetic library-open lifecycle replay under CDB/page heap; does not resolve actual-PC AV'},indent=2),encoding='utf-8')
+    if expect_layout_crash:
+        if not reproduced:raise RuntimeError('Exact baseline layout crash was not reproduced')
+        return
     if not accepted:raise RuntimeError('Focused lifetime replay failed; inspect native CDB evidence')
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('package',type=Path);p.add_argument('output',type=Path);p.add_argument('--debugger',type=Path,required=True)
-    a=p.parse_args();run(a.package.resolve(strict=True),a.output.resolve(),a.debugger.resolve(strict=True))
+    p.add_argument('--legacy-state',type=Path);p.add_argument('--expect-layout-crash',action='store_true')
+    a=p.parse_args();run(a.package.resolve(strict=True),a.output.resolve(),a.debugger.resolve(strict=True),a.legacy_state,a.expect_layout_crash)

@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: MIT
+// Disposable reproduction of legacy window-state restoration across nested windows.
+#include <QApplication>
+#include <QDockWidget>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QLayout>
+#include <QMainWindow>
+#include <QTabWidget>
+#include <QToolBar>
+#include <QDebug>
+
+int main(int argc, char** argv) {
+    QApplication app(argc, argv);
+    app.setQuitOnLastWindowClosed(false);
+    QMainWindow legacy;
+    auto* original = new QToolBar(&legacy);
+    original->setObjectName(QStringLiteral("mainToolBar"));
+    legacy.addToolBar(original);
+    const QByteArray state = legacy.saveState();
+    if (app.arguments().size() == 3 && app.arguments().at(1) == "--export-legacy") {
+        QFile file(app.arguments().at(2));
+        if (!file.open(QIODevice::WriteOnly)) return 2;
+        file.write(QJsonDocument(QJsonObject{{"stateBase64", QString::fromLatin1(state.toBase64())},
+                                           {"qt", QString::fromLatin1(qVersion())}}).toJson());
+        return 0;
+    }
+    QMainWindow shell;
+    auto* tabs = new QTabWidget(&shell); shell.setCentralWidget(tabs);
+    auto* editor = new QMainWindow(tabs);
+    auto* bar = new QToolBar(editor); bar->setObjectName(QStringLiteral("mainToolBar"));
+    editor->addToolBar(bar); bar->addAction(QStringLiteral("Synthetic PDF action"));
+    tabs->addTab(editor, QStringLiteral("A"));
+    if (!shell.restoreState(state)) return 3;
+    const bool adopted = shell.toolBarArea(bar) != Qt::NoToolBarArea;
+    qInfo() << "qt" << qVersion() << "legacyStateAdoptedNestedToolbar" << adopted
+            << "toolbarParentStillEditor" << (bar->parentWidget() == editor)
+            << "editorStillOwnsLayoutItem" << (editor->toolBarArea(bar) != Qt::NoToolBarArea);
+    shell.show(); app.processEvents();
+    if (!app.arguments().contains("--unsafe")) {
+        // Diagnostic control only: leave the shared widget valid for both layouts.
+        // The unsafe mode intentionally demonstrates the dangling shell item.
+        if (adopted) shell.removeToolBar(bar);
+    }
+    tabs->removeTab(0); editor->deleteLater();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    qInfo() << "editor deleted; dispatching posted shell layout";
+    shell.layout()->invalidate(); app.processEvents();
+    qInfo() << "shell minimum" << shell.layout()->totalMinimumSize();
+    return 0;
+}

@@ -182,9 +182,11 @@ public:
         const auto* msg = static_cast<MSG*>(message);
         const bool shell = msg->hwnd == reinterpret_cast<HWND>(effectiveWinId());
         if (msg->message == WM_QUIT || (shell && (msg->message == WM_CLOSE || msg->message == WM_DESTROY ||
-            msg->message == WM_NCDESTROY || msg->message == WM_SYSCOMMAND)) ||
-            (msg->message == WM_KEYDOWN && msg->wParam == 'W' && (GetKeyState(VK_CONTROL) & 0x8000))) {
+            msg->message == WM_NCDESTROY || msg->message == WM_SYSCOMMAND || msg->message == WM_SHOWWINDOW)) ||
+            ((msg->message == WM_KEYDOWN || msg->message == WM_KEYUP) && msg->wParam == 'W')) {
             setProperty("LunaNativeMessage", int(msg->message)); setProperty("LunaNativeCommand", int(msg->wParam));
+            setProperty("LunaNativeRepeat", bool(msg->lParam & (1L << 30)));
+            setProperty("LunaNativeControl", bool(GetKeyState(VK_CONTROL) & 0x8000));
             trace(shell ? "native-shell-message" : "native-input-or-quit-message");
         }
 #else
@@ -234,6 +236,9 @@ public:
             {"destroyedEditor", property("LunaLastDestroyedEditor").toInt()},
             {"openOrigin", property("LunaOpenOrigin").toString()}, {"requestedDocumentId", property("LunaRequestedDocument").toString()},
             {"minimized", isMinimized()}};
+        row["qtAutoRepeat"] = property("LunaAutoRepeat").toBool();
+        row["nativePreviousKeyDown"] = property("LunaNativeRepeat").toBool();
+        row["nativeControlDown"] = property("LunaNativeControl").toBool();
 #ifdef Q_OS_WIN
         DWORD processCode = 0;
         row["nativeProcessActive"] = bool(GetExitCodeProcess(GetCurrentProcess(), &processCode)) && processCode == STILL_ACTIVE;
@@ -442,6 +447,7 @@ private:
         for (const auto& path : paths) open(path, "file-dialog");
     }
     bool eventFilter(QObject* object, QEvent* event) override {
+        if (event->type() == QEvent::KeyRelease && static_cast<QKeyEvent*>(event)->key() == Qt::Key_W) trace("ctrl-w-release", current());
         if (event->type() == QEvent::Show || event->type() == QEvent::Hide || event->type() == QEvent::WindowStateChange) {
             if (object == this) trace(event->type() == QEvent::Show ? "shell-show" : event->type() == QEvent::Hide ? "shell-hide" : "shell-window-state");
             else if (auto* editor = qobject_cast<Editor*>(object)) trace(event->type() == QEvent::Show ? "editor-show" : event->type() == QEvent::Hide ? "editor-hide" : "editor-window-state", editor);
@@ -459,6 +465,7 @@ private:
                     if (ancestor == windowHandle()) { ownedInput = true; break; }
             }
             if (event->type() == QEvent::KeyPress && key->key() == Qt::Key_W && key->modifiers() == Qt::ControlModifier) {
+                setProperty("LunaAutoRepeat", key->isAutoRepeat());
                 setProperty("LunaKeyTarget", QString::fromLatin1(object->metaObject()->className())); trace("ctrl-w-arrival", current());
             }
             // Intercept Ctrl+W before native Editor shortcuts and ensure it is
@@ -491,7 +498,7 @@ private:
         if (QApplication::activeModalWidget()) { event->ignore(); return; }
         for (const auto& s : sessions_) {
             activate(s->editor); auto* c = s->editor->getProgramController();
-            if (!c->canClose() || !c->askForSaveDocumentBeforeClose()) { event->ignore(); return; }
+            if (!c->canClose() || !c->askForSaveDocumentBeforeClose()) { trace("shell-close-denied", s->editor); event->ignore(); return; }
         }
         closing_ = true; setProperty("LunaClosing", true); poll_.stop();
         qApp->removeEventFilter(this);

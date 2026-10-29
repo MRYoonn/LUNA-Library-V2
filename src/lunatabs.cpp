@@ -52,6 +52,7 @@
 #include <QJsonObject>
 #include <QLineEdit>
 #include <QInputDialog>
+#include <QPlainTextEdit>
 #include <QLabel>
 #include <QListWidget>
 #include <QListView>
@@ -700,6 +701,54 @@ static void integrationDirectory(QFileDialog* dialog, const QString& path) {
     if (auto* field = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) field->setText(QStringLiteral("."));
     QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
 }
+static QPair<QString,QColor> integrationNoteState(Editor* editor) {
+    for (const auto& item : editor->getProgramController()->getPdfWidget()->getAnnotationManager()->getPageAnnotations(0).annotations)
+        if (item.annotation->getType() == pdf::AnnotationType::Text) return {item.annotation->getContents(),item.annotation->getDrawColorFromAnnotationColor(item.annotation->getColor(),1.0)};
+    return {};
+}
+static void integrationColoredNote(NativeTabs& host, Editor* editor, const QString& report) {
+    auto* c = editor->getProgramController(); auto* proxy = c->getPdfWidget()->getDrawWidgetProxy(); auto* surface = integrationSurface(editor);
+    const auto snapshot = proxy->getSnapshot(); const auto* page = snapshot.getPageSnapshot(0);
+    integrationRequire(page, "Note creation page is not visible"); const QPoint point = page->pageToDeviceMatrix.map(QPointF(150,195)).toPoint();
+    integrationRequire(surface->rect().contains(point), "Native note point is outside the actual viewport");
+    bool entered = false; QTimer input;
+    QObject::connect(&input,&QTimer::timeout,&host,[&] {
+        if (entered) return;
+        if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) if (auto* field = dialog->findChild<QLineEdit*>(); field && field->hasFocus()) {
+            entered = integrationType(QStringLiteral("PDF 메모 A")) && integrationKey(VK_RETURN);
+        }
+    }); input.start(30); editor->findChild<QAction*>("actionStickyNoteComment")->trigger();
+    integrationMove(host,surface,point); QCoreApplication::processEvents(); integrationClick(host,surface,point);
+    QPlainTextEdit* text = nullptr;
+    const bool created = integrationWait([&] { for (auto* candidate : editor->findChildren<QPlainTextEdit*>("LunaStickyContents")) if (candidate->isVisible() && candidate->toPlainText() == QStringLiteral("PDF 메모 A")) text = candidate; return entered && text; }); input.stop();
+    integrationRequire(created, "Real note creation did not display expanded contents");
+    const QString revised = QStringLiteral("PDF 메모 A · 수정");
+    integrationRequire(integrationClick(host,text,text->rect().center()) && integrationKey('A',true) && integrationType(revised) && integrationWait([&] { return integrationNoteState(editor).first == revised; }), "Real inline note typing was not committed to the native document");
+    integrationRequire(integrationKey('Z',true) && integrationWait([&] { return integrationNoteState(editor).first != revised; }), "Real note Ctrl+Z did not undo native contents");
+    integrationRequire(integrationKey('Y',true) && integrationWait([&] { return integrationNoteState(editor).first == revised; }), "Real note Ctrl+Y did not redo native contents");
+    auto* color = text->parentWidget()->findChild<QToolButton*>("LunaStickyColor"); bool chosen = false; QTimer palette;
+    QObject::connect(&palette,&QTimer::timeout,&host,[&] {
+        if (chosen) return;
+        if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget()); menu && menu->isVisible())
+            for (auto* option : menu->actions()) if (option->text() == "#ffe0eb") { menu->setActiveAction(option); chosen = integrationKey(VK_RETURN); palette.stop(); break; }
+    }); palette.start(30); integrationRequire(color && integrationClick(host,color,color->rect().center()), "Real note color button click failed");
+    const bool colored = integrationWait([&] { return chosen && integrationNoteState(editor).second == QColor("#ffe0eb"); }); palette.stop();
+    if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) menu->close();
+    integrationRequire(colored, "Real note palette did not persist the selected color");
+    host.screen()->grabWindow(0).save(report + ".colored-note-real-input.png");
+    auto* select = editor->findChild<QAction*>("actionSelectText"); if (!select->isChecked()) select->trigger(); surface->setFocus();
+    const pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(0); const auto& chars = layout.getTextBlocks().front().getLines().front().getCharacters();
+    const auto currentSnapshot = proxy->getSnapshot(); const auto matrix = currentSnapshot.getPageSnapshot(0)->pageToDeviceMatrix;
+    const QPoint from = matrix.map(chars[0].boundingBox.boundingRect().center()-QPointF(1,0)).toPoint(), to = matrix.map(chars[7].boundingBox.boundingRect().center()+QPointF(1,-2)).toPoint();
+    integrationMouse(surface,QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton); integrationMouse(surface,QEvent::MouseMove,to,Qt::NoButton,Qt::LeftButton); integrationMouse(surface,QEvent::MouseButtonRelease,to,Qt::LeftButton,Qt::NoButton);
+    auto* erase = editor->findChild<QAction*>("LunaEraseHighlightSelection"); integrationRequire(integrationWait([&] { return erase->isEnabled(); }), "Note coexistence eraser did not enable");
+    auto* eraseButton = editor->findChild<QToolBar*>("mainToolBar")->widgetForAction(erase);
+    integrationRequire(integrationClick(host,eraseButton,eraseButton->rect().center()) && integrationWait([&] { return integrationHighlights(editor) == 0; }), "Range erase did not remove the highlight");
+    integrationRequire(integrationNoteState(editor) == qMakePair(revised,QColor("#ffe0eb")), "Range erase changed or deleted a text note");
+    editor->findChild<QAction*>("actionUndo")->trigger(); integrationRequire(integrationWait([&] { return integrationHighlights(editor) == 1; }), "Range erase undo did not restore highlight");
+    editor->findChild<QAction*>("actionRedo")->trigger(); integrationRequire(integrationWait([&] { return integrationHighlights(editor) == 0; }) && integrationNoteState(editor).first == revised, "Range erase redo altered the note");
+    editor->findChild<QAction*>("actionUndo")->trigger(); integrationRequire(integrationWait([&] { return integrationHighlights(editor) == 1; }), "Range erase cleanup lost highlight");
+}
 static QListWidget* integrationList(NativeTabs& host, const QString& path, QListWidgetItem** found) {
     auto* pages = host.findChild<QStackedWidget*>(QStringLiteral("LunaDocumentPages"));
     if (!pages) return nullptr;
@@ -795,8 +844,15 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         if (restore) {
             integrationRequire(paper->data(Qt::UserRole + 4).toString() == memo, "Paper memo did not survive process restart");
             integrationRequire(integrationHighlights(a) == 1, "Saved A highlight did not survive process restart");
-            const QString thumb = QFileInfo(files[0]).absolutePath() + "/A.luna-thumb.png";
+            const QFileInfo restored(files[0]);
+            const QString thumb = restored.absolutePath() + "/" + restored.completeBaseName() + ".luna-thumb.png";
             integrationRequire(QFileInfo::exists(thumb) && !QImage(thumb).isNull(), "Moved thumbnail missing after restart");
+            integrationRequire(integrationNoteState(a) == qMakePair(QStringLiteral("PDF 메모 A · 수정"), QColor("#ffe0eb")), "Saved PDF note contents/color did not survive fresh EXE restart");
+            bool noteOpen = false;
+            for (const auto& item : a->getProgramController()->getPdfWidget()->getAnnotationManager()->getPageAnnotations(0).annotations)
+                if (item.annotation->getType() == pdf::AnnotationType::Text) noteOpen = static_cast<const pdf::PDFTextAnnotation*>(item.annotation.get())->isOpen();
+            integrationRequire(noteOpen && integrationWait([&] { for (auto* text : a->findChildren<QPlainTextEdit*>("LunaStickyContents")) if (text->isVisible() && text->toPlainText() == QStringLiteral("PDF 메모 A · 수정")) return true; return false; }), "Saved note did not reopen expanded in the fresh EXE");
+            result["freshProcessPdfNoteContentsColorAndExpandedState"] = true;
             result["freshProcessMemoPdfAndThumbnail"] = true;
         } else {
             integrationRequire(files.size() == 2, "Initial integrated fixture requires A and B");
@@ -928,8 +984,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationMouse(overlay, QEvent::MouseButtonRelease, {200, 200}, Qt::LeftButton, Qt::NoButton);
             integrationRequire(integrationWait([&] { return QFileInfo::exists(thumbnail) && !QImage(thumbnail).isNull(); }) && !QFileInfo::exists(QFileInfo(files[1]).absolutePath() + "/B.luna-thumb.png"), "Crop wrote to the wrong PDF or no image");
             result["activeNativePagesAndCrop"] = true;
-            phase("A highlight and real Ctrl+S"); integrationHighlight(host, a, report); result["realDragBlueBorderlessSelectionAndCtrlC"] = true; result["selectionFirstHighlightLongPressPartialEraseUndoRedo"] = a->property("LunaSelectionHighlightErasePassed").toBool(); result["partialHighlightSavedAndReadFromDisk"] = a->property("LunaPartialHighlightDiskPassed").toBool();
-            integrationRequire(integrationHighlights(b) == 0, "Integrated A annotation crossed to B");
+            phase("A highlight and real Ctrl+S"); integrationHighlight(host, a, report); integrationColoredNote(host,a,report); result["realNoteInputPaletteNativeUndoAndHighlightOnlyErase"] = true; result["realDragBlueBorderlessSelectionAndCtrlC"] = true; result["selectionFirstHighlightLongPressPartialEraseUndoRedo"] = a->property("LunaSelectionHighlightErasePassed").toBool(); result["partialHighlightSavedAndReadFromDisk"] = a->property("LunaPartialHighlightDiskPassed").toBool();
+            integrationRequire(integrationHighlights(b) == 0 && integrationNoteState(b).first.isEmpty(), "Integrated A annotation crossed to B");
             integrationRequire(integrationWait([&] { return ready(a); }), "A remained busy before close-cancel check");
             int cancelled = 0; QTimer cancel;
             QObject::connect(&cancel, &QTimer::timeout, &host, [&] {

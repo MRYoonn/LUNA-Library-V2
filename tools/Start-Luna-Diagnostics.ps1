@@ -1,6 +1,10 @@
 # Local P0 reproduction collector. Does not upload anything or copy PDFs/settings.
 param([string]$OutputDirectory = '', [switch]$NoPause)
 $ErrorActionPreference = 'Stop'
+# A launcher may inherit PowerShell 7's module search path. Restore the native
+# Windows PowerShell module roots before using Utility/Archive cmdlets.
+$nativeModules = @((Join-Path $PSHOME 'Modules'), (Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules'))
+$env:PSModulePath = (($nativeModules + @($env:PSModulePath -split ';')) | Select-Object -Unique) -join ';'
 $package = $PSScriptRoot
 if (!(Test-Path (Join-Path $package 'LUNA.exe'))) { throw 'Keep this script next to LUNA.exe.' }
 if (!$OutputDirectory) { $OutputDirectory = Join-Path ([Environment]::GetFolderPath('Desktop')) ('LUNA-Diagnostics-' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
@@ -8,7 +12,10 @@ New-Item -ItemType Directory -Path $OutputDirectory -ErrorAction Stop | Out-Null
 $trace = Join-Path $OutputDirectory 'lifecycle.jsonl'
 $start = [DateTime]::UtcNow
 Copy-Item (Join-Path $package 'build-info.json') (Join-Path $OutputDirectory 'build-info.json')
-$exeHash = (Get-FileHash -LiteralPath (Join-Path $package 'LUNA.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+$hashStream = [IO.File]::OpenRead((Join-Path $package 'LUNA.exe'))
+$hasher = [Security.Cryptography.SHA256]::Create()
+try { $exeHash = ([BitConverter]::ToString($hasher.ComputeHash($hashStream))).Replace('-','').ToLowerInvariant() }
+finally { $hashStream.Dispose(); $hasher.Dispose() }
 Write-Host 'Save and close other LUNA windows before reproducing here, so another process does not own the PDFs.'
 Write-Host 'Reproduce Ctrl+W with zero, one and multiple PDFs, including search focus. Then close LUNA normally if it stays open.'
 Write-Host 'Logs stay on this PC. No PDF, thumbnail, memo or settings are copied.'

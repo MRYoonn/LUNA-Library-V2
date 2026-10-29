@@ -8,6 +8,7 @@
 #include "pdfdrawwidget.h"
 #include "pdfdrawspacecontroller.h"
 #include <QApplication>
+#include <QAbstractNativeEventFilter>
 #include <QAction>
 #include <QCloseEvent>
 #include <QDialog>
@@ -93,10 +94,11 @@ struct Session {
     bool loading = false, dispatchingOpen = false;
     std::unique_ptr<DocumentClaim> claim, saveClaim;
 };
-class NativeTabs final : public QMainWindow {
+class NativeTabs final : public QMainWindow, public QAbstractNativeEventFilter {
 public:
     ~NativeTabs() override {
         trace("shell-destroy"); poll_.stop(); qApp->removeEventFilter(this);
+        qApp->removeNativeEventFilter(this);
         QObject::disconnect(qApp, nullptr, this, nullptr);
         for (auto* editor : findChildren<Editor*>()) {
             QObject::disconnect(editor, nullptr, this, nullptr);
@@ -105,6 +107,7 @@ public:
     }
     NativeTabs() {
         setObjectName(QStringLiteral("LunaNativeTabs"));
+        qApp->installNativeEventFilter(this);
         setWindowTitle(QStringLiteral("LUNA Library"));
         setWindowIcon(QApplication::windowIcon());
         connect(qApp, &QCoreApplication::aboutToQuit, this, [this] { setProperty("LunaAboutToQuit", property("LunaAboutToQuit").toInt() + 1); trace("about-to-quit"); });
@@ -171,6 +174,21 @@ public:
         activateCurrent();
     }
     Editor* current() const { return qobject_cast<Editor*>(tabs_->currentWidget()); }
+    bool nativeEventFilter(const QByteArray&, void* message, qintptr*) override {
+#ifdef Q_OS_WIN
+        const auto* msg = static_cast<MSG*>(message);
+        const bool shell = msg->hwnd == reinterpret_cast<HWND>(effectiveWinId());
+        if (msg->message == WM_QUIT || (shell && (msg->message == WM_CLOSE || msg->message == WM_DESTROY ||
+            msg->message == WM_NCDESTROY || msg->message == WM_SYSCOMMAND)) ||
+            (msg->message == WM_KEYDOWN && msg->wParam == 'W' && (GetKeyState(VK_CONTROL) & 0x8000))) {
+            setProperty("LunaNativeMessage", int(msg->message)); setProperty("LunaNativeCommand", int(msg->wParam));
+            trace(shell ? "native-shell-message" : "native-input-or-quit-message");
+        }
+#else
+        Q_UNUSED(message);
+#endif
+        return false;
+    }
     Editor* open(const QString& path) {
         const QFileInfo file(path);
         if (!file.isFile() || file.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive)) {
@@ -199,7 +217,9 @@ public:
         QJsonObject row{{"ctrlWKeys", property("LunaCtrlWKeys").toInt()}, {"keyTarget", property("LunaKeyTarget").toString()}, {"event", QString::fromLatin1(event)}, {"time", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
             {"visible", isVisible()}, {"closing", closing_}, {"tabs", tabs_ ? tabs_->count() : 0},
             {"documents", documentCount()}, {"creations", property("LunaEditorCreations").toInt()},
-            {"quitOnLastWindowClosed", qApp->quitOnLastWindowClosed()}};
+            {"quitOnLastWindowClosed", qApp->quitOnLastWindowClosed()},
+            {"pid", qApp->applicationPid()}, {"nativeMessage", property("LunaNativeMessage").toInt()},
+            {"nativeCommand", property("LunaNativeCommand").toInt()}};
 #ifdef Q_OS_WIN
         DWORD processCode = 0;
         row["nativeProcessActive"] = bool(GetExitCodeProcess(GetCurrentProcess(), &processCode)) && processCode == STILL_ACTIVE;
@@ -307,6 +327,9 @@ private:
             if (auto* action = editor->findChild<QAction*>(QString::fromLatin1(name))) action->setShortcut({});
         for (auto* action : editor->findChildren<QAction*>()) if (!action->shortcut().isEmpty()) {
             editor->addAction(action); action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+            if (action->shortcuts().contains(QKeySequence("Ctrl+W")) || action->shortcuts().contains(QKeySequence("Ctrl+Q"))) {
+                setProperty("LunaKeyTarget", action->objectName()); trace("competing-editor-close-shortcut", editor);
+            }
         }
         connect(editor, &QWidget::windowTitleChanged, this, [this, editor] { QTimer::singleShot(0, editor, [this, editor] { updateTitle(editor); }); });
         connect(controller, &pdfviewer::PDFProgramController::lunaSavePathRequested, this, [this, editor](const QString& path, bool* allowed) {

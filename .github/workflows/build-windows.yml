@@ -317,6 +317,10 @@ jobs:
           Copy-Item 'pdf4qt/3rdparty_licenses' "$output/third_party_licenses" -Recurse
           Copy-Item 'LICENSE_NOTICE.md' "$output/LUNA_LICENSE_NOTICE.md"
           Copy-Item 'USER_GUIDE_KO.md' "$output/USER_GUIDE_KO.md"
+          Copy-Item 'tools/Start-Luna-Diagnostics.*' $output
+          $diagnosticTokens = $null; $diagnosticErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $output 'Start-Luna-Diagnostics.ps1'), [ref]$diagnosticTokens, [ref]$diagnosticErrors) | Out-Null
+          if ($diagnosticErrors.Count) { throw 'Diagnostic launcher PowerShell syntax failed' }
           @{ product = 'LUNA Library'; status = 'development verification'; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; validation = 'pending' } | ConvertTo-Json | Set-Content -Encoding utf8 "$output/build-info.json"
           # App-local redistributable DLLs make this portable on a clean PC.
           # windeployqt's release --compiler-runtime bundles a separate installer,

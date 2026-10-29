@@ -545,8 +545,10 @@ static bool integrationType(const QString& text) {
     return true;
 }
 static bool integrationMove(NativeTabs& host, QWidget* widget, QPoint point) {
-    const QPoint local = widget->mapTo(&host, point); POINT physical{0, 0}; ClientToScreen(reinterpret_cast<HWND>(host.winId()), &physical);
-    physical.x += qRound(local.x() * host.devicePixelRatioF()); physical.y += qRound(local.y() * host.devicePixelRatioF());
+    QWidget* nativeWindow = widget->window(); if (!nativeWindow) nativeWindow = &host;
+    const QPoint local = widget->mapTo(nativeWindow, point); POINT physical{0, 0};
+    if (!ClientToScreen(reinterpret_cast<HWND>(nativeWindow->winId()), &physical)) return false;
+    physical.x += qRound(local.x() * nativeWindow->devicePixelRatioF()); physical.y += qRound(local.y() * nativeWindow->devicePixelRatioF());
     return SetCursorPos(physical.x, physical.y);
 }
 static bool integrationClick(NativeTabs& host, QWidget* widget, QPoint point, bool right = false) {
@@ -622,15 +624,20 @@ static void integrationHighlight(NativeTabs& host, Editor* e, const QString& rep
     integrationRequire(apply && erase && integrationWait([&] { return apply->isEnabled(); }), "Selection-first highlighter did not become enabled");
     auto* applyButton = qobject_cast<QToolButton*>(bar->widgetForAction(apply));
     integrationRequire(applyButton && applyButton->isVisible(), "Selection highlighter button is unavailable");
-    bool paletteChosen = false; QTimer choosePalette, paletteDeadline; paletteDeadline.setSingleShot(true);
+    bool paletteChosen = false, popupSettled = false; QTimer choosePalette, paletteDeadline; paletteDeadline.setSingleShot(true);
     QObject::connect(&choosePalette, &QTimer::timeout, &host, [&] {
-        if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget()); menu && menu->objectName() == "LunaHighlightColors")
+        if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget()); menu && menu->isVisible() && IsWindowVisible(reinterpret_cast<HWND>(menu->winId())) && menu->objectName() == "LunaHighlightColors") {
+            if (!popupSettled) { popupSettled = true; return; }
             for (auto* option : menu->actions()) if (option->text() == "#e9ddff") {
+                if (!menu->actionGeometry(option).isValid()) return;
                 host.screen()->grabWindow(0).save(report + ".highlight-palette.png");
                 if (!integrationMove(host, menu, menu->actionGeometry(option).center())) return;
+                choosePalette.stop();
+                if (!integrationWait([&] { return menu->activeAction() == option; },1000)) return;
                 INPUT release{}; release.type = INPUT_MOUSE; release.mi.dwFlags = MOUSEEVENTF_LEFTUP;
                 paletteChosen = SendInput(1,&release,sizeof(INPUT)) == 1; choosePalette.stop(); break;
             }
+        }
     });
     QObject::connect(&paletteDeadline, &QTimer::timeout, &host, [&] { if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) menu->close(); });
     choosePalette.start(30); paletteDeadline.start(5000);

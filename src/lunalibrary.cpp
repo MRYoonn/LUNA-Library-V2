@@ -146,6 +146,7 @@ public:
         if (element == CE_MenuBarEmptyArea) { painter->fillRect(option->rect, QColor(kCANVAS)); return; }
         if (element == CE_MenuBarItem) if (const auto* item = qstyleoption_cast<const QStyleOptionMenuItem*>(option)) {
             painter->save(); painter->setRenderHint(QPainter::Antialiasing);
+            painter->fillRect(item->rect, QColor(kCANVAS));
             if (item->state & (State_Selected | State_MouseOver | State_Sunken)) {
                 painter->setPen(Qt::NoPen); painter->setBrush(QColor(kSELECTION)); painter->drawRoundedRect(item->rect, 4, 4);
             }

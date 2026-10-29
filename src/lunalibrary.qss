@@ -1,4 +1,11 @@
 /* LUNA light theme. @TOKENS@ are expanded from the shared C++ palette. */
+QMenuBar { background:@CANVAS@; color:@TEXT@; border:0; }
+QMenu { background:@PANEL@; color:@TEXT@; border:1px solid @LINE@; padding:4px; }
+QMenu::item { padding:6px 26px 6px 22px; border-radius:4px; }
+QMenu::item:selected { background:@SELECTION@; color:@NAVY@; }
+QMenu::item:disabled { color:@MUTED@; }
+QMenu::separator { height:1px; background:@LINE@; margin:4px 8px; }
+QLabel#LunaBrand, QLabel#LunaBrandIcon { background:transparent; }
 QWidget#LunaLibraryPanel { background:@CANVAS@; color:@TEXT@; font-family:"Segoe UI","Malgun Gothic"; font-size:13px; }
 QWidget#LunaNavigation { background:@CANVAS@; border-right:1px solid @LINE@; }
 QWidget#LunaNavigationContents { background:@CANVAS@; border:0; }

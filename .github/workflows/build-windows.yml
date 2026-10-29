@@ -43,6 +43,9 @@ concurrency:
 jobs:
   p0-lifetime-debug:
     if: inputs.p0_lifetime_debug
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/p0-editor-lifetime.yml
 
   windows-packaging-preflight:

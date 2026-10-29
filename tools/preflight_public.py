@@ -7,6 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "tools/compare_ui_reference.py",
     ".gitattributes",
     "assets/icons/ui-library.svg",
     "tools/capture_ui_reference_windows.mjs",

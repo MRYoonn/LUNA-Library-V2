@@ -35,7 +35,7 @@ public:
         auto* temporarySelection = selectionModel();
         setSelectionModel(native.selectionModel());
         if (temporarySelection && temporarySelection != selectionModel() && temporarySelection->parent() == this) temporarySelection->deleteLater();
-        thumbnailSize_(qMax(24, iconSize().width())); doItemsLayout(); scheduleLayout();
+        thumbnailSize_(qMax(24, qMax(iconSize().width(), iconSize().height()))); doItemsLayout(); scheduleLayout();
     }
 protected:
     void resizeEvent(QResizeEvent* event) override {
@@ -60,11 +60,16 @@ private:
             // especially when a hidden stacked page becomes visible. Measure
             // the settled viewport, and leave rounding room at the row edge.
             const int cell = qMax(40, (viewport()->width() - 2) / 2);
-            const QSize grid(cell, cell + 30);
+            // The approved HTML caps page-paper width at 112px, with a
+            // portrait preview slot. The native model still supplies the real
+            // page image/aspect ratio; this only sizes the two-column cells.
+            const int previewWidth = qMin(112, cell - 16);
+            const int previewHeight = qRound(previewWidth / .72);
+            const QSize grid(cell, previewHeight + 38);
             if (gridSize() == grid) return;
             setGridSize(grid);
-            setIconSize(QSize(cell - 16, cell - 16));
-            thumbnailSize_(cell - 16);
+            setIconSize(QSize(previewWidth, previewHeight));
+            thumbnailSize_(previewHeight);
             doItemsLayout();
         });
     }

@@ -39,7 +39,7 @@ def run(package, output):
                 reports = []
                 for phase in ('edit', 'restore'):
                     report = evidence / (phase + '.json')
-                    target = a if phase == 'edit' else root / 'Moved' / 'A.pdf'
+                    target = a if phase == 'edit' else Path(reports[0]['movedPdf'])
                     command = [str(package / 'LUNA.exe'), '--luna-tabs-report', str(report)]
                     if phase == 'restore':
                         command += ['--luna-tabs-restore', str(target)]

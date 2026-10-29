@@ -55,6 +55,17 @@ int main(int argc, char** argv) {
     QFile::remove(movedPdf);
     if (luna::movePdfWithThumbnails(pdf, target).success || read(pdf) != document || read(movedPng) != thumbnail)
         return fail("PDF-only move adopted an unrelated destination thumbnail");
-    qInfo() << "[PASS] Unicode/long paths, same-volume paired moves, collisions, missing paths, rollback and rollback failure preserve bytes";
+    const QString renamePdf = root + "/rename.pdf", renamePng = root + "/rename.luna-thumb.png";
+    if (!write(renamePdf, document) || !write(renamePng, thumbnail)) return fail("Rename fixture failed");
+    for (const QString& bad : QStringList{"CON", "AUX.pdf", "COM1", "bad/name", "bad:name", "a.", "a ", ""})
+        if (!luna::pdfRenameFileName(bad).isEmpty()) return fail("Invalid Windows name accepted");
+    const QString renamed = root + QStringLiteral("/새 이름.pdf"), renamedPng = root + QStringLiteral("/새 이름.luna-thumb.png");
+    if (!write(renamed, "occupied")) return fail("Rename collision fixture failed");
+    if (luna::movePdfWithThumbnails(renamePdf, root, luna::renameWithoutReplacement, "새 이름.pdf").success || read(renamePdf) != document || read(renamePng) != thumbnail || read(renamed) != "occupied") return fail("Rename collision lost data");
+    QFile::remove(renamed);
+    auto failRenamePdf = [&](const QString& from, const QString& to) { return from != renamePdf && luna::renameWithoutReplacement(from, to); };
+    if (luna::movePdfWithThumbnails(renamePdf, root, failRenamePdf, "새 이름").success || read(renamePdf) != document || read(renamePng) != thumbnail || QFileInfo::exists(renamedPng)) return fail("Rename rollback failed");
+    if (!luna::movePdfWithThumbnails(renamePdf, root, luna::renameWithoutReplacement, "새 이름").success || read(renamed) != document || read(renamedPng) != thumbnail || QFileInfo::exists(renamePdf) || QFileInfo::exists(renamePng)) return fail("Paired rename lost data");
+    qInfo() << "[PASS] Unicode/long paths, paired move/rename, invalid names, collisions and rollback preserve bytes";
     return 0;
 }

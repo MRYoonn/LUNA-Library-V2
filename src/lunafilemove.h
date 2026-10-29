@@ -14,6 +14,15 @@
 #endif
 
 namespace luna {
+inline QString pdfRenameFileName(QString name) {
+    if (name.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)) name.chop(4);
+    if (name.isEmpty() || name.endsWith(' ') || name.endsWith('.') || name == "." || name == "..") return {};
+    for (const QChar ch : name) if (ch.unicode() < 32 || QStringLiteral("<>:\"/\\|?*").contains(ch)) return {};
+    const QString device = name.section('.', 0, 0).toUpper();
+    if (QStringList{"CON", "PRN", "AUX", "NUL"}.contains(device) ||
+        (device.size() == 4 && (device.startsWith("COM") || device.startsWith("LPT")) && device[3] >= '1' && device[3] <= '9')) return {};
+    return name + QStringLiteral(".pdf");
+}
 struct FileMoveResult {
     bool success = false;
     QString documentPath;
@@ -43,7 +52,8 @@ inline bool renameWithoutReplacement(const QString& from, const QString& to) {
 }
 
 inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& directory,
-    const std::function<bool(const QString&, const QString&)>& rename = renameWithoutReplacement) {
+    const std::function<bool(const QString&, const QString&)>& rename = renameWithoutReplacement,
+    const QString& renamedFile = {}) {
     FileMoveResult result;
     const QFileInfo source(path), folder(directory);
     result.documentPath = source.absoluteFilePath();
@@ -54,13 +64,16 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
     }
     const QString targetRoot = folder.canonicalFilePath();
     const QString originalRoot = source.canonicalPath();
-    if (targetRoot == originalRoot) { result.success = true; return result; }
+    const QString targetName = renamedFile.isEmpty() ? source.fileName() : pdfRenameFileName(renamedFile);
+    if (targetName.isEmpty()) { result.error = QStringLiteral("Windows에서 사용할 수 없는 파일명입니다."); return result; }
+    if (targetRoot == originalRoot && targetName == source.fileName()) { result.success = true; return result; }
     QList<QPair<QString, QString>> moves;
     // Move optional sidecars first and the PDF last. On error, roll back in
     // reverse order without ever overwriting files created by another process.
     for (const QString& extension : {QStringLiteral(".png"), QStringLiteral(".jpg"), QStringLiteral(".jpeg")}) {
         const QString name = source.completeBaseName() + QStringLiteral(".luna-thumb") + extension;
-        const QFileInfo targetSidecar(QDir(targetRoot).filePath(name));
+        const QString targetSidecarName = QFileInfo(targetName).completeBaseName() + QStringLiteral(".luna-thumb") + extension;
+        const QFileInfo targetSidecar(QDir(targetRoot).filePath(targetSidecarName));
         if (targetSidecar.exists() || targetSidecar.isSymLink()) {
             result.error = QStringLiteral("대상 폴더에 같은 이름의 썸네일이 있어 이동하지 않았습니다.\n%1").arg(targetSidecar.absoluteFilePath());
             return result;
@@ -70,9 +83,9 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
             result.error = QStringLiteral("썸네일이 일반 파일이 아니므로 이동하지 않았습니다.");
             return result;
         }
-        if (sidecar.exists()) moves.append({sidecar.absoluteFilePath(), QDir(targetRoot).filePath(name)});
+        if (sidecar.exists()) moves.append({sidecar.absoluteFilePath(), targetSidecar.absoluteFilePath()});
     }
-    moves.append({source.canonicalFilePath(), QDir(targetRoot).filePath(source.fileName())});
+    moves.append({source.canonicalFilePath(), QDir(targetRoot).filePath(targetName)});
     for (const auto& pair : moves) {
         const QFileInfo target(pair.second);
         if (target.exists() || target.isSymLink()) {

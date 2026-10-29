@@ -85,6 +85,8 @@
 #include <QCache>
 #include <QThreadPool>
 #include <memory>
+#include <QInputDialog>
+#include <QShortcut>
 
 namespace luna {
 namespace {
@@ -1116,16 +1118,30 @@ private:
             auto* crop = menu.addAction(QStringLiteral("현재 PDF의 썸네일 지정…"));
             crop->setEnabled(QFileInfo(path).canonicalFilePath() == QFileInfo(viewer_->getProgramController()->getOriginalFileName()).canonicalFilePath());
             auto* move = menu.addAction(QStringLiteral("PDF와 썸네일 이동…"));
+            auto* rename = menu.addAction(QStringLiteral("이름 변경…")); rename->setShortcut(QKeySequence(Qt::Key_F2));
             auto* chosen = menu.exec(list->viewport()->mapToGlobal(point));
             if (chosen == favorite) toggleFavorite(path);
             else if (chosen == crop) startThumbnailCrop();
             else if (chosen == move) moveDocument(path);
+            else if (chosen == rename) renameDocument(path);
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
             if (DocumentCard::favoriteRect(list->visualItemRect(item)).contains(list->viewport()->mapFromGlobal(QCursor::pos())))
                 toggleFavorite(item->data(Qt::UserRole).toString());
         });
+        auto* renameKey = new QShortcut(QKeySequence(Qt::Key_F2), list);
+        renameKey->setContext(Qt::WidgetShortcut);
+        connect(renameKey, &QShortcut::activated, this, [this, list] { if (auto* item = list->currentItem()) renameDocument(item->data(Qt::UserRole).toString()); });
         return list;
+    }
+    void renameDocument(const QString& path) {
+        if (activateElsewhere && activateElsewhere(path)) { QTimer::singleShot(0, this, [this, path] { renameDocument(path); }); return; }
+        bool accepted = false;
+        const QString name = QInputDialog::getText(this, QStringLiteral("PDF 이름 변경"), QStringLiteral("파일명 (.pdf 자동 유지)"), QLineEdit::Normal, QFileInfo(path).fileName(), &accepted);
+        if (!accepted) return;
+        const QString filename = pdfRenameFileName(name);
+        if (filename.isEmpty()) { QMessageBox::warning(this, QStringLiteral("파일명 오류"), QStringLiteral("Windows 파일명에 사용할 수 없는 이름입니다.")); return; }
+        moveDocumentTo(path, QFileInfo(path).absolutePath(), filename);
     }
     void moveDocument(const QString& path) {
         const QString destination = QFileDialog::getExistingDirectory(this,
@@ -1133,7 +1149,7 @@ private:
         if (destination.isEmpty()) return;
         moveDocumentTo(path, destination);
     }
-    void moveDocumentTo(const QString& path, const QString& destination) {
+    void moveDocumentTo(const QString& path, const QString& destination, const QString& renamedFile = {}) {
         QPointer<pdfviewer::PDFEditorMainWindow> operation(viewer_);
         if (!operation) return;
         const QString source = QFileInfo(path).canonicalFilePath();
@@ -1172,7 +1188,7 @@ private:
             controller->closeDocument();
         }
         hideThumbnail();
-        const auto result = movePdfWithThumbnails(source, destination);
+        const auto result = movePdfWithThumbnails(source, destination, renameWithoutReplacement, renamedFile);
         if (result.success) {
             QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
             for (const QString& key : {QStringLiteral("library/favorites"), QStringLiteral("library/recent")}) {

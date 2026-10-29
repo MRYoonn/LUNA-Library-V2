@@ -48,6 +48,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLineEdit>
+#include <QInputDialog>
 #include <QLabel>
 #include <QListWidget>
 #include <QListView>
@@ -938,7 +939,15 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             selectMoved.start(30); location->click(); selectMoved.stop();
             integrationRequire(integrationWait([&] { list = integrationList(host, movedPdf, &paper); return list && paper && paper->data(Qt::UserRole + 4).toString() == memo; }), "Memo did not follow A into its new folder");
             result["memoNativeInputSearchAndPdfThumbnailMove"] = true;
-            result["movedPdf"] = movedPdf;
+            phase("native F2 paired rename");
+            const QString renamedPdf = moved + QStringLiteral("/Renamed A 한글.pdf"), renamedThumb = moved + QStringLiteral("/Renamed A 한글.luna-thumb.png");
+            QTimer renameUi; QObject::connect(&renameUi, &QTimer::timeout, &host, [&] {
+                if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) { dialog->setTextValue(QStringLiteral("Renamed A 한글")); dialog->accept(); }
+            }); renameUi.start(30); list->setCurrentItem(paper); list->setFocus();
+            integrationRequire(integrationKey(VK_F2) && integrationWait([&] { return QFileInfo::exists(renamedPdf) && ready(a) && DocumentClaim::identity(a->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(renamedPdf); }), "F2 did not rename and reopen the active PDF"); renameUi.stop();
+            integrationRequire(!QFileInfo::exists(movedPdf) && !QFileInfo::exists(movedThumb) && integrationBytes(renamedPdf) == savedA && integrationBytes(renamedThumb) == originalThumb && tabs->tabToolTip(tabs->indexOf(a)).contains(QStringLiteral("Renamed A")), "Rename lost file bytes, thumbnail or active tab path");
+            integrationRequire(integrationWait([&] { list = integrationList(host, renamedPdf, &paper); return list && paper && paper->data(Qt::UserRole + 4).toString() == memo; }), "Rename lost the paper memo");
+            result["nativeRenamePdfThumbnailMemoAndTab"] = true; result["movedPdf"] = renamedPdf;
         }
         integrationRequire(host.screen()->grabWindow(0).save(report + ".final.png"), "Could not capture final integrated window");
         integrationLayouts(host, report);

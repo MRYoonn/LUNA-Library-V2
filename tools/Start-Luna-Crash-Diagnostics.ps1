@@ -26,13 +26,22 @@ while ([DateTime]::UtcNow -lt $deadline -and !$collector.HasExited) {
 if (!$target) { throw 'No matching live LUNA process was found. Existing logs are preserved.' }
 $dump = Join-Path $private 'LUNA-private.dmp'
 $monitor = Start-Process -FilePath $dumper -ArgumentList @('-accepteula','-e','-mm','-n','1',([string]$target.Id),('"'+$dump+'"')) -RedirectStandardOutput (Join-Path $private 'procdump.log') -RedirectStandardError (Join-Path $private 'procdump-errors.log') -PassThru
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class LunaPrivateDebugStatus {
+ [DllImport("kernel32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)]
+ public static extern bool CheckRemoteDebuggerPresent(IntPtr process, [MarshalAs(UnmanagedType.Bool)] out bool attached);
+}
+'@
 $attached = $false; $deadline = [DateTime]::UtcNow.AddSeconds(20)
 while ([DateTime]::UtcNow -lt $deadline -and !$monitor.HasExited) {
-    $text = Get-Content -LiteralPath (Join-Path $private 'procdump.log') -Raw -ErrorAction SilentlyContinue
-    if ($text -match 'Press Ctrl-C to end monitoring') { $attached = $true; break }
+    $connected = $false
+    if ([LunaPrivateDebugStatus]::CheckRemoteDebuggerPresent($targetHandle,[ref]$connected) -and $connected) { $attached = $true; break }
     Start-Sleep -Milliseconds 100
 }
 if (!$attached -and !$target.HasExited) { throw 'ProcDump did not confirm attachment. LUNA was not terminated; save and close it normally. Private logs are preserved.' }
+@{pid=$target.Id; debuggerAttached=$attached; check='CheckRemoteDebuggerPresent'} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $private 'attachment-confirmed.json') -Encoding UTF8
 Write-Host ('Attached to LUNA PID ' + $target.Id + '. You can now reproduce Ctrl+W.')
 $monitor.WaitForExit()
 $collector.WaitForExit()

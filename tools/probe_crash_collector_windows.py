@@ -26,9 +26,9 @@ def run(package, output):
         capture=subprocess.Popen([str(powershell),'-NoProfile','-ExecutionPolicy','Bypass','-File',str(package/'Start-Luna-Crash-Diagnostics.ps1'),'-NoPause','-OutputDirectory',str(report)],env=env,stdout=log,stderr=subprocess.STDOUT)
         deadline=time.monotonic()+90
         while time.monotonic()<deadline and capture.poll() is None:
-            monitor=Path(str(report)+'-PRIVATE-CRASH')/'procdump.log'
+            monitor=Path(str(report)+'-PRIVATE-CRASH')/'attachment-confirmed.json'
             states=report/'process-state.jsonl'
-            if monitor.exists() and 'Press Ctrl-C to end monitoring' in monitor.read_text(errors='replace') and states.exists() and len(states.read_text(encoding='utf-8-sig').splitlines())>=2:
+            if monitor.exists() and json.loads(monitor.read_text(encoding='utf-8-sig'))['debuggerAttached'] and states.exists() and len(states.read_text(encoding='utf-8-sig').splitlines())>=2:
                 break
             time.sleep(.1)
         else:

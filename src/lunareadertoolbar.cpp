@@ -44,9 +44,13 @@ namespace {
 class ReaderIcon final : public QIconEngine {
 public:
     explicit ReaderIcon(QString name) {
+        star_ = name == QStringLiteral("star");
+        const bool inlineMemo = name == QStringLiteral("memo-inline");
+        if (inlineMemo) name = QStringLiteral("note");
         if (name == QStringLiteral("panel")) name = QStringLiteral("panel-close");
         ink_ = name == QStringLiteral("library") ? QByteArray("#2671C6") :
             (QStringList{QStringLiteral("folder"), QStringLiteral("documents"), QStringLiteral("recent"), QStringLiteral("star")}.contains(name) ? QByteArray("#265A9C") : QByteArray("#173869"));
+        if (inlineMemo) ink_ = "#6C8CB6";
         QFile source(QStringLiteral(":/luna/icons/ui-%1.svg").arg(name));
         if (source.open(QIODevice::ReadOnly)) svg_ = source.readAll();
     }
@@ -58,12 +62,16 @@ public:
     }
     void paint(QPainter* painter, const QRect& rect, QIcon::Mode mode, QIcon::State state) override {
         QByteArray svg = svg_;
-        svg.replace("currentColor", mode == QIcon::Disabled ? QByteArray("#9CAAC0") :
-            (state == QIcon::On || mode == QIcon::Selected ? QByteArray("#1C65BC") : ink_));
-        QSvgRenderer renderer(svg); renderer.render(painter, QRectF(rect));
+        if (star_ && mode == QIcon::Selected) svg.replace("fill=\"none\"", "fill=\"currentColor\"");
+        svg.replace("currentColor", mode == QIcon::Disabled ? QByteArray(star_ ? "#91A3BD" : "#9CAAC0") :
+            (state == QIcon::On || mode == QIcon::Selected ? QByteArray(star_ ? "#337ADA" : "#1C65BC") : ink_));
+        QSvgRenderer renderer(svg); renderer.setAspectRatioMode(Qt::KeepAspectRatio);
+        const QRectF bounds = rect.width() > rect.height() ? QRectF(rect.left() + 2, rect.top(), rect.height(), rect.height()) : QRectF(rect);
+        renderer.render(painter, bounds);
     }
 private:
     QByteArray svg_, ink_;
+    bool star_ = false;
 };
 
 QAction* nativeAction(pdfviewer::PDFEditorMainWindow& window, const char* name) {

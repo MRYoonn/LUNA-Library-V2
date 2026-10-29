@@ -253,8 +253,8 @@ public:
     using QStyledItemDelegate::QStyledItemDelegate;
     QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {300, 96}; }
     std::function<void(const QString&, const QString&)> saveMemo;
-    static QRect memoRect(const QRect& r) { return QRect(r.left() + 109, r.top() + 73, qMax(20, r.width() - 120), 18); }
-    static QRect favoriteRect(const QRect& r) { return QRect(r.right() - 30, r.top() + 6, 22, 24); }
+    static QRect memoRect(const QRect& r) { return QRect(r.left() + 108, r.top() + 73, qMax(20, r.width() - 148), 18); }
+    static QRect favoriteRect(const QRect& r) { return QRect(r.right() - 30, r.top() + (r.height() - 24) / 2, 22, 24); }
     QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
         auto* editor = new QLineEdit(parent);
         editor->setObjectName(QStringLiteral("LunaPaperMemoEditor"));
@@ -290,7 +290,7 @@ public:
         if (!selected && (option.state & QStyle::State_MouseOver)) painter->fillRect(r, QColor("#F6F9FF"));
         painter->setPen(QColor(kLINE));
         painter->drawLine(r.bottomLeft(), r.bottomRight());
-        const QRect paper(r.left() + 12, r.top() + 15, 88, 65);
+        const QRect paper(r.left() + 11, r.top() + 15, 88, 65);
         painter->setBrush(Qt::white);
         painter->drawRoundedRect(paper, 4, 4);
         readerIcon(QStringLiteral("documents")).paint(painter, QRect(paper.center() - QPoint(14, 20), QSize(28, 32)));
@@ -315,7 +315,7 @@ public:
         title.setWeight(QFont::DemiBold);
         painter->setFont(title);
         painter->setPen(QColor(kNAVY));
-        const QRect text(r.left() + 109, r.top() + 6, qMax(20, r.width() - 144), 32);
+        const QRect text(r.left() + 108, r.top() + 6, qMax(20, r.width() - 148), 32);
         painter->save();
         painter->setClipRect(text, Qt::IntersectClip);
         QTextLayout titleLayout(index.data().toString(), title);
@@ -329,18 +329,18 @@ public:
         painter->restore();
         painter->setFont(captionFont);
         painter->setPen(QColor(kMUTED));
-        painter->drawText(QRect(text.left(), r.top() + 40, qMax(20, r.width() - 120), 15),
+        painter->drawText(QRect(text.left(), r.top() + 40, qMax(20, r.width() - 148), 15),
             Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("저널·연도 미확인"));
         const QString opened = index.data(Qt::UserRole + 3).toString();
         const QString metadata = (opened.isEmpty() ? QStringLiteral("열람 기록 없음") : opened) + QStringLiteral(" / 저자 미확인");
-        painter->drawText(QRect(text.left(), r.top() + 55, qMax(20, r.width() - 120), 15),
+        painter->drawText(QRect(text.left(), r.top() + 57, qMax(20, r.width() - 148), 15),
             Qt::AlignLeft | Qt::AlignVCenter,
-            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, qMax(20, r.width() - 120)));
+            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, qMax(20, r.width() - 148)));
         const QString memo = index.data(Qt::UserRole + 4).toString();
-        painter->setPen(QColor(memo.isEmpty() ? kMUTED : kBLUE));
+        painter->setPen(QColor(memo.isEmpty() ? "#A0ACBD" : "#48648A"));
         const QRect note = memoRect(r);
-        readerIcon(QStringLiteral("note")).paint(painter, QRect(note.left(), note.center().y() - 7, 14, 14),
-            Qt::AlignCenter, memo.isEmpty() ? QIcon::Disabled : QIcon::Normal, memo.isEmpty() ? QIcon::Off : QIcon::On);
+        readerIcon(QStringLiteral("memo-inline")).paint(painter, QRect(note.left(), note.center().y() - 7, 14, 14),
+            Qt::AlignCenter, QIcon::Normal, QIcon::Off);
         painter->drawText(note.adjusted(18, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter,
             QFontMetrics(captionFont).elidedText(memo.isEmpty() ? QStringLiteral("+ 메모 추가") : memo, Qt::ElideRight, note.width() - 18));
         readerIcon(QStringLiteral("star")).paint(painter, favoriteRect(r).adjusted(2, 2, -2, -2), Qt::AlignCenter,
@@ -533,7 +533,8 @@ public:
         auto* libraryHeader = new QWidget(navigation_);
         libraryHeader->setFixedHeight(48);
         auto* libraryHeaderLayout = new QHBoxLayout(libraryHeader);
-        libraryHeaderLayout->setContentsMargins(0, 0, 0, 0);
+        libraryHeaderLayout->setContentsMargins(7, 0, 0, 0);
+        libraryHeaderLayout->setSpacing(9);
         auto* shelf = new QLabel(libraryHeader);
         shelf->setPixmap(readerIcon(QStringLiteral("library")).pixmap(24, 24));
         shelf->setAccessibleName(QStringLiteral("라이브러리"));
@@ -548,6 +549,7 @@ public:
         auto navButton = [this, nav, group](const QString& text, const QString& icon) {
             auto* b = new QPushButton(readerIcon(icon), text, navigation_);
             b->setObjectName(QStringLiteral("LunaNavigationButton"));
+            b->setIconSize(QSize(28, 19));
             b->setCheckable(true);
             b->setMinimumHeight(34);
             group->addButton(b);

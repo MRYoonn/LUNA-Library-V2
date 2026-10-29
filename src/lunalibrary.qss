@@ -68,7 +68,7 @@ QTabBar#LunaPdfTabBar::tab:selected { background:white; color:#14396C; border-bo
 QToolButton#LunaCloseTab, QToolButton#LunaNewTab { background:transparent; color:#71809A; border:0; border-radius:4px; padding:0; }
 QToolButton#LunaCloseTab:hover, QToolButton#LunaNewTab:hover { background:#E5ECF5; }
 QToolButton#LunaCloseTab:disabled { color:#B7C3D4; }
-QScrollBar:vertical { background:#F3F6FB; width:10px; margin:0; }
+QScrollBar:vertical { background:#F3F6FB; width:15px; margin:0; }
 QScrollBar::handle:vertical { background:#B9C6D8; border-radius:4px; min-height:25px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background:transparent; }

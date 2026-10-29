@@ -93,6 +93,10 @@ def run(package, output, debugger=None):
             for index, word in enumerate((b'delta', b'gamma', b'omega')):
                 title = f'UI-long-{index + 1} 논문 제목 photochemical mechanisms and independent document state verification.pdf'
                 (root / title).write_bytes(synthetic_pdf(2).replace(b'smoke', word))
+            # Match the reference list density with real disposable files;
+            # only the original five documents are opened as native tabs.
+            for index in range(4):
+                (root / f'Z-library-example-{index + 1}.pdf').write_bytes(synthetic_pdf(2))
             env = os.environ.copy()
             windows_root = Path(os.environ['SystemRoot'])
             env['PATH'] = os.pathsep.join(map(str, (package, windows_root / 'System32', windows_root)))

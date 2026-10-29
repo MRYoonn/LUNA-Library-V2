@@ -4,9 +4,12 @@
 class QIcon;
 class QAction;
 class QToolBar;
+class QMainWindow;
 namespace pdfviewer { class PDFEditorMainWindow; }
 namespace luna {
 QIcon readerIcon(const QString& name);
+void bindCommonReaderToolbar(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor);
+void unbindCommonReaderToolbar(QMainWindow& shell);
 void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar, QAction& libraryToggle);
 void hideAdvancedToolbars(pdfviewer::PDFEditorMainWindow& window);
 bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error, bool geometry);

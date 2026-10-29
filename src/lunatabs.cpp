@@ -2,6 +2,7 @@
 // Native Editor sessions: ownership and close flow validated by Astra's proof.
 #include "lunatabs.h"
 #include "lunalibrary.h"
+#include "lunareadertoolbar.h"
 #include "lunadocumentclaim.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -29,6 +30,7 @@
 #include <QTabWidget>
 #include <QTimer>
 #include <QToolBar>
+#include <QStatusBar>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <memory>
@@ -58,6 +60,7 @@
 #include <QTemporaryDir>
 #include <QScreen>
 #include <QSpinBox>
+#include <QComboBox>
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QFontMetrics>
@@ -81,8 +84,8 @@ public:
     using QTabBar::QTabBar;
 protected:
     QSize tabSizeHint(int index) const override {
-        const QSize natural = QTabBar::tabSizeHint(index);
-        return {qBound(160, natural.width(), 190), qMax(30, fontMetrics().height() + 12)};
+        Q_UNUSED(index);
+        return {218, 41};
     }
     QSize minimumTabSizeHint(int index) const override { return tabSizeHint(index); }
 };
@@ -100,6 +103,7 @@ struct Session {
 class NativeTabs final : public QMainWindow, public QAbstractNativeEventFilter {
 public:
     ~NativeTabs() override {
+        unbindCommonReaderToolbar(*this);
         trace("shell-destroy"); poll_.stop(); qApp->removeEventFilter(this);
         qApp->removeNativeEventFilter(this);
         QObject::disconnect(qApp, nullptr, this, nullptr);
@@ -142,7 +146,7 @@ public:
         if (corner) {
             auto* addCorner = new QWidget(tabs_);
             auto* addRow = new QHBoxLayout(addCorner); addRow->setContentsMargins(0, 0, 4, 0);
-            auto* plus = new QToolButton(addCorner); plus->setObjectName(QStringLiteral("LunaNewTab")); plus->setText(QStringLiteral("＋"));
+            auto* plus = new QToolButton(addCorner); plus->setObjectName(QStringLiteral("LunaNewTab")); plus->setIcon(readerIcon(QStringLiteral("add")));
             plus->setAccessibleName(QStringLiteral("새 PDF 탭 열기")); plus->setToolTip(QStringLiteral("새 PDF 탭 열기")); plus->setMinimumSize(30, 30);
             addRow->addWidget(plus); tabs_->setCornerWidget(addCorner, Qt::TopRightCorner);
             connect(plus, &QToolButton::clicked, open_, &QAction::trigger);
@@ -311,13 +315,15 @@ private:
             tabs_->tabBar()->setTabButton(index, side, nullptr); old->deleteLater();
         }
         auto* close = new QToolButton(tabs_->tabBar()); close->setObjectName(QStringLiteral("LunaCloseTab"));
-        close->setText(QStringLiteral("×")); close->setFixedSize(18, 18); close->setToolTip(QStringLiteral("이 PDF 탭 닫기"));
+        close->setIcon(readerIcon(QStringLiteral("close"))); close->setIconSize(QSize(14, 14)); close->setFixedSize(18, 18); close->setToolTip(QStringLiteral("이 PDF 탭 닫기"));
         QPointer<Editor> guarded(editor); connect(close, &QToolButton::clicked, this, [this, guarded] { if (guarded) closeTab(tabs_->indexOf(guarded)); });
         tabs_->tabBar()->setTabButton(index, QTabBar::RightSide, close);
         trace("editor-created", editor); return editor;
     }
     void finishEditor(Editor* editor) {
         prepareReaderSession(*editor, *this);
+        if (auto* bar = editor->findChild<QToolBar*>(QStringLiteral("mainToolBar"))) bar->hide();
+        editor->statusBar()->hide();
         auto* controller = editor->getProgramController();
         for (const char* name : {"actionClose", "actionQuit"})
             if (auto* action = editor->findChild<QAction*>(QString::fromLatin1(name))) connect(action, &QAction::triggered, this, [this, editor, name] {
@@ -407,6 +413,7 @@ private:
                 if (popup->isVisible() && popup->windowFlags().testFlag(Qt::Popup)) popup->reject();
         bindLibraryEditor(*this, *editor);
         menuBar()->clear(); for (auto* action : editor->menuBar()->actions()) menuBar()->addAction(action);
+        bindCommonReaderToolbar(*this, *editor);
         editor->getProgramController()->getPdfWidget()->setFocus(); updateTitle(editor);
     }
     void updateTitle(Editor* editor) {
@@ -513,6 +520,7 @@ private:
             if (!c->canClose() || !c->askForSaveDocumentBeforeClose()) { trace("shell-close-denied", s->editor); event->ignore(); return; }
         }
         closing_ = true; setProperty("LunaClosing", true); poll_.stop();
+        unbindCommonReaderToolbar(*this);
         qApp->removeEventFilter(this);
         setLibraryDocumentRouter(*this, {}, {}, {});
         for (const auto& s : sessions_) {
@@ -672,6 +680,15 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
         const QSize logical(qRound(pixels.width() / scale), qRound(pixels.height() / scale));
         host.resize(logical); host.show();
         if (!integrationWait([&] { return host.size() == logical; }) || !host.grab().save(report + QStringLiteral(".%1.png").arg(pixels.width()))) { captured = false; break; }
+        QJsonObject metrics{{"width", host.width()}, {"height", host.height()}, {"dpr", scale}};
+        for (const auto* name : {"LunaBrandFrame", "LunaCommonReaderToolbar", "LunaNavigation", "LunaDocuments", "LunaContentModes", "LunaPdfTabs", "LunaPdfTabBar"}) {
+            if (auto* widget = host.findChild<QWidget*>(QString::fromLatin1(name))) {
+                const QPoint origin = widget->mapTo(&host, QPoint());
+                metrics[QString::fromLatin1(name)] = QJsonObject{{"x", origin.x()}, {"y", origin.y()}, {"width", widget->width()}, {"height", widget->height()}};
+            }
+        }
+        QSaveFile geometry(report + QStringLiteral(".%1.geometry.json").arg(pixels.width()));
+        integrationRequire(geometry.open(QIODevice::WriteOnly) && geometry.write(QJsonDocument(metrics).toJson()) > 0 && geometry.commit(), "Native UI metrics were not saved");
     }
     host.setParent(nullptr, flags); host.resize(oldSize); host.move(oldPosition); host.show(); qApp->setQuitOnLastWindowClosed(quit);
     host.raise(); host.activateWindow(); SetForegroundWindow(reinterpret_cast<HWND>(host.winId()));
@@ -762,6 +779,19 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             auto* b = host.current(); integrationRequire(host.open(files[1]) == b && host.documentCount() == 2, "Duplicate PDF opened another tab");
             auto* pa = a->getProgramController()->getPdfWidget()->getDrawWidgetProxy(); auto* pb = b->getProgramController()->getPdfWidget()->getDrawWidgetProxy();
             integrationRequire(qAbs(pa->getZoom() - 2.0) < .001 && qAbs(pb->getZoom() - 2.0) < .001, "New integrated documents did not default to 200 percent");
+            phase("common toolbar ownership, page and zoom input");
+            auto* common = host.findChild<QToolBar*>(QStringLiteral("LunaCommonReaderToolbar"));
+            auto* pageInput = host.findChild<QSpinBox*>(QStringLiteral("LunaCommonPage"));
+            auto* zoomInput = host.findChild<QComboBox*>(QStringLiteral("LunaCommonZoom"));
+            integrationRequire(common && common->parentWidget() == &host && common->height() == 51 && pageInput && zoomInput, "Common HTML toolbar missing or misplaced");
+            auto* originalBar = b->findChild<QToolBar*>(QStringLiteral("mainToolBar"));
+            integrationRequire(originalBar && originalBar->parentWidget() == b && !originalBar->isVisible() && host.toolBarArea(originalBar) == Qt::NoToolBarArea, "Native toolbar ownership moved into the shell layout");
+            integrationRequire(common->actions().contains(b->findChild<QAction*>(QStringLiteral("actionSave"))) && !common->actions().contains(a->findChild<QAction*>(QStringLiteral("actionSave"))), "Common toolbar actions do not belong to the active Editor");
+            integrationRequire(integrationClick(host, pageInput, pageInput->rect().center()) && integrationKey('A', true) && integrationType(QStringLiteral("2")) && integrationKey(VK_RETURN), "Native common page input failed");
+            integrationRequire(integrationWait([&] { const auto pages = b->getProgramController()->getPdfWidget()->getDrawWidget()->getCurrentPages(); return std::find(pages.begin(), pages.end(), 1) != pages.end(); }), "Common page input did not use the native Editor");
+            integrationRequire(integrationClick(host, zoomInput->lineEdit(), zoomInput->lineEdit()->rect().center()) && integrationKey('A', true) && integrationType(QStringLiteral("150%")) && integrationKey(VK_RETURN) && integrationWait([&] { return qAbs(pb->getZoom() - 1.5) < .001; }), "Common zoom input did not update the active Editor");
+            integrationRequire(qAbs(pa->getZoom() - 2.0) < .001, "Common toolbar changed an inactive document");
+            result["commonToolbarNativePageZoomAndActionOwnership"] = true;
             pa->zoom(1.25); pb->zoom(1.5);
             auto* focus = host.findChild<QAction*>(QStringLiteral("LunaFocusMode"));
             auto fitTabInput = [&] {
@@ -796,7 +826,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 auto* scroll = widget->getVerticalScrollbar(); scroll->setValue(scroll->maximum() / 3);
                 scrollPositions.append(scroll->value()); zoomValues.append(zoom);
                 const QRect tab = tabs->tabBar()->tabRect(tabs->indexOf(editor));
-                integrationRequire(tab.width() >= 160 && tab.width() <= 190 && tab.height() <= 38, "Whole tab bounds exceed compact design");
+                integrationRequire(tab.width() >= 135 && tab.width() <= 240 && tab.height() == 41, "Whole tab bounds exceed compact design");
             }
             for (int turn = 0; turn < 10; ++turn) for (int i = 0; i < documents.size(); ++i) {
                 tabs->setCurrentWidget(documents[i]); QCoreApplication::processEvents();
@@ -825,8 +855,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             auto* toggle = host.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
             integrationRequire(toggle, "Combined panel button missing");
             for (int turn = 0; turn < 10; ++turn) {
-                integrationRequire(!focus->isChecked() && toggle->text() == QStringLiteral("≪") && integrationPanelClick(host, toggle) && integrationWait([&] { return focus->isChecked() && toggle->isVisible() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8; }), "Real collapse click failed");
-                integrationRequire(toggle->text() == QStringLiteral("☰") && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8, "Restore button moved away from left edge");
+                integrationRequire(!focus->isChecked() && !focus->property("lunaCollapsed").toBool() && !toggle->icon().isNull() && integrationPanelClick(host, toggle) && integrationWait([&] { return focus->isChecked() && toggle->isVisible() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8; }), "Real collapse click failed");
+                integrationRequire(focus->property("lunaCollapsed").toBool() && !toggle->icon().isNull() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8, "Restore button moved away from left edge");
                 integrationRequire(integrationPanelClick(host, toggle) && integrationWait([&] { return !focus->isChecked(); }), "Real expand click failed");
             }
             result["tenRealPanelToggleCyclesPinnedLeft"] = true;
@@ -981,11 +1011,11 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(integrationWait([&] { list = integrationList(host, files[0], &paper); return list && paper; }), "A paper card missing before memo"); list->scrollToItem(paper);
             const QRect card = list->visualItemRect(paper);
             integrationRequire(card.height() == 96, "Paper card height differs from the compact design");
-            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 100, card.top() + 81}), "Real memo mouse input failed");
+            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 160, card.top() + 81}), "Real memo mouse input failed");
             QLineEdit* edit = nullptr; integrationRequire(integrationWait([&] { edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")); return edit && edit->hasFocus(); }), "Inline memo editor did not focus");
             integrationRequire(integrationType(QStringLiteral("초기 메모")) && integrationKey(VK_RETURN), "Real memo typing/Enter failed");
             integrationRequire(integrationWait([&] { return paper->data(Qt::UserRole + 4).toString() == QStringLiteral("초기 메모"); }), "Memo Enter did not persist");
-            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 100, card.top() + 81}), "Memo edit mouse input failed");
+            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 160, card.top() + 81}), "Memo edit mouse input failed");
             integrationRequire(integrationWait([&] { edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")); return edit && edit->hasFocus(); }), "Memo edit did not reopen");
             integrationRequire(integrationKey('A', true) && integrationType(memo), "Memo replacement input failed");
             auto* query = host.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch")); integrationRequire(integrationClick(host, query, query->rect().center()), "Memo focus-out click failed");

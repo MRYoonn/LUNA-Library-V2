@@ -31,6 +31,8 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QPainter>
+#include <QTextLayout>
+#include <QLinearGradient>
 #include <QSet>
 #include <QScrollArea>
 #include <QStyledItemDelegate>
@@ -92,15 +94,15 @@ namespace {
 // Shared design tokens used by both native painting and the QSS template.
 constexpr const char* kNAVY = "#172B50";
 constexpr const char* kBLUE = "#4F70B5";
-constexpr const char* kCANVAS = "#F7F8FC";
+constexpr const char* kCANVAS = "#F3F6FC";
 constexpr const char* kPANEL = "#FFFFFF";
-constexpr const char* kSELECTION = "#EAF1FF";
-constexpr const char* kLINE = "#E0E4ED";
+constexpr const char* kSELECTION = "#E7EFFF";
+constexpr const char* kLINE = "#E0E7F1";
 constexpr const char* kTEXT = "#263247";
-constexpr const char* kMUTED = "#6D7A90";
+constexpr const char* kMUTED = "#77839A";
 constexpr const char* kTHUMB_LINE = "#C8CFDD";
 constexpr const char* kSTAR_OFF = "#A2ACBF";
-constexpr const char* kHOVER = "#EEF1F8";
+constexpr const char* kHOVER = "#F0F5FD";
 constexpr const char* kACTIVE_TEXT = "#31549B";
 constexpr const char* kBLUE_HOVER = "#3E60A5";
 
@@ -128,7 +130,7 @@ class MenuBarStyle final : public QProxyStyle {
 public:
     MenuBarStyle() : QProxyStyle(QStyleFactory::create(QApplication::style()->objectName())) {}
     QSize sizeFromContents(ContentsType type, const QStyleOption* option, const QSize& contents, const QWidget* widget = nullptr) const override {
-        if (type == CT_MenuBarItem) return {contents.width() + 18, 36};
+        if (type == CT_MenuBarItem) return {contents.width() + 18, 42};
         return QProxyStyle::sizeFromContents(type, option, contents, widget);
     }
     int pixelMetric(PixelMetric metric, const QStyleOption* option = nullptr, const QWidget* widget = nullptr) const override {
@@ -138,13 +140,14 @@ public:
         return QProxyStyle::pixelMetric(metric, option, widget);
     }
     void drawPrimitive(PrimitiveElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget = nullptr) const override {
-        if (element == PE_PanelMenuBar) { painter->fillRect(option->rect, QColor(kCANVAS)); return; }
+        if (element == PE_PanelMenuBar) { QLinearGradient g(0, 0, 0, 48); g.setColorAt(0, QColor("#F8FBFF")); g.setColorAt(1, QColor("#EFF5FC")); painter->fillRect(option->rect, g); return; }
         QProxyStyle::drawPrimitive(element, option, painter, widget);
     }
     void drawControl(ControlElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget = nullptr) const override {
-        if (element == CE_MenuBarEmptyArea) { painter->fillRect(option->rect, QColor(kCANVAS)); return; }
+        if (element == CE_MenuBarEmptyArea) { QLinearGradient g(0, 0, 0, 48); g.setColorAt(0, QColor("#F8FBFF")); g.setColorAt(1, QColor("#EFF5FC")); painter->fillRect(option->rect, g); return; }
         if (element == CE_MenuBarItem) if (const auto* item = qstyleoption_cast<const QStyleOptionMenuItem*>(option)) {
             painter->save(); painter->setRenderHint(QPainter::Antialiasing);
+            QLinearGradient g(0, 0, 0, 48); g.setColorAt(0, QColor("#F8FBFF")); g.setColorAt(1, QColor("#EFF5FC")); painter->fillRect(item->rect, g);
             if (item->state & (State_Selected | State_MouseOver | State_Sunken)) {
                 painter->setPen(Qt::NoPen); painter->setBrush(QColor(kSELECTION)); painter->drawRoundedRect(item->rect, 4, 4);
             }
@@ -249,7 +252,7 @@ public:
     using QStyledItemDelegate::QStyledItemDelegate;
     QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {300, 96}; }
     std::function<void(const QString&, const QString&)> saveMemo;
-    static QRect memoRect(const QRect& r) { return QRect(r.left() + 74, r.top() + 70, qMax(20, r.width() - 94), 22); }
+    static QRect memoRect(const QRect& r) { return QRect(r.left() + 109, r.top() + 73, qMax(20, r.width() - 120), 18); }
     static QRect favoriteRect(const QRect& r) { return QRect(r.right() - 30, r.top() + 6, 22, 24); }
     QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
         auto* editor = new QLineEdit(parent);
@@ -283,21 +286,17 @@ public:
         const QRect r = option.rect;
         const bool selected = option.state & QStyle::State_Selected;
         painter->fillRect(r, QColor(selected ? kSELECTION : kPANEL));
-        if (selected) painter->fillRect(QRect(r.left(), r.top(), 3, r.height()), QColor(kBLUE));
+        if (!selected && (option.state & QStyle::State_MouseOver)) painter->fillRect(r, QColor("#F6F9FF"));
         painter->setPen(QColor(kLINE));
         painter->drawLine(r.bottomLeft(), r.bottomRight());
-        const QRect paper(r.left() + 12, r.top() + 12, 50, 68);
+        const QRect paper(r.left() + 12, r.top() + 15, 88, 65);
         painter->setBrush(Qt::white);
         painter->drawRoundedRect(paper, 4, 4);
-        for (int y = 11; y <= 35; y += 6) {
-            painter->setPen(QColor(kTHUMB_LINE));
-            painter->drawLine(paper.left() + 7, paper.top() + y, paper.right() - 7, paper.top() + y);
-        }
+        readerIcon(QStringLiteral("documents")).paint(painter, QRect(paper.center() - QPoint(14, 20), QSize(28, 32)));
         QFont captionFont = option.font;
-        captionFont.setPixelSize(11);
-        painter->setFont(captionFont);
-        painter->setPen(QColor(kBLUE));
-        painter->drawText(paper.adjusted(0, 43, 0, 0), Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("PDF"));
+        captionFont.setFamily(QStringLiteral("Malgun Gothic")); captionFont.setPixelSize(12);
+        painter->setFont(captionFont); painter->setPen(QColor(kMUTED));
+        painter->drawText(paper.adjusted(0, 39, 0, 0), Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("PDF"));
         const QFileInfo pdf(index.data(Qt::UserRole).toString());
         const QString sidecar = pdf.absolutePath() + QLatin1Char('/') + pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
         QPointer<QWidget> view(const_cast<QWidget*>(option.widget));
@@ -312,23 +311,30 @@ public:
         }
         QFont title = option.font;
         title.setPixelSize(13);
-        title.setBold(true);
+        title.setWeight(QFont::DemiBold);
         painter->setFont(title);
         painter->setPen(QColor(kNAVY));
-        const QRect text(r.left() + 74, r.top() + 5, qMax(20, r.width() - 112), 2 * QFontMetrics(title).lineSpacing());
+        const QRect text(r.left() + 109, r.top() + 6, qMax(20, r.width() - 144), 32);
         painter->save();
         painter->setClipRect(text, Qt::IntersectClip);
-        painter->drawText(text, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap | Qt::TextWrapAnywhere, index.data().toString());
+        QTextLayout titleLayout(index.data().toString(), title);
+        QTextOption titleOption; titleOption.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere); titleLayout.setTextOption(titleOption);
+        titleLayout.beginLayout();
+        for (int row = 0; row < 2; ++row) {
+            auto line = titleLayout.createLine(); if (!line.isValid()) break;
+            line.setLineWidth(text.width()); line.setPosition(QPointF(0, row * 16));
+        }
+        titleLayout.endLayout(); titleLayout.draw(painter, text.topLeft());
         painter->restore();
         painter->setFont(captionFont);
         painter->setPen(QColor(kMUTED));
-        painter->drawText(QRect(text.left(), r.top() + 38, qMax(20, r.width() - 94), 14),
+        painter->drawText(QRect(text.left(), r.top() + 40, qMax(20, r.width() - 120), 15),
             Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("저널·연도 미확인"));
         const QString opened = index.data(Qt::UserRole + 3).toString();
         const QString metadata = (opened.isEmpty() ? QStringLiteral("열람 기록 없음") : opened) + QStringLiteral(" / 저자 미확인");
-        painter->drawText(QRect(text.left(), r.top() + 53, qMax(20, r.width() - 94), 14),
+        painter->drawText(QRect(text.left(), r.top() + 55, qMax(20, r.width() - 120), 15),
             Qt::AlignLeft | Qt::AlignVCenter,
-            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, qMax(20, r.width() - 94)));
+            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, qMax(20, r.width() - 120)));
         const QString memo = index.data(Qt::UserRole + 4).toString();
         painter->setPen(QColor(memo.isEmpty() ? kMUTED : kBLUE));
         const QRect note = memoRect(r);
@@ -336,10 +342,8 @@ public:
             Qt::AlignCenter, memo.isEmpty() ? QIcon::Disabled : QIcon::Normal, memo.isEmpty() ? QIcon::Off : QIcon::On);
         painter->drawText(note.adjusted(18, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter,
             QFontMetrics(captionFont).elidedText(memo.isEmpty() ? QStringLiteral("+ 메모 추가") : memo, Qt::ElideRight, note.width() - 18));
-        painter->setFont(option.font);
-        painter->setPen(QColor(index.data(Qt::UserRole + 2).toBool() ? kBLUE : kSTAR_OFF));
-        painter->drawText(favoriteRect(r), Qt::AlignCenter,
-            index.data(Qt::UserRole + 2).toBool() ? QStringLiteral("★") : QStringLiteral("☆"));
+        readerIcon(QStringLiteral("star")).paint(painter, favoriteRect(r).adjusted(2, 2, -2, -2), Qt::AlignCenter,
+            index.data(Qt::UserRole + 2).toBool() ? QIcon::Selected : QIcon::Disabled);
         painter->restore();
     }
 };
@@ -500,13 +504,13 @@ public:
             const QString date = openedDates_.value(openedDateKey(path));
             if (!date.isEmpty()) rememberDateAlias(path, date);
         }
-        setMinimumWidth(510);
+        setMinimumWidth(482);
         auto* layout = new QHBoxLayout(this);
         layout->setContentsMargins(0, 0, 0, 0);
         split_ = new QSplitter(Qt::Horizontal, this);
         split_->setObjectName(QStringLiteral("LunaLibrarySplitter"));
         split_->setChildrenCollapsible(false);
-        split_->setHandleWidth(1);
+        split_->setHandleWidth(5);
         layout->addWidget(split_);
 
         auto* navigationScroll = new QScrollArea(split_);
@@ -516,37 +520,27 @@ public:
         navigationScroll->setMinimumHeight(0);
         navigation_ = navigationScroll;
         navigation_->setObjectName(QStringLiteral("LunaNavigation"));
-        navigation_->setMinimumWidth(190);
+        navigation_->setMinimumWidth(192);
         navigation_->setMaximumWidth(300);
         auto* navigationContents = new QWidget(navigationScroll);
         navigationContents->setObjectName(QStringLiteral("LunaNavigationContents"));
         navigationScroll->setWidget(navigationContents);
         auto* nav = new QVBoxLayout(navigationContents);
         nav->setSizeConstraint(QLayout::SetMinimumSize);
-        nav->setContentsMargins(14, 0, 14, 16);
-        nav->setSpacing(9);
+        nav->setContentsMargins(10, 0, 10, 12);
+        nav->setSpacing(0);
         auto* libraryHeader = new QWidget(navigation_);
         libraryHeader->setFixedHeight(48);
         auto* libraryHeaderLayout = new QHBoxLayout(libraryHeader);
         libraryHeaderLayout->setContentsMargins(0, 0, 0, 0);
         auto* shelf = new QLabel(libraryHeader);
-        QPixmap shelfImage(20, 20);
-        shelfImage.fill(Qt::transparent);
-        {
-            QPainter painter(&shelfImage);
-            painter.setRenderHint(QPainter::Antialiasing);
-            painter.setPen(QPen(QColor(QStringLiteral("#172B50")), 1.5));
-            painter.drawLine(2, 17, 18, 17);
-            painter.drawRect(QRectF(3, 4, 3, 11));
-            painter.drawRect(QRectF(8, 3, 3, 12));
-            painter.drawLine(13, 5, 17, 14);
-            painter.drawLine(15, 4, 19, 13);
-        }
-        shelf->setPixmap(shelfImage);
+        shelf->setPixmap(readerIcon(QStringLiteral("library")).pixmap(24, 24));
         shelf->setAccessibleName(QStringLiteral("라이브러리"));
+        shelf->setFixedSize(24, 24);
         libraryHeaderLayout->addWidget(shelf);
         auto* section = new QLabel(QStringLiteral("라이브러리"), libraryHeader);
         section->setObjectName(QStringLiteral("LunaLibraryTitle"));
+        QFont headingFont(QStringLiteral("Malgun Gothic")); headingFont.setPixelSize(17); headingFont.setBold(true); headingFont.setLetterSpacing(QFont::AbsoluteSpacing, -.45); section->setFont(headingFont);
         libraryHeaderLayout->addWidget(section, 1);
         nav->addWidget(libraryHeader);
         auto* group = new QButtonGroup(this);
@@ -554,28 +548,37 @@ public:
             auto* b = new QPushButton(readerIcon(icon), text, navigation_);
             b->setObjectName(QStringLiteral("LunaNavigationButton"));
             b->setCheckable(true);
-            b->setMinimumHeight(38);
+            b->setMinimumHeight(34);
             group->addButton(b);
             nav->addWidget(b);
             return b;
         };
-        pdfTab_ = navButton(QStringLiteral("모든 논문"), QStringLiteral("documents"));
+        pdfTab_ = navButton(QStringLiteral("전체 문서"), QStringLiteral("documents"));
         folderTab_ = navButton(QStringLiteral("선택한 폴더"), QStringLiteral("folder"));
-        auto* recent = navButton(QStringLiteral("최근 열람"), QStringLiteral("recent"));
         auto* favorites = navButton(QStringLiteral("즐겨찾기"), QStringLiteral("star"));
+        auto* recent = navButton(QStringLiteral("최근 열람"), QStringLiteral("recent"));
         pdfTab_->setObjectName(QStringLiteral("LunaAllDocumentsButton"));
         folderTab_->setObjectName(QStringLiteral("LunaFolderDocumentsButton"));
         recent->setObjectName(QStringLiteral("LunaRecentDocumentsButton"));
         favorites->setObjectName(QStringLiteral("LunaFavoriteDocumentsButton"));
         for (auto* b : {pdfTab_, folderTab_, recent, favorites}) b->setProperty("lunaNavigation", true);
         folderTab_->setChecked(true);
-        nav->addSpacing(18);
+        auto badge = [](QPushButton* button) {
+            auto* layout = new QHBoxLayout(button); layout->setContentsMargins(0, 0, 9, 0); layout->addStretch();
+            auto* label = new QLabel(button); label->setObjectName(QStringLiteral("LunaNavigationCount"));
+            label->setAttribute(Qt::WA_TransparentForMouseEvents); layout->addWidget(label); return label;
+        };
+        allBadge_ = badge(pdfTab_); folderBadge_ = badge(folderTab_); recentBadge_ = badge(recent); favoriteBadge_ = badge(favorites);
+        recentCount_ = savedPaths(QStringLiteral("library/recent")).size();
+        nav->addSpacing(23);
+        nav->removeWidget(folderTab_);
         auto* folders = new QHBoxLayout;
         auto* folderHeading = new QLabel(QStringLiteral("내 폴더"), navigation_);
         folderHeading->setObjectName(QStringLiteral("LunaSection"));
         folders->addWidget(folderHeading, 1);
         auto* addFolder = new QToolButton(navigation_);
-        addFolder->setText(QStringLiteral("＋"));
+        addFolder->setIcon(readerIcon(QStringLiteral("add")));
+        addFolder->setAccessibleName(QStringLiteral("새 폴더 만들기"));
         addFolder->setToolTip(QStringLiteral("선택한 위치에 새 폴더 만들기"));
         addFolder->setObjectName(QStringLiteral("LunaTool"));
         folders->addWidget(addFolder);
@@ -584,7 +587,8 @@ public:
         rootLabel_->setObjectName(QStringLiteral("LunaSecondary"));
         rootLabel_->setWordWrap(true);
         rootLabel_->setTextFormat(Qt::PlainText);
-        nav->addWidget(rootLabel_);
+        rootLabel_->hide();
+        nav->addWidget(folderTab_);
         model_ = new QFileSystemModel(this);
         model_->setReadOnly(true); model_->setIconProvider(new FolderIcons(model_));
         model_->setFilter(QDir::AllDirs | QDir::NoDotAndDotDot);
@@ -596,28 +600,33 @@ public:
         tree_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         for (int i = 1; i < 4; ++i) tree_->hideColumn(i);
         nav->addWidget(tree_, 1);
-        auto* location = new QPushButton(QStringLiteral("라이브러리 위치 선택…"), navigation_);
+        auto* location = new QPushButton(readerIcon(QStringLiteral("open")), QString(), libraryHeader);
+        location->setFixedSize(30, 30);
+        location->setToolTip(QStringLiteral("라이브러리 위치 선택…"));
+        location->setAccessibleName(QStringLiteral("라이브러리 위치 선택"));
         location->setObjectName(QStringLiteral("LunaLocation"));
-        nav->addWidget(location);
+        libraryHeaderLayout->addWidget(location);
 
         documents_ = new QWidget(split_);
         documents_->setObjectName(QStringLiteral("LunaDocuments"));
-        documents_->setMinimumWidth(300);
+        documents_->setMinimumWidth(285);
         auto* docs = new QVBoxLayout(documents_);
         docs->setContentsMargins(0, 0, 0, 0);
         docs->setSpacing(0);
         auto* heading = new QWidget(documents_);
         auto* headingLayout = new QVBoxLayout(heading);
-        headingLayout->setContentsMargins(14, 0, 14, 6);
-        headingLayout->setSpacing(6);
+        headingLayout->setContentsMargins(12, 0, 12, 0);
+        headingLayout->setSpacing(0);
         auto* title = new QLabel(QStringLiteral("논문 목록"), heading);
         title->setObjectName(QStringLiteral("LunaLibraryTitle"));
+        title->setFont(headingFont);
         title->setFixedHeight(48);
         auto* titleRow = new QHBoxLayout;
         titleRow->setObjectName(QStringLiteral("LunaPaperHeadingLayout"));
         titleRow->addWidget(title, 1);
         headingLayout->addLayout(titleRow);
-        auto* addFile = new QPushButton(QStringLiteral("＋ PDF"), heading);
+        auto* addFile = new QPushButton(readerIcon(QStringLiteral("file-add")), QString(), heading);
+        addFile->setFixedSize(30, 30);
         addFile->setObjectName(QStringLiteral("LunaPrimary"));
         addFile->setMinimumHeight(28);
         addFile->setAccessibleName(QStringLiteral("라이브러리에 PDF 파일 추가"));
@@ -627,8 +636,8 @@ public:
         query_->setObjectName(QStringLiteral("LunaGlobalSearch"));
         query_->setPlaceholderText(QStringLiteral("파일명 검색…  Ctrl+K"));
         query_->setClearButtonEnabled(true);
-        query_->setMinimumHeight(34);
-        headingLayout->addWidget(query_);
+        query_->setMinimumHeight(36);
+        nav->addWidget(query_);
         auto* mode = new QTabBar(heading);
         mode->setObjectName(QStringLiteral("LunaContentModes"));
         mode->addTab(QStringLiteral("논문 목록"));
@@ -664,6 +673,7 @@ public:
             box->setSpacing(0);
             count = new QLabel(p);
             count->setObjectName(QStringLiteral("LunaCount"));
+            count->hide(); // Counts remain in the model/tooltips; no extra row above HTML cards.
             box->addWidget(count);
             list = makePdfList(p);
             box->addWidget(list, 1);
@@ -672,7 +682,13 @@ public:
         page(folderPdfs_, folderCount_);
         page(allPdfs_, allCount_);
         page(historyPdfs_, historyCount_);
-        split_->setSizes({210, 330});
+        for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) {
+            connect(list->model(), &QAbstractItemModel::rowsInserted, this, [this] { queueNavigationCounts(); });
+            connect(list->model(), &QAbstractItemModel::rowsRemoved, this, [this] { queueNavigationCounts(); });
+            connect(list->model(), &QAbstractItemModel::modelReset, this, [this] { queueNavigationCounts(); });
+        }
+        queueNavigationCounts();
+        split_->setSizes({225, 325});
         split_->setStretchFactor(0, 0);
         split_->setStretchFactor(1, 1);
 
@@ -750,7 +766,7 @@ public:
         });
     }
     void recordEditor(pdfviewer::PDFEditorMainWindow& editor) { rememberEditor(editor); }
-    void updateMinimum() { setMinimumWidth((navigation_->isHidden() ? 0 : 190) + (documents_->isHidden() ? 0 : 300) + 1); }
+    void updateMinimum() { setMinimumWidth((navigation_->isHidden() ? 0 : 192) + (documents_->isHidden() ? 0 : 285) + 5); }
     void toggleNavigation() { savePanelState(); navigation_->setVisible(navigation_->isHidden()); updateMinimum(); }
     void toggleDocuments() { savePanelState(); documents_->setVisible(documents_->isHidden()); updateMinimum(); }
     void showBothPanels() { navigation_->show(); documents_->show(); updateMinimum(); }
@@ -799,6 +815,15 @@ private:
             filter(list, query_->text());
         }
     }
+    void queueNavigationCounts() {
+        if (countsPending_) return; countsPending_ = true;
+        QTimer::singleShot(0, this, [this] {
+            countsPending_ = false;
+            allBadge_->setText(allScanned_ ? QString::number(allPdfs_->count()) + (allIterator_ ? QStringLiteral("+") : QString()) : QString());
+            folderBadge_->setText(QString::number(folderPdfs_->count()) + (folderIterator_ ? QStringLiteral("+") : QString()));
+            favoriteBadge_->setText(QString::number(favorites_.size())); recentBadge_->setText(QString::number(recentCount_));
+        });
+    }
     void toggleFavorite(const QString& path) {
         QStringList paths = savedPaths(QStringLiteral("library/favorites"));
         if (paths.contains(path)) paths.removeAll(path);
@@ -812,6 +837,7 @@ private:
             }
             list->viewport()->update();
         }
+        queueNavigationCounts();
         if (pages_->currentIndex() == 2 && showingFavorites_) showHistory(true);
     }
     void showHistory(bool favorites) {
@@ -845,6 +871,7 @@ private:
         recent.removeAll(path);
         recent.prepend(path);
         while (recent.size() > 100) recent.removeLast();
+        recentCount_ = recent.size(); queueNavigationCounts();
         QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).setValue(QStringLiteral("library/recent"), recent);
         const QString opened = QDateTime::currentDateTime().toString(Qt::ISODate);
         const QString key = openedDateKey(path);
@@ -1246,6 +1273,7 @@ private:
         if (root_.isEmpty()) return;
         rootLabel_->setText(info.fileName().isEmpty() ? root_ : info.fileName());
         rootLabel_->setToolTip(root_);
+        folderTab_->setText(rootLabel_->text()); folderTab_->setToolTip(root_);
         model_->setRootPath(root_);
         tree_->setRootIndex(model_->index(root_));
         QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
@@ -1376,6 +1404,9 @@ private:
     QWidget* navigation_ = nullptr;
     QWidget* documents_ = nullptr;
     QLabel* rootLabel_ = nullptr;
+    QLabel *allBadge_ = nullptr, *folderBadge_ = nullptr, *recentBadge_ = nullptr, *favoriteBadge_ = nullptr;
+    bool countsPending_ = false;
+    qsizetype recentCount_ = 0;
     QListWidget* historyPdfs_ = nullptr;
     QLabel* historyCount_ = nullptr;
     bool showingFavorites_ = false;
@@ -1440,11 +1471,12 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     dock->setTitleBarWidget(new QWidget(dock));
     dock->setMinimumWidth(1);
     dock->setMaximumWidth(850);
+    dock->setContentsMargins(7, 7, 0, 7);
     auto* library = new LibraryPanel(&viewer, dock);
     dock->setWidget(library);
     window.addDockWidget(Qt::LeftDockWidgetArea, dock);
     dock->show();
-    window.resizeDocks({dock}, {540}, Qt::Horizontal);
+    window.resizeDocks({dock}, {562}, Qt::Horizontal);
 
     auto* controls = new QToolBar(QStringLiteral("라이브러리"), &window);
     controls->setObjectName(QStringLiteral("LunaLibraryToolbar"));
@@ -1504,16 +1536,17 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     };
     for (const auto& entry : menus) if (auto* menu = window.findChild<QMenu*>(entry.first)) menu->setTitle(entry.second);
     auto* brandFrame = new QWidget(&window); brandFrame->setObjectName(QStringLiteral("LunaBrandFrame"));
-    brandFrame->setFixedHeight(42);
-    auto* brandRow = new QHBoxLayout(brandFrame); brandRow->setContentsMargins(12, 0, 18, 0); brandRow->setSpacing(8);
+    brandFrame->setFixedHeight(48);
+    auto* brandRow = new QHBoxLayout(brandFrame); brandRow->setContentsMargins(14, 0, 18, 0); brandRow->setSpacing(12);
     auto* moon = new QLabel(brandFrame); moon->setObjectName(QStringLiteral("LunaBrandIcon"));
-    moon->setFixedSize(24, 24); moon->setPixmap(QPixmap(QStringLiteral(":/luna/LUNA-Moon.png"))); moon->setScaledContents(true);
+    moon->setFixedSize(31, 31); moon->setPixmap(QPixmap(QStringLiteral(":/luna/LUNA-Moon.png"))); moon->setScaledContents(true);
     brandRow->addWidget(moon, 0, Qt::AlignVCenter);
     auto* brand = new QLabel(QStringLiteral("LUNA Library"), brandFrame); brand->setObjectName(QStringLiteral("LunaBrand"));
+    QFont brandFont(QStringLiteral("Malgun Gothic")); brandFont.setPixelSize(20); brandFont.setBold(true); brandFont.setLetterSpacing(QFont::AbsoluteSpacing, -.45); brand->setFont(brandFont);
     brand->setAlignment(Qt::AlignVCenter | Qt::AlignLeft); brandRow->addWidget(brand, 0, Qt::AlignVCenter);
     auto* menuStyle = new MenuBarStyle; menuStyle->setParent(window.menuBar()); window.menuBar()->setStyle(menuStyle);
-    QFont menuFont(QStringLiteral("Segoe UI")); menuFont.setPixelSize(13); window.menuBar()->setFont(menuFont);
-    window.menuBar()->setNativeMenuBar(false); window.menuBar()->setFixedHeight(42); window.menuBar()->setCornerWidget(brandFrame, Qt::TopLeftCorner);
+    QFont menuFont(QStringLiteral("Malgun Gothic")); menuFont.setPixelSize(13); window.menuBar()->setFont(menuFont);
+    window.menuBar()->setNativeMenuBar(false); window.menuBar()->setFixedHeight(48); window.menuBar()->setCornerWidget(brandFrame, Qt::TopLeftCorner);
 
     if (auto* bar = sessionShell ? nullptr : window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
         installReaderToolbar(viewer, *bar, *focus);
@@ -1540,10 +1573,10 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         auto* panelToggle = new QToolButton(documentHeader);
         panelToggle->setObjectName(QStringLiteral("LunaCombinedPanelToggle"));
         panelToggle->setDefaultAction(focus);
-        panelToggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        panelToggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
         panelToggle->setAccessibleName(QStringLiteral("라이브러리와 논문 목록 접기 / 펼치기"));
         panelToggle->setMinimumSize(30, 30);
-        panelToggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        panelToggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
         auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
         auto placeToggle = [panelToggle, paperHeading, documentRow, documentHeader, focus](bool collapsed) {
             paperHeading->removeWidget(panelToggle);
@@ -1551,7 +1584,9 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
             panelToggle->setParent(collapsed ? documentHeader : paperHeading->parentWidget());
             if (collapsed) documentRow->insertWidget(0, panelToggle);
             else paperHeading->addWidget(panelToggle);
-            focus->setText(collapsed ? QStringLiteral("☰") : QStringLiteral("≪"));
+            focus->setText(collapsed ? QStringLiteral("패널 펼치기") : QStringLiteral("패널 접기"));
+            focus->setIcon(readerIcon(collapsed ? QStringLiteral("panel-open") : QStringLiteral("panel-close")));
+            focus->setProperty("lunaCollapsed", collapsed);
             focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
             panelToggle->show();
         };
@@ -1572,18 +1607,20 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     }
     if (sessionShell) {
         auto* frame = new QWidget(&window); frame->setObjectName(QStringLiteral("LunaPdfFrame"));
-        auto* layout = new QVBoxLayout(frame); layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(0);
+        auto* layout = new QVBoxLayout(frame); layout->setContentsMargins(0, 7, 7, 7); layout->setSpacing(0);
         auto* corner = new QWidget(frame); corner->setObjectName(QStringLiteral("LunaTabCorner"));
         auto* row = new QHBoxLayout(corner); row->setContentsMargins(0, 0, 4, 0);
         auto* toggle = new QToolButton(corner); toggle->setObjectName(QStringLiteral("LunaCombinedPanelToggle"));
         toggle->setDefaultAction(focus); toggle->setMinimumSize(30, 30);
-        toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        toggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
         auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
         auto place = [toggle, paperHeading, row, corner, focus](bool collapsed) {
             paperHeading->removeWidget(toggle); row->removeWidget(toggle);
             toggle->setParent(collapsed ? corner : paperHeading->parentWidget());
             if (collapsed) row->insertWidget(0, toggle); else paperHeading->addWidget(toggle);
-            focus->setText(collapsed ? QStringLiteral("☰") : QStringLiteral("≪"));
+            focus->setText(collapsed ? QStringLiteral("패널 펼치기") : QStringLiteral("패널 접기"));
+            focus->setIcon(readerIcon(collapsed ? QStringLiteral("panel-open") : QStringLiteral("panel-close")));
+            focus->setProperty("lunaCollapsed", collapsed);
             focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
             corner->setVisible(collapsed || corner->property("lunaHasOpenButton").toBool()); toggle->show();
         };
@@ -1725,7 +1762,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     auto* toolbar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
     if (!toolbar || !toolbar->isVisible() || !window.getProgramController()->getPdfWidget()->isVisible())
         return fail("Native PDF toolbar or renderer widget is hidden");
-    if (navigation->width() < 190 || documents->width() < 300 || window.getProgramController()->getPdfWidget()->width() < 300)
+    if (navigation->width() < 192 || documents->width() < 285 || window.getProgramController()->getPdfWidget()->width() < 300)
         return fail("Library/PDF geometry does not fit the test window");
     auto* list = pages->widget(0)->findChild<QListWidget*>();
     if (!list || list->count() != 1) return fail("Synthetic library must contain exactly one PDF");
@@ -1788,11 +1825,11 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     }
     auto* combined = window.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
     auto* focusAction = window.findChild<QAction*>(QStringLiteral("LunaFocusMode"));
-    if (!combined || !combined->isVisible() || combined->text() != QStringLiteral("≪"))
+    if (!focusAction || !combined || !combined->isVisible() || combined->icon().isNull() || focusAction->property("lunaCollapsed").toBool())
         return fail("Combined panel collapse control is missing");
     combined->click();
     QCoreApplication::processEvents();
-    if (!dock->isHidden() || !combined->isVisible() || combined->text() != QStringLiteral("☰"))
+    if (!dock->isHidden() || !combined->isVisible() || combined->icon().isNull() || !focusAction->property("lunaCollapsed").toBool())
         return fail("Combined panel restore control is unreachable");
     combined->click();
     QCoreApplication::processEvents();

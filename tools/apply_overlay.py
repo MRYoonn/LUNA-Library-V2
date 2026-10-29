@@ -18,7 +18,7 @@ CMAKE_ADDITION = """
 # LUNA_LIBRARY_V2_TARGET_BEGIN
 add_executable(LUNA luna_main.cpp lunalibrary.cpp lunareadertoolbar.cpp lunaeditorsmoke.cpp lunatabs.cpp luna_icon.rc app.qrc luna_resources.qrc)
 target_link_libraries(LUNA PRIVATE Pdf4QtLibCore Pdf4QtLibWidgets Pdf4QtLibGui
-    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::PrintSupport Qt6::Network)
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::PrintSupport Qt6::Network Qt6::Svg)
 if(MSVC)
     target_compile_options(LUNA PRIVATE /utf-8)
 endif()
@@ -275,6 +275,11 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "luna_main.cpp": make_main(main.read_text(encoding="utf-8")
             .replace("\r\n", "\n")).encode("utf-8"),
     }
+    icons = sorted((own.parent / "assets/icons").glob("ui-*.svg"))
+    for icon in icons:
+        files[folder / icon.name] = icon.read_bytes()
+    files[folder / "luna_resources.qrc"] = ('<RCC><qresource prefix="/luna"><file>lunalibrary.qss</file><file>LUNA-Moon.ico</file><file>LUNA-Moon.png</file>' +
+        ''.join('<file alias="icons/' + icon.name + '">' + icon.name + '</file>' for icon in icons) + '</qresource></RCC>\n').encode()
     if "LUNA_LIBRARY_V2_TARGET_BEGIN" in cmake.read_text(encoding="utf-8"):
         raise ValueError("LUNA target already applied; stopped")
     for path, data in files.items():

@@ -9,6 +9,11 @@
 #include "pdfwidgettool.h"
 
 #include <QAction>
+#include <QFile>
+#include <QSvgRenderer>
+#include <QComboBox>
+#include <QSignalBlocker>
+#include <QLineEdit>
 #include <QApplication>
 #include <QDialog>
 #include <QDoubleSpinBox>
@@ -38,63 +43,25 @@ namespace {
 // One scalable stroke style, including disabled/checked states and high DPI.
 class ReaderIcon final : public QIconEngine {
 public:
-    explicit ReaderIcon(QString name) : name_(std::move(name)) {}
-    QIconEngine* clone() const override { return new ReaderIcon(name_); }
+    explicit ReaderIcon(QString name) {
+        if (name == QStringLiteral("panel")) name = QStringLiteral("panel-close");
+        QFile source(QStringLiteral(":/luna/icons/ui-%1.svg").arg(name));
+        if (source.open(QIODevice::ReadOnly)) svg_ = source.readAll();
+    }
+    QIconEngine* clone() const override { return new ReaderIcon(*this); }
     QSize actualSize(const QSize& size, QIcon::Mode, QIcon::State) override { return size; }
     QPixmap pixmap(const QSize& size, QIcon::Mode mode, QIcon::State state) override {
         QPixmap result(size); result.fill(Qt::transparent);
         QPainter painter(&result); paint(&painter, QRect(QPoint(), size), mode, state); return result;
     }
-    void paint(QPainter* p, const QRect& rect, QIcon::Mode mode, QIcon::State state) override {
-        p->save(); p->setRenderHint(QPainter::Antialiasing);
-        p->translate(rect.topLeft()); p->scale(rect.width() / 24.0, rect.height() / 24.0);
-        const QColor color(mode == QIcon::Disabled ? "#A5ADBA" :
-                           (state == QIcon::On || mode == QIcon::Selected ? "#4F70B5" : "#263247"));
-        p->setPen(QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        p->setBrush(Qt::NoBrush);
-        auto line = [p](qreal a, qreal b, qreal c, qreal d) { p->drawLine(QPointF(a,b), QPointF(c,d)); };
-        if (name_ == "folder") {
-            QPainterPath path; path.moveTo(3,19); path.lineTo(3,6); path.lineTo(9,6); path.lineTo(11,8); path.lineTo(21,8); path.lineTo(21,19); path.closeSubpath(); p->drawPath(path);
-        } else if (name_ == "documents") {
-            p->drawRoundedRect(QRectF(5,3,14,18),2,2); line(8,8,16,8); line(8,12,16,12); line(8,16,13,16);
-        } else if (name_ == "recent") {
-            p->drawEllipse(QRectF(3,3,18,18)); line(12,6,12,12); line(12,12,16,14);
-        } else if (name_ == "star") {
-            QPainterPath path; path.moveTo(12,3); path.lineTo(15,9); path.lineTo(22,10); path.lineTo(17,15); path.lineTo(18,22); path.lineTo(12,18); path.lineTo(6,22); path.lineTo(7,15); path.lineTo(2,10); path.lineTo(9,9); path.closeSubpath(); p->drawPath(path);
-        } else if (name_ == "panel") { p->drawRoundedRect(QRectF(3,4,18,16),2,2); line(9,4,9,20); }
-        else if (name_ == "crop") { line(7,3,7,17); line(7,17,21,17); line(3,7,17,7); line(17,7,17,21); }
-        else if (name_ == "open") {
-            QPainterPath path; path.moveTo(3,19); path.lineTo(3,6); path.lineTo(9,6); path.lineTo(11,8);
-            path.lineTo(20,8); path.lineTo(20,11); path.moveTo(3,19); path.lineTo(6,11);
-            path.lineTo(22,11); path.lineTo(19,19); path.closeSubpath(); p->drawPath(path);
-        } else if (name_ == "save") {
-            QPainterPath path; path.moveTo(4,3); path.lineTo(17,3); path.lineTo(21,7); path.lineTo(21,21);
-            path.lineTo(4,21); path.closeSubpath(); p->drawPath(path); p->drawRect(QRectF(8,3,8,6)); p->drawRect(QRectF(8,14,9,7));
-        } else if (name_ == "previous" || name_ == "next") {
-            const bool next = name_ == "next"; line(next?9:15,5,next?16:8,12); line(next?16:8,12,next?9:15,19);
-        } else if (name_ == "minus" || name_ == "plus" || name_ == "search") {
-            p->drawEllipse(QRectF(3,3,13,13)); line(15,15,21,21);
-            if (name_ != "search") line(6,9.5,13,9.5);
-            if (name_ == "plus") line(9.5,6,9.5,13);
-        } else if (name_ == "select") {
-            line(9,4,15,4); line(12,4,12,20); line(9,20,15,20); line(5,8,5,16); line(3,8,7,8); line(3,16,7,16);
-        } else if (name_ == "highlight") {
-            QPainterPath path; path.moveTo(5,15); path.lineTo(14,4); path.lineTo(20,9); path.lineTo(11,20);
-            path.closeSubpath(); p->drawPath(path); line(7,13,13,18); line(4,21,12,21);
-        } else if (name_ == "note") {
-            QPainterPath path; path.moveTo(4,4); path.lineTo(20,4); path.lineTo(20,15); path.lineTo(13,15);
-            path.lineTo(8,20); path.lineTo(8,15); path.lineTo(4,15); path.closeSubpath(); p->drawPath(path);
-            line(8,8,16,8); line(8,11,13,11);
-        } else if (name_ == "erase") {
-            QPainterPath path; path.moveTo(3,15); path.lineTo(13,4); path.lineTo(21,11); path.lineTo(12,21);
-            path.lineTo(9,21); path.closeSubpath(); p->drawPath(path); line(7,11,16,18); line(13,21,22,21);
-        } else if (name_ == "print") {
-            p->drawRoundedRect(QRectF(3,8,18,10),2,2); p->drawRect(QRectF(7,3,10,5)); p->drawRect(QRectF(7,14,10,7)); line(17,11,18,11);
-        }
-        p->restore();
+    void paint(QPainter* painter, const QRect& rect, QIcon::Mode mode, QIcon::State state) override {
+        QByteArray svg = svg_;
+        svg.replace("currentColor", mode == QIcon::Disabled ? "#9CAAC0" :
+            (state == QIcon::On || mode == QIcon::Selected ? "#1C65BC" : "#173869"));
+        QSvgRenderer renderer(svg); renderer.render(painter, QRectF(rect));
     }
 private:
-    QString name_;
+    QByteArray svg_;
 };
 
 QAction* nativeAction(pdfviewer::PDFEditorMainWindow& window, const char* name) {
@@ -210,9 +177,109 @@ private:
     QPoint press_;
     bool deleting_ = false, editable_ = false;
 };
+
+// Shell-owned presentation only. Native QAction ownership and each Editor's
+// QWidgetAction/defaultWidget remain in that Editor. Never share a native
+// defaultWidget between two QToolBars or reparent a document's toolbar.
+class CommonReaderToolbar final : public QObject {
+public:
+    explicit CommonReaderToolbar(QMainWindow& shell) : QObject(&shell), shell_(shell) {
+        setObjectName(QStringLiteral("LunaCommonReaderAdapter"));
+        bar_ = new QToolBar(QStringLiteral("읽기"), &shell);
+        bar_->setObjectName(QStringLiteral("LunaCommonReaderToolbar"));
+        bar_->setMovable(false); bar_->setFloatable(false);
+        bar_->setToolButtonStyle(Qt::ToolButtonIconOnly); bar_->setIconSize(QSize(21, 21));
+        bar_->setFixedHeight(51); // Exact final HTML toolbar height.
+        shell.addToolBar(Qt::TopToolBarArea, bar_);
+        page_ = new QSpinBox; page_->setObjectName(QStringLiteral("LunaCommonPage"));
+        page_->setButtonSymbols(QAbstractSpinBox::NoButtons); page_->setAlignment(Qt::AlignCenter);
+        page_->setFixedWidth(78); page_->setToolTip(QStringLiteral("현재 페이지 / 전체 페이지 · Enter로 이동"));
+        page_->setAccessibleName(QStringLiteral("현재 페이지 / 전체 페이지"));
+        pageAction_ = new QWidgetAction(bar_); pageAction_->setText(QStringLiteral("페이지 이동")); pageAction_->setDefaultWidget(page_);
+        zoom_ = new QComboBox; zoom_->setObjectName(QStringLiteral("LunaCommonZoom"));
+        zoom_->setEditable(true); zoom_->setFixedWidth(80);
+        zoom_->addItems({QStringLiteral("100%"), QStringLiteral("125%"), QStringLiteral("150%"), QStringLiteral("200%"), QStringLiteral("250%")});
+        zoom_->setToolTip(QStringLiteral("PDF 확대 비율 · 직접 입력 가능")); zoom_->setAccessibleName(QStringLiteral("확대 비율"));
+        zoomAction_ = new QWidgetAction(bar_); zoomAction_->setText(QStringLiteral("확대 비율")); zoomAction_->setDefaultWidget(zoom_);
+        for (auto& separator : separators_) { separator = new QAction(bar_); separator->setSeparator(true); }
+        connect(page_, &QSpinBox::editingFinished, this, [this] {
+            if (!editor_ || !page_->isEnabled()) return;
+            if (auto* native = editor_->findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"))) {
+                native->setValue(page_->value());
+                QMetaObject::invokeMethod(editor_, "onPageNumberSpinboxEditingFinished", Qt::DirectConnection);
+            }
+        });
+        auto commitZoom = [this] {
+            if (!editor_ || !zoom_->isEnabled()) return;
+            QString value = zoom_->currentText(); value.remove(QLatin1Char('%'));
+            bool ok = false; const double percent = value.trimmed().toDouble(&ok);
+            if (ok) if (auto* native = editor_->findChild<QDoubleSpinBox*>(QStringLiteral("pageZoomSpinBox"))) {
+                native->setValue(qBound(native->minimum(), percent, native->maximum()));
+                QMetaObject::invokeMethod(editor_, "onPageZoomSpinboxEditingFinished", Qt::DirectConnection);
+            }
+        };
+        connect(zoom_, qOverload<int>(&QComboBox::activated), this, [commitZoom](int) { commitZoom(); });
+        connect(zoom_->lineEdit(), &QLineEdit::editingFinished, this, commitZoom);
+        connect(&poll_, &QTimer::timeout, this, [this] { synchronize(); }); poll_.start(100);
+    }
+    void bind(pdfviewer::PDFEditorMainWindow& editor) {
+        if (editor_ == &editor) { synchronize(); return; }
+        // Finish an old tab's view edit before changing its recipient. A late
+        // focus-out must never apply one document's page/zoom text to another.
+        page_->clearFocus(); zoom_->lineEdit()->clearFocus(); zoom_->clearFocus();
+        for (auto* action : bar_->actions()) bar_->removeAction(action);
+        editor_ = &editor;
+        auto add = [this](const char* name) { if (auto* action = nativeAction(*editor_, name)) bar_->addAction(action); };
+        if (auto* open = shell_.findChild<QAction*>(QStringLiteral("LunaOpenDocuments"), Qt::FindDirectChildrenOnly)) bar_->addAction(open);
+        add("actionSave"); bar_->addAction(separators_[0]);
+        add("actionGoToPreviousPage"); bar_->addAction(pageAction_); add("actionGoToNextPage"); bar_->addAction(separators_[1]);
+        add("actionZoom_Out"); bar_->addAction(zoomAction_); add("actionZoom_In"); bar_->addAction(separators_[2]);
+        add("actionSelectText"); add("actionCreateTextHighlight"); add("actionStickyNoteComment"); add("actionDeleteAnnotation"); add("LunaCropThumbnail");
+        bar_->addAction(separators_[3]); add("actionFind"); add("actionPrint");
+        synchronize();
+    }
+    void unbind() {
+        poll_.stop(); editor_.clear();
+        for (auto* action : bar_->actions()) bar_->removeAction(action);
+    }
+private:
+    void synchronize() {
+        if (!editor_ || !editor_->getProgramController()) return;
+        auto* nativePage = editor_->findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"));
+        auto* nativeCount = editor_->findChild<QLabel*>(QStringLiteral("pageNumberLabel"));
+        auto* nativeZoom = editor_->findChild<QDoubleSpinBox*>(QStringLiteral("pageZoomSpinBox"));
+        if (!nativePage || !nativeCount || !nativeZoom) return;
+        page_->setEnabled(nativePage->isEnabled()); zoom_->setEnabled(nativePage->isEnabled());
+        if (!page_->hasFocus()) {
+            const QSignalBlocker block(page_); page_->setRange(nativePage->minimum(), nativePage->maximum());
+            page_->setSuffix(nativeCount->text().isEmpty() ? QStringLiteral(" / 0") : nativeCount->text()); page_->setValue(nativePage->value());
+        }
+        if (!zoom_->hasFocus() && !zoom_->lineEdit()->hasFocus()) {
+            const QSignalBlocker block(zoom_); const double value = nativeZoom->value();
+            zoom_->setCurrentText(QString::number(value, 'f', qFuzzyIsNull(value - qRound(value)) ? 0 : 1) + QLatin1Char('%'));
+        }
+    }
+    QMainWindow& shell_;
+    QToolBar* bar_ = nullptr;
+    QPointer<pdfviewer::PDFEditorMainWindow> editor_;
+    QSpinBox* page_ = nullptr;
+    QComboBox* zoom_ = nullptr;
+    QWidgetAction *pageAction_ = nullptr, *zoomAction_ = nullptr;
+    QAction* separators_[4]{};
+    QTimer poll_;
+};
 }
 
 QIcon readerIcon(const QString& name) { return QIcon(new ReaderIcon(name)); }
+
+void bindCommonReaderToolbar(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor) {
+    auto* adapter = dynamic_cast<CommonReaderToolbar*>(shell.findChild<QObject*>(QStringLiteral("LunaCommonReaderAdapter")));
+    if (!adapter) adapter = new CommonReaderToolbar(shell);
+    adapter->bind(editor);
+}
+void unbindCommonReaderToolbar(QMainWindow& shell) {
+    if (auto* adapter = dynamic_cast<CommonReaderToolbar*>(shell.findChild<QObject*>(QStringLiteral("LunaCommonReaderAdapter")))) adapter->unbind();
+}
 
 void hideAdvancedToolbars(pdfviewer::PDFEditorMainWindow& window) {
     for (auto* toolbar : window.findChildren<QToolBar*>()) {

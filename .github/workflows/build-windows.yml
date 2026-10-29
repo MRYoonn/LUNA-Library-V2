@@ -4,6 +4,10 @@ name: LUNA Library V2 - PDF4QT Windows Portable
 on:
   workflow_dispatch:
     inputs:
+      ui_reference_capture:
+        description: 'Capture approved v0.9.1 in Windows Edge alongside native UI evidence'
+        type: boolean
+        default: false
       p0_lifetime_debug:
         description: 'Diagnose unchanged b5 EXE and validate a private local crash capture kit; never a release'
         type: boolean
@@ -374,6 +378,13 @@ jobs:
         run: |
           python -B tools/verify_portable.py LUNA-Windows-Portable
           if ($LASTEXITCODE -ne 0) { throw "Portable package verification failed" }
+
+      - name: Capture exact approved HTML in native Windows Edge
+        if: inputs.ui_reference_capture
+        shell: pwsh
+        run: |
+          node tools/capture_ui_reference_windows.mjs design/LUNA_Library_UI_v0.9.1_OneLineMemo.html "$env:RUNNER_TEMP/luna-ui/html-reference"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows HTML reference capture failed' }
 
       - name: Independent document windows and native annotation round trip
         shell: pwsh

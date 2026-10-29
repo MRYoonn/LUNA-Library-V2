@@ -1,0 +1,104 @@
+name: P0 - private crash collector and unchanged Editor lifetime diagnosis
+on:
+  workflow_call:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: luna-p0-lifetime-debug
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public source checks and preserved Python regressions
+        shell: pwsh
+        run: |
+          python -B tools/preflight_public.py
+          if ($LASTEXITCODE -ne 0) { throw 'Public source check failed' }
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Python regressions failed' }
+          foreach ($file in Get-ChildItem tools/*Crash*.ps1) {
+            $tokens=$null; $errors=$null
+            [Management.Automation.Language.Parser]::ParseFile($file.FullName,[ref]$tokens,[ref]$errors) | Out-Null
+            if ($errors) { throw "PowerShell parse failure: $($file.Name)" }
+          }
+      - name: Require the exact successful binary used by the actual PC
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $run=gh api 'repos/MRYoonn/LUNA-Library-V2/actions/runs/40846823066' | ConvertFrom-Json
+          if ($run.conclusion -ne 'success' -or $run.head_sha -ne 'b5aa0fb9dd8b5e40cba503e0095ba80ef382f11c') { throw 'Verified source identity changed' }
+      - uses: actions/download-artifact@v4
+        with:
+          name: LUNA-Windows-Portable
+          run-id: 40846823066
+          github-token: ${{ github.token }}
+          path: original-b5
+      - name: Verify exact EXE and install signed debugger tools
+        shell: pwsh
+        run: |
+          if ((Get-FileHash original-b5/LUNA.exe -Algorithm SHA256).Hash.ToLowerInvariant() -ne '51facf00eba061db273053805a3f4fb3ba9e54627c7b211cd8131832376da89c') { throw 'EXE digest mismatch' }
+          . ./tools/Luna-Crash-Tools.ps1
+          $dumper=Get-LunaProcDump
+          $cdb=Get-LunaCdb
+          "LUNA_CDB=$cdb" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force evidence | Out-Null
+      - name: Compile disposable native AV fixture only
+        shell: pwsh
+        run: |
+          cmake -S tests/crash_collector -B crash-fixture -G 'Visual Studio 17 2022' -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Fixture configuration failed' }
+          cmake --build crash-fixture --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'Fixture compilation failed' }
+          Copy-Item tools/*Crash* crash-fixture/Release/
+          Copy-Item tools/Start-Luna-Diagnostics.* crash-fixture/Release/
+          @{product='SYNTHETIC CRASH COLLECTOR FIXTURE ONLY'; commit=$env:GITHUB_SHA} | ConvertTo-Json | Set-Content crash-fixture/Release/build-info.json
+      - name: Verify actual private dump, actual AV exit and actual stack analysis
+        id: collector
+        shell: pwsh
+        run: |
+          python -B tools/probe_crash_collector_windows.py crash-fixture/Release evidence/collector
+          if ($LASTEXITCODE -ne 0) { throw 'Crash capture/analysis failed; kit is not validated' }
+      - name: Stage the validated local diagnostic kit without any EXE or dump
+        if: steps.collector.outcome == 'success'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force diagnostic-kit | Out-Null
+          Copy-Item tools/*Crash*.ps1,tools/*Crash*.cmd,tools/Start-Luna-Diagnostics.* diagnostic-kit/
+          Copy-Item CRASH_DIAGNOSTICS_KO.md diagnostic-kit/
+          @{kitCommit=$env:GITHUB_SHA; appCommit='b5aa0fb'; appChanged=$false; p0='ACTUAL PC AV REPRODUCED, ROOT CAUSE UNRESOLVED'; automaticUpload=$false} | ConvertTo-Json | Set-Content diagnostic-kit/diagnostic-kit-info.json
+      - name: Replay unchanged production regressions under full page heap and CDB
+        shell: pwsh
+        run: |
+          $gflags=Join-Path (Split-Path $env:LUNA_CDB) 'gflags.exe'
+          try {
+            & $gflags /p /enable LUNA.exe /full
+            if ($LASTEXITCODE -ne 0) { throw 'Full page heap could not be enabled' }
+            python -B tools/probe_tabs_integration_windows.py original-b5 evidence/integrated --debugger "$env:LUNA_CDB"
+            if ($LASTEXITCODE -ne 0) { throw 'Instrumented replay failed; inspect actual CDB stack, do not report P0 fixed' }
+          } finally { & $gflags /p /disable LUNA.exe }
+      - name: Publish only synthetic-safe evidence, excluding every dump and private analysis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-P0-lifetime-evidence-synthetic-only
+          path: |
+            evidence/integrated/
+            evidence/collector/collector-summary.json
+            evidence/collector/capture-launcher.log
+            evidence/collector/analysis-launcher.log
+            evidence/collector/*-PRIVATE-CRASH/stack-summary.txt
+          if-no-files-found: warn
+      - name: Upload separately validated local capture kit even when P0 replay reproduces a crash
+        if: ${{ always() && steps.collector.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-P0-Private-Crash-Diagnostic-Kit
+          path: diagnostic-kit/
+          if-no-files-found: error

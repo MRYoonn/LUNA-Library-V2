@@ -11,6 +11,7 @@ import ctypes
 from ctypes import wintypes
 import time
 import zipfile
+import re
 from smoke_windows import synthetic_pdf
 
 
@@ -72,7 +73,7 @@ def verify_diagnostic_launcher(package, output, env):
                 child.terminate()
 
 
-def run(package, output):
+def run(package, output, debugger=None):
     if os.name != 'nt':
         raise RuntimeError('Actual Windows required')
     output.mkdir(parents=True, exist_ok=True)
@@ -107,12 +108,24 @@ def run(package, output):
                         command += ['--luna-tabs-restore', str(target)]
                     else:
                         command += [str(a), str(b)]
+                    debug_log = evidence / (phase + '.cdb.log')
+                    if debugger:
+                        commands = 'sxd -c2 ".echo LUNA_UNHANDLED_ACCESS_VIOLATION;.exr -1;.ecxr;kv;~*kb;lm;q" av;sxe -c ".echo LUNA_HEAP_BREAK;kv;~*kb;q" bpe;sxe -c ".echo LUNA_DEBUGGEE_EXIT;.lastevent;q" epr;g'
+                        command = [str(debugger), '-G', '-logo', str(debug_log), '-c', commands, *command]
                     try:
                         code = subprocess.run(command, cwd=package, env=env, stdout=log,
-                                              stderr=subprocess.STDOUT, timeout=180, check=False).returncode
+                                              stderr=subprocess.STDOUT, timeout=600 if debugger else 180, check=False).returncode
                     except subprocess.TimeoutExpired:
                         code = -1
                     result = json.loads(report.read_text(encoding='utf-8')) if report.exists() else {'accepted': False, 'error': 'No native report'}
+                    if debugger:
+                        transcript = debug_log.read_text(errors='replace') if debug_log.exists() else ''
+                        exits = re.findall(r'(?:exited with code\s+|Exit process[^\r\n]*?\bcode\s+)([0-9a-fA-Fx]+)',transcript,re.IGNORECASE)
+                        clean = bool(exits) and all(int(value,16)==0 for value in exits)
+                        fault = bool(re.search(r'(?m)^LUNA_(?:UNHANDLED_ACCESS_VIOLATION|HEAP_BREAK)\s*$',transcript))
+                        result['debugger'] = {'exitObserved':clean,'unhandledOrHeapFault':fault,'scope':'instrumented CI replay, not actual-PC resolution'}
+                        if fault or not clean:
+                            result.update(accepted=False,error='Debugger observed a fault or could not establish a clean debuggee exit')
                     trace_path = Path(str(report) + '.lifecycle.jsonl')
                     events = [json.loads(line) for line in trace_path.read_text(encoding='utf-8').splitlines()] if trace_path.exists() else []
                     observations = [e for e in events if e['event'] == 'close-key-observed']
@@ -152,5 +165,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('package', type=Path)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--debugger',type=Path)
     args = parser.parse_args()
-    run(args.package.resolve(strict=True), args.output.resolve())
+    run(args.package.resolve(strict=True), args.output.resolve(), args.debugger.resolve(strict=True) if args.debugger else None)

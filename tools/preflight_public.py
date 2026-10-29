@@ -7,6 +7,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    ".github/workflows/p0-editor-lifetime.yml",
+    "tools/Luna-Crash-Tools.ps1", "tools/Start-Luna-Crash-Diagnostics.ps1", "tools/Start-Luna-Crash-Diagnostics.cmd",
+    "tools/Analyze-Luna-Crash.ps1", "tools/Analyze-Luna-Crash.cmd", "tools/probe_crash_collector_windows.py",
+    "tests/crash_collector/CMakeLists.txt", "tests/crash_collector/main.cpp", "CRASH_DIAGNOSTICS_KO.md",
     "tools/Start-Luna-Diagnostics.ps1", "tools/Start-Luna-Diagnostics.cmd",
     "tools/probe_tabs_integration_windows.py",
     "src/lunatabs.cpp", "src/lunatabs.h",

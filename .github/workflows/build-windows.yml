@@ -4,6 +4,10 @@ name: LUNA Library V2 - PDF4QT Windows Portable
 on:
   workflow_dispatch:
     inputs:
+      p0_lifetime_debug:
+        description: 'Diagnose unchanged b5 EXE and validate a private local crash capture kit; never a release'
+        type: boolean
+        default: false
       native_tabs_proof:
         description: 'Isolated native-session architecture proof; never release portable'
         type: boolean
@@ -33,11 +37,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: luna-library-v2-windows-${{ inputs.native_probes_only && 'native-probes' || inputs.tab_host_source_run != '' && 'tab-host' || 'app' }}
+  group: luna-library-v2-windows-${{ inputs.p0_lifetime_debug && 'p0-lifetime' || inputs.native_probes_only && 'native-probes' || inputs.tab_host_source_run != '' && 'tab-host' || 'app' }}
   cancel-in-progress: false
 
 jobs:
+  p0-lifetime-debug:
+    if: inputs.p0_lifetime_debug
+    uses: ./.github/workflows/p0-editor-lifetime.yml
+
   windows-packaging-preflight:
+    if: ${{ !inputs.p0_lifetime_debug }}
     runs-on: windows-2022
     timeout-minutes: 10
     permissions:

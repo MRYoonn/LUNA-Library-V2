@@ -1024,7 +1024,9 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             list->setCurrentItem(paper); list->setFocus();
             if (!paper->data(Qt::UserRole + 2).toBool()) integrationRequire(integrationKey('D',true) && integrationWait([&] { return paper->data(Qt::UserRole + 2).toBool(); }), "Favorite setup before relocation failed");
             QSettings relocationSettings(QSettings::defaultFormat(),QSettings::UserScope,QStringLiteral("LUNA"),QStringLiteral("LUNA Library"));
-            const QVariantMap historyBefore = [&] { QVariantMap values; relocationSettings.beginGroup("library/openedDates"); for (const auto& key : relocationSettings.childKeys()) values.insert(key,relocationSettings.value(key)); relocationSettings.endGroup(); return values; }();
+            const QString openedPathBefore = QFileInfo(a->getProgramController()->getOriginalFileName()).canonicalFilePath();
+            const QString timestampBefore = relocationSettings.value("library/openedDates/" + QString::fromLatin1(QCryptographicHash::hash(openedPathBefore.toUtf8(),QCryptographicHash::Sha256).toHex())).toString();
+            integrationRequire(!timestampBefore.isEmpty(), "Reading timestamp was missing before relocation");
             bool menuChosen = false; QTimer moveUi;
             QObject::connect(&moveUi, &QTimer::timeout, &host, [&] {
                 if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) integrationDirectory(dialog, moved);
@@ -1053,10 +1055,9 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 for (const auto& value : paths) { integrationRequire(DocumentClaim::identity(value) != DocumentClaim::identity(movedPdf) && DocumentClaim::identity(value) != DocumentClaim::identity(files[0]), "Rename left a stale library history/favorite path"); found |= DocumentClaim::identity(value) == DocumentClaim::identity(renamedPdf); }
                 integrationRequire(found, "Renamed PDF missing from recent/favorites");
             }
-            relocationSettings.beginGroup("library/openedDates");
-            const auto newDates = relocationSettings.childKeys(); bool preservedDate = false;
-            for (const auto& key : newDates) if (!historyBefore.contains(key)) preservedDate |= historyBefore.values().contains(relocationSettings.value(key));
-            relocationSettings.endGroup(); integrationRequire(preservedDate, "Relocation replaced the original reading timestamp");
+            const QString renamedCardPath = QFileInfo(paper->data(Qt::UserRole).toString()).canonicalFilePath();
+            const QString timestampAfter = relocationSettings.value("library/openedDates/" + QString::fromLatin1(QCryptographicHash::hash(renamedCardPath.toUtf8(),QCryptographicHash::Sha256).toHex())).toString();
+            integrationRequire(timestampAfter == timestampBefore, "Relocation replaced the original reading timestamp");
             result["nativeRenamePdfThumbnailMemoAndTab"] = true; result["movedPdf"] = renamedPdf;
         }
         integrationRequire(host.screen()->grabWindow(0).save(report + ".final.png"), "Could not capture final integrated window");

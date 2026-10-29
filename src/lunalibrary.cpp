@@ -1201,11 +1201,12 @@ private:
                 settings.setValue(key, paths);
             }
             const QString oldDateKey = openedDateKey(source), newDateKey = openedDateKey(result.documentPath);
-            const QString date = settings.value(QStringLiteral("library/openedDates/") + oldDateKey).toString();
+            const QString date = settings.value(QStringLiteral("library/openedDates/") + oldDateKey, displayedDates_.value(sourceIdentity)).toString();
             if (!date.isEmpty() && oldDateKey != newDateKey) {
                 settings.setValue(QStringLiteral("library/openedDates/") + newDateKey, date);
                 settings.remove(QStringLiteral("library/openedDates/") + oldDateKey);
                 openedDates_.remove(oldDateKey); openedDates_.insert(newDateKey, date);
+                rememberDateAlias(result.documentPath,date);
             }
             if (oldDateKey != newDateKey && memos_.contains(oldDateKey)) {
                 const QString memo = memos_.value(oldDateKey);

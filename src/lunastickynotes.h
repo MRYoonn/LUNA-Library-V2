@@ -45,8 +45,13 @@ public:
         connect(&poll_, &QTimer::timeout, this, [this] { synchronize(); }); poll_.start(100);
     }
     void focus(pdf::PDFObjectReference ref) {
-        if (mutate(ref, [](pdf::PDFDocumentBuilder* builder, pdf::PDFObjectReference r) { builder->setAnnotationOpenState(r, true); })) synchronize();
-        else synchronize();
+        synchronize();
+        if (auto card=cards_.find(ref); card!=cards_.end())
+            for (const auto& item:editor_.getProgramController()->getPdfWidget()->getAnnotationManager()->getPageAnnotations(card->second.page).annotations)
+                if (item.annotation->getSelfReference()==ref && item.annotation->getType()==pdf::AnnotationType::Text && !static_cast<const pdf::PDFTextAnnotation*>(item.annotation.get())->isOpen()) {
+                    mutate(ref, [](pdf::PDFDocumentBuilder* builder,pdf::PDFObjectReference r) { builder->setAnnotationOpenState(r,true); });
+                    synchronize(); break;
+                }
         if (auto it = cards_.find(ref); it != cards_.end()) { layer_->ensureWidgetVisible(it->second.frame); it->second.text->setFocus(); }
     }
 private:

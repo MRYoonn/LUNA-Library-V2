@@ -1139,6 +1139,7 @@ private:
     }
     void renameDocument(const QString& path) {
         if (activateElsewhere && activateElsewhere(path)) { QTimer::singleShot(0, this, [this, path] { renameDocument(path); }); return; }
+        if (!viewer_->isEnabled() || !viewer_->getProgramController()->canClose()) { QMessageBox::information(this,QStringLiteral("문서 준비 중"),QStringLiteral("문서 불러오기나 저장이 끝난 후 이름을 변경해 주세요.")); return; }
         bool accepted = false;
         const QString name = QInputDialog::getText(this, QStringLiteral("PDF 이름 변경"), QStringLiteral("파일명 (.pdf 자동 유지)"), QLineEdit::Normal, QFileInfo(path).fileName(), &accepted);
         if (!accepted) return;
@@ -1168,6 +1169,9 @@ private:
             return;
         }
         auto* controller = operation->getProgramController();
+        if (!operation->isEnabled() || !controller->canClose()) {
+            QMessageBox::information(this,QStringLiteral("문서 준비 중"),QStringLiteral("문서 불러오기나 저장이 끝난 후 파일을 이동하거나 이름을 변경해 주세요.")); return;
+        }
         const bool opened = controller->getDocument() &&
             DocumentClaim::identity(controller->getOriginalFileName()) == sourceIdentity;
         int page = 0;

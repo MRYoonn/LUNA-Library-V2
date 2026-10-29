@@ -8,6 +8,8 @@ New-Item -ItemType Directory -Path $OutputDirectory -ErrorAction Stop | Out-Null
 $trace = Join-Path $OutputDirectory 'lifecycle.jsonl'
 $start = [DateTime]::UtcNow
 Copy-Item (Join-Path $package 'build-info.json') (Join-Path $OutputDirectory 'build-info.json')
+$exeHash = (Get-FileHash -LiteralPath (Join-Path $package 'LUNA.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+Write-Host 'Save and close other LUNA windows before reproducing here, so another process does not own the PDFs.'
 Write-Host 'Reproduce Ctrl+W with zero, one and multiple PDFs, including search focus. Then close LUNA normally if it stays open.'
 Write-Host 'Logs stay on this PC. No PDF, thumbnail, memo or settings are copied.'
 $process = Start-Process -FilePath (Join-Path $package 'LUNA.exe') -ArgumentList @('--luna-lifecycle-trace', ('"' + $trace + '"')) -PassThru
@@ -34,7 +36,7 @@ try {
     }
     if ($faults.Count) { $faultStatus = 'matching-child-application-error' }
 } catch { $faultStatus = 'event-log-unavailable-or-no-matching-events' }
-@{ startedUtc=$start.ToString('o'); endedUtc=[DateTime]::UtcNow.ToString('o'); exitCode=$code; exitCodeHex=$hex;
+@{ startedUtc=$start.ToString('o'); endedUtc=[DateTime]::UtcNow.ToString('o'); pid=$process.Id; exeSha256=$exeHash; exitCode=$code; exitCodeHex=$hex;
    shellApprovedExit=$approved; lifecycleRecords=$events.Count; osVersion=[Environment]::OSVersion.Version.ToString();
    faultEventStatus=$faultStatus; applicationErrors=$faults;
    classification=$(if ($null -eq $code) { 'exit-code-unavailable-unresolved' } elseif ($code -ne 0) { 'abnormal-exit-investigate-code' } elseif (!$approved) { 'exit-without-shell-approval-unresolved' } else { 'shell-approved-exit' });

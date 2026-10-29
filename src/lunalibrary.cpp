@@ -1311,7 +1311,7 @@ private:
             connect(restore, &QTimer::timeout, this, [this, restore, editor = operation, target = result.documentPath, page, zoom, layout, attempts = 0]() mutable {
                 if (!editor) { restore->stop(); restore->deleteLater(); return; }
                 auto* c = editor->getProgramController();
-                if (++attempts > 200) { editor->setProperty("LunaMoveRestorePending", false); restore->stop(); restore->deleteLater(); return; }
+                if (++attempts > 200) { editor->setProperty("LunaMoveRestorePending", false); editor->setProperty("LunaPreserveReopenView", false); restore->stop(); restore->deleteLater(); return; }
                 if (!editor->isEnabled() || !c->getDocument()) return;
                 if (DocumentClaim::identity(c->getOriginalFileName()) == DocumentClaim::identity(target)) {
                     c->getPdfWidget()->getDrawWidgetProxy()->setPageLayout(layout);
@@ -1319,6 +1319,7 @@ private:
                     c->getPdfWidget()->getDrawWidgetProxy()->goToPage(page);
                 }
                 editor->setProperty("LunaMoveRestorePending", false);
+                editor->setProperty("LunaPreserveReopenView", false);
                 restore->stop(); restore->deleteLater();
             });
             restore->start(50);

@@ -1231,6 +1231,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         integrationEmptyFileMenu(host,report); result["menuCanvasDropdownDisabledState"] = true;
         auto* reopened = host.open(reopenPath);
         integrationRequire(reopened == emptyEditor && integrationWait([&] { return ready(reopened); }) && integrationHighlights(reopened) == 1, "Reopening after repeated empty Ctrl+W lost the document or annotation");
+        integrationRequire(integrationWait([&] { return qAbs(reopened->getProgramController()->getPdfWidget()->getDrawWidgetProxy()->getZoom()-2.0)<.001; }), "Relocation view-restore state leaked into the next document open instead of the default 200 percent");
+        result["relocationReopenReturnsToDefaultZoomAfterClose"] = true;
         auto* query = host.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch")); query->setFocus();
         integrationRequire(integrationKey('F', true), "PDF search focus setup failed"); QPointer<QDialog> find;
         integrationRequire(integrationWait([&] { for (auto* d : reopened->findChildren<QDialog*>()) if (d->isVisible() && d->inherits("pdf::PDFFindTextToolDialog")) find = d; return bool(find); }), "PDF search popup did not reopen");

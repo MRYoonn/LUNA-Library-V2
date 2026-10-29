@@ -18,8 +18,25 @@ $hex = if ($null -eq $code) { 'unavailable' } else { '{0:X8}' -f ([long]$code -b
 $events = @()
 if (Test-Path $trace) { $events = @(Get-Content -LiteralPath $trace -Encoding UTF8 | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} }) }
 $approved = @($events | Where-Object { $_.event -eq 'shell-close-approved' }).Count -gt 0
+$faults = @(); $faultStatus = 'not-found-not-proof-of-no-crash'
+try {
+    # Only the matching child's safe crash fields; never copy event messages,
+    # executable paths, command lines, account names or crash dumps.
+    $recentFaults = @(Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1000; StartTime=$start.ToLocalTime()} -MaxEvents 20 -ErrorAction Stop)
+    foreach ($entry in $recentFaults) {
+        [xml]$xml = $entry.ToXml(); $data = @{}
+        foreach ($field in $xml.Event.EventData.Data) { $data[$field.Name] = $field.InnerText }
+        $eventPid = $data['ProcessId']
+        if (!$eventPid -or !$eventPid.StartsWith('0x')) { continue }
+        if ([Convert]::ToInt64($eventPid.Substring(2),16) -ne $process.Id) { continue }
+        $faults += @{ timeUtc=$entry.TimeCreated.ToUniversalTime().ToString('o'); exceptionCode=$data['ExceptionCode'];
+            module=[IO.Path]::GetFileName($data['ModuleName']); faultingOffset=$data['FaultingOffset'] }
+    }
+    if ($faults.Count) { $faultStatus = 'matching-child-application-error' }
+} catch { $faultStatus = 'event-log-unavailable-or-no-matching-events' }
 @{ startedUtc=$start.ToString('o'); endedUtc=[DateTime]::UtcNow.ToString('o'); exitCode=$code; exitCodeHex=$hex;
    shellApprovedExit=$approved; lifecycleRecords=$events.Count; osVersion=[Environment]::OSVersion.Version.ToString();
+   faultEventStatus=$faultStatus; applicationErrors=$faults;
    classification=$(if ($null -eq $code) { 'exit-code-unavailable-unresolved' } elseif ($code -ne 0) { 'abnormal-exit-investigate-code' } elseif (!$approved) { 'exit-without-shell-approval-unresolved' } else { 'shell-approved-exit' });
    scope='No crash dump or private documents collected. Exit code alone does not establish the cause.'
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'process-exit.json') -Encoding UTF8

@@ -109,7 +109,7 @@ jobs:
       - name: Replay unchanged b5 with a synthetic legacy window state and require the actual QWidgetItem crash
         shell: pwsh
         run: |
-          python -B tools/probe_editor_lifetime_windows.py original-b5 evidence/legacy-baseline --debugger "$env:LUNA_CDB" --legacy-state evidence/legacy-state.json --expect-layout-crash
+          python -B tools/probe_editor_lifetime_windows.py original-b5 evidence/legacy-baseline --debugger "$env:LUNA_CDB" --legacy-state evidence/legacy-state.json --state-reader layout-fixture/Release/luna-native-windowstate.exe --expect-layout-crash
           if ($LASTEXITCODE -ne 0) { throw 'Actual baseline legacy-state crash not established' }
       - name: Publish only synthetic-safe evidence, excluding every dump and private analysis
         if: always()

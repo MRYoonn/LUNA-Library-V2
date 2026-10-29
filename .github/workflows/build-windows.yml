@@ -417,7 +417,7 @@ jobs:
           try {
             & $gflags /p /enable LUNA.exe /full
             if ($LASTEXITCODE -ne 0) { throw 'Full page heap not enabled' }
-            python -B tools/probe_editor_lifetime_windows.py LUNA-Windows-Portable "$evidence/fixed" --debugger "$cdb" --legacy-state "$evidence/legacy-state.json"
+            python -B tools/probe_editor_lifetime_windows.py LUNA-Windows-Portable "$evidence/fixed" --debugger "$cdb" --legacy-state "$evidence/legacy-state.json" --state-reader "$env:RUNNER_TEMP/luna-dialog-build/Release/luna-native-windowstate.exe"
             if ($LASTEXITCODE -ne 0) { throw 'Legacy-layout Ctrl+W regression failed' }
           } finally { & $gflags /p /disable LUNA.exe }
 

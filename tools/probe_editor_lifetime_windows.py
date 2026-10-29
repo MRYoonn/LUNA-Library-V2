@@ -16,7 +16,7 @@ import tempfile
 import time
 from smoke_windows import synthetic_pdf
 
-def run(package, output, debugger, legacy_state=None, expect_layout_crash=False):
+def run(package, output, debugger, legacy_state=None, expect_layout_crash=False, state_reader=None):
     if os.name!='nt':raise RuntimeError('Actual Windows required')
     import winreg
     output.mkdir(parents=True,exist_ok=True)
@@ -75,7 +75,14 @@ def run(package, output, debugger, legacy_state=None, expect_layout_crash=False)
                             except FileNotFoundError:pass
                             if name=='root':winreg.SetValueEx(store,name,0,winreg.REG_SZ,str(root))
                             if name=='state' and legacy_state:
-                                winreg.SetValueEx(store,name,0,winreg.REG_BINARY,base64.b64decode(json.loads(legacy_state.read_text(encoding='utf-8-sig'))['stateBase64']))
+                                state=base64.b64decode(json.loads(legacy_state.read_text(encoding='utf-8-sig'))['stateBase64'])
+                                # QSettings NativeFormat stores a QByteArray as
+                                # a UTF-16 @ByteArray(...) variant, not raw bytes.
+                                serialized=('@ByteArray('+state.decode('latin1')+')').encode('utf-16-le')
+                                winreg.SetValueEx(store,name,0,winreg.REG_BINARY,serialized)
+                    if legacy_state:
+                        if not state_reader:raise RuntimeError('Native QSettings verifier required for legacy-state replay')
+                        subprocess.run([str(state_reader),'--verify-legacy'],check=True,timeout=15)
                     env=dict(os.environ,QT_QPA_PLATFORM='windows',QT_SCALE_FACTOR=str(scale),QT_FORCE_STDERR_LOGGING='1')
                     system=Path(os.environ['SystemRoot']);env['PATH']=os.pathsep.join(map(str,(package,system/'System32',system)))
                     env.update(QT_PLUGIN_PATH=str(package),QT_QPA_PLATFORM_PLUGIN_PATH=str(package/'platforms'))
@@ -168,7 +175,7 @@ def run(package, output, debugger, legacy_state=None, expect_layout_crash=False)
                 else:winreg.SetValueEx(store,name,0,previous[1],previous[0])
     accepted=len(results)==6 and all(r['accepted'] for r in results)
     reproduced=bool(expect_layout_crash and len(results)==1 and results[0].get('baselineLayoutCrashReproduced'))
-    (output/'summary.json').write_text(json.dumps({'accepted':accepted,'baselineLayoutCrashReproduced':reproduced,'runs':results,'scope':'focused synthetic library-open lifecycle replay under CDB/page heap; does not resolve actual-PC AV'},indent=2),encoding='utf-8')
+    (output/'summary.json').write_text(json.dumps({'accepted':accepted and not expect_layout_crash,'baselineLayoutCrashReproduced':reproduced,'runs':results,'scope':'focused synthetic library-open lifecycle replay under CDB/page heap; does not resolve actual-PC AV'},indent=2),encoding='utf-8')
     if expect_layout_crash:
         if not reproduced:raise RuntimeError('Exact baseline layout crash was not reproduced')
         return
@@ -176,5 +183,5 @@ def run(package, output, debugger, legacy_state=None, expect_layout_crash=False)
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('package',type=Path);p.add_argument('output',type=Path);p.add_argument('--debugger',type=Path,required=True)
-    p.add_argument('--legacy-state',type=Path);p.add_argument('--expect-layout-crash',action='store_true')
-    a=p.parse_args();run(a.package.resolve(strict=True),a.output.resolve(),a.debugger.resolve(strict=True),a.legacy_state,a.expect_layout_crash)
+    p.add_argument('--legacy-state',type=Path);p.add_argument('--expect-layout-crash',action='store_true');p.add_argument('--state-reader',type=Path)
+    a=p.parse_args();run(a.package.resolve(strict=True),a.output.resolve(),a.debugger.resolve(strict=True),a.legacy_state,a.expect_layout_crash,a.state_reader.resolve(strict=True) if a.state_reader else None)

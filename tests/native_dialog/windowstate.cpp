@@ -9,6 +9,7 @@
 #include <QMainWindow>
 #include <QTabWidget>
 #include <QToolBar>
+#include <QSettings>
 #include <QDebug>
 
 int main(int argc, char** argv) {
@@ -19,6 +20,12 @@ int main(int argc, char** argv) {
     original->setObjectName(QStringLiteral("mainToolBar"));
     legacy.addToolBar(original);
     const QByteArray state = legacy.saveState();
+    if (app.arguments().size() == 2 && app.arguments().at(1) == "--verify-legacy") {
+        QSettings settings(QSettings::NativeFormat, QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        if (settings.value(QStringLiteral("window/state")).toByteArray() != state) return 6;
+        qInfo() << "Verified actual native QSettings QByteArray decoding of seeded legacy layout";
+        return 0;
+    }
     if (app.arguments().size() == 3 && app.arguments().at(1) == "--export-legacy") {
         QFile file(app.arguments().at(2));
         if (!file.open(QIODevice::WriteOnly)) return 2;

@@ -70,6 +70,7 @@
 #include "pdfwidgetannotation.h"
 #include "pdfcompiler.h"
 #include "pdftextlayout.h"
+#include "pdfdocumentreader.h"
 #include <stdexcept>
 #include <algorithm>
 #ifdef Q_OS_WIN
@@ -655,6 +656,17 @@ static void integrationHighlight(NativeTabs& host, Editor* e, const QString& rep
     integrationRequire(integrationClick(host,eraseButton,eraseButton->rect().center()) && integrationWait([&] { return quadCount() == 2 && select->isChecked(); }), "Partial erase did not split only the selected highlight interval");
     e->findChild<QAction*>("actionUndo")->trigger(); integrationRequire(integrationWait([&] { return quadCount() == 1; }), "Partial erase Undo failed");
     e->findChild<QAction*>("actionRedo")->trigger(); integrationRequire(integrationWait([&] { return quadCount() == 2; }), "Partial erase Redo failed");
+    integrationRequire(e->getProgramController()->trySave(), "Partial highlight could not be saved by the native controller");
+    pdf::PDFDocumentReader partialReader(nullptr, [](bool* ok) { *ok = false; return QString(); }, true, false);
+    const auto partialDisk = partialReader.readFromFile(e->getProgramController()->getOriginalFileName());
+    integrationRequire(partialReader.getReadingResult() == pdf::PDFDocumentReader::Result::OK, "Partial highlight PDF did not reopen through the native reader");
+    int diskQuads = 0;
+    for (const auto reference : partialDisk.getCatalog()->getPage(0)->getAnnotations()) {
+        const auto annotation = pdf::PDFAnnotation::parse(&partialDisk.getStorage(),reference);
+        if (annotation && annotation->getType() == pdf::AnnotationType::Highlight) diskQuads += int(static_cast<const pdf::PDFHighlightAnnotation*>(annotation.get())->getHiglightArea().getQuadrilaterals().size());
+    }
+    integrationRequire(diskQuads == 2, "Partial highlight split geometry was lost on disk round trip");
+    e->setProperty("LunaPartialHighlightDiskPassed",true);
     e->setProperty("LunaSelectionHighlightErasePassed", true);
     e->findChild<QAction*>("actionUndo")->trigger(); e->findChild<QAction*>("actionUndo")->trigger();
     integrationRequire(integrationWait([&] { return integrationHighlights(e) == 0; }), "Selection interaction cleanup did not restore native fixture state");
@@ -873,7 +885,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationMouse(overlay, QEvent::MouseButtonRelease, {200, 200}, Qt::LeftButton, Qt::NoButton);
             integrationRequire(integrationWait([&] { return QFileInfo::exists(thumbnail) && !QImage(thumbnail).isNull(); }) && !QFileInfo::exists(QFileInfo(files[1]).absolutePath() + "/B.luna-thumb.png"), "Crop wrote to the wrong PDF or no image");
             result["activeNativePagesAndCrop"] = true;
-            phase("A highlight and real Ctrl+S"); integrationHighlight(host, a, report); result["realDragBlueBorderlessSelectionAndCtrlC"] = true; result["selectionFirstHighlightLongPressPartialEraseUndoRedo"] = a->property("LunaSelectionHighlightErasePassed").toBool();
+            phase("A highlight and real Ctrl+S"); integrationHighlight(host, a, report); result["realDragBlueBorderlessSelectionAndCtrlC"] = true; result["selectionFirstHighlightLongPressPartialEraseUndoRedo"] = a->property("LunaSelectionHighlightErasePassed").toBool(); result["partialHighlightSavedAndReadFromDisk"] = a->property("LunaPartialHighlightDiskPassed").toBool();
             integrationRequire(integrationHighlights(b) == 0, "Integrated A annotation crossed to B");
             integrationRequire(integrationWait([&] { return ready(a); }), "A remained busy before close-cancel check");
             int cancelled = 0; QTimer cancel;

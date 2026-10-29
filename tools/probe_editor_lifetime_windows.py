@@ -110,7 +110,10 @@ def run(package, output, debugger, legacy_state=None, expect_layout_crash=False,
                     with (case/'native.log').open('w',encoding='utf-8') as log:
                         try:
                             child=subprocess.Popen([str(debugger),'-G','-logo',str(debug_log),'-c',commands,str(package/'LUNA.exe'),'--luna-lifecycle-trace',str(trace)],cwd=package,env=env,stdout=log,stderr=subprocess.STDOUT)
-                            wait(lambda:bool(rows()),'initial lifecycle')
+                            # Cold CDB symbols/full page heap can delay native
+                            # startup beyond 25s; still require real lifecycle
+                            # evidence before sending any input or accepting it.
+                            wait(lambda:bool(rows()),'initial lifecycle',timeout=120)
                             pid=rows()[0]['pid'];result['pid']=pid
                             wait(lambda:bool(windows(pid)),'visible main window')
                             main=windows(pid)[0][1];user.ShowWindow(main,3);user.SetForegroundWindow(main)

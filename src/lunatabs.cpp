@@ -736,6 +736,10 @@ static void integrationColoredNote(NativeTabs& host, Editor* editor, const QStri
     const bool colored = integrationWait([&] { return chosen && integrationNoteState(editor).second == QColor("#ffe0eb"); }); palette.stop();
     if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) menu->close();
     integrationRequire(colored, "Real note palette did not persist the selected color");
+    integrationRequire(integrationWait([&] {
+        auto* frame=text->parentWidget(); const auto image=frame->grab().toImage(); const auto dpr=image.devicePixelRatio();
+        return image.pixelColor(qRound((frame->width()-10)*dpr),qRound((frame->height()-10)*dpr))==QColor("#ffe0eb");
+    }), "Saved note color did not reach the rendered native card");
     host.screen()->grabWindow(0).save(report + ".colored-note-real-input.png");
     auto* select = editor->findChild<QAction*>("actionSelectText"); if (!select->isChecked()) select->trigger(); surface->setFocus();
     const pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(0); const auto& chars = layout.getTextBlocks().front().getLines().front().getCharacters();

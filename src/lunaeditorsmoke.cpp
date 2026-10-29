@@ -465,6 +465,16 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!waitFor([&] { return noteContents() == revised; })) return fail("Inline note edit did not reach the native PDF document");
     action("actionUndo")->trigger(); if (!waitFor([&] { return noteContents() == noteText && inlineNote->toPlainText() == noteText; })) return fail("Inline note Undo failed");
     action("actionRedo")->trigger(); if (!waitFor([&] { return noteContents() == revised && inlineNote->toPlainText() == revised; })) return fail("Inline note Redo failed");
+    pdf::PDFObjectReference secondNote;
+    bool secondEntered = false; QTimer secondInput;
+    QObject::connect(&secondInput, &QTimer::timeout, &window, [&] { if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) { dialog->setTextValue(QStringLiteral("Second independent synthetic note")); secondEntered = true; dialog->accept(); } });
+    secondInput.start(30); note->trigger();
+    mouse(widget,QEvent::MouseMove,notePoint+QPoint(50,-25),Qt::NoButton,Qt::NoButton);
+    mouse(widget,QEvent::MouseButtonPress,notePoint+QPoint(50,-25),Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,notePoint+QPoint(50,-25),Qt::LeftButton,Qt::NoButton); secondInput.stop();
+    if (!secondEntered || !waitFor([&] { return annotations(pdf::AnnotationType::Text) == 2 && select->isChecked(); })) return fail("Second independent note creation failed");
+    std::vector<pdf::PDFReal> secondOriginalColor;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) if (item.annotation->getContents() == "Second independent synthetic note") { secondNote = item.annotation->getSelfReference(); secondOriginalColor = item.annotation->getColor(); }
     auto noteColorValue = [&] { for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) if (item.annotation->getType() == pdf::AnnotationType::Text) return item.annotation->getDrawColorFromAnnotationColor(item.annotation->getColor(),1.0); return QColor(); };
     auto* card = inlineNote->parentWidget(); auto* colorButton = card->findChild<QToolButton*>("LunaStickyColor");
     auto chooseNoteColor = [&](QColor color, bool custom) {
@@ -486,9 +496,16 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     action("actionUndo")->trigger(); if (!waitFor([&] { return noteColorValue() == QColor("#d7eaff"); })) return fail("Note color Undo failed");
     action("actionRedo")->trigger(); if (!waitFor([&] { return noteColorValue() == customNoteColor; })) return fail("Note color Redo failed");
     if (!waitFor([&] { return card->styleSheet().contains("color:#ffffff"); })) return fail("Dark note did not receive contrasting text");
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) if (item.annotation->getSelfReference() == secondNote && item.annotation->getColor() != secondOriginalColor) return fail("Changing first note color modified the second note");
+    if (!waitFor([&] { return window.findChildren<QFrame*>("LunaStickyCard").size() == 2; })) return fail("Both note cards were not displayed");
+    const auto cards = window.findChildren<QFrame*>("LunaStickyCard");
+    if (cards[0]->geometry().intersects(cards[1]->geometry())) return fail("Sticky note cards overlap");
+    window.screen()->grabWindow(0).save(reportPath + ".colored-notes.png");
     auto* fold = card->findChild<QToolButton*>("LunaStickyFold"); fold->click();
     if (!waitFor([&] { return !inlineNote->isVisible(); })) return fail("Note did not fold");
     fold->click(); if (!waitFor([&] { return inlineNote->isVisible(); })) return fail("Note did not expand");
+    pdfWidget->getAnnotationManager()->selectAnnotation(secondNote,true); pdfWidget->getAnnotationManager()->deleteSelectedAnnotations();
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Text) == 1 && noteContents() == revised; })) return fail("Second-note cleanup changed the first note");
     noteText = revised;
     bool cancelledExit = false;
     QTimer cancelExit;

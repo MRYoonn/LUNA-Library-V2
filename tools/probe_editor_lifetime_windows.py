@@ -1,6 +1,6 @@
 """Replay the actual-PC library-open/first-Editor destruction sequence externally.
 
-Runs the unchanged production EXE, no internal acceptance mode and no real PDFs.
+Runs the supplied production EXE, no internal acceptance mode and no real PDFs.
 The full production regression remains in its existing build workflow.
 """
 import argparse
@@ -81,7 +81,7 @@ def run(package, output, debugger, legacy_state=None, expect_layout_crash=False)
                     env.update(QT_PLUGIN_PATH=str(package),QT_QPA_PLATFORM_PLUGIN_PATH=str(package/'platforms'))
                     trace=case/'lifecycle.jsonl';debug_log=case/'cdb.log'
                     commands='sxd -c2 ".echo LUNA_UNHANDLED_ACCESS_VIOLATION;.exr -1;.ecxr;kv;~*kb;lm;q" av;sxe -c ".echo LUNA_HEAP_BREAK;kv;~*kb;q" bpe;sxe -c ".echo LUNA_DEBUGGEE_EXIT;.lastevent;q" epr;g'
-                    result={'accepted':False,'qtScale':scale,'case':repeat+1,'input':'external Win32 keys and library-card double clicks; unchanged b5 EXE, no self-test mode','p0ActualPc':'UNRESOLVED'}
+                    result={'accepted':False,'qtScale':scale,'case':repeat+1,'input':'external Win32 keys and library-card double clicks; normal product EXE, no self-test mode','p0ActualPc':'UNRESOLVED'}
                     result['legacyWindowStateSeeded']=bool(legacy_state)
                     child=None;main=None
                     def rows():

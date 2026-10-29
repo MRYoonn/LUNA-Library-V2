@@ -26,8 +26,12 @@ int main(int argc, char** argv) {
                                            {"qt", QString::fromLatin1(qVersion())}}).toJson());
         return 0;
     }
+    const bool unsafe = app.arguments().contains("--unsafe");
     QMainWindow shell;
-    auto* tabs = new QTabWidget(&shell); shell.setCentralWidget(tabs);
+    // Match the production ownership boundary: safe sessions join the shell
+    // only after shell.restoreState. --unsafe preserves the pre-fix order.
+    auto* tabs = new QTabWidget(unsafe ? &shell : nullptr);
+    if (unsafe) shell.setCentralWidget(tabs);
     auto* editor = new QMainWindow(tabs);
     auto* bar = new QToolBar(editor); bar->setObjectName(QStringLiteral("mainToolBar"));
     editor->addToolBar(bar); bar->addAction(QStringLiteral("Synthetic PDF action"));
@@ -37,12 +41,10 @@ int main(int argc, char** argv) {
     qInfo() << "qt" << qVersion() << "legacyStateAdoptedNestedToolbar" << adopted
             << "toolbarParentStillEditor" << (bar->parentWidget() == editor)
             << "editorStillOwnsLayoutItem" << (editor->toolBarArea(bar) != Qt::NoToolBarArea);
+    if (!unsafe && adopted) return 4;
+    if (!unsafe) shell.setCentralWidget(tabs);
+    if (!unsafe && (shell.toolBarArea(bar) != Qt::NoToolBarArea || editor->toolBarArea(bar) != Qt::TopToolBarArea)) return 5;
     shell.show(); app.processEvents();
-    if (!app.arguments().contains("--unsafe")) {
-        // Diagnostic control only: leave the shared widget valid for both layouts.
-        // The unsafe mode intentionally demonstrates the dangling shell item.
-        if (adopted) shell.removeToolBar(bar);
-    }
     tabs->removeTab(0); editor->deleteLater();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     qInfo() << "editor deleted; dispatching posted shell layout";

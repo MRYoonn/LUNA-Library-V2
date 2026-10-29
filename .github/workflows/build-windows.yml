@@ -330,6 +330,7 @@ jobs:
           Copy-Item 'LICENSE_NOTICE.md' "$output/LUNA_LICENSE_NOTICE.md"
           Copy-Item 'USER_GUIDE_KO.md' "$output/USER_GUIDE_KO.md"
           Copy-Item 'tools/Start-Luna-Diagnostics.*' $output
+          Copy-Item 'tools/*Crash*.ps1','tools/*Crash*.cmd','CRASH_DIAGNOSTICS_KO.md' $output
           $diagnosticTokens = $null; $diagnosticErrors = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $output 'Start-Luna-Diagnostics.ps1'), [ref]$diagnosticTokens, [ref]$diagnosticErrors) | Out-Null
           if ($diagnosticErrors.Count) { throw 'Diagnostic launcher PowerShell syntax failed' }
@@ -402,11 +403,29 @@ jobs:
           python -B tools/smoke_windows.py LUNA-Windows-Portable --layout-only --scale 1.5 --screenshots-directory "$env:RUNNER_TEMP/luna-ui/scale150"
           if ($LASTEXITCODE -ne 0) { throw "Native Qt 150 percent layout failed" }
 
+      - name: Regress legacy layout restoration and actual Ctrl+W disposal under CDB and full page heap
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          . ./tools/Luna-Crash-Tools.ps1
+          $cdb=Get-LunaCdb
+          $gflags=Join-Path (Split-Path $cdb) 'gflags.exe'
+          $evidence=Join-Path $env:RUNNER_TEMP 'luna-ui/legacy-layout-lifetime'
+          New-Item -ItemType Directory -Force $evidence | Out-Null
+          & "$env:RUNNER_TEMP/luna-dialog-build/Release/luna-native-windowstate.exe" --export-legacy "$evidence/legacy-state.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic legacy layout generation failed' }
+          try {
+            & $gflags /p /enable LUNA.exe /full
+            if ($LASTEXITCODE -ne 0) { throw 'Full page heap not enabled' }
+            python -B tools/probe_editor_lifetime_windows.py LUNA-Windows-Portable "$evidence/fixed" --debugger "$cdb" --legacy-state "$evidence/legacy-state.json"
+            if ($LASTEXITCODE -ne 0) { throw 'Legacy-layout Ctrl+W regression failed' }
+          } finally { & $gflags /p /disable LUNA.exe }
+
       - name: Record validation scope in the portable package
         if: ${{ !inputs.native_tabs_proof }}
         shell: pwsh
         run: |
-          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ userPcRepeatedCtrlW = 'UNRESOLVED: CI scenarios do not establish a fix; collect local lifecycle and process exit evidence'; pythonTests = 39; nativeQtTests = 5; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
+          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ userPcRepeatedCtrlW = 'PENDING ACTUAL PC RECHECK: legacy-layout disposal regression passed under CDB/page heap; CI alone is not a fix confirmation'; pythonTests = 39; nativeQtTests = 6; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
       - name: Upload synthetic native UI screenshots
         if: ${{ !cancelled() }}

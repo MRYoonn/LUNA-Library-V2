@@ -15,6 +15,8 @@ target_link_libraries(luna-native-windowstate PRIVATE Qt6::Core Qt6::Gui Qt6::Wi
 if(MSVC)
     target_compile_options(luna-native-windowstate PRIVATE /utf-8)
 endif()
+add_test(NAME native_nested_window_state COMMAND luna-native-windowstate)
+set_tests_properties(native_nested_window_state PROPERTIES TIMEOUT 20)
 add_test(NAME native_save_dialog COMMAND luna-native-dialog)
 set_tests_properties(native_save_dialog PROPERTIES TIMEOUT 20)
 add_executable(luna-native-thumbnails thumbnails.cpp)

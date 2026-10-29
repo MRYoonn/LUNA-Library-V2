@@ -115,7 +115,14 @@ public:
         setWindowIcon(QApplication::windowIcon());
         connect(qApp, &QCoreApplication::aboutToQuit, this, [this] { setProperty("LunaAboutToQuit", property("LunaAboutToQuit").toInt() + 1); trace("about-to-quit"); });
         connect(qApp, &QGuiApplication::lastWindowClosed, this, [this] { trace("last-window-closed"); });
-        tabs_ = new PdfTabs(this); tabs_->setObjectName(QStringLiteral("LunaPdfTabs"));
+        // QMainWindow::restoreState in Qt 6.11 searches recursively. A legacy
+        // window/state can therefore register the initial Editor's mainToolBar
+        // in BOTH main-window layouts without reparenting it. Deleting that
+        // Editor leaves a QWidgetItem in the shell pointing at a freed toolbar.
+        // Keep sessions outside the shell's QObject tree until its own layout
+        // restoration is complete; addWidget below then transfers ownership.
+        auto unattachedTabs = std::make_unique<PdfTabs>(nullptr);
+        tabs_ = unattachedTabs.get(); tabs_->setObjectName(QStringLiteral("LunaPdfTabs"));
         tabs_->setTabsClosable(true); tabs_->setDocumentMode(true); tabs_->setMovable(true);
         tabs_->setElideMode(Qt::ElideMiddle);
         tabs_->tabBar()->setObjectName(QStringLiteral("LunaPdfTabBar"));
@@ -127,6 +134,7 @@ public:
         auto* corner = findChild<QWidget*>(QStringLiteral("LunaTabCorner"));
         if (corner) { frame->layout()->removeWidget(corner); tabs_->setCornerWidget(corner, Qt::TopLeftCorner); }
         static_cast<QVBoxLayout*>(frame->layout())->addWidget(tabs_);
+        unattachedTabs.release(); // The shell's central frame now owns the tabs.
         open_ = new QAction(QStringLiteral("PDF 열기…"), this); open_->setObjectName(QStringLiteral("LunaOpenDocuments"));
         open_->setShortcut(QKeySequence(QStringLiteral("Ctrl+O"))); addAction(open_);
         open_->setToolTip(QStringLiteral("여러 PDF를 탭으로 열기 (Ctrl+O)"));
@@ -236,6 +244,10 @@ public:
             {"destroyedEditor", property("LunaLastDestroyedEditor").toInt()},
             {"openOrigin", property("LunaOpenOrigin").toString()}, {"requestedDocumentId", property("LunaRequestedDocument").toString()},
             {"minimized", isMinimized()}};
+        int foreignBars = 0;
+        for (const auto& s : sessions_) for (auto* bar : s->editor->findChildren<QToolBar*>())
+            if (toolBarArea(bar) != Qt::NoToolBarArea) ++foreignBars;
+        row["shellOwnsEditorToolbars"] = foreignBars;
         row["qtAutoRepeat"] = property("LunaAutoRepeat").toBool();
         row["nativePreviousKeyDown"] = property("LunaNativeRepeat").toBool();
         row["nativeControlDown"] = property("LunaNativeControl").toBool();

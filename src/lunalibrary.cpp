@@ -1471,7 +1471,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     // Legacy individual panel actions remain available in View, not as three
     // competing permanent controls in the approved interface.
     for (auto* action : {folders, documents, focus}) controls->removeAction(action);
-    if (auto* view = window.findChild<QMenu*>(QStringLiteral("menuView"))) {
+    if (auto* view = viewer.findChild<QMenu*>(QStringLiteral("menuView"))) {
         view->addAction(folders);
         view->addAction(documents);
     }

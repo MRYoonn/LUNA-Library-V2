@@ -7,6 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "tools/probe_editor_lifetime_windows.py",
     ".github/workflows/p0-editor-lifetime.yml",
     "tools/Luna-Crash-Tools.ps1", "tools/Start-Luna-Crash-Diagnostics.ps1", "tools/Start-Luna-Crash-Diagnostics.cmd",
     "tools/Analyze-Luna-Crash.ps1", "tools/Analyze-Luna-Crash.cmd", "tools/probe_crash_collector_windows.py",

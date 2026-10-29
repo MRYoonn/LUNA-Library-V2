@@ -55,7 +55,8 @@ def run(package, output):
     with (output/'analysis-launcher.log').open('w',encoding='utf-8') as log:
         subprocess.run([str(powershell),'-NoProfile','-ExecutionPolicy','Bypass','-File',str(package/'Analyze-Luna-Crash.ps1'),'-NoPause','-DumpFile',str(dump)],check=True,stdout=log,stderr=subprocess.STDOUT,timeout=180)
     stack=(private/'stack-summary.txt').read_text(encoding='utf-8-sig')
-    if 'fixtureCrash' not in stack:raise RuntimeError('Actual native fault function missing from local stack summary')
+    if 'fixtureCrash' not in stack or 'MODULE_NAME: LUNA' not in stack or 'IMAGE_NAME: LUNA.exe' not in stack or 'FAULT_MODULE_OFFSET: 0x' not in stack or 'MODULE_NAME: mov' in stack:
+        raise RuntimeError('Actual native fault function/module/offset missing or misidentified in local stack summary')
     (output/'collector-summary.json').write_text(json.dumps({'accepted':True,'actualExitCode':result['exitCodeHex'],'nativeDumpCreated':True,'faultFunction':'fixtureCrash','safeZipExcludesDump':True,'scope':'synthetic native crash capture/analysis only; no PDF input; actual user-PC P0 remains unresolved'},indent=2),encoding='utf-8')
 
 if __name__=='__main__':

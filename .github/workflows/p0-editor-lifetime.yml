@@ -73,14 +73,14 @@ jobs:
           Copy-Item tools/*Crash*.ps1,tools/*Crash*.cmd,tools/Start-Luna-Diagnostics.* diagnostic-kit/
           Copy-Item CRASH_DIAGNOSTICS_KO.md diagnostic-kit/
           @{kitCommit=$env:GITHUB_SHA; appCommit='b5aa0fb'; appChanged=$false; p0='ACTUAL PC AV REPRODUCED, ROOT CAUSE UNRESOLVED'; automaticUpload=$false} | ConvertTo-Json | Set-Content diagnostic-kit/diagnostic-kit-info.json
-      - name: Replay unchanged production regressions under full page heap and CDB
+      - name: Replay the actual library-open and first-Editor close sequence under full page heap and CDB
         shell: pwsh
         run: |
           $gflags=Join-Path (Split-Path $env:LUNA_CDB) 'gflags.exe'
           try {
             & $gflags /p /enable LUNA.exe /full
             if ($LASTEXITCODE -ne 0) { throw 'Full page heap could not be enabled' }
-            python -B tools/probe_tabs_integration_windows.py original-b5 evidence/integrated --debugger "$env:LUNA_CDB"
+            python -B tools/probe_editor_lifetime_windows.py original-b5 evidence/integrated --debugger "$env:LUNA_CDB"
             if ($LASTEXITCODE -ne 0) { throw 'Instrumented replay failed; inspect actual CDB stack, do not report P0 fixed' }
           } finally { & $gflags /p /disable LUNA.exe }
       - name: Publish only synthetic-safe evidence, excluding every dump and private analysis

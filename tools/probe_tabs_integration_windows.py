@@ -123,8 +123,9 @@ def run(package, output, debugger=None):
                         exits = re.findall(r'(?:exited with code\s+|Exit process[^\r\n]*?\bcode\s+)([0-9a-fA-Fx]+)',transcript,re.IGNORECASE)
                         clean = bool(exits) and all(int(value,16)==0 for value in exits)
                         fault = bool(re.search(r'(?m)^LUNA_(?:UNHANDLED_ACCESS_VIOLATION|HEAP_BREAK)\s*$',transcript))
-                        result['debugger'] = {'exitObserved':clean,'unhandledOrHeapFault':fault,'scope':'instrumented CI replay, not actual-PC resolution'}
+                        result['debugger'] = {'exitObserved':bool(exits),'cleanExit':clean,'exitCodes':exits,'unhandledOrHeapFault':fault,'scope':'instrumented CI replay, not actual-PC resolution'}
                         if fault or not clean:
+                            result['nativeScenarioError'] = result.get('error','')
                             result.update(accepted=False,error='Debugger observed a fault or could not establish a clean debuggee exit')
                     trace_path = Path(str(report) + '.lifecycle.jsonl')
                     events = [json.loads(line) for line in trace_path.read_text(encoding='utf-8').splitlines()] if trace_path.exists() else []

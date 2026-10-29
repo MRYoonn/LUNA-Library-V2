@@ -216,7 +216,9 @@ public:
             if (!editor_ || !page_->isEnabled()) return;
             if (auto* native = editor_->findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"))) {
                 native->setValue(page_->value());
-                QMetaObject::invokeMethod(editor_, "onPageNumberSpinboxEditingFinished", Qt::DirectConnection);
+                // The Editor handler is an ordinary private method, not a
+                // meta-object slot. Use the native widget's existing connection.
+                native->editingFinished();
             }
         });
         auto commitZoom = [this] {
@@ -225,7 +227,7 @@ public:
             bool ok = false; const double percent = value.trimmed().toDouble(&ok);
             if (ok) if (auto* native = editor_->findChild<QDoubleSpinBox*>(QStringLiteral("pageZoomSpinBox"))) {
                 native->setValue(qBound(native->minimum(), percent, native->maximum()));
-                QMetaObject::invokeMethod(editor_, "onPageZoomSpinboxEditingFinished", Qt::DirectConnection);
+                native->editingFinished();
             }
         };
         connect(zoom_, qOverload<int>(&QComboBox::activated), this, [commitZoom](int) { commitZoom(); });

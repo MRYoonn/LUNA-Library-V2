@@ -112,6 +112,10 @@ def run(package, output, debugger):
                                 wait(lambda:event('document-load-completed',editor,generation),'library load '+letter)
                                 loaded=[r for r in rows() if r['event']=='document-load-completed' and r.get('editor')==editor][-1]
                                 if loaded.get('editorOpenOrigin')!='library-open':raise RuntimeError('Document did not open through the actual library route')
+                                wait(lambda:any(r.get('editor')==editor and r.get('loadGeneration')==generation and r.get('document') and r.get('loading') is False for r in rows()),'post-load native document state')
+                                # Load-finished is emitted before queued native
+                                # progress/UI callbacks settle under page heap.
+                                time.sleep(1)
                             open_library('A',1,1)
                             if repeat:
                                 key(0x46,True);wait(lambda:len(windows(pid))>1,'first Editor search popup')

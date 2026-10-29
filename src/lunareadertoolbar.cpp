@@ -248,7 +248,7 @@ public:
     }
 private:
     bool eventFilter(QObject* watched, QEvent* event) override {
-        if (watched == editor_ && event->type() == QEvent::EnabledChange) bar_->setEnabled(editor_->isEnabled());
+        if (watched == editor_.data() && event->type() == QEvent::EnabledChange) bar_->setEnabled(editor_->isEnabled());
         return QObject::eventFilter(watched, event);
     }
     void synchronize() {
@@ -260,8 +260,10 @@ private:
         if (!nativePage || !nativeCount || !nativeZoom) return;
         page_->setEnabled(nativePage->isEnabled()); zoom_->setEnabled(nativePage->isEnabled());
         if (!page_->hasFocus()) {
-            const QSignalBlocker block(page_); page_->setRange(nativePage->minimum(), nativePage->maximum());
-            page_->setSuffix(nativeCount->text().isEmpty() ? QStringLiteral(" / 0") : nativeCount->text()); page_->setValue(nativePage->value());
+            const QSignalBlocker block(page_);
+            const bool hasDocument = bool(editor_->getProgramController()->getDocument());
+            page_->setRange(hasDocument ? nativePage->minimum() : 0, hasDocument ? nativePage->maximum() : 0);
+            page_->setSuffix(nativeCount->text().isEmpty() ? QStringLiteral(" / 0") : nativeCount->text()); page_->setValue(hasDocument ? nativePage->value() : 0);
         }
         if (!zoom_->hasFocus() && !zoom_->lineEdit()->hasFocus()) {
             const QSignalBlocker block(zoom_); const double value = nativeZoom->value();

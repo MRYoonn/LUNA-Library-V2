@@ -64,6 +64,7 @@
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QFontMetrics>
+#include <QFontInfo>
 #include <QThread>
 #include <QWindow>
 #include <QtMath>
@@ -147,7 +148,7 @@ public:
             auto* addCorner = new QWidget(tabs_);
             auto* addRow = new QHBoxLayout(addCorner); addRow->setContentsMargins(0, 0, 4, 0);
             auto* plus = new QToolButton(addCorner); plus->setObjectName(QStringLiteral("LunaNewTab")); plus->setIcon(readerIcon(QStringLiteral("add")));
-            plus->setAccessibleName(QStringLiteral("새 PDF 탭 열기")); plus->setToolTip(QStringLiteral("새 PDF 탭 열기")); plus->setMinimumSize(30, 30);
+            plus->setAccessibleName(QStringLiteral("새 PDF 탭 열기")); plus->setToolTip(QStringLiteral("새 PDF 탭 열기")); plus->setFixedSize(43, 41);
             addRow->addWidget(plus); tabs_->setCornerWidget(addCorner, Qt::TopRightCorner);
             connect(plus, &QToolButton::clicked, open_, &QAction::trigger);
             corner->setVisible(findChild<QAction*>(QStringLiteral("LunaFocusMode"))->isChecked());
@@ -315,7 +316,7 @@ private:
             tabs_->tabBar()->setTabButton(index, side, nullptr); old->deleteLater();
         }
         auto* close = new QToolButton(tabs_->tabBar()); close->setObjectName(QStringLiteral("LunaCloseTab"));
-        close->setIcon(readerIcon(QStringLiteral("close"))); close->setIconSize(QSize(14, 14)); close->setFixedSize(18, 18); close->setToolTip(QStringLiteral("이 PDF 탭 닫기"));
+        close->setAccessibleName(QStringLiteral("이 PDF 탭 닫기")); close->setIcon(readerIcon(QStringLiteral("close"))); close->setIconSize(QSize(14, 14)); close->setFixedSize(18, 18); close->setToolTip(QStringLiteral("이 PDF 탭 닫기"));
         QPointer<Editor> guarded(editor); connect(close, &QToolButton::clicked, this, [this, guarded] { if (guarded) closeTab(tabs_->indexOf(guarded)); });
         tabs_->tabBar()->setTabButton(index, QTabBar::RightSide, close);
         trace("editor-created", editor); return editor;
@@ -681,12 +682,18 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
         host.resize(logical); host.show();
         if (!integrationWait([&] { return host.size() == logical; }) || !host.grab().save(report + QStringLiteral(".%1.png").arg(pixels.width()))) { captured = false; break; }
         QJsonObject metrics{{"width", host.width()}, {"height", host.height()}, {"dpr", scale}};
-        for (const auto* name : {"LunaBrandFrame", "LunaCommonReaderToolbar", "LunaNavigation", "LunaDocuments", "LunaContentModes", "LunaPdfTabs", "LunaPdfTabBar"}) {
+        for (const auto* name : {"LunaMainMenuBar", "LunaBrandFrame", "LunaCommonReaderToolbar", "LunaNavigation", "LunaDocuments", "LunaContentModes", "LunaPdfTabs", "LunaPdfTabBar"}) {
             if (auto* widget = host.findChild<QWidget*>(QString::fromLatin1(name))) {
                 const QPoint origin = widget->mapTo(&host, QPoint());
                 metrics[QString::fromLatin1(name)] = QJsonObject{{"x", origin.x()}, {"y", origin.y()}, {"width", widget->width()}, {"height", widget->height()}};
             }
         }
+        QJsonArray fonts;
+        for (auto* label : host.findChildren<QLabel*>()) if (label->objectName() == QStringLiteral("LunaLibraryTitle") || label->objectName() == QStringLiteral("LunaBrand")) {
+            fonts.append(QJsonObject{{"text", label->text()}, {"family", QFontInfo(label->font()).family()},
+                {"pixelSize", label->font().pixelSize()}, {"weight", int(label->font().weight())}, {"letterSpacing", label->font().letterSpacing()}});
+        }
+        metrics["headingFonts"] = fonts;
         QSaveFile geometry(report + QStringLiteral(".%1.geometry.json").arg(pixels.width()));
         integrationRequire(geometry.open(QIODevice::WriteOnly) && geometry.write(QJsonDocument(metrics).toJson()) > 0 && geometry.commit(), "Native UI metrics were not saved");
     }

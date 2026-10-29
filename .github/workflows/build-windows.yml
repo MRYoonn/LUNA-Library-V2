@@ -45,6 +45,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ui-reference:
+    if: inputs.ui_reference_capture
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate public reference identity and capture Windows Edge
+        shell: pwsh
+        run: |
+          python -B tools/preflight_public.py
+          if ($LASTEXITCODE -ne 0) { throw 'Public source check failed' }
+          node tools/capture_ui_reference_windows.mjs design/LUNA_Library_UI_v0.9.1_OneLineMemo.html html-reference
+          if ($LASTEXITCODE -ne 0) { throw 'Windows HTML reference capture failed' }
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: LUNA-HTML-v091-Windows-Reference
+          path: html-reference/
+          if-no-files-found: error
+
   p0-lifetime-debug:
     if: inputs.p0_lifetime_debug
     permissions:
@@ -378,13 +400,6 @@ jobs:
         run: |
           python -B tools/verify_portable.py LUNA-Windows-Portable
           if ($LASTEXITCODE -ne 0) { throw "Portable package verification failed" }
-
-      - name: Capture exact approved HTML in native Windows Edge
-        if: inputs.ui_reference_capture
-        shell: pwsh
-        run: |
-          node tools/capture_ui_reference_windows.mjs design/LUNA_Library_UI_v0.9.1_OneLineMemo.html "$env:RUNNER_TEMP/luna-ui/html-reference"
-          if ($LASTEXITCODE -ne 0) { throw 'Windows HTML reference capture failed' }
 
       - name: Independent document windows and native annotation round trip
         shell: pwsh

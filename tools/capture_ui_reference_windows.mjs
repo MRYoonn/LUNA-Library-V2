@@ -15,7 +15,7 @@ let edge;for(const file of candidates){try{await access(file);edge=file;break}ca
 if(!edge)throw new Error('Installed Edge absent');
 let malgun=false;try{await access(join(process.env.WINDIR,'Fonts/malgun.ttf'));malgun=true}catch{}
 await mkdir(output,{recursive:true});const profile=await mkdtemp(join(tmpdir(),'luna-html-reference-'));
-const child=spawn(edge,['--headless=new','--disable-gpu','--hide-scrollbars','--disable-background-networking','--no-first-run','--remote-debugging-address=127.0.0.1','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{stdio:'ignore'});
+const child=spawn(edge,['--headless=new','--disable-gpu','--disable-background-networking','--no-first-run','--remote-debugging-address=127.0.0.1','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{stdio:'ignore'});
 let socket;
 try{
  let port;for(let i=0;i<300;i++){try{port=(await readFile(join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0];if(port)break}catch{}await new Promise(r=>setTimeout(r,100))}

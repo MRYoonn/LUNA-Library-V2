@@ -644,8 +644,9 @@ public:
         mode->addTab(QStringLiteral("논문 목록"));
         mode->addTab(QStringLiteral("페이지 보기"));
         mode->setExpanding(true);
-        headingLayout->addWidget(mode);
+        mode->setFixedHeight(45);
         docs->addWidget(heading);
+        docs->addWidget(mode);
         pages_ = new QStackedWidget(documents_);
         pages_->setObjectName(QStringLiteral("LunaDocumentPages"));
         auto* content = new QStackedWidget(documents_);
@@ -1564,6 +1565,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     auto* brand = new QLabel(QStringLiteral("LUNA Library"), brandFrame); brand->setObjectName(QStringLiteral("LunaBrand"));
     QFont brandFont(QStringLiteral("Malgun Gothic")); brandFont.setPixelSize(20); brandFont.setBold(true); brandFont.setLetterSpacing(QFont::AbsoluteSpacing, -.45); brand->setFont(brandFont);
     brand->setAlignment(Qt::AlignVCenter | Qt::AlignLeft); brandRow->addWidget(brand, 0, Qt::AlignVCenter);
+    window.menuBar()->setObjectName(QStringLiteral("LunaMainMenuBar"));
     auto* menuStyle = new MenuBarStyle; menuStyle->setParent(window.menuBar()); window.menuBar()->setStyle(menuStyle);
     QFont menuFont(QStringLiteral("Malgun Gothic")); menuFont.setPixelSize(13); window.menuBar()->setFont(menuFont);
     window.menuBar()->setNativeMenuBar(false); window.menuBar()->setFixedHeight(48); window.menuBar()->setCornerWidget(brandFrame, Qt::TopLeftCorner);
@@ -1604,6 +1606,8 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
             panelToggle->setParent(collapsed ? documentHeader : paperHeading->parentWidget());
             if (collapsed) documentRow->insertWidget(0, panelToggle);
             else paperHeading->addWidget(panelToggle);
+            panelToggle->setFixedSize(collapsed ? QSize(39, 41) : QSize(32, 30));
+            panelToggle->setIconSize(QSize(19, 19));
             focus->setText(collapsed ? QStringLiteral("패널 펼치기") : QStringLiteral("패널 접기"));
             focus->setIcon(readerIcon(collapsed ? QStringLiteral("panel-open") : QStringLiteral("panel-close")));
             focus->setProperty("lunaCollapsed", collapsed);
@@ -1631,13 +1635,15 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         auto* corner = new QWidget(frame); corner->setObjectName(QStringLiteral("LunaTabCorner"));
         auto* row = new QHBoxLayout(corner); row->setContentsMargins(0, 0, 4, 0);
         auto* toggle = new QToolButton(corner); toggle->setObjectName(QStringLiteral("LunaCombinedPanelToggle"));
-        toggle->setDefaultAction(focus); toggle->setMinimumSize(30, 30);
+        toggle->setDefaultAction(focus); toggle->setAccessibleName(QStringLiteral("라이브러리와 논문 목록 접기 / 펼치기")); toggle->setMinimumSize(30, 30);
         toggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
         auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
         auto place = [toggle, paperHeading, row, corner, focus](bool collapsed) {
             paperHeading->removeWidget(toggle); row->removeWidget(toggle);
             toggle->setParent(collapsed ? corner : paperHeading->parentWidget());
             if (collapsed) row->insertWidget(0, toggle); else paperHeading->addWidget(toggle);
+            toggle->setFixedSize(collapsed ? QSize(39, 41) : QSize(32, 30));
+            toggle->setIconSize(QSize(19, 19));
             focus->setText(collapsed ? QStringLiteral("패널 펼치기") : QStringLiteral("패널 접기"));
             focus->setIcon(readerIcon(collapsed ? QStringLiteral("panel-open") : QStringLiteral("panel-close")));
             focus->setProperty("lunaCollapsed", collapsed);

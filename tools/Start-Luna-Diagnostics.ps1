@@ -1,5 +1,5 @@
 # Local P0 reproduction collector. Does not upload anything or copy PDFs/settings.
-param([string]$OutputDirectory = '')
+param([string]$OutputDirectory = '', [switch]$NoPause)
 $ErrorActionPreference = 'Stop'
 $package = $PSScriptRoot
 if (!(Test-Path (Join-Path $package 'LUNA.exe'))) { throw 'Keep this script next to LUNA.exe.' }
@@ -63,4 +63,4 @@ try {
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'process-exit.json') -Encoding UTF8
 Compress-Archive -Path (Join-Path $OutputDirectory '*') -DestinationPath ($OutputDirectory + '.zip')
 Write-Host ('Saved locally: ' + $OutputDirectory + '.zip')
-Read-Host 'Press Enter to finish'
+if (!$NoPause) { Read-Host 'Press Enter to finish' }

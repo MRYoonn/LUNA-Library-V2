@@ -546,11 +546,18 @@ static bool integrationType(const QString& text) {
     return true;
 }
 static bool integrationMove(NativeTabs& host, QWidget* widget, QPoint point) {
-    QWidget* nativeWindow = widget->window(); if (!nativeWindow) nativeWindow = &host;
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);
+    QWidget* nativeWindow = widget->window();
+    if (!nativeWindow || !nativeWindow->windowFlags().testFlag(Qt::Popup)) nativeWindow = &host;
     const QPoint local = widget->mapTo(nativeWindow, point); POINT physical{0, 0};
     if (!ClientToScreen(reinterpret_cast<HWND>(nativeWindow->winId()), &physical)) return false;
     physical.x += qRound(local.x() * nativeWindow->devicePixelRatioF()); physical.y += qRound(local.y() * nativeWindow->devicePixelRatioF());
-    return SetCursorPos(physical.x, physical.y);
+    const bool moved = SetCursorPos(physical.x, physical.y);
+    POINT actual{}; GetCursorPos(&actual);
+    host.setProperty("LunaLastTestMouse",QVariantMap{{"widget",widget->objectName()}, {"windowClass",QString::fromLatin1(nativeWindow->metaObject()->className())},
+        {"usesHost",nativeWindow == &host}, {"x",int(physical.x)}, {"y",int(physical.y)}, {"actualX",int(actual.x)}, {"actualY",int(actual.y)},
+        {"targetWindow",GetAncestor(WindowFromPoint(actual),GA_ROOT) == reinterpret_cast<HWND>(nativeWindow->winId())}});
+    return moved;
 }
 static bool integrationClick(NativeTabs& host, QWidget* widget, QPoint point, bool right = false) {
     if (!integrationMove(host, widget, point)) return false;
@@ -743,7 +750,7 @@ static void integrationEmptyFileMenu(NativeTabs& host, const QString& report) {
 }
 static void verifyIntegration(NativeTabs& host, const QStringList& files, const QString& report, bool restore) {
     QJsonObject result{{"accepted", false}, {"physicalMonitorDpi", "unverified"}, {"input", "Win32 tab clicks, memo typing and shortcuts; Qt crop/highlight and dialog fixtures"}};
-    auto write = [&] { QSaveFile output(report); if (output.open(QIODevice::WriteOnly)) { output.write(QJsonDocument(result).toJson()); output.commit(); } };
+    auto write = [&] { result["lastRealMouse"] = QJsonObject::fromVariantMap(host.property("LunaLastTestMouse").toMap()); QSaveFile output(report); if (output.open(QIODevice::WriteOnly)) { output.write(QJsonDocument(result).toJson()); output.commit(); } };
     auto phase = [&](const char* text) {
         const QString name = QString::fromLatin1(text); result["phase"] = name; host.setProperty("LunaIntegrationPhase", name); write();
         QTimer::singleShot(1500, &host, [&host, report, name] {

@@ -29,6 +29,7 @@
 #include <QTimer>
 #include <QClipboard>
 #include <QColorDialog>
+#include <QPlainTextEdit>
 #include <QMessageBox>
 #include <QAbstractButton>
 #include <QPushButton>
@@ -451,29 +452,43 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         }
         return QPoint(-1,-1);
     };
-    checkpoint("Reader phase: single-click native note popup and edit");
-    bool sawNote = false, editedNote = false;
-    const QString revised = QStringLiteral("LUNA synthetic edited note");
-    QTimer editNote;
-    QObject::connect(&editNote, &QTimer::timeout, &window, [&] {
-        auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
-        if (!dialog) dialog = qobject_cast<QDialog*>(QApplication::activePopupWidget());
-        if (!dialog) return;
-        if (auto* edit = dialog->findChild<QPushButton*>(QStringLiteral("LunaEditNote"))) {
-            sawNote = true; edit->click(); return;
-        }
-        if (dialog->inherits("pdf::PDFEditObjectDialog")) {
-            for (auto* text : dialog->findChildren<QTextBrowser*>()) if (text->toPlainText() == noteText && !text->isReadOnly() && text->isEnabled()) {
-                text->setPlainText(revised); editedNote = true; dialog->accept(); return;
-            }
-        }
-    });
-    editNote.start(50);
+    checkpoint("Reader phase: inline note edit, native Undo/Redo and per-note color");
+    QPlainTextEdit* inlineNote = nullptr;
+    if (!waitFor([&] { for (auto* text : window.findChildren<QPlainTextEdit*>("LunaStickyContents")) if (text->isVisible() && text->toPlainText() == noteText) inlineNote = text; return inlineNote; })) return fail("New note contents were not expanded by default");
     const QPoint noteClick = annotationPoint(pdf::AnnotationType::Text);
     mouse(widget,QEvent::MouseButtonPress,noteClick,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,noteClick,Qt::LeftButton,Qt::NoButton);
-    editNote.stop();
-    if (!sawNote || !editedNote) return fail("Single-click native note view/edit failed");
+    if (!inlineNote->hasFocus()) return fail("Note icon click did not focus inline editor");
+    auto noteContents = [&] { for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) if (item.annotation->getType() == pdf::AnnotationType::Text) return item.annotation->getContents(); return QString(); };
+    const QString revised = QStringLiteral("LUNA synthetic edited note");
+    inlineNote->setPlainText(revised);
+    if (!waitFor([&] { return noteContents() == revised; })) return fail("Inline note edit did not reach the native PDF document");
+    action("actionUndo")->trigger(); if (!waitFor([&] { return noteContents() == noteText && inlineNote->toPlainText() == noteText; })) return fail("Inline note Undo failed");
+    action("actionRedo")->trigger(); if (!waitFor([&] { return noteContents() == revised && inlineNote->toPlainText() == revised; })) return fail("Inline note Redo failed");
+    auto noteColorValue = [&] { for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) if (item.annotation->getType() == pdf::AnnotationType::Text) return item.annotation->getDrawColorFromAnnotationColor(item.annotation->getColor(),1.0); return QColor(); };
+    auto* card = inlineNote->parentWidget(); auto* colorButton = card->findChild<QToolButton*>("LunaStickyColor");
+    auto chooseNoteColor = [&](QColor color, bool custom) {
+        bool scheduled = false, selected = false; QTimer picker;
+        QObject::connect(&picker, &QTimer::timeout, &window, [&] {
+            if (auto* dialog = qobject_cast<QColorDialog*>(QApplication::activeModalWidget())) { dialog->setCurrentColor(color); dialog->accept(); selected = true; }
+            else if (!scheduled) if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+                for (auto* option : menu->actions()) if (option->text() == (custom ? QStringLiteral("사용자 지정 색상…") : color.name())) {
+                    scheduled = true; menu->close(); QTimer::singleShot(0, option, &QAction::trigger); if (!custom) selected = true; break;
+                }
+            }
+        });
+        picker.start(30); colorButton->showMenu();
+        const bool changed = waitFor([&] { return selected && noteColorValue() == color; }); picker.stop(); return changed;
+    };
+    if (!colorButton || !chooseNoteColor(QColor("#d7eaff"),false)) return fail("Note preset palette did not update the existing note");
+    if (!chooseNoteColor(QColor("#284f74"),true)) return fail("Custom note QColorDialog did not update the existing note");
+    const QColor customNoteColor = noteColorValue();
+    action("actionUndo")->trigger(); if (!waitFor([&] { return noteColorValue() == QColor("#d7eaff"); })) return fail("Note color Undo failed");
+    action("actionRedo")->trigger(); if (!waitFor([&] { return noteColorValue() == customNoteColor; })) return fail("Note color Redo failed");
+    if (!waitFor([&] { return card->styleSheet().contains("color:#ffffff"); })) return fail("Dark note did not receive contrasting text");
+    auto* fold = card->findChild<QToolButton*>("LunaStickyFold"); fold->click();
+    if (!waitFor([&] { return !inlineNote->isVisible(); })) return fail("Note did not fold");
+    fold->click(); if (!waitFor([&] { return inlineNote->isVisible(); })) return fail("Note did not expand");
     noteText = revised;
     bool cancelledExit = false;
     QTimer cancelExit;
@@ -523,7 +538,7 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     bool colorSurvived = false;
     for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
         if (item.annotation->getType() == pdf::AnnotationType::Text)
-            noteSurvived = item.annotation->getContents() == noteText;
+            noteSurvived = item.annotation->getContents() == noteText && item.annotation->getDrawColorFromAnnotationColor(item.annotation->getColor(),1.0) == customNoteColor && static_cast<const pdf::PDFTextAnnotation*>(item.annotation.get())->isOpen();
         if (item.annotation->getType() == pdf::AnnotationType::Highlight)
             colorSurvived = item.annotation->getColor() == highlightColor;
     }

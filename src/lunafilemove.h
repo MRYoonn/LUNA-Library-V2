@@ -75,11 +75,11 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
         const QString name = source.completeBaseName() + QStringLiteral(".luna-thumb") + extension;
         const QString targetSidecarName = QFileInfo(targetName).completeBaseName() + QStringLiteral(".luna-thumb") + extension;
         const QFileInfo targetSidecar(QDir(targetRoot).filePath(targetSidecarName));
-        if (!caseOnly && (targetSidecar.exists() || targetSidecar.isSymLink())) {
+        const QFileInfo sidecar(QDir(originalRoot).filePath(name));
+        if ((!caseOnly || !sidecar.exists()) && (targetSidecar.exists() || targetSidecar.isSymLink())) {
             result.error = QStringLiteral("대상 폴더에 같은 이름의 썸네일이 있어 이동하지 않았습니다.\n%1").arg(targetSidecar.absoluteFilePath());
             return result;
         }
-        const QFileInfo sidecar(QDir(originalRoot).filePath(name));
         if (sidecar.isSymLink() || (sidecar.exists() && !sidecar.isFile())) {
             result.error = QStringLiteral("썸네일이 일반 파일이 아니므로 이동하지 않았습니다.");
             return result;

@@ -1181,23 +1181,23 @@ private:
         return list;
     }
     void editBibliography(const QString& path) {
-        const QString identity=DocumentClaim::identity(path); auto data=bibliography_.record(identity);
+        const QString identity=DocumentClaim::identity(path); auto bibliographyData=bibliography_.record(identity);
         QDialog dialog(this); dialog.setWindowTitle(QStringLiteral("서지 정보 · ") + QFileInfo(path).fileName()); dialog.setObjectName("LunaBibliographyDialog");
         auto* layout=new QFormLayout(&dialog); QMap<QString,QLineEdit*> fields;
         for (const auto& field : QList<QPair<QString,QString>>{{"title",QStringLiteral("논문 제목")},{"authors",QStringLiteral("저자")},{"journal",QStringLiteral("저널")},{"year",QStringLiteral("발행 연도")},{"volume",QStringLiteral("권")},{"issue",QStringLiteral("호")},{"page",QStringLiteral("페이지")},{"doi","DOI"}}) {
-            auto* input=new QLineEdit(data.value(field.first).toString(),&dialog); input->setObjectName("LunaBibliography_"+field.first); input->setMaxLength(field.first=="year" ? 4 : 4096); fields.insert(field.first,input); layout->addRow(field.second,input);
+            auto* input=new QLineEdit(bibliographyData.value(field.first).toString(),&dialog); input->setObjectName("LunaBibliography_"+field.first); input->setMaxLength(field.first=="year" ? 4 : 4096); fields.insert(field.first,input); layout->addRow(field.second,input);
         }
         auto* note=new QLabel(QStringLiteral("PDF 내장 정보와 DOI가 있는 경우 Crossref를 조회합니다. 알 수 없는 값은 비워 두세요. 여기서 수정해도 실제 파일명은 바뀌지 않습니다."),&dialog); note->setWordWrap(true); layout->addRow(note);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Save|QDialogButtonBox::Cancel,&dialog); layout->addRow(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
         connect(buttons,&QDialogButtonBox::accepted,&dialog,[&] {
-            for (auto it=fields.cbegin();it!=fields.cend();++it) data[it.key()]=it.value()->text().trimmed();
-            const QString year=data.value("year").toString(), doi=data.value("doi").toString();
+            for (auto it=fields.cbegin();it!=fields.cend();++it) bibliographyData[it.key()]=it.value()->text().trimmed();
+            const QString year=bibliographyData.value("year").toString(), doi=bibliographyData.value("doi").toString();
             if ((!year.isEmpty() && (!QRegularExpression("^[0-9]{1,4}$").match(year).hasMatch() || year.toInt()<1)) || (!doi.isEmpty() && Bibliography::doi(doi).isEmpty())) {
                 QMessageBox::warning(&dialog,QStringLiteral("입력 확인"),QStringLiteral("발행 연도는 1~9999, DOI는 10.xxxx/… 형식으로 입력해 주세요.")); return;
             }
-            data["doi"]=Bibliography::doi(doi); data["source"]=QStringLiteral("사용자 입력");
-            if (!bibliography_.save(identity,data)) { QMessageBox::warning(&dialog,QStringLiteral("저장 실패"),QStringLiteral("로컬 서지 정보를 저장하지 못했습니다. 입력 내용은 이 창에 유지됩니다.")); return; }
+            bibliographyData["doi"]=Bibliography::doi(doi); bibliographyData["source"]=QStringLiteral("사용자 입력");
+            if (!bibliography_.save(identity,bibliographyData)) { QMessageBox::warning(&dialog,QStringLiteral("저장 실패"),QStringLiteral("로컬 서지 정보를 저장하지 못했습니다. 입력 내용은 이 창에 유지됩니다.")); return; }
             dialog.accept();
         });
         dialog.resize(430,dialog.sizeHint().height()); dialog.exec();

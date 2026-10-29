@@ -33,7 +33,7 @@ inline void addAnnotationColors(QMenu* menu, const QString& key, const std::func
         QObject::connect(action, &QAction::triggered, menu, [choose, value] { choose(QColor(value)); });
     }
     menu->addSeparator(); auto* custom = menu->addAction(QStringLiteral("사용자 지정 색상…"));
-    QObject::connect(custom, &QAction::triggered, menu, [menu, key, choose] { choose(QColorDialog::getColor(QColor(readerSettings().value(key, "#fff2a6").toString()), menu, QStringLiteral("주석 색상"))); });
+    QObject::connect(custom, &QAction::triggered, menu, [menu, key, choose] { choose(QColorDialog::getColor(QColor(readerSettings().value(key, "#fff2a6").toString()), menu->parentWidget(), QStringLiteral("주석 색상"))); });
 }
 
 // A single native document transaction, including partial quad edits, feeds

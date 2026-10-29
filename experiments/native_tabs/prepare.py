@@ -137,6 +137,8 @@ bool PDFProgramController::askForSaveDocumentBeforeClose()
         m_dialog->move(position);''')
     replace('Pdf4QtLibWidgets/sources/pdfwidgettool.cpp', '#include <QApplication>', '#include <QApplication>\n#include <QScreen>')
     # LUNA UI only: selected text is translucent blue, without the black box outline.
+    replace('Pdf4QtLibWidgets/sources/pdfadvancedtools.cpp',
+        'm_icon, author, QString(), text, false);', 'm_icon, author, QString(), text, true);')
     replace('Pdf4QtLibWidgets/sources/pdfwidgettool.h',
         '    QString getSelectedText(const std::vector<PDFInteger>& pageIndices = std::vector<PDFInteger>()) const;',
         '    QString getSelectedText(const std::vector<PDFInteger>& pageIndices = std::vector<PDFInteger>()) const;\n    const PDFTextSelection& lunaTextSelection() const { return m_textSelection; }')

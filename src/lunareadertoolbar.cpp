@@ -2,6 +2,7 @@
 // Presentation and input adapters only; PDF4QT owns all document operations.
 #include "lunareadertoolbar.h"
 #include "lunaannotationtools.h"
+#include "lunastickynotes.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
 #include "pdfdrawwidget.h"
@@ -39,7 +40,7 @@ namespace {
 // One scalable stroke style, including disabled/checked states and high DPI.
 class ReaderIcon final : public QIconEngine {
 public:
-    explicit ReaderIcon(QString name) : name_(std::move(name)) {}
+    explicit ReaderIcon(QString name, QColor tint = {}) : name_(std::move(name)), tint_(tint) {}
     QIconEngine* clone() const override { return new ReaderIcon(name_); }
     QSize actualSize(const QSize& size, QIcon::Mode, QIcon::State) override { return size; }
     QPixmap pixmap(const QSize& size, QIcon::Mode mode, QIcon::State state) override {
@@ -49,8 +50,7 @@ public:
     void paint(QPainter* p, const QRect& rect, QIcon::Mode mode, QIcon::State state) override {
         p->save(); p->setRenderHint(QPainter::Antialiasing);
         p->translate(rect.topLeft()); p->scale(rect.width() / 24.0, rect.height() / 24.0);
-        const QColor color(mode == QIcon::Disabled ? "#A5ADBA" :
-                           (state == QIcon::On || mode == QIcon::Selected ? "#4F70B5" : "#263247"));
+        const QColor color = mode == QIcon::Disabled ? QColor("#A5ADBA") : tint_.isValid() ? tint_ : QColor(state == QIcon::On || mode == QIcon::Selected ? "#4F70B5" : "#263247");
         p->setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         p->setBrush(Qt::NoBrush);
         auto line = [p](qreal a, qreal b, qreal c, qreal d) { p->drawLine(QPointF(a,b), QPointF(c,d)); };
@@ -98,6 +98,7 @@ public:
     }
 private:
     QString name_;
+    QColor tint_;
 };
 
 QAction* nativeAction(pdfviewer::PDFEditorMainWindow& window, const char* name) {
@@ -179,31 +180,8 @@ private:
             auto* c = window_.getProgramController(); auto* manager = c->getPdfWidget()->getAnnotationManager();
             manager->selectAnnotation(reference, true);
             if (deleting_) { manager->deleteSelectedAnnotations(); selectText(); return true; }
-            // Native note popup plus a route to its existing annotation editor.
-            struct PopupState { bool waiting = true; bool edit = false; };
-            auto state = std::make_shared<PopupState>();
-            QTimer::singleShot(0, this, [this, state] {
-                if (!state->waiting) return;
-                auto* popup = qobject_cast<QDialog*>(QApplication::activeModalWidget());
-                if (!popup) popup = qobject_cast<QDialog*>(QApplication::activePopupWidget());
-                if (!popup || popup->parentWidget() != draw_ || !popup->windowFlags().testFlag(Qt::Popup) || !popup->layout()) return;
-                auto* button = new QPushButton(QStringLiteral("메모 편집…"), popup);
-                button->setObjectName(QStringLiteral("LunaEditNote")); button->setEnabled(editable_);
-                popup->layout()->addWidget(button);
-                connect(button, &QPushButton::clicked, popup, [popup, state] { state->edit = true; popup->accept(); });
-                popup->adjustSize();
-            });
-            QMouseEvent open(QEvent::MouseButtonDblClick, mouse->position(), mouse->globalPosition(),
-                             Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
-            open.ignore(); manager->mouseDoubleClickEvent(draw_, &open);
-            state->waiting = false;
-            if (state->edit) {
-                c->getToolManager()->setActiveTool(nullptr);
-                manager->selectAnnotation(reference, true);
-                QKeyEvent key(QEvent::KeyPress, Qt::Key_F2, Qt::NoModifier);
-                manager->keyPressEvent(draw_, &key);
-            }
-            manager->clearSelection(); selectText(); return true;
+            focusStickyNote(window_, reference); manager->clearSelection(); selectText(); return true;
+
         }
         return false;
     }
@@ -215,9 +193,9 @@ private:
 };
 }
 
-QIcon readerIcon(const QString& name) {
+QIcon readerIcon(const QString& name, const QColor& tint) {
     if (name == "panel-left-close" || name == "panel-left-open") return QIcon(QStringLiteral(":/luna/") + name + QStringLiteral(".svg"));
-    return QIcon(new ReaderIcon(name));
+    return QIcon(new ReaderIcon(name, tint));
 }
 
 void hideAdvancedToolbars(pdfviewer::PDFEditorMainWindow& window) {
@@ -308,14 +286,14 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
         saveAs->setToolTip(QStringLiteral("원본을 보존하는 PDF 복사본 저장 (Ctrl+Shift+S)"));
     }
     hideAdvancedToolbars(window);
-    new ReadingInteraction(window);
+    new StickyNotes(window); new ReadingInteraction(window);
 }
 
 bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error, bool geometry) {
     auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
     auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
     if (!bar || !bar->isVisible() || bar->orientation() != Qt::Horizontal) return fail("Reading toolbar missing");
-    const QStringList allowed = {"LunaCropThumbnail", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "actionCreateTextHighlight", "actionStickyNoteComment", "actionDeleteAnnotation", "actionFind", "actionPrint"};
+    const QStringList allowed = {"LunaCropThumbnail", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "LunaApplyHighlight", "actionStickyNoteComment", "LunaEraseHighlightSelection", "actionFind", "actionPrint"};
     int controls = 0;
     for (auto* action : bar->actions()) {
         if (action->isSeparator()) continue;
@@ -330,7 +308,7 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
     for (const auto& name : allowed) if (!bar->actions().contains(window.findChild<QAction*>(name))) return fail("Essential reading action missing");
     for (auto* other : window.findChildren<QToolBar*>())
         if (other != bar && other->objectName() != QStringLiteral("LunaLibraryToolbar") && window.toolBarArea(other) != Qt::NoToolBarArea && other->isVisible()) return fail("Advanced toolbar unexpectedly visible");
-    for (const char* name : {"actionSave_As","actionPageLayoutContinuous","actionPageLayoutSinglePage","actionPageLayoutTwoPages","actionCreateTextUnderline","actionBookmarkPage"})
+    for (const char* name : {"actionSave_As","actionPageLayoutContinuous","actionPageLayoutSinglePage","actionPageLayoutTwoPages","actionCreateTextUnderline","actionBookmarkPage","actionCreateTextHighlight","actionDeleteAnnotation"})
         if (!inMenu(window, nativeAction(window, name))) return fail("Native advanced action no longer reachable in menus");
     if (geometry) {
         if (bar->height() < 40 || bar->height() > qMax(44, QFontMetrics(bar->font()).height() + 16)) return fail("Reading toolbar is not one compact row");

@@ -272,8 +272,13 @@ private:
         {
             const QSignalBlocker block(page_);
             const bool hasDocument = bool(editor_->getProgramController()->getDocument());
-            page_->setRange(hasDocument ? nativePage->minimum() : 0, hasDocument ? nativePage->maximum() : 0);
-            page_->setSuffix(nativeCount->text().isEmpty() ? QStringLiteral(" / 0") : nativeCount->text());
+            const int minimum = hasDocument ? nativePage->minimum() : 0;
+            const int maximum = hasDocument ? nativePage->maximum() : 0;
+            if (page_->minimum() != minimum || page_->maximum() != maximum) page_->setRange(minimum, maximum);
+            const QString suffix = nativeCount->text().isEmpty() ? QStringLiteral(" / 0") : nativeCount->text();
+            // setSuffix refreshes the line editor even for unchanged text.
+            // Polling must preserve a focused user's selection and pending input.
+            if (page_->suffix() != suffix) page_->setSuffix(suffix);
             // A new window can initially focus this control before loading
             // completes. Update its valid range/count even then, without
             // overwriting a user's in-progress page value on later ticks.

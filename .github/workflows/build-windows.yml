@@ -41,7 +41,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: luna-library-v2-windows-${{ inputs.p0_lifetime_debug && 'p0-lifetime' || inputs.native_probes_only && 'native-probes' || inputs.tab_host_source_run != '' && 'tab-host' || 'app' }}
+  group: luna-library-v2-windows-${{ inputs.ui_reference_capture && inputs.packaging_preflight_only && 'ui-reference' || inputs.p0_lifetime_debug && 'p0-lifetime' || inputs.native_probes_only && 'native-probes' || inputs.tab_host_source_run != '' && 'tab-host' || 'app' }}
   cancel-in-progress: false
 
 jobs:

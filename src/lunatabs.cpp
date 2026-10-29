@@ -450,7 +450,7 @@ private:
         if (event->type() == QEvent::KeyRelease && static_cast<QKeyEvent*>(event)->key() == Qt::Key_W) trace("ctrl-w-release", current());
         if (event->type() == QEvent::Show || event->type() == QEvent::Hide || event->type() == QEvent::WindowStateChange) {
             if (object == this) trace(event->type() == QEvent::Show ? "shell-show" : event->type() == QEvent::Hide ? "shell-hide" : "shell-window-state");
-            else if (auto* editor = qobject_cast<Editor*>(object)) trace(event->type() == QEvent::Show ? "editor-show" : event->type() == QEvent::Hide ? "editor-hide" : "editor-window-state", editor);
+            else if (auto* editor = qobject_cast<Editor*>(object); editor && session(editor)) trace(event->type() == QEvent::Show ? "editor-show" : event->type() == QEvent::Hide ? "editor-hide" : "editor-window-state", editor);
         }
         if (event->type() == QEvent::Quit) {
             trace("application-quit-event");

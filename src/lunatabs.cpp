@@ -1138,7 +1138,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             }); bibliographyInput.start(30);
             integrationRequire(integrationClick(host,list->viewport(),card.center(),true), "Bibliography context menu did not open");
             integrationRequire(integrationWait([&] { return bibliographySaved && paper->data(Qt::UserRole+5).toMap().value("journal").toString()=="Synthetic Edited Journal"; }), "Manual bibliography edit did not update the local paper card"); bibliographyInput.stop();
-            integrationRequire(a->getProgramController()->getOriginalFileName()==files[0] && paper->text()=="A", "Bibliography editing renamed the document or replaced its filename title");
+            integrationRequire(DocumentClaim::identity(a->getProgramController()->getOriginalFileName())==DocumentClaim::identity(files[0]) && paper->text()=="A", "Bibliography editing renamed the document or replaced its filename title");
             result["localBibliographyDialogKeepsActualFilename"] = true;
             const QByteArray originalThumb = integrationBytes(thumbnail); const QString moved = QFileInfo(files[0]).absolutePath() + "/Moved"; QDir().mkpath(moved);
             list->setCurrentItem(paper); list->setFocus();

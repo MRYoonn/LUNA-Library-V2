@@ -16,7 +16,7 @@ import tempfile
 import time
 from smoke_windows import synthetic_pdf
 
-def run(package, output, debugger, legacy_state=None, expect_layout_crash=False, state_reader=None):
+def run(package, output, debugger, legacy_state=None, expect_layout_crash=False, state_reader=None, library_row_y=235):
     if os.name!='nt':raise RuntimeError('Actual Windows required')
     import winreg
     output.mkdir(parents=True,exist_ok=True)
@@ -90,6 +90,7 @@ def run(package, output, debugger, legacy_state=None, expect_layout_crash=False,
                     commands='sxd -c2 ".echo LUNA_UNHANDLED_ACCESS_VIOLATION;.exr -1;.ecxr;kv;~*kb;lm;q" av;sxe -c ".echo LUNA_HEAP_BREAK;kv;~*kb;q" bpe;sxe -c ".echo LUNA_DEBUGGEE_EXIT;.lastevent;q" epr;g'
                     result={'accepted':False,'qtScale':scale,'case':repeat+1,'input':'external Win32 keys and library-card double clicks; normal product EXE, no self-test mode','p0ActualPc':'UNRESOLVED'}
                     result['legacyWindowStateSeeded']=bool(legacy_state)
+                    result['libraryRowClientY']=library_row_y
                     child=None;main=None
                     def rows():
                         events=[]
@@ -121,7 +122,7 @@ def run(package, output, debugger, legacy_state=None, expect_layout_crash=False,
                             def open_library(letter,editor,generation):
                                 result['phase']='library open '+letter
                                 key(0x4b,True);time.sleep(.1);key(0x41,True);key(ord(letter));time.sleep(.2)
-                                point=wintypes.POINT(round(350*scale),round(235*scale));user.ClientToScreen(main,ctypes.byref(point));user.SetCursorPos(point.x,point.y)
+                                point=wintypes.POINT(round(350*scale),round(library_row_y*scale));user.ClientToScreen(main,ctypes.byref(point));user.SetCursorPos(point.x,point.y)
                                 for _ in range(2):user.mouse_event(2,0,0,0,0);user.mouse_event(4,0,0,0,0);time.sleep(.07)
                                 wait(lambda:event('document-load-completed',editor,generation),'library load '+letter)
                                 loaded=[r for r in rows() if r['event']=='document-load-completed' and r.get('editor')==editor][-1]
@@ -187,4 +188,5 @@ def run(package, output, debugger, legacy_state=None, expect_layout_crash=False,
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('package',type=Path);p.add_argument('output',type=Path);p.add_argument('--debugger',type=Path,required=True)
     p.add_argument('--legacy-state',type=Path);p.add_argument('--expect-layout-crash',action='store_true');p.add_argument('--state-reader',type=Path)
-    a=p.parse_args();run(a.package.resolve(strict=True),a.output.resolve(),a.debugger.resolve(strict=True),a.legacy_state,a.expect_layout_crash,a.state_reader.resolve(strict=True) if a.state_reader else None)
+    p.add_argument('--library-row-y',type=int,default=235)
+    a=p.parse_args();run(a.package.resolve(strict=True),a.output.resolve(),a.debugger.resolve(strict=True),a.legacy_state,a.expect_layout_crash,a.state_reader.resolve(strict=True) if a.state_reader else None,a.library_row_y)

@@ -14,6 +14,25 @@ Write-Host 'Reproduce Ctrl+W with zero, one and multiple PDFs, including search 
 Write-Host 'Logs stay on this PC. No PDF, thumbnail, memo or settings are copied.'
 $process = Start-Process -FilePath (Join-Path $package 'LUNA.exe') -ArgumentList @('--luna-lifecycle-trace', ('"' + $trace + '"')) -PassThru
 $processHandle = $process.Handle
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class LunaDiagnosticWindow {
+ [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hwnd);
+ [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
+ [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
+}
+'@
+$lastWindow = [IntPtr]::Zero
+while (!$process.WaitForExit(1000)) {
+    $process.Refresh()
+    if ($process.MainWindowHandle -ne [IntPtr]::Zero) { $lastWindow = $process.MainWindowHandle }
+    @{ timeUtc=[DateTime]::UtcNow.ToString('o'); pid=$process.Id; processAlive=$true;
+       knownWindowExists=[LunaDiagnosticWindow]::IsWindow($lastWindow);
+       windowVisible=[LunaDiagnosticWindow]::IsWindowVisible($lastWindow);
+       minimized=[LunaDiagnosticWindow]::IsIconic($lastWindow)
+    } | ConvertTo-Json -Compress | Add-Content -LiteralPath (Join-Path $OutputDirectory 'process-state.jsonl') -Encoding UTF8
+}
 $process.WaitForExit()
 $code = $process.ExitCode
 $hex = if ($null -eq $code) { 'unavailable' } else { '{0:X8}' -f ([long]$code -band 0xffffffffL) }

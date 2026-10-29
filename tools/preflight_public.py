@@ -7,6 +7,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "src/lunabibliography.h",
+    "tests/native_dialog/bibliography.cpp",
     "src/lunastickynotes.h",
     "src/lunaannotationtools.h",
     "assets/icons/panel-left-close.svg", "assets/icons/panel-left-open.svg",

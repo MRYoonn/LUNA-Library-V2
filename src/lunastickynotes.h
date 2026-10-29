@@ -92,6 +92,9 @@ private:
     }
     void synchronize() {
         auto* c = editor_.getProgramController(); auto* widget = c->getPdfWidget(); const auto* doc = c->getDocument();
+        // Match the native tab host's readiness boundary. A document pointer
+        // can be set before annotation models and load callbacks are settled.
+        if (!editor_.isEnabled() || !c->canClose()) return;
         const QString path = c->getOriginalFileName();
         if (!doc || path != path_) {
             for (auto& pair : cards_) delete pair.second.frame;

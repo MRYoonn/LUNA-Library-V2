@@ -278,11 +278,6 @@ private:
         const QString id = DocumentClaim::identity(path);
         for (const auto& s : sessions_) {
             auto* c = s->editor->getProgramController();
-            const bool present = bool(c->getDocument());
-            if (present != s->observedDocument) {
-                s->observedDocument = present;
-                trace(present ? "observed-document-present" : "observed-document-absent", s->editor);
-            }
             if ((!id.isEmpty() && s->identity == id) ||
                 (!id.isEmpty() && (c->getDocument() || s->loading) && DocumentClaim::identity(c->getOriginalFileName()) == id)) return s.get();
         }
@@ -426,6 +421,11 @@ private:
         }
         for (const auto& s : sessions_) {
             auto* c = s->editor->getProgramController();
+            const bool present = bool(c->getDocument());
+            if (present != s->observedDocument) {
+                s->observedDocument = present;
+                trace(present ? "observed-document-present" : "observed-document-absent", s->editor);
+            }
             if (c->getDocument() && c->canClose() && s->editor->isEnabled()) recordLibraryDocument(*this, *s->editor);
             updateTitle(s->editor);
         }

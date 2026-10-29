@@ -111,6 +111,7 @@ jobs:
       - name: Verify public DOI against live Crossref using the unchanged product module
         shell: pwsh
         run: |
+          $env:QT_FORCE_STDERR_LOGGING = '1'
           $probe = Join-Path $env:RUNNER_TEMP 'luna-native-probes'
           $env:PATH = "$env:QT_ROOT_DIR/bin;$env:PATH"
           & "$probe/Release/luna-native-bibliography.exe" --live-crossref

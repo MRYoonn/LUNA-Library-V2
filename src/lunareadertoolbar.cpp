@@ -41,7 +41,7 @@ namespace {
 class ReaderIcon final : public QIconEngine {
 public:
     explicit ReaderIcon(QString name, QColor tint = {}) : name_(std::move(name)), tint_(tint) {}
-    QIconEngine* clone() const override { return new ReaderIcon(name_); }
+    QIconEngine* clone() const override { return new ReaderIcon(name_, tint_); }
     QSize actualSize(const QSize& size, QIcon::Mode, QIcon::State) override { return size; }
     QPixmap pixmap(const QSize& size, QIcon::Mode mode, QIcon::State state) override {
         QPixmap result(size); result.fill(Qt::transparent);

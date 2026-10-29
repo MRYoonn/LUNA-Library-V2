@@ -10,6 +10,8 @@
 #include <QLabel>
 #include <QTimer>
 #include <QKeyEvent>
+#include <QFont>
+#include <cmath>
 #include <map>
 #include <set>
 

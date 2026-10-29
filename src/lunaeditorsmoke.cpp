@@ -29,6 +29,7 @@
 #include <QTimer>
 #include <QClipboard>
 #include <QColorDialog>
+#include <QMenu>
 #include <QPlainTextEdit>
 #include <QMessageBox>
 #include <QAbstractButton>

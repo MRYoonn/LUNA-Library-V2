@@ -715,6 +715,32 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
     if (host.current()) integrationSurface(host.current())->setFocus();
     integrationRequire(captured, "Production tab layout size or capture failed");
 }
+static void integrationEmptyFileMenu(NativeTabs& host, const QString& report) {
+    auto* bar = host.menuBar(); auto* fileAction = bar->actions().front(); auto* menu = fileAction->menu();
+    auto* save = host.current()->findChild<QAction*>("actionSave"); auto* open = host.findChild<QAction*>("LunaOpenDocuments");
+    integrationRequire(menu && save && open && !save->isEnabled() && menu->actions().contains(save) && menu->actions().contains(open), "Empty reader did not retain disabled Save and enabled Open in the real File menu");
+    const QImage barImage = bar->grab().toImage(); const qreal barScale = barImage.devicePixelRatio();
+    integrationRequire(barImage.pixelColor(qRound(bar->actionGeometry(fileAction).center().x()*barScale),qRound(2*barScale)).rgb() == QColor("#f7f8fc").rgb() && barImage.pixelColor(qRound(2*barScale),qRound(2*barScale)).rgb() == QColor("#f7f8fc").rgb(), "Brand/menu canvas colors differ");
+    bool checked = false, settled = false; QTimer inspect;
+    QObject::connect(&inspect,&QTimer::timeout,&host,[&] {
+        if (!menu->isVisible() || !IsWindowVisible(reinterpret_cast<HWND>(menu->winId()))) return;
+        if (!settled) { settled = true; return; }
+        inspect.stop(); const QImage image = menu->grab().toImage(); const qreal scale = image.devicePixelRatio();
+        auto darkest = [&](QAction* action) {
+            const QRect logical = menu->actionGeometry(action).adjusted(22,2,-22,-2);
+            const QRect pixels(qRound(logical.x()*scale),qRound(logical.y()*scale),qRound(logical.width()*scale),qRound(logical.height()*scale));
+            int red = 255; const QRect clipped = pixels.intersected(image.rect());
+            for (int y = clipped.top(); y <= clipped.bottom(); ++y) for (int x = clipped.left(); x <= clipped.right(); ++x) red = qMin(red,image.pixelColor(x,y).red());
+            return red;
+        };
+        checked = image.pixelColor(qRound((menu->width()-6)*scale),qRound(3*scale)).rgb() == QColor("#ffffff").rgb() && darkest(save) >= 90 && darkest(open) < 90;
+        image.save(report + ".empty-file-menu-widget.png"); host.screen()->grabWindow(0).save(report + ".empty-file-menu.png"); integrationKey(VK_ESCAPE);
+    }); inspect.start(30);
+    const bool clicked = integrationClick(host,bar,bar->actionGeometry(fileAction).center());
+    const bool displayed = integrationWait([&] { return checked && !menu->isVisible(); }); inspect.stop();
+    if (menu->isVisible()) menu->close();
+    integrationRequire(clicked && displayed, "Real File dropdown canvas or enabled/disabled text colors failed");
+}
 static void verifyIntegration(NativeTabs& host, const QStringList& files, const QString& report, bool restore) {
     QJsonObject result{{"accepted", false}, {"physicalMonitorDpi", "unverified"}, {"input", "Win32 tab clicks, memo typing and shortcuts; Qt crop/highlight and dialog fixtures"}};
     auto write = [&] { QSaveFile output(report); if (output.open(QIODevice::WriteOnly)) { output.write(QJsonDocument(result).toJson()); output.commit(); } };
@@ -1114,6 +1140,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         }
         result["emptyCtrlWEditorCreationsBefore"] = creations; result["emptyCtrlWEditorCreationsAfter"] = host.property("LunaEditorCreations").toInt();
         result["emptyCtrlWTenStable"] = true;
+        integrationEmptyFileMenu(host,report); result["menuCanvasDropdownDisabledState"] = true;
         auto* reopened = host.open(reopenPath);
         integrationRequire(reopened == emptyEditor && integrationWait([&] { return ready(reopened); }) && integrationHighlights(reopened) == 1, "Reopening after repeated empty Ctrl+W lost the document or annotation");
         auto* query = host.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch")); query->setFocus();

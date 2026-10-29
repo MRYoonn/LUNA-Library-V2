@@ -86,7 +86,7 @@ def run(package, output):
             (root / 'UI examples' / 'Research').mkdir(parents=True)
             (root / 'UI examples' / 'References').mkdir()
             a, b = root / 'A.pdf', root / 'B.pdf'
-            a.write_bytes(synthetic_pdf(2).replace(b'smoke', b'alpha'))
+            a.write_bytes(synthetic_pdf(2, metadata={'Title': 'Synthetic bibliography integration fixture', 'Author': 'Synthetic Author A', 'Journal': 'Synthetic Journal', 'PublicationYear': '2022', 'Volume': '24', 'Issue': '2', 'Pages': '10-12'}).replace(b'smoke', b'alpha'))
             b.write_bytes(synthetic_pdf(3).replace(b'smoke', b'bravo'))
             original_b = hashlib.sha256(b.read_bytes()).hexdigest()
             for index, word in enumerate((b'delta', b'gamma', b'omega')):

@@ -15,11 +15,14 @@ int main(int argc,char** argv) {
     const auto sparse = luna::Bibliography::crossref(R"({"status":"ok","message":{"DOI":"10.1234/synthetic.fixture","created":{"date-parts":[[1999]]}}})",doi);
     if (!sparse.value("authors").toString().isEmpty() || !sparse.value("year").toString().isEmpty()) return 4;
     if (luna::Bibliography::doi("https://doi.org/10.1234/synthetic.fixture.") != doi) return 5;
+    if (luna::Bibliography::doi("(10.1234/synthetic(edition))") != "10.1234/synthetic(edition)") return 10;
     luna::Bibliography store(nullptr);
     if (!store.save("before",data) || !store.relocate("before","after") || store.record("after").value("title") != data.value("title")) return 6;
     if (!store.relocate("after","before") || store.record("before").value("authors") != data.value("authors")) return 7;
     if (!store.relocate("before","before") || store.record("before").isEmpty()) return 8;
     { luna::Bibliography reopened(nullptr); if (reopened.record("before").value("doi").toString() != doi) return 9; }
+    store.ingest("embedded","Synthetic title","Synthetic author",{},{{"journal","Synthetic journal"},{"year","2022"}});
+    if (store.record("embedded").value("year").toString()!="2022" || store.record("embedded").value("authors").toString()!="Synthetic author") return 11;
     qInfo() << "[PASS] DOI match/mismatch, malformed/sparse responses, publication-year provenance and local metadata move/restart; no live service query";
     return 0;
 }

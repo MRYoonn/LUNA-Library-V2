@@ -13,7 +13,7 @@ import tempfile
 import json
 
 
-def synthetic_pdf(page_count: int = 1) -> bytes:
+def synthetic_pdf(page_count: int = 1, *, metadata: dict[str, str] | None = None) -> bytes:
     """Public synthetic text with a valid cross-reference table (one to three pages)."""
     if page_count not in (1, 2, 3):
         raise ValueError("Synthetic fixture supports one to three pages")
@@ -42,6 +42,16 @@ def synthetic_pdf(page_count: int = 1) -> bytes:
             b"/Resources << /Font << /F1 4 0 R >> >> /Contents 9 0 R >>",
             b"<< /Length " + str(len(third)).encode() + b" >>\nstream\n" + third + b"endstream",
         ])
+    info = b''
+    if metadata:
+        entries = []
+        for key, value in metadata.items():
+            if not key.isascii() or not key.isalpha():
+                raise ValueError('Synthetic metadata keys must be ASCII letters')
+            escaped = value.encode('ascii').replace(b'\\', b'\\\\').replace(b'(', b'\\(').replace(b')', b'\\)')
+            entries.append(b'/' + key.encode('ascii') + b' (' + escaped + b')')
+        objects.append(b'<< ' + b' '.join(entries) + b' >>')
+        info = f' /Info {len(objects)} 0 R'.encode()
     data = bytearray(b"%PDF-1.4\n")
     offsets = []
     for number, obj in enumerate(objects, 1):
@@ -51,7 +61,7 @@ def synthetic_pdf(page_count: int = 1) -> bytes:
     data.extend(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode())
     for offset in offsets:
         data.extend(f"{offset:010d} 00000 n \n".encode())
-    data.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode())
+    data.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R".encode() + info + f" >>\nstartxref\n{xref}\n%%EOF\n".encode())
     return bytes(data)
 
 

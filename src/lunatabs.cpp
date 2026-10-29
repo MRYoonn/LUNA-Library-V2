@@ -14,6 +14,7 @@
 #include <QAction>
 #include <QCloseEvent>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QDockWidget>
 #include <QDropEvent>
 #include <QFileDialog>
@@ -842,6 +843,9 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         QListWidgetItem* paper = nullptr; QListWidget* list = nullptr;
         integrationRequire(integrationWait([&] { list = integrationList(host, files[0], &paper); return list && paper; }), "Actual library paper card missing");
         if (restore) {
+            const auto bibliography=paper->data(Qt::UserRole+5).toMap();
+            integrationRequire(bibliography.value("journal").toString()=="Synthetic Edited Journal" && bibliography.value("year").toString()=="2023" && bibliography.value("manual").toBool(), "Local bibliography did not follow rename and fresh process restart");
+            result["freshProcessBibliographyRestored"] = true;
             integrationRequire(paper->data(Qt::UserRole + 4).toString() == memo, "Paper memo did not survive process restart");
             integrationRequire(integrationHighlights(a) == 1, "Saved A highlight did not survive process restart");
             const QFileInfo restored(files[0]);
@@ -855,6 +859,9 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             result["freshProcessPdfNoteContentsColorAndExpandedState"] = true;
             result["freshProcessMemoPdfAndThumbnail"] = true;
         } else {
+            const auto embedded=paper->data(Qt::UserRole+5).toMap();
+            integrationRequire(embedded.value("title").toString()=="Synthetic bibliography integration fixture" && embedded.value("authors").toString()=="Synthetic Author A" && embedded.value("journal").toString()=="Synthetic Journal" && embedded.value("year").toString()=="2022" && embedded.value("volume").toString()=="24", "Native PDF embedded bibliography did not reach the paper card");
+            result["nativePdfEmbeddedBibliographyDisplayed"] = true;
             integrationRequire(files.size() == 2, "Initial integrated fixture requires A and B");
             SetForegroundWindow(reinterpret_cast<HWND>(host.winId()));
             phase("folder selection");
@@ -1119,6 +1126,20 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(integrationType(QStringLiteral("724")), "Memo search keyboard input failed");
             integrationRequire(integrationWait([&] { return query->text() == QStringLiteral("724"); }) && !paper->isHidden(), "Paper memo search excluded A"); query->clear();
             integrationRequire(host.screen()->grabWindow(0).save(report + ".memo.png"), "Could not capture integrated memo");
+            phase("local bibliography edit without renaming PDF");
+            bool bibliographyChosen=false, bibliographySaved=false; QTimer bibliographyInput;
+            QObject::connect(&bibliographyInput,&QTimer::timeout,&host,[&] {
+                if (auto* dialog=QApplication::activeModalWidget(); dialog && dialog->objectName()=="LunaBibliographyDialog") {
+                    dialog->findChild<QLineEdit*>("LunaBibliography_journal")->setText("Synthetic Edited Journal");
+                    dialog->findChild<QLineEdit*>("LunaBibliography_year")->setText("2023");
+                    dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->click(); bibliographySaved=true;
+                } else if (!bibliographyChosen) if (auto* popup=qobject_cast<QMenu*>(QApplication::activePopupWidget()))
+                    for (auto* action:popup->actions()) if (action->text()==QStringLiteral("서지 정보 편집…")) { popup->setActiveAction(action); bibliographyChosen=true; integrationKey(VK_RETURN); break; }
+            }); bibliographyInput.start(30);
+            integrationRequire(integrationClick(host,list->viewport(),card.center(),true), "Bibliography context menu did not open");
+            integrationRequire(integrationWait([&] { return bibliographySaved && paper->data(Qt::UserRole+5).toMap().value("journal").toString()=="Synthetic Edited Journal"; }), "Manual bibliography edit did not update the local paper card"); bibliographyInput.stop();
+            integrationRequire(a->getProgramController()->getOriginalFileName()==files[0] && paper->text()=="A", "Bibliography editing renamed the document or replaced its filename title");
+            result["localBibliographyDialogKeepsActualFilename"] = true;
             const QByteArray originalThumb = integrationBytes(thumbnail); const QString moved = QFileInfo(files[0]).absolutePath() + "/Moved"; QDir().mkpath(moved);
             list->setCurrentItem(paper); list->setFocus();
             if (!paper->data(Qt::UserRole + 2).toBool()) integrationRequire(integrationKey('D',true) && integrationWait([&] { return paper->data(Qt::UserRole + 2).toBool(); }), "Favorite setup before relocation failed");

@@ -29,7 +29,7 @@ public:
     static QString doi(QString text) {
         static const QRegularExpression pattern(QStringLiteral("10\\.\\d{4,9}/[^\\s<>\"{}]+"),QRegularExpression::CaseInsensitiveOption);
         QString result = pattern.match(text).captured();
-        while (!result.isEmpty() && QStringLiteral(".,;)").contains(result.back())) result.chop(1);
+        while (!result.isEmpty() && (QStringLiteral(".,;").contains(result.back()) || (result.endsWith(')') && result.count(')') > result.count('(')))) result.chop(1);
         return result.size() <= 256 ? result.toLower() : QString();
     }
     static QVariantMap crossref(const QByteArray& bytes, const QString& expectedDoi) {
@@ -45,7 +45,8 @@ public:
         for (const auto& value : message.value("author").toArray()) {
             const auto author = value.toObject(); QString name = (author.value("given").toString() + " " + author.value("family").toString()).simplified();
             if (name.isEmpty()) name = author.value("name").toString();
-            if (!name.isEmpty()) authors.append(name.left(512)); if (authors.size() == 100) break;
+            if (!name.isEmpty()) authors.append(name.left(512));
+            if (authors.size() == 100) break;
         }
         result["authors"] = authors.join("; ");
         for (const auto* field : {"volume","issue","page"}) result[field] = message.value(field).toString().left(256);
@@ -57,17 +58,23 @@ public:
         }
         return result;
     }
-    QVariantMap record(const QString& identity) const { return settings().value(key(resolve(identity))).toMap(); }
+    QVariantMap record(const QString& identity) const {
+        const QString target=resolve(identity);
+        if (!cache_.contains(target)) cache_.insert(target,settings().value(key(target)).toMap());
+        return cache_.value(target);
+    }
     bool save(const QString& identity, QVariantMap value, bool manual = true) {
         value["manual"] = manual; auto store = settings(); store.setValue(key(resolve(identity)),value); store.sync();
         if (store.status() != QSettings::NoError) return false;
-        if (changed) changed(resolve(identity)); return true;
+        cache_.insert(resolve(identity),value);
+        if (changed) changed(resolve(identity));
+        return true;
     }
-    void ingest(const QString& identity, const QString& title, const QString& author, const QString& doiMetadata) {
+    void ingest(const QString& identity, const QString& title, const QString& author, const QString& doiMetadata, const QVariantMap& embedded = {}) {
         const QString target = resolve(identity); if (seen_.contains(target)) return; seen_.insert(target);
         auto data = record(target); if (data.value("manual").toBool()) return;
         if (data.isEmpty()) {
-            data = {{"title",title.left(4096)}, {"authors",author.left(4096)}, {"doi",doi(doiMetadata)}, {"source",QStringLiteral("PDF metadata")}};
+            data = embedded; data["title"]=title.left(4096); data["authors"]=author.left(4096); data["doi"]=doi(doiMetadata); data["source"]=QStringLiteral("PDF metadata");
             if (!save(target,data,false)) return;
         }
         if (!data.value("doi").toString().isEmpty() && data.value("source").toString() != "Crossref") lookup(target,data.value("doi").toString());
@@ -83,6 +90,7 @@ public:
         aliases_.remove(newIdentity);
         if (!data.isEmpty() && !save(newIdentity,data,data.value("manual").toBool())) return false;
         auto store = settings(); store.remove(key(old)); store.sync();
+        cache_.remove(old);
         aliases_.insert(old,newIdentity); seen_.insert(newIdentity); return store.status() == QSettings::NoError;
     }
 private:
@@ -100,11 +108,15 @@ private:
             connect(reply,&QNetworkReply::finished,this,[this,reply,bytes,task] {
                 bytes->append(reply->readAll()); const auto data = crossref(*bytes,task.second);
                 const QString target = resolve(task.first);
-                if (reply->error() == QNetworkReply::NoError && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200 && !data.isEmpty() && !record(target).value("manual").toBool()) save(target,data,false);
+                if (reply->error() == QNetworkReply::NoError && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200 && !data.isEmpty() && !record(target).value("manual").toBool()) {
+                    auto merged=record(target); for (auto it=data.cbegin();it!=data.cend();++it) if (!it.value().toString().isEmpty()) merged[it.key()]=it.value();
+                    save(target,merged,false);
+                }
                 pending_.remove(task.first); --active_; reply->deleteLater(); pump();
             });
         }
     }
     QNetworkAccessManager network_; QQueue<QPair<QString,QString>> queue_; QSet<QString> pending_,seen_; QHash<QString,QString> aliases_; int active_ = 0;
+    mutable QHash<QString,QVariantMap> cache_;
 };
 }

@@ -4,6 +4,7 @@
 #include "lunathumbnailcache.h"
 #include "lunafilemove.h"
 #include "lunadocumentclaim.h"
+#include "lunabibliography.h"
 #include "lunareadertoolbar.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -52,6 +53,8 @@
 #include <QFileSystemModel>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -324,10 +327,19 @@ public:
         painter->restore();
         painter->setFont(captionFont);
         painter->setPen(QColor(kMUTED));
+        const auto bibliography = index.data(Qt::UserRole + 5).toMap();
+        QString citation = bibliography.value("journal").toString();
+        const QString year = bibliography.value("year").toString(), volume = bibliography.value("volume").toString(), issue = bibliography.value("issue").toString(), pages = bibliography.value("page").toString();
+        if (!year.isEmpty()) citation += (citation.isEmpty() ? QString() : QStringLiteral(" ")) + year;
+        if (!volume.isEmpty()) citation += (citation.isEmpty() ? QString() : QStringLiteral(", ")) + volume;
+        if (!issue.isEmpty()) citation += QStringLiteral("(%1)").arg(issue);
+        if (!pages.isEmpty()) citation += (citation.isEmpty() ? QString() : QStringLiteral(", ")) + pages;
+        if (citation.isEmpty()) citation = QStringLiteral("저널·연도 미확인");
         painter->drawText(QRect(text.left(), r.top() + 38, qMax(20, r.width() - 94), 14),
-            Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("저널·연도 미확인"));
+            Qt::AlignLeft | Qt::AlignVCenter, QFontMetrics(captionFont).elidedText(citation, Qt::ElideRight, qMax(20,r.width()-94)));
         const QString opened = index.data(Qt::UserRole + 3).toString();
-        const QString metadata = (opened.isEmpty() ? QStringLiteral("열람 기록 없음") : opened) + QStringLiteral(" / 저자 미확인");
+        const QString authors = bibliography.value("authors").toString();
+        const QString metadata = (opened.isEmpty() ? QStringLiteral("열람 기록 없음") : opened) + QStringLiteral(" / ") + (authors.isEmpty() ? QStringLiteral("저자 미확인") : authors);
         painter->drawText(QRect(text.left(), r.top() + 53, qMax(20, r.width() - 94), 14),
             Qt::AlignLeft | Qt::AlignVCenter,
             QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, qMax(20, r.width() - 94)));
@@ -490,6 +502,13 @@ public:
         : QWidget(parent), viewer_(viewer)
     {
         setObjectName(QStringLiteral("LunaLibraryPanel"));
+        bibliography_.changed = [this](const QString& identity) {
+            for (auto* list : {folderPdfs_,allPdfs_,historyPdfs_}) if (list)
+                for (int row=0; row<list->count(); ++row) {
+                    auto* item=list->item(row); const QString path=item->data(Qt::UserRole).toString();
+                    if (DocumentClaim::identity(path)==identity) decorate(item,path);
+                }
+        };
         const QStringList favoritePaths = savedPaths(QStringLiteral("library/favorites"));
         favorites_ = QSet<QString>(favoritePaths.cbegin(), favoritePaths.cend());
         QSettings dates(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
@@ -780,8 +799,14 @@ private:
         item->setData(Qt::UserRole + 3, opened.isValid() ? opened.toLocalTime().date().toString(QStringLiteral("yy.MM.dd.")) : QString());
         const QString memo = memos_.value(openedDateKey(path));
         item->setData(Qt::UserRole + 4, memo);
+        const auto bibliography = bibliography_.record(DocumentClaim::identity(path));
+        item->setData(Qt::UserRole + 5, bibliography);
         item->setFlags(item->flags() | Qt::ItemIsEditable);
-        item->setToolTip(memo.isEmpty() ? path : memo + QLatin1Char('\n') + path);
+        QStringList details; if (!memo.isEmpty()) details.append(memo);
+        for (const auto* field : {"title","journal","year","authors","volume","issue","page","doi","source"}) {
+            const QString value=bibliography.value(field).toString(); if (!value.isEmpty()) details.append(value);
+        }
+        details.append(path); item->setToolTip(details.join(QLatin1Char('\n')));
     }
     void savePaperMemo(const QString& path, QString text) {
         text.replace(QLatin1Char('\n'), QLatin1Char(' ')); text.replace(QLatin1Char('\r'), QLatin1Char(' '));
@@ -843,6 +868,18 @@ private:
         const QString path = info.canonicalFilePath();
         if (!info.isFile() || path.isEmpty() || path == editor.property("LunaRememberedPath").toString()) return;
         editor.setProperty("LunaRememberedPath", path);
+        const auto* metadata=controller->getDocument()->getInfo();
+        QString doiMetadata=metadata->subject + QLatin1Char(' ') + metadata->keywords;
+        QVariantMap embedded;
+        for (const auto& extra : metadata->extra) {
+            const auto key=extra.first.toLower(); const QString value=extra.second.toString().left(4096);
+            if (key.contains("doi")) doiMetadata.prepend(value + QLatin1Char(' '));
+            if (key=="journal" || key=="journalname" || key=="publicationname") embedded["journal"]=value;
+            else if (key=="volume" || key=="issue") embedded[QString::fromLatin1(key)]=value;
+            else if (key=="pages" || key=="pagerange") embedded["page"]=value;
+            else if ((key=="year" || key=="publicationyear") && QRegularExpression("^[0-9]{4}$").match(value).hasMatch() && value.toInt()>0) embedded["year"]=value;
+        }
+        bibliography_.ingest(DocumentClaim::identity(path),metadata->title,metadata->author,doiMetadata,embedded);
         // Relocation reopens the same document for file-handle safety; it is
         // not a new reading event. Its existing history was migrated already.
         if (editor.property("LunaMoveRestorePending").toBool()) return;
@@ -1122,11 +1159,13 @@ private:
             crop->setEnabled(QFileInfo(path).canonicalFilePath() == QFileInfo(viewer_->getProgramController()->getOriginalFileName()).canonicalFilePath());
             auto* move = menu.addAction(QStringLiteral("PDF와 썸네일 이동…"));
             auto* rename = menu.addAction(QStringLiteral("이름 변경…")); rename->setShortcut(QKeySequence(Qt::Key_F2));
+            auto* bibliography = menu.addAction(QStringLiteral("서지 정보 편집…"));
             auto* chosen = menu.exec(list->viewport()->mapToGlobal(point));
             if (chosen == favorite) toggleFavorite(path);
             else if (chosen == crop) startThumbnailCrop();
             else if (chosen == move) moveDocument(path);
             else if (chosen == rename) renameDocument(path);
+            else if (chosen == bibliography) editBibliography(path);
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
             if (DocumentCard::favoriteRect(list->visualItemRect(item)).contains(list->viewport()->mapFromGlobal(QCursor::pos())))
@@ -1136,6 +1175,28 @@ private:
         renameKey->setContext(Qt::WidgetShortcut);
         connect(renameKey, &QShortcut::activated, this, [this, list] { if (auto* item = list->currentItem()) renameDocument(item->data(Qt::UserRole).toString()); });
         return list;
+    }
+    void editBibliography(const QString& path) {
+        const QString identity=DocumentClaim::identity(path); auto data=bibliography_.record(identity);
+        QDialog dialog(this); dialog.setWindowTitle(QStringLiteral("서지 정보 · ") + QFileInfo(path).fileName()); dialog.setObjectName("LunaBibliographyDialog");
+        auto* layout=new QFormLayout(&dialog); QMap<QString,QLineEdit*> fields;
+        for (const auto& field : QList<QPair<QString,QString>>{{"title",QStringLiteral("논문 제목")},{"authors",QStringLiteral("저자")},{"journal",QStringLiteral("저널")},{"year",QStringLiteral("발행 연도")},{"volume",QStringLiteral("권")},{"issue",QStringLiteral("호")},{"page",QStringLiteral("페이지")},{"doi","DOI"}}) {
+            auto* input=new QLineEdit(data.value(field.first).toString(),&dialog); input->setObjectName("LunaBibliography_"+field.first); input->setMaxLength(field.first=="year" ? 4 : 4096); fields.insert(field.first,input); layout->addRow(field.second,input);
+        }
+        auto* note=new QLabel(QStringLiteral("PDF 내장 정보와 DOI가 있는 경우 Crossref를 조회합니다. 알 수 없는 값은 비워 두세요. 여기서 수정해도 실제 파일명은 바뀌지 않습니다."),&dialog); note->setWordWrap(true); layout->addRow(note);
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Save|QDialogButtonBox::Cancel,&dialog); layout->addRow(buttons);
+        connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+        connect(buttons,&QDialogButtonBox::accepted,&dialog,[&] {
+            for (auto it=fields.cbegin();it!=fields.cend();++it) data[it.key()]=it.value()->text().trimmed();
+            const QString year=data.value("year").toString(), doi=data.value("doi").toString();
+            if ((!year.isEmpty() && (!QRegularExpression("^[0-9]{1,4}$").match(year).hasMatch() || year.toInt()<1)) || (!doi.isEmpty() && Bibliography::doi(doi).isEmpty())) {
+                QMessageBox::warning(&dialog,QStringLiteral("입력 확인"),QStringLiteral("발행 연도는 1~9999, DOI는 10.xxxx/… 형식으로 입력해 주세요.")); return;
+            }
+            data["doi"]=Bibliography::doi(doi); data["source"]=QStringLiteral("사용자 입력");
+            if (!bibliography_.save(identity,data)) { QMessageBox::warning(&dialog,QStringLiteral("저장 실패"),QStringLiteral("로컬 서지 정보를 저장하지 못했습니다. 입력 내용은 이 창에 유지됩니다.")); return; }
+            dialog.accept();
+        });
+        dialog.resize(430,dialog.sizeHint().height()); dialog.exec();
     }
     void renameDocument(const QString& path) {
         if (activateElsewhere && activateElsewhere(path)) { QTimer::singleShot(0, this, [this, path] { renameDocument(path); }); return; }
@@ -1200,6 +1261,8 @@ private:
         hideThumbnail();
         const auto result = movePdfWithThumbnails(source, destination, renameWithoutReplacement, renamedFile);
         if (result.success) {
+            if (!bibliography_.relocate(sourceIdentity,DocumentClaim::identity(result.documentPath)))
+                QMessageBox::warning(this,QStringLiteral("서지 정보 이동 저장 실패"),QStringLiteral("파일은 이동했지만 서지 정보를 저장하지 못했습니다. 기존 로컬 정보는 보존됩니다."));
             QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
             for (const QString& key : {QStringLiteral("library/favorites"), QStringLiteral("library/recent")}) {
                 QStringList paths = settings.value(key).toStringList();
@@ -1411,6 +1474,7 @@ private:
     QHash<QString, QString> displayedDates_;
     QSet<QString> datedNames_;
     QHash<QString, QString> memos_;
+    Bibliography bibliography_{this};
     QSet<QString> favorites_;
     QFileSystemModel* model_ = nullptr;
     QTreeView* tree_ = nullptr;

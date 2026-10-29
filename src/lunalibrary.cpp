@@ -1567,7 +1567,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
             panelToggle->setParent(collapsed ? documentHeader : paperHeading->parentWidget());
             if (collapsed) documentRow->insertWidget(0, panelToggle);
             else paperHeading->addWidget(panelToggle);
-            focus->setText(QString()); focus->setIcon(readerIcon(collapsed ? "panel-left-open" : "panel-left-close"));
+            focus->setText(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기")); focus->setIcon(readerIcon(collapsed ? "panel-left-open" : "panel-left-close"));
             focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
             panelToggle->show();
         };
@@ -1599,7 +1599,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
             paperHeading->removeWidget(toggle); row->removeWidget(toggle);
             toggle->setParent(collapsed ? corner : paperHeading->parentWidget());
             if (collapsed) row->insertWidget(0, toggle); else paperHeading->addWidget(toggle);
-            focus->setText(QString()); focus->setIcon(readerIcon(collapsed ? "panel-left-open" : "panel-left-close"));
+            focus->setText(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기")); focus->setIcon(readerIcon(collapsed ? "panel-left-open" : "panel-left-close"));
             focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
             corner->setVisible(collapsed || corner->property("lunaHasOpenButton").toBool()); toggle->show();
         };
@@ -1804,11 +1804,11 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     }
     auto* combined = window.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
     auto* focusAction = window.findChild<QAction*>(QStringLiteral("LunaFocusMode"));
-    if (!combined || !combined->isVisible() || !combined->text().isEmpty() || combined->icon().isNull())
+    if (!combined || !combined->isVisible() || combined->toolButtonStyle() != Qt::ToolButtonIconOnly || combined->icon().pixmap(20,20).isNull())
         return fail("Combined panel collapse control is missing");
     combined->click();
     QCoreApplication::processEvents();
-    if (!dock->isHidden() || !combined->isVisible() || !combined->text().isEmpty() || combined->icon().isNull())
+    if (!dock->isHidden() || !combined->isVisible() || combined->toolButtonStyle() != Qt::ToolButtonIconOnly || combined->icon().pixmap(20,20).isNull())
         return fail("Combined panel restore control is unreachable");
     combined->click();
     QCoreApplication::processEvents();

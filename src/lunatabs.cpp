@@ -757,8 +757,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             auto* toggle = host.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
             integrationRequire(toggle, "Combined panel button missing");
             for (int turn = 0; turn < 10; ++turn) {
-                integrationRequire(!focus->isChecked() && toggle->text().isEmpty() && !toggle->icon().isNull() && integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return focus->isChecked() && toggle->isVisible() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8; }), "Real collapse click failed");
-                integrationRequire(toggle->text().isEmpty() && !toggle->icon().isNull() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8, "Restore button moved away from left edge");
+                integrationRequire(!focus->isChecked() && toggle->toolButtonStyle() == Qt::ToolButtonIconOnly && !toggle->icon().pixmap(20,20).isNull() && integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return focus->isChecked() && toggle->isVisible() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8; }), "Real collapse click failed");
+                integrationRequire(toggle->toolButtonStyle() == Qt::ToolButtonIconOnly && !toggle->icon().pixmap(20,20).isNull() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8, "Restore button moved away from left edge");
                 integrationRequire(integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return !focus->isChecked(); }), "Real expand click failed");
             }
             result["tenRealPanelToggleCyclesPinnedLeft"] = true;

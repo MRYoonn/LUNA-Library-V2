@@ -3,6 +3,7 @@
 #include "lunatabs.h"
 #include "lunalibrary.h"
 #include "lunareadertoolbar.h"
+#include "lunaannotationtools.h"
 #include "lunadocumentclaim.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -613,6 +614,50 @@ static void integrationHighlight(NativeTabs& host, Editor* e, const QString& rep
     QApplication::clipboard()->clear();
     integrationRequire(integrationKey('C', true) && integrationWait([&] { return QApplication::clipboard()->text() == nativeSelection->getSelectedText(); }), "Real Ctrl+C did not copy selected text");
     integrationRequire(host.screen()->grabWindow(0).save(report + ".selection.png"), "Selection screenshot failed");
+    auto* bar = e->findChild<QToolBar*>("mainToolBar");
+    auto* apply = e->findChild<QAction*>("LunaApplyHighlight"); auto* erase = e->findChild<QAction*>("LunaEraseHighlightSelection");
+    integrationRequire(apply && erase && integrationWait([&] { return apply->isEnabled(); }), "Selection-first highlighter did not become enabled");
+    auto* applyButton = qobject_cast<QToolButton*>(bar->widgetForAction(apply));
+    integrationRequire(applyButton && applyButton->isVisible(), "Selection highlighter button is unavailable");
+    bool paletteChosen = false; QTimer choosePalette, paletteDeadline; paletteDeadline.setSingleShot(true);
+    QObject::connect(&choosePalette, &QTimer::timeout, &host, [&] {
+        if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget()); menu && menu->objectName() == "LunaHighlightColors")
+            for (auto* option : menu->actions()) if (option->text() == "#e9ddff") {
+                host.screen()->grabWindow(0).save(report + ".highlight-palette.png");
+                if (!integrationMove(host, menu, menu->actionGeometry(option).center())) return;
+                INPUT release{}; release.type = INPUT_MOUSE; release.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+                paletteChosen = SendInput(1,&release,sizeof(INPUT)) == 1; choosePalette.stop(); break;
+            }
+    });
+    QObject::connect(&paletteDeadline, &QTimer::timeout, &host, [&] { if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) menu->close(); });
+    choosePalette.start(30); paletteDeadline.start(5000);
+    integrationRequire(integrationMove(host, applyButton, applyButton->rect().center()), "Could not position long-press cursor");
+    INPUT palettePress{}; palettePress.type = INPUT_MOUSE; palettePress.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    integrationRequire(SendInput(1,&palettePress,sizeof(INPUT)) == 1, "Highlight long press failed");
+    const bool paletteWorked = integrationWait([&] { return paletteChosen && readerSettings().value("reader/highlightColor").toString() == "#e9ddff"; });
+    palettePress.mi.dwFlags = MOUSEEVENTF_LEFTUP; SendInput(1,&palettePress,sizeof(INPUT)); choosePalette.stop(); paletteDeadline.stop();
+    integrationRequire(paletteWorked && integrationHighlights(e) == 0, "Long press did not choose color independently of highlight creation");
+    integrationRequire(integrationClick(host, applyButton, applyButton->rect().center()) && integrationWait([&] { return integrationHighlights(e) == 1 && select->isChecked(); }), "Selection followed by highlight button failed");
+    auto quadCount = [&] { int count = 0; for (const auto& item : e->getProgramController()->getPdfWidget()->getAnnotationManager()->getPageAnnotations(0).annotations) if (item.annotation->getType() == pdf::AnnotationType::Highlight) count += int(static_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.get())->getHiglightArea().getQuadrilaterals().size()); return count; };
+    e->findChild<QAction*>("actionUndo")->trigger(); integrationRequire(integrationWait([&] { return integrationHighlights(e) == 0; }), "Selection highlight Undo failed");
+    e->findChild<QAction*>("actionRedo")->trigger(); integrationRequire(integrationWait([&] { return integrationHighlights(e) == 1; }), "Selection highlight Redo failed");
+    pdf::PDFTextLayout partialLayout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(0);
+    const auto& partialChars = partialLayout.getTextBlocks().front().getLines().front().getCharacters();
+    const auto partialSnapshot = proxy->getSnapshot(); const auto matrix = partialSnapshot.getPageSnapshot(0)->pageToDeviceMatrix;
+    const QPoint partialFrom = matrix.map(partialChars[2].boundingBox.boundingRect().center() - QPointF(1,0)).toPoint();
+    const QPoint partialTo = matrix.map(partialChars[4].boundingBox.boundingRect().center() + QPointF(1,-2)).toPoint();
+    integrationSurface(e)->setFocus(); integrationMove(host,drawSurface,partialFrom);
+    mouse.mi.dwFlags = MOUSEEVENTF_LEFTDOWN; SendInput(1,&mouse,sizeof(INPUT)); QCoreApplication::processEvents();
+    for (int step = 1; step <= 8; ++step) { integrationMove(host,drawSurface,partialFrom+(partialTo-partialFrom)*step/8); QCoreApplication::processEvents(); QThread::msleep(15); }
+    mouse.mi.dwFlags = MOUSEEVENTF_LEFTUP; SendInput(1,&mouse,sizeof(INPUT));
+    integrationRequire(integrationWait([&] { return erase->isEnabled(); }), "Partial selection did not enable eraser");
+    auto* eraseButton = bar->widgetForAction(erase);
+    integrationRequire(integrationClick(host,eraseButton,eraseButton->rect().center()) && integrationWait([&] { return quadCount() == 2 && select->isChecked(); }), "Partial erase did not split only the selected highlight interval");
+    e->findChild<QAction*>("actionUndo")->trigger(); integrationRequire(integrationWait([&] { return quadCount() == 1; }), "Partial erase Undo failed");
+    e->findChild<QAction*>("actionRedo")->trigger(); integrationRequire(integrationWait([&] { return quadCount() == 2; }), "Partial erase Redo failed");
+    e->setProperty("LunaSelectionHighlightErasePassed", true);
+    e->findChild<QAction*>("actionUndo")->trigger(); e->findChild<QAction*>("actionUndo")->trigger();
+    integrationRequire(integrationWait([&] { return integrationHighlights(e) == 0; }), "Selection interaction cleanup did not restore native fixture state");
     auto* action = e->findChild<QAction*>(QStringLiteral("actionCreateTextHighlight")); integrationRequire(action && action->isEnabled(), "Integrated highlighter unavailable"); action->trigger();
     auto* draw = integrationSurface(e); const int before = integrationHighlights(e);
     integrationMouse(draw, QEvent::MouseMove, from, Qt::NoButton, Qt::NoButton);
@@ -828,7 +873,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationMouse(overlay, QEvent::MouseButtonRelease, {200, 200}, Qt::LeftButton, Qt::NoButton);
             integrationRequire(integrationWait([&] { return QFileInfo::exists(thumbnail) && !QImage(thumbnail).isNull(); }) && !QFileInfo::exists(QFileInfo(files[1]).absolutePath() + "/B.luna-thumb.png"), "Crop wrote to the wrong PDF or no image");
             result["activeNativePagesAndCrop"] = true;
-            phase("A highlight and real Ctrl+S"); integrationHighlight(host, a, report); result["realDragBlueBorderlessSelectionAndCtrlC"] = true;
+            phase("A highlight and real Ctrl+S"); integrationHighlight(host, a, report); result["realDragBlueBorderlessSelectionAndCtrlC"] = true; result["selectionFirstHighlightLongPressPartialEraseUndoRedo"] = a->property("LunaSelectionHighlightErasePassed").toBool();
             integrationRequire(integrationHighlights(b) == 0, "Integrated A annotation crossed to B");
             integrationRequire(integrationWait([&] { return ready(a); }), "A remained busy before close-cancel check");
             int cancelled = 0; QTimer cancel;

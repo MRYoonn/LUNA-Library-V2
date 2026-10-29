@@ -2,6 +2,7 @@
 // Native Editor sessions: ownership and close flow validated by Astra's proof.
 #include "lunatabs.h"
 #include "lunalibrary.h"
+#include "lunareadertoolbar.h"
 #include "lunadocumentclaim.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -132,7 +133,7 @@ public:
         if (corner) {
             auto* addCorner = new QWidget(tabs_);
             auto* addRow = new QHBoxLayout(addCorner); addRow->setContentsMargins(0, 0, 4, 0);
-            auto* plus = new QToolButton(addCorner); plus->setObjectName(QStringLiteral("LunaNewTab")); plus->setText(QStringLiteral("＋"));
+            auto* plus = new QToolButton(addCorner); plus->setObjectName(QStringLiteral("LunaNewTab")); plus->setIcon(readerIcon("add")); plus->setIconSize({20,20});
             plus->setAccessibleName(QStringLiteral("새 PDF 탭 열기")); plus->setToolTip(QStringLiteral("새 PDF 탭 열기")); plus->setMinimumSize(30, 30);
             addRow->addWidget(plus); tabs_->setCornerWidget(addCorner, Qt::TopRightCorner);
             connect(plus, &QToolButton::clicked, open_, &QAction::trigger);
@@ -276,7 +277,7 @@ private:
             tabs_->tabBar()->setTabButton(index, side, nullptr); old->deleteLater();
         }
         auto* close = new QToolButton(tabs_->tabBar()); close->setObjectName(QStringLiteral("LunaCloseTab"));
-        close->setText(QStringLiteral("×")); close->setFixedSize(18, 18); close->setToolTip(QStringLiteral("이 PDF 탭 닫기"));
+        close->setIcon(readerIcon("close")); close->setIconSize({18,18}); close->setFixedSize(18, 18); close->setToolTip(QStringLiteral("이 PDF 탭 닫기")); close->setAccessibleName(close->toolTip());
         QPointer<Editor> guarded(editor); connect(close, &QToolButton::clicked, this, [this, guarded] { if (guarded) closeTab(tabs_->indexOf(guarded)); });
         tabs_->tabBar()->setTabButton(index, QTabBar::RightSide, close);
         trace("editor-created", editor); return editor;
@@ -756,8 +757,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             auto* toggle = host.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
             integrationRequire(toggle, "Combined panel button missing");
             for (int turn = 0; turn < 10; ++turn) {
-                integrationRequire(!focus->isChecked() && toggle->text() == QStringLiteral("≪") && integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return focus->isChecked() && toggle->isVisible() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8; }), "Real collapse click failed");
-                integrationRequire(toggle->text() == QStringLiteral("☰") && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8, "Restore button moved away from left edge");
+                integrationRequire(!focus->isChecked() && toggle->text().isEmpty() && !toggle->icon().isNull() && integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return focus->isChecked() && toggle->isVisible() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8; }), "Real collapse click failed");
+                integrationRequire(toggle->text().isEmpty() && !toggle->icon().isNull() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8, "Restore button moved away from left edge");
                 integrationRequire(integrationClick(host, toggle, toggle->rect().center()) && integrationWait([&] { return !focus->isChecked(); }), "Real expand click failed");
             }
             result["tenRealPanelToggleCyclesPinnedLeft"] = true;

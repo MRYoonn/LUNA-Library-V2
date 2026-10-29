@@ -7,6 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "assets/icons/panel-left-close.svg", "assets/icons/panel-left-open.svg",
     "tools/Start-Luna-Diagnostics.ps1", "tools/Start-Luna-Diagnostics.cmd",
     "tools/probe_tabs_integration_windows.py",
     "src/lunatabs.cpp", "src/lunatabs.h",

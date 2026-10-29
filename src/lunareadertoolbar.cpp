@@ -50,10 +50,12 @@ public:
         p->translate(rect.topLeft()); p->scale(rect.width() / 24.0, rect.height() / 24.0);
         const QColor color(mode == QIcon::Disabled ? "#A5ADBA" :
                            (state == QIcon::On || mode == QIcon::Selected ? "#4F70B5" : "#263247"));
-        p->setPen(QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p->setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         p->setBrush(Qt::NoBrush);
         auto line = [p](qreal a, qreal b, qreal c, qreal d) { p->drawLine(QPointF(a,b), QPointF(c,d)); };
-        if (name_ == "folder") {
+        if (name_ == "close") { line(6,6,18,18); line(18,6,6,18); }
+        else if (name_ == "add") { line(12,4,12,20); line(4,12,20,12); }
+        else if (name_ == "folder") {
             QPainterPath path; path.moveTo(3,19); path.lineTo(3,6); path.lineTo(9,6); path.lineTo(11,8); path.lineTo(21,8); path.lineTo(21,19); path.closeSubpath(); p->drawPath(path);
         } else if (name_ == "documents") {
             p->drawRoundedRect(QRectF(5,3,14,18),2,2); line(8,8,16,8); line(8,12,16,12); line(8,16,13,16);
@@ -212,7 +214,10 @@ private:
 };
 }
 
-QIcon readerIcon(const QString& name) { return QIcon(new ReaderIcon(name)); }
+QIcon readerIcon(const QString& name) {
+    if (name == "panel-left-close" || name == "panel-left-open") return QIcon(QStringLiteral(":/luna/") + name + QStringLiteral(".svg"));
+    return QIcon(new ReaderIcon(name));
+}
 
 void hideAdvancedToolbars(pdfviewer::PDFEditorMainWindow& window) {
     for (auto* toolbar : window.findChildren<QToolBar*>()) {

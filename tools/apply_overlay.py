@@ -271,7 +271,9 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "LUNA-Moon.ico": (own.parent / "assets/icons/LUNA-Moon.ico").read_bytes(),
         folder / "LUNA-Moon.png": (own.parent / "assets/icons/LUNA-Moon.png").read_bytes(),
         folder / "luna_icon.rc": b'IDI_ICON1 ICON DISCARDABLE "LUNA-Moon.ico"\n',
-        folder / "luna_resources.qrc": b'<RCC><qresource prefix="/luna"><file>lunalibrary.qss</file><file>LUNA-Moon.ico</file><file>LUNA-Moon.png</file></qresource></RCC>\n',
+        folder / "panel-left-close.svg": (own.parent / "assets/icons/panel-left-close.svg").read_bytes(),
+        folder / "panel-left-open.svg": (own.parent / "assets/icons/panel-left-open.svg").read_bytes(),
+        folder / "luna_resources.qrc": b'<RCC><qresource prefix="/luna"><file>lunalibrary.qss</file><file>LUNA-Moon.ico</file><file>LUNA-Moon.png</file><file>panel-left-close.svg</file><file>panel-left-open.svg</file></qresource></RCC>\n',
         folder / "luna_main.cpp": make_main(main.read_text(encoding="utf-8")
             .replace("\r\n", "\n")).encode("utf-8"),
     }

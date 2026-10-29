@@ -85,7 +85,6 @@
 #include <QCache>
 #include <QThreadPool>
 #include <memory>
-#include <QInputDialog>
 #include <QShortcut>
 
 namespace luna {
@@ -577,7 +576,7 @@ public:
         folderHeading->setObjectName(QStringLiteral("LunaSection"));
         folders->addWidget(folderHeading, 1);
         auto* addFolder = new QToolButton(navigation_);
-        addFolder->setText(QStringLiteral("＋"));
+        addFolder->setIcon(readerIcon("add")); addFolder->setIconSize({20,20}); addFolder->setAccessibleName(QStringLiteral("새 폴더"));
         addFolder->setToolTip(QStringLiteral("선택한 위치에 새 폴더 만들기"));
         addFolder->setObjectName(QStringLiteral("LunaTool"));
         folders->addWidget(addFolder);
@@ -1556,10 +1555,10 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         auto* panelToggle = new QToolButton(documentHeader);
         panelToggle->setObjectName(QStringLiteral("LunaCombinedPanelToggle"));
         panelToggle->setDefaultAction(focus);
-        panelToggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        panelToggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
         panelToggle->setAccessibleName(QStringLiteral("라이브러리와 논문 목록 접기 / 펼치기"));
         panelToggle->setMinimumSize(30, 30);
-        panelToggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        panelToggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
         auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
         auto placeToggle = [panelToggle, paperHeading, documentRow, documentHeader, focus](bool collapsed) {
             paperHeading->removeWidget(panelToggle);
@@ -1567,7 +1566,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
             panelToggle->setParent(collapsed ? documentHeader : paperHeading->parentWidget());
             if (collapsed) documentRow->insertWidget(0, panelToggle);
             else paperHeading->addWidget(panelToggle);
-            focus->setText(collapsed ? QStringLiteral("☰") : QStringLiteral("≪"));
+            focus->setText(QString()); focus->setIcon(readerIcon(collapsed ? "panel-left-open" : "panel-left-close"));
             focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
             panelToggle->show();
         };
@@ -1593,13 +1592,13 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         auto* row = new QHBoxLayout(corner); row->setContentsMargins(0, 0, 4, 0);
         auto* toggle = new QToolButton(corner); toggle->setObjectName(QStringLiteral("LunaCombinedPanelToggle"));
         toggle->setDefaultAction(focus); toggle->setMinimumSize(30, 30);
-        toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        toggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
         auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
         auto place = [toggle, paperHeading, row, corner, focus](bool collapsed) {
             paperHeading->removeWidget(toggle); row->removeWidget(toggle);
             toggle->setParent(collapsed ? corner : paperHeading->parentWidget());
             if (collapsed) row->insertWidget(0, toggle); else paperHeading->addWidget(toggle);
-            focus->setText(collapsed ? QStringLiteral("☰") : QStringLiteral("≪"));
+            focus->setText(QString()); focus->setIcon(readerIcon(collapsed ? "panel-left-open" : "panel-left-close"));
             focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
             corner->setVisible(collapsed || corner->property("lunaHasOpenButton").toBool()); toggle->show();
         };
@@ -1804,11 +1803,11 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     }
     auto* combined = window.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
     auto* focusAction = window.findChild<QAction*>(QStringLiteral("LunaFocusMode"));
-    if (!combined || !combined->isVisible() || combined->text() != QStringLiteral("≪"))
+    if (!combined || !combined->isVisible() || !combined->text().isEmpty() || combined->icon().isNull())
         return fail("Combined panel collapse control is missing");
     combined->click();
     QCoreApplication::processEvents();
-    if (!dock->isHidden() || !combined->isVisible() || combined->text() != QStringLiteral("☰"))
+    if (!dock->isHidden() || !combined->isVisible() || !combined->text().isEmpty() || combined->icon().isNull())
         return fail("Combined panel restore control is unreachable");
     combined->click();
     QCoreApplication::processEvents();

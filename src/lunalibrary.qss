@@ -26,9 +26,9 @@ QWidget#LunaLibraryPanel QTreeView::item:selected { background:#E2EFFF; color:#1
 QListWidget#LunaDocumentList { background:white; border:0; outline:0; }
 QLineEdit#LunaPaperMemoEditor { background:white; color:#234269; border:1px solid #83A9DF; border-radius:5px; padding:1px 4px; font-size:12px; }
 QSplitter#LunaLibrarySplitter::handle { background:@CANVAS@; }
-QMenuBar { background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #F8FBFF,stop:1 #EFF5FC); border:0; border-bottom:1px solid #E4EBF5; spacing:0; }
-QMenuBar::item { background:transparent; color:@NAVY@; padding:0 9px; }
-QMenuBar::item:selected { background:#E7EFFF; border-radius:6px; }
+/* MenuBarStyle owns the 48px menu/brand row, including item hit rectangles.
+   Styling ::item here makes QStyleSheetStyle bypass that native sizing and
+   paints its text at the top. Dropdown menus remain styled independently. */
 QMenu { background:#F8FBFF; color:@TEXT@; border:1px solid #D5E0EF; border-radius:9px; padding:5px; }
 QMenu::item { padding:7px 22px 7px 25px; border-radius:5px; }
 QMenu::item:selected { background:#E7EFFF; color:#174CA5; }

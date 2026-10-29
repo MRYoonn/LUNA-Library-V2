@@ -267,11 +267,15 @@ private:
         auto* nativeZoom = editor_->findChild<QDoubleSpinBox*>(QStringLiteral("pageZoomSpinBox"));
         if (!nativePage || !nativeCount || !nativeZoom) return;
         page_->setEnabled(nativePage->isEnabled()); zoom_->setEnabled(nativePage->isEnabled());
-        if (!page_->hasFocus()) {
+        {
             const QSignalBlocker block(page_);
             const bool hasDocument = bool(editor_->getProgramController()->getDocument());
             page_->setRange(hasDocument ? nativePage->minimum() : 0, hasDocument ? nativePage->maximum() : 0);
-            page_->setSuffix(nativeCount->text().isEmpty() ? QStringLiteral(" / 0") : nativeCount->text()); page_->setValue(hasDocument ? nativePage->value() : 0);
+            page_->setSuffix(nativeCount->text().isEmpty() ? QStringLiteral(" / 0") : nativeCount->text());
+            // A new window can initially focus this control before loading
+            // completes. Update its valid range/count even then, without
+            // overwriting a user's in-progress page value on later ticks.
+            if (!page_->hasFocus()) page_->setValue(hasDocument ? nativePage->value() : 0);
         }
         if (!zoom_->hasFocus() && !zoom_->lineEdit()->hasFocus()) {
             const QSignalBlocker block(zoom_); const double value = nativeZoom->value();

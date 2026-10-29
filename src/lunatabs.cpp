@@ -719,7 +719,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         integrationRequire(tabs && a && integrationWait([&] { return ready(a); }), "Integrated A did not load");
         phase("menu vertical alignment and library chrome");
         auto* menu = host.menuBar();
-        integrationRequire(menu->height() >= 40 && menu->height() <= 44, "Menu bar height is outside 40-44 logical pixels");
+        integrationRequire(menu->height() == 48, "Menu/brand row differs from the approved HTML's 48 logical pixels");
         const QImage menuImage = menu->grab().toImage(); const qreal menuDpr = menuImage.devicePixelRatio(); QJsonArray centers;
         for (auto* action : menu->actions()) {
             if (!action->isVisible() || action->isSeparator()) continue;

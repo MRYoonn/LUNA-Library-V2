@@ -253,8 +253,8 @@ public:
     using QStyledItemDelegate::QStyledItemDelegate;
     QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {300, 96}; }
     std::function<void(const QString&, const QString&)> saveMemo;
-    static QRect memoRect(const QRect& r) { return QRect(r.left() + 108, r.top() + 73, qMax(20, r.width() - 148), 18); }
-    static QRect favoriteRect(const QRect& r) { return QRect(r.right() - 30, r.top() + (r.height() - 24) / 2, 22, 24); }
+    static QRect memoRect(const QRect& r) { return QRect(r.left() + 108, r.top() + 73, qMax(20, r.width() - 158), 18); }
+    static QRect favoriteRect(const QRect& r) { return QRect(r.right() - 37, r.top() + (r.height() - 24) / 2, 22, 24); }
     QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
         auto* editor = new QLineEdit(parent);
         editor->setObjectName(QStringLiteral("LunaPaperMemoEditor"));
@@ -315,7 +315,7 @@ public:
         title.setWeight(QFont::DemiBold);
         painter->setFont(title);
         painter->setPen(QColor(kNAVY));
-        const QRect text(r.left() + 108, r.top() + 6, qMax(20, r.width() - 148), 32);
+        const QRect text(r.left() + 108, r.top() + 6, qMax(20, r.width() - 158), 32);
         painter->save();
         painter->setClipRect(text, Qt::IntersectClip);
         QTextLayout titleLayout(index.data().toString(), title);
@@ -329,13 +329,13 @@ public:
         painter->restore();
         painter->setFont(captionFont);
         painter->setPen(QColor(kMUTED));
-        painter->drawText(QRect(text.left(), r.top() + 40, qMax(20, r.width() - 148), 15),
+        painter->drawText(QRect(text.left(), r.top() + 40, text.width(), 15),
             Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("저널·연도 미확인"));
         const QString opened = index.data(Qt::UserRole + 3).toString();
         const QString metadata = (opened.isEmpty() ? QStringLiteral("열람 기록 없음") : opened) + QStringLiteral(" / 저자 미확인");
-        painter->drawText(QRect(text.left(), r.top() + 57, qMax(20, r.width() - 148), 15),
+        painter->drawText(QRect(text.left(), r.top() + 57, text.width(), 15),
             Qt::AlignLeft | Qt::AlignVCenter,
-            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, qMax(20, r.width() - 148)));
+            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, text.width()));
         const QString memo = index.data(Qt::UserRole + 4).toString();
         painter->setPen(QColor(memo.isEmpty() ? "#A0ACBD" : "#48648A"));
         const QRect note = memoRect(r);

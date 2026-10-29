@@ -11,16 +11,16 @@ Copy-Item (Join-Path $package 'build-info.json') (Join-Path $OutputDirectory 'bu
 Write-Host 'Reproduce Ctrl+W with zero, one and multiple PDFs, including search focus. Then close LUNA normally if it stays open.'
 Write-Host 'Logs stay on this PC. No PDF, thumbnail, memo or settings are copied.'
 $process = Start-Process -FilePath (Join-Path $package 'LUNA.exe') -ArgumentList @('--luna-lifecycle-trace', ('"' + $trace + '"')) -PassThru
+$processHandle = $process.Handle
 $process.WaitForExit()
-$process.Refresh()
 $code = $process.ExitCode
-$hex = '{0:X8}' -f ([long]$code -band 0xffffffffL)
+$hex = if ($null -eq $code) { 'unavailable' } else { '{0:X8}' -f ([long]$code -band 0xffffffffL) }
 $events = @()
 if (Test-Path $trace) { $events = @(Get-Content -LiteralPath $trace -Encoding UTF8 | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} }) }
 $approved = @($events | Where-Object { $_.event -eq 'shell-close-approved' }).Count -gt 0
 @{ startedUtc=$start.ToString('o'); endedUtc=[DateTime]::UtcNow.ToString('o'); exitCode=$code; exitCodeHex=$hex;
    shellApprovedExit=$approved; lifecycleRecords=$events.Count; osVersion=[Environment]::OSVersion.Version.ToString();
-   classification=$(if ($code -ne 0) { 'abnormal-exit-investigate-code' } elseif (!$approved) { 'exit-without-shell-approval-unresolved' } else { 'shell-approved-exit' });
+   classification=$(if ($null -eq $code) { 'exit-code-unavailable-unresolved' } elseif ($code -ne 0) { 'abnormal-exit-investigate-code' } elseif (!$approved) { 'exit-without-shell-approval-unresolved' } else { 'shell-approved-exit' });
    scope='No crash dump or private documents collected. Exit code alone does not establish the cause.'
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'process-exit.json') -Encoding UTF8
 Compress-Archive -Path (Join-Path $OutputDirectory '*') -DestinationPath ($OutputDirectory + '.zip')

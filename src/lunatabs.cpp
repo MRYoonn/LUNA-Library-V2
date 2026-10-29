@@ -41,6 +41,7 @@
 #include "pdfwidgettool.h"
 #include <QElapsedTimer>
 #include <QDateTime>
+#include <QCryptographicHash>
 #include <QFile>
 #include <QImage>
 #include <QPixmap>
@@ -54,6 +55,7 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QSaveFile>
+#include <QTemporaryDir>
 #include <QScreen>
 #include <QSpinBox>
 #include <QStackedWidget>
@@ -92,6 +94,7 @@ struct Session {
     QPointer<Editor> editor;
     QString identity;
     bool loading = false, dispatchingOpen = false;
+    bool observedDocument = false;
     std::unique_ptr<DocumentClaim> claim, saveClaim;
 };
 class NativeTabs final : public QMainWindow, public QAbstractNativeEventFilter {
@@ -151,7 +154,7 @@ public:
         // document/window Close actions, and Qt may choose another shortcut.
         // Our application event filter intercepts ShortcutOverride + KeyPress.
         finishEditor(initial);
-        setLibraryDocumentRouter(*this, [this](const QString& path) { open(path); },
+        setLibraryDocumentRouter(*this, [this](const QString& path) { open(path, "library-open"); },
             [this](const QString& path) {
                 auto* existing = find(path);
                 if (existing && existing->editor != current()) { activate(existing->editor); return true; }
@@ -173,7 +176,7 @@ public:
         connect(&poll_, &QTimer::timeout, this, [this] { synchronize(); }); poll_.start(100);
         activateCurrent();
     }
-    Editor* current() const { return qobject_cast<Editor*>(tabs_->currentWidget()); }
+    Editor* current() const { return tabs_ ? qobject_cast<Editor*>(tabs_->currentWidget()) : nullptr; }
     bool nativeEventFilter(const QByteArray&, void* message, qintptr*) override {
 #ifdef Q_OS_WIN
         const auto* msg = static_cast<MSG*>(message);
@@ -189,12 +192,15 @@ public:
 #endif
         return false;
     }
-    Editor* open(const QString& path) {
+    Editor* open(const QString& path, const char* origin = "api-or-startup") {
+        setProperty("LunaOpenOrigin", QString::fromLatin1(origin));
+        setProperty("LunaRequestedDocument", QString::fromLatin1(QCryptographicHash::hash(DocumentClaim::identity(path).toUtf8(), QCryptographicHash::Sha256).toHex().left(16)));
+        trace("document-open-request", current());
         const QFileInfo file(path);
         if (!file.isFile() || file.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive)) {
             QMessageBox::warning(this, QStringLiteral("PDF 열기 실패"), QStringLiteral("읽을 수 있는 PDF 파일을 선택해 주세요.")); return nullptr;
         }
-        if (auto* existing = find(path)) { activate(existing->editor); return existing->editor; }
+        if (auto* existing = find(path)) { trace("document-open-existing-tab", existing->editor); activate(existing->editor); return existing->editor; }
         Editor* editor = nullptr;
         for (const auto& s : sessions_) if (!s->loading && s->identity.isEmpty() && !s->editor->getProgramController()->getDocument()) { editor = s->editor; break; }
         bool created = false;
@@ -207,6 +213,9 @@ public:
             return nullptr;
         }
         s->identity = DocumentClaim::identity(path); s->claim = std::move(claim); s->loading = true;
+        editor->setProperty("LunaLoadGeneration", editor->property("LunaLoadGeneration").toInt() + 1);
+        editor->setProperty("LunaOpenOrigin", QString::fromLatin1(origin));
+        trace("document-open-dispatched", editor);
         { QScopedValueRollback<bool> dispatch(s->dispatchingOpen, true);
           editor->getProgramController()->openDocument(file.absoluteFilePath()); }
         activate(editor); updateTitle(editor);
@@ -214,25 +223,35 @@ public:
     }
     void trace(const char* event, Editor* editor = nullptr) {
         const QString path = qApp->property("LunaLifecycleTracePath").toString(); if (path.isEmpty()) return;
-        QJsonObject row{{"ctrlWKeys", property("LunaCtrlWKeys").toInt()}, {"keyTarget", property("LunaKeyTarget").toString()}, {"event", QString::fromLatin1(event)}, {"time", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+        setProperty("LunaTraceSequence", property("LunaTraceSequence").toInt() + 1);
+        QJsonObject row{{"sequence", property("LunaTraceSequence").toInt()}, {"ctrlWKeys", property("LunaCtrlWKeys").toInt()}, {"keyTarget", property("LunaKeyTarget").toString()}, {"event", QString::fromLatin1(event)}, {"time", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
             {"visible", isVisible()}, {"closing", closing_}, {"tabs", tabs_ ? tabs_->count() : 0},
             {"documents", documentCount()}, {"creations", property("LunaEditorCreations").toInt()},
             {"quitOnLastWindowClosed", qApp->quitOnLastWindowClosed()},
             {"pid", qApp->applicationPid()}, {"nativeMessage", property("LunaNativeMessage").toInt()},
-            {"nativeCommand", property("LunaNativeCommand").toInt()}};
+            {"nativeCommand", property("LunaNativeCommand").toInt()},
+            {"activeEditor", current() ? current()->property("LunaEditorSerial").toInt() : 0},
+            {"destroyedEditor", property("LunaLastDestroyedEditor").toInt()},
+            {"openOrigin", property("LunaOpenOrigin").toString()}, {"requestedDocumentId", property("LunaRequestedDocument").toString()},
+            {"minimized", isMinimized()}};
 #ifdef Q_OS_WIN
         DWORD processCode = 0;
         row["nativeProcessActive"] = bool(GetExitCodeProcess(GetCurrentProcess(), &processCode)) && processCode == STILL_ACTIVE;
         row["nativeWindowVisible"] = bool(IsWindowVisible(reinterpret_cast<HWND>(effectiveWinId())));
 #endif
         if (editor) { row["editor"] = editor->property("LunaEditorSerial").toInt(); row["editorIsWindow"] = editor->isWindow();
-            row["editorQuitOnClose"] = editor->testAttribute(Qt::WA_QuitOnClose); row["document"] = bool(editor->getProgramController()->getDocument()); }
+            row["editorQuitOnClose"] = editor->testAttribute(Qt::WA_QuitOnClose); row["document"] = bool(editor->getProgramController()->getDocument());
+            row["loadGeneration"] = editor->property("LunaLoadGeneration").toInt();
+            row["editorOpenOrigin"] = editor->property("LunaOpenOrigin").toString();
+            row["editorVisible"] = editor->isVisible();
+            if (auto* s = session(editor)) { row["loading"] = s->loading; row["documentId"] = QString::fromLatin1(QCryptographicHash::hash(s->identity.toUtf8(), QCryptographicHash::Sha256).toHex().left(16)); }
+        }
         QFile file(path); if (file.open(QIODevice::WriteOnly | QIODevice::Append)) { file.write(QJsonDocument(row).toJson(QJsonDocument::Compact)); file.write("\n"); }
     }
     bool closeTab(int index) {
-        trace("close-tab-request", current());
         if (QApplication::activeModalWidget()) return false;
         auto* editor = qobject_cast<Editor*>(tabs_->widget(index)); if (!editor) return false;
+        trace("close-tab-request", editor);
         auto* owned = session(editor);
         if (!owned || owned->loading || (!editor->getProgramController()->getDocument() && owned->identity.isEmpty())) { trace("empty-or-loading-close-noop", editor); return false; }
         activate(editor); auto* controller = editor->getProgramController();
@@ -254,6 +273,11 @@ private:
         const QString id = DocumentClaim::identity(path);
         for (const auto& s : sessions_) {
             auto* c = s->editor->getProgramController();
+            const bool present = bool(c->getDocument());
+            if (present != s->observedDocument) {
+                s->observedDocument = present;
+                trace(present ? "observed-document-present" : "observed-document-absent", s->editor);
+            }
             if ((!id.isEmpty() && s->identity == id) ||
                 (!id.isEmpty() && (c->getDocument() || s->loading) && DocumentClaim::identity(c->getOriginalFileName()) == id)) return s.get();
         }
@@ -303,15 +327,17 @@ private:
             for (auto* menu : editor->findChildren<QMenu*>()) if (menu->actions().contains(quit)) { menu->insertAction(quit, quit_); menu->removeAction(quit); }
         }
         connect(controller, &pdfviewer::PDFProgramController::lunaOpenRequested, this, [this, editor](const QString& path, bool* handled) {
+            trace("controller-open-request", editor);
             auto* s = session(editor); if (!s) { *handled = true; return; }
             const QString identity = DocumentClaim::identity(path);
             if (s->dispatchingOpen) return;
             if (identity == s->identity && (editor->property("LunaMoveRestorePending").toBool() || !editor->getProgramController()->getDocument())) {
                 s->loading = true; return;
             }
-            *handled = true; open(path);
+            *handled = true; open(path, "native-controller-request");
         }, Qt::DirectConnection);
         connect(controller, &pdfviewer::PDFProgramController::lunaDocumentLoadFinished, this, [this, editor](bool success) {
+            trace(success ? "document-load-completed" : "document-load-failed", editor);
             auto* s = session(editor); if (!s || closing_) return;
             s->loading = false;
             if (!success) {
@@ -404,17 +430,22 @@ private:
         // Rebind the one library before deleting its previous model/controller.
         if (current() == editor) for (const auto& s : sessions_) if (s->editor != editor) { activate(s->editor); break; }
         editor->getProgramController()->closeDocument(); editor->removeEventFilter(this);
+        trace("disposed-document-closed", editor);
         tabs_->removeTab(tabs_->indexOf(editor));
         for (auto it = sessions_.begin(); it != sessions_.end(); ++it) if ((*it)->editor == editor) { sessions_.erase(it); break; }
-        editor->deleteLater();
+        trace("editor-delete-deferred", editor); editor->deleteLater();
     }
     void chooseFiles() {
         const QString currentPath = current() ? current()->getProgramController()->getOriginalFileName() : QString();
         const QString start = currentPath.isEmpty() ? QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).value(QStringLiteral("library/root")).toString() : QFileInfo(currentPath).absolutePath();
         const auto paths = QFileDialog::getOpenFileNames(this, QStringLiteral("PDF 열기"), start, QStringLiteral("PDF (*.pdf *.PDF)"));
-        for (const auto& path : paths) open(path);
+        for (const auto& path : paths) open(path, "file-dialog");
     }
     bool eventFilter(QObject* object, QEvent* event) override {
+        if (event->type() == QEvent::Show || event->type() == QEvent::Hide || event->type() == QEvent::WindowStateChange) {
+            if (object == this) trace(event->type() == QEvent::Show ? "shell-show" : event->type() == QEvent::Hide ? "shell-hide" : "shell-window-state");
+            else if (auto* editor = qobject_cast<Editor*>(object)) trace(event->type() == QEvent::Show ? "editor-show" : event->type() == QEvent::Hide ? "editor-hide" : "editor-window-state", editor);
+        }
         if (event->type() == QEvent::Quit) {
             trace("application-quit-event");
             if (!closing_) { trace("unapproved-quit-blocked"); event->ignore(); return true; }
@@ -450,7 +481,7 @@ private:
             auto* widget = qobject_cast<QWidget*>(object); if (!widget || widget->window() != this) return false;
             auto* drop = static_cast<QDropEvent*>(event); const auto urls = drop->mimeData()->urls(); if (urls.isEmpty()) return false;
             for (const auto& url : urls) if (!url.isLocalFile() || QFileInfo(url.toLocalFile()).suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive)) return false;
-            if (event->type() == QEvent::Drop) for (const auto& url : urls) open(url.toLocalFile());
+            if (event->type() == QEvent::Drop) for (const auto& url : urls) open(url.toLocalFile(), "drop");
             drop->acceptProposedAction(); return true;
         }
         return QMainWindow::eventFilter(object, event);
@@ -998,6 +1029,26 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         integrationRequire(fileClose && fileClose->isEnabled(), "Original native File Close is unavailable"); fileClose->trigger();
         integrationRequire(integrationWait([&] { return host.isVisible() && host.documentCount() == 0 && host.current() == fileCloseEditor && !fileCloseEditor->getProgramController()->getDocument(); }), "Native File Close left stale ownership or closed LUNA");
         host.trace("native-file-close-observed", host.current()); result["nativeFileCloseKeepsEmptyReader"] = true;
+        phase("user sequence: close third and initial Editor, preserve second");
+        QTemporaryDir sequenceFiles; integrationRequire(sequenceFiles.isValid(), "User-sequence temporary directory failed");
+        QStringList sequencePaths;
+        for (const auto* name : {"A.pdf", "B.pdf", "C.pdf"}) {
+            const QString path = sequenceFiles.filePath(QString::fromLatin1(name));
+            integrationRequire(QFile::copy(reopenPath, path), "User-sequence disposable PDF copy failed"); sequencePaths.append(path);
+        }
+        QPointer<Editor> sequenceA = host.open(sequencePaths[0], "user-sequence-explicit-open");
+        integrationRequire(sequenceA && integrationWait([&] { return ready(sequenceA); }), "Sequence A did not load");
+        QPointer<Editor> sequenceB = host.open(sequencePaths[1], "user-sequence-explicit-open");
+        integrationRequire(sequenceB && integrationWait([&] { return ready(sequenceB); }), "Sequence B did not load");
+        QPointer<Editor> sequenceC = host.open(sequencePaths[2], "user-sequence-explicit-open");
+        integrationRequire(sequenceC && integrationWait([&] { return ready(sequenceC); }), "Sequence C did not load");
+        integrationSurface(sequenceC)->setFocus(); integrationRequire(integrationKey('W', true) && integrationWait([&] { return !sequenceC && host.documentCount() == 2; }), "Sequence third Editor did not close");
+        tabs->setCurrentWidget(sequenceA); integrationSurface(sequenceA)->setFocus();
+        integrationRequire(integrationKey('W', true) && integrationWait([&] { return !sequenceA && host.current() == sequenceB && host.documentCount() == 1; }), "Sequence initial Editor close damaged second Editor");
+        integrationRequire(ready(sequenceB) && integrationHighlights(sequenceB) == 1 && IsWindowVisible(reinterpret_cast<HWND>(host.winId())), "Sequence surviving document or native shell disappeared");
+        integrationRequire(integrationKey('F', true) && integrationWait([&] { for (auto* dialog : sequenceB->findChildren<QDialog*>()) if (dialog->isVisible() && dialog->inherits("pdf::PDFFindTextToolDialog")) { dialog->reject(); return true; } return false; }), "Search failed after destroying the initial Editor");
+        host.trace("user-sequence-survivor", sequenceB); result["userSequenceThirdThenInitialEditorDestroyedSurvivorSearch"] = true;
+        integrationSurface(sequenceB)->setFocus(); integrationRequire(integrationKey('W', true) && integrationWait([&] { return host.documentCount() == 0 && host.current() == sequenceB; }), "Sequence final close did not retain empty Editor");
         integrationRequire(integrationKey('Q', true) && integrationWait([&] { return !host.isVisible() && host.property("LunaClosing").toBool(); }), "Real Ctrl+Q did not exit LUNA normally");
         result["ctrlQNormalExit"] = true; result["accepted"] = true; phase("passed"); qApp->exit(0);
     } catch (const std::exception& error) {

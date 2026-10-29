@@ -16,11 +16,11 @@
 namespace luna {
 inline QString pdfRenameFileName(QString name) {
     if (name.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)) name.chop(4);
-    if (name.isEmpty() || name.endsWith(' ') || name.endsWith('.') || name == "." || name == "..") return {};
+    if (name.isEmpty() || name.size() > 251 || name.endsWith(' ') || name.endsWith('.') || name == "." || name == "..") return {};
     for (const QChar ch : name) if (ch.unicode() < 32 || QStringLiteral("<>:\"/\\|?*").contains(ch)) return {};
     const QString device = name.section('.', 0, 0).toUpper();
-    if (QStringList{"CON", "PRN", "AUX", "NUL"}.contains(device) ||
-        (device.size() == 4 && (device.startsWith("COM") || device.startsWith("LPT")) && device[3] >= '1' && device[3] <= '9')) return {};
+    if (QStringList{"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}.contains(device) ||
+        (device.size() == 4 && (device.startsWith("COM") || device.startsWith("LPT")) && (QStringLiteral("123456789¹²³").contains(device[3])))) return {};
     return name + QStringLiteral(".pdf");
 }
 struct FileMoveResult {
@@ -67,6 +67,7 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
     const QString targetName = renamedFile.isEmpty() ? source.fileName() : pdfRenameFileName(renamedFile);
     if (targetName.isEmpty()) { result.error = QStringLiteral("Windows에서 사용할 수 없는 파일명입니다."); return result; }
     if (targetRoot == originalRoot && targetName == source.fileName()) { result.success = true; return result; }
+    const bool caseOnly = targetRoot == originalRoot && targetName.compare(source.fileName(),Qt::CaseInsensitive) == 0;
     QList<QPair<QString, QString>> moves;
     // Move optional sidecars first and the PDF last. On error, roll back in
     // reverse order without ever overwriting files created by another process.
@@ -74,7 +75,7 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
         const QString name = source.completeBaseName() + QStringLiteral(".luna-thumb") + extension;
         const QString targetSidecarName = QFileInfo(targetName).completeBaseName() + QStringLiteral(".luna-thumb") + extension;
         const QFileInfo targetSidecar(QDir(targetRoot).filePath(targetSidecarName));
-        if (targetSidecar.exists() || targetSidecar.isSymLink()) {
+        if (!caseOnly && (targetSidecar.exists() || targetSidecar.isSymLink())) {
             result.error = QStringLiteral("대상 폴더에 같은 이름의 썸네일이 있어 이동하지 않았습니다.\n%1").arg(targetSidecar.absoluteFilePath());
             return result;
         }
@@ -88,7 +89,7 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
     moves.append({source.canonicalFilePath(), QDir(targetRoot).filePath(targetName)});
     for (const auto& pair : moves) {
         const QFileInfo target(pair.second);
-        if (target.exists() || target.isSymLink()) {
+        if (!caseOnly && (target.exists() || target.isSymLink())) {
             result.error = QStringLiteral("같은 이름의 대상이 있어 이동하지 않았습니다.\n%1").arg(pair.second);
             return result;
         }

@@ -165,6 +165,7 @@ public:
                 return false;
             }, [this](Editor* editor, const QString&, const QString& destination) {
                 auto* s = session(editor); if (!s) return false;
+                if (s->identity == DocumentClaim::identity(destination)) { s->loading = true; return true; }
                 auto claim = makeClaim(editor);
                 if (claim->acquire(destination) != DocumentClaim::Result::Acquired) {
                     s->claim.reset(); s->identity.clear(); s->loading = false;

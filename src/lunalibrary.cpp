@@ -1144,6 +1144,7 @@ private:
         if (!accepted) return;
         const QString filename = pdfRenameFileName(name);
         if (filename.isEmpty()) { QMessageBox::warning(this, QStringLiteral("파일명 오류"), QStringLiteral("Windows 파일명에 사용할 수 없는 이름입니다.")); return; }
+        if (filename == QFileInfo(path).fileName()) return;
         moveDocumentTo(path, QFileInfo(path).absolutePath(), filename);
     }
     void moveDocument(const QString& path) {
@@ -1157,6 +1158,8 @@ private:
         if (!operation) return;
         const QString source = QFileInfo(path).canonicalFilePath();
         if (source.isEmpty()) return;
+        if (QFileInfo(destination).canonicalFilePath() == QFileInfo(source).canonicalPath() &&
+            (renamedFile.isEmpty() || renamedFile == QFileInfo(source).fileName())) return;
         const QString sourceIdentity = DocumentClaim::identity(source);
         if ((activateElsewhere && activateElsewhere(source)) ||
             (independentDocuments(*operation) && independentDocuments(*operation)->openElsewhere(source))) {

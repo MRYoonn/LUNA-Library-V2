@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
         return fail("PDF-only move adopted an unrelated destination thumbnail");
     const QString renamePdf = root + "/rename.pdf", renamePng = root + "/rename.luna-thumb.png";
     if (!write(renamePdf, document) || !write(renamePng, thumbnail)) return fail("Rename fixture failed");
-    for (const QString& bad : QStringList{"CON", "AUX.pdf", "COM1", "bad/name", "bad:name", "a.", "a ", ""})
+    for (const QString& bad : QStringList{"CON", "AUX.pdf", "COM1", "COM¹", "CONIN$", "bad/name", "bad:name", "a.", "a ", "", QString(252,QLatin1Char('a'))})
         if (!luna::pdfRenameFileName(bad).isEmpty()) return fail("Invalid Windows name accepted");
     const QString renamed = root + QStringLiteral("/새 이름.pdf"), renamedPng = root + QStringLiteral("/새 이름.luna-thumb.png");
     if (!write(renamed, "occupied")) return fail("Rename collision fixture failed");
@@ -66,6 +66,10 @@ int main(int argc, char** argv) {
     auto failRenamePdf = [&](const QString& from, const QString& to) { return from != renamePdf && luna::renameWithoutReplacement(from, to); };
     if (luna::movePdfWithThumbnails(renamePdf, root, failRenamePdf, "새 이름").success || read(renamePdf) != document || read(renamePng) != thumbnail || QFileInfo::exists(renamedPng)) return fail("Rename rollback failed");
     if (!luna::movePdfWithThumbnails(renamePdf, root, luna::renameWithoutReplacement, "새 이름").success || read(renamed) != document || read(renamedPng) != thumbnail || QFileInfo::exists(renamePdf) || QFileInfo::exists(renamePng)) return fail("Paired rename lost data");
+    const auto caseOnly = luna::movePdfWithThumbnails(renamed,root,luna::renameWithoutReplacement,"새 이름.PDF");
+    if (!caseOnly.success || read(renamed) != document) return fail("Equivalent extension handling changed data");
+    const QString casePdf = root + "/Case.pdf"; if (!write(casePdf,document)) return fail("Case fixture failed");
+    if (!luna::movePdfWithThumbnails(casePdf,root,luna::renameWithoutReplacement,"case.pdf").success || read(root+"/case.pdf") != document) return fail("Case-only rename failed");
     qInfo() << "[PASS] Unicode/long paths, paired move/rename, invalid names, collisions and rollback preserve bytes";
     return 0;
 }

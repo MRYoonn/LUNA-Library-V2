@@ -32,7 +32,7 @@ private:
 // Native annotations remain the only note data. Cards are transient viewport
 // widgets; /C, /Contents and /Open go through PDF4QT's normal undo/save path.
 class StickyNotes final : public QObject {
-    struct Card { QFrame* frame; NoteText* text; QToolButton* fold; QToolButton* color; QLabel* heading; QString appearance; };
+    struct Card { QFrame* frame; NoteText* text; QToolButton* fold; QToolButton* color; QLabel* heading; QString appearance; pdf::PDFInteger page; };
 public:
     explicit StickyNotes(pdfviewer::PDFEditorMainWindow& editor) : QObject(&editor), editor_(editor) {
         setObjectName("LunaStickyNotesController");
@@ -63,7 +63,7 @@ private:
         if (!modifier.finalize()) return false;
         m->documentModified(pdf::PDFModifiedDocument(modifier.getDocument(), nullptr, modifier.getFlags())); return true;
     }
-    Card create(pdf::PDFObjectReference reference) {
+    Card create(pdf::PDFObjectReference reference, pdf::PDFInteger page) {
         auto* frame = new QFrame(layer_->widget()); frame->setObjectName("LunaStickyCard");
         auto* layout = new QVBoxLayout(frame); layout->setContentsMargins(8,6,8,6); layout->setSpacing(4);
         auto* header = new QHBoxLayout; auto* heading = new QLabel(frame); heading->setTextFormat(Qt::PlainText); header->addWidget(heading,1);
@@ -88,7 +88,7 @@ private:
             const bool open = !text->isVisible();
             mutate(reference, [open](pdf::PDFDocumentBuilder* builder, pdf::PDFObjectReference r) { builder->setAnnotationOpenState(r, open); }); synchronize();
         });
-        row_->insertWidget(row_->count()-1, frame); return {frame, text, fold, color, heading, {}};
+        row_->insertWidget(row_->count()-1, frame); return {frame, text, fold, color, heading, {}, page};
     }
     void synchronize() {
         auto* c = editor_.getProgramController(); auto* widget = c->getPdfWidget(); const auto* doc = c->getDocument();
@@ -98,13 +98,17 @@ private:
             cards_.clear(); path_ = path;
         }
         if (!doc) { layer_->hide(); return; }
+        const auto snapshot = widget->getDrawWidgetProxy()->getSnapshot();
+        // Layout can be momentarily empty while the native annotation manager
+        // replaces its document. Keep the same editors and their focus then.
+        if (snapshot.items.empty()) return;
         std::set<pdf::PDFObjectReference> visible;
         int totalHeight = 4;
-        for (const auto& page : widget->getDrawWidgetProxy()->getSnapshot().items) {
+        for (const auto& page : snapshot.items) {
             for (const auto& item : widget->getAnnotationManager()->getPageAnnotations(page.pageIndex).annotations) {
                 if (item.annotation->getType() != pdf::AnnotationType::Text || !widget->getAnnotationManager()->isAnnotationSelectable(item)) continue;
                 const auto reference = item.annotation->getSelfReference(); visible.insert(reference);
-                if (!cards_.contains(reference)) cards_.emplace(reference, create(reference));
+                if (!cards_.contains(reference)) cards_.emplace(reference, create(reference,page.pageIndex));
                 auto& card = cards_.at(reference); const auto* note = static_cast<const pdf::PDFTextAnnotation*>(item.annotation.get());
                 const bool editable = widget->getAnnotationManager()->canModifyAnnotation(item) && editor_.isEnabled() && c->canClose();
                 card.text->setReadOnly(!editable); card.color->setEnabled(editable); card.fold->setEnabled(editable);
@@ -126,12 +130,16 @@ private:
             }
         }
         for (auto it = cards_.begin(); it != cards_.end();) {
-            if (!visible.contains(it->first) && !it->second.text->hasFocus()) { delete it->second.frame; it = cards_.erase(it); }
-            else ++it;
+            bool exists = false;
+            if (it->second.page < doc->getCatalog()->getPageCount())
+                for (const auto& item : widget->getAnnotationManager()->getPageAnnotations(it->second.page).annotations)
+                    exists |= item.annotation->getSelfReference() == it->first && item.annotation->getType() == pdf::AnnotationType::Text;
+            if (!exists) { delete it->second.frame; it = cards_.erase(it); }
+            else { it->second.frame->setVisible(visible.contains(it->first)); ++it; }
         }
         const QSize size = layer_->parentWidget()->size();
         layer_->setGeometry(qMax(0,size.width()-250),4,qMin(246,size.width()),qMax(0,qMin(totalHeight,size.height()-8)));
-        layer_->setVisible(!cards_.empty()); if (!cards_.empty()) layer_->raise();
+        layer_->setVisible(!visible.empty()); if (!visible.empty()) layer_->raise();
     }
     pdfviewer::PDFEditorMainWindow& editor_;
     QScrollArea* layer_; QVBoxLayout* row_; QTimer poll_; QString path_;

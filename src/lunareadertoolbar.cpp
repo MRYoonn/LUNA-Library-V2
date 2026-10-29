@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Presentation and input adapters only; PDF4QT owns all document operations.
 #include "lunareadertoolbar.h"
+#include "lunaannotationtools.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
 #include "pdfdrawwidget.h"
@@ -267,6 +268,24 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
     add("actionCreateTextHighlight", "highlight", QStringLiteral("형광펜"), QStringLiteral("본문을 드래그해 강조합니다. PDF4QT 색상 창에서 색상을 선택하세요. Esc: 텍스트 선택."));
     add("actionStickyNoteComment", "note", QStringLiteral("메모"), QStringLiteral("PDF를 클릭해 메모 추가. 메모 아이콘 클릭: 내용 확인 / 편집."));
     add("actionDeleteAnnotation", "erase", QStringLiteral("주석 삭제"), QStringLiteral("클릭한 주석만 삭제합니다. PDF 본문·원본 객체는 삭제하지 않습니다. Esc: 텍스트 선택."));
+    // Original actions stay in their advanced menus with original connections.
+    for (auto pair : {qMakePair("actionCreateTextHighlight", false), qMakePair("actionDeleteAnnotation", true)}) {
+        auto* original = nativeAction(window, pair.first); if (!original) continue;
+        auto* action = new QAction(readerIcon(pair.second ? "erase" : "highlight"), pair.second ? QStringLiteral("선택 범위 형광펜 지우기") : QStringLiteral("선택 문장 강조"), &window);
+        action->setObjectName(pair.second ? "LunaEraseHighlightSelection" : "LunaApplyHighlight");
+        action->setToolTip(pair.second ? QStringLiteral("선택한 텍스트 범위의 형광펜만 지우기. 메모와 PDF 원본은 유지합니다.") : QStringLiteral("선택 문장 강조. 길게 누르기: 색상 선택"));
+        bar.insertAction(original, action); bar.removeAction(original);
+        QObject::connect(action, &QAction::triggered, &window, [&window, erase = pair.second] { applySelectedHighlight(window, erase); });
+        auto* refresh = new QTimer(action); refresh->setInterval(100);
+        QObject::connect(refresh, &QTimer::timeout, action, [&window, action, original] {
+            action->setEnabled(original->isEnabled() && !window.getProgramController()->getToolManager()->getSelectTextTool()->lunaTextSelection().isEmpty());
+        }); refresh->start(); action->setEnabled(false);
+        if (!pair.second) if (auto* button = qobject_cast<QToolButton*>(bar.widgetForAction(action))) {
+            auto* menu = new QMenu(button); menu->setObjectName("LunaHighlightColors");
+            QObject::connect(menu, &QMenu::aboutToShow, menu, [menu] { menu->clear(); addAnnotationColors(menu, "reader/highlightColor", [](QColor) {}); });
+            button->setMenu(menu); button->setPopupMode(QToolButton::DelayedPopup);
+        }
+    }
     bar.addSeparator();
     add("actionFind", "search", QStringLiteral("본문 검색"), QStringLiteral("PDF 본문 검색 (Ctrl+F)"));
     add("actionPrint", "print", QStringLiteral("인쇄"), QStringLiteral("PDF 인쇄 (Ctrl+P)"));

@@ -33,6 +33,7 @@ def run(before, after, output):
     user.EnumWindows.argtypes = [callback, w.LPARAM]
     user.GetWindowThreadProcessId.argtypes = [w.HWND, ctypes.POINTER(w.DWORD)]
     user.GetClassNameW.argtypes = [w.HWND, w.LPWSTR, ctypes.c_int]
+    user.GetWindowTextW.argtypes = [w.HWND, w.LPWSTR, ctypes.c_int]
     user.IsWindowVisible.argtypes = [w.HWND]
     user.SetForegroundWindow.argtypes = [w.HWND]
     user.GetForegroundWindow.restype = w.HWND
@@ -71,6 +72,11 @@ def run(before, after, output):
             return True
         user.EnumWindows(visit, 0)
         return found[0] if found else None
+
+    def title(hwnd):
+        text = ctypes.create_unicode_buffer(1024)
+        user.GetWindowTextW(hwnd, text, len(text))
+        return text.value
 
     def wait(predicate, child, seconds=60):
         deadline = time.monotonic() + seconds
@@ -133,7 +139,7 @@ def run(before, after, output):
                             wait(lambda: user.GetForegroundWindow() == hwnd, child)
                             if workload.startswith('repeat-'):
                                 key(ord('W'), True)
-                                time.sleep(.2)
+                                wait(lambda: path.name not in title(hwnd), child)
                             key(ord('O'), True)
                             dialog = wait(lambda: window(child.pid, True), child)
                             wait(lambda: user.GetForegroundWindow() == dialog, child)

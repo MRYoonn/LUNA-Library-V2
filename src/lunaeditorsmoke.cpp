@@ -163,7 +163,9 @@ bool verifyResearchRoundTrip(pdfviewer::PDFEditorMainWindow& window,
                 for (const auto& character : chars) text += character.character;
                 if (sample == 0 && (last.x() >= box.width() / 2 || first.y() > box.height() * .75)) continue;
                 if (sample == 1 && (first.x() < box.width() / 2 || first.y() > box.height() * .75)) continue;
-                if (sample == 2 && !text.contains(QStringLiteral("Figure 1"))) continue;
+                // The native layout stores painted glyphs. PDF word spacing
+                // need not contain a literal space character in that stream.
+                if (sample == 2 && !QString(text).remove(QChar(' ')).contains(QStringLiteral("Figure1"))) continue;
                 const QPointF from = first - QPointF(1,0);
                 const QPointF to = chars[8].boundingBox.boundingRect().center() + QPointF(1,-2);
                 start = page->pageToDeviceMatrix.map(from).toPoint();
@@ -181,7 +183,7 @@ bool verifyResearchRoundTrip(pdfviewer::PDFEditorMainWindow& window,
                 if (expected.size() >= 4) return true;
             }
             return false;
-        })) return fail("Public paper column or figure-caption glyphs unavailable");
+        })) { error = QStringLiteral("Public paper column/caption glyphs unavailable: sample %1, page %2").arg(sample).arg(pageIndex); return false; }
         if (!select->isChecked()) select->trigger();
         mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
         mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);

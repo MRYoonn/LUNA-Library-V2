@@ -19,6 +19,7 @@ def main():
     parser.add_argument('output', type=Path)
     parser.add_argument('--source', required=True)
     parser.add_argument('--run', required=True)
+    parser.add_argument('--before-label', default='3bb3efd')
     args = parser.parse_args()
     summary = json.loads((args.native / 'integrated/summary.json').read_text(encoding='utf-8-sig'))
     fragments = ['''<!doctype html><html lang="ko"><meta charset="utf-8"><title>LUNA v0.9.1 native UI comparison</title>
@@ -27,7 +28,7 @@ def main():
 <button onclick="document.body.classList.toggle('actual')">원본 픽셀 크기 / 화면에 맞추기</button>
 <p>아래 PNG는 원본 그대로 내장했다. HTML은 Windows Edge의 맑은 고딕, Qt는 Windows C++ 앱의 실제 위젯 렌더다. 동일 해상도끼리 비교하며 예시 논문과 합성 PDF의 본문은 비교 대상에서 제외한다.</p>''']
     fragments.append('<p>개발 소스 <code>' + html.escape(args.source) + '</code> · Windows 실행 <code>' + html.escape(args.run) + '</code> · 네이티브 검사 accepted=' + str(summary['accepted']).lower() + '</p>')
-    fragments.append('<p class="note">실제 Windows 10 사용자 PC, 물리 모니터 배율 및 장시간 사용은 별도 확인이 필요하다. 아래 크기별 캡처는 같은 네이티브 위젯 트리의 Windows 렌더이며 물리 모니터 해상도 변경을 뜻하지 않는다. P0 수정의 실제 PC 재확인은 아직 완료 선언하지 않는다.</p>')
+    fragments.append('<p class="note">Ctrl+W는 기준 빌드에서 사용자 Windows 10의 30회 반복 통과가 확인됐다. 이번 빌드의 실제 PC 화면·간헐 지연 및 물리 모니터 OS 배율 전환은 별도 확인이 필요하다. 크기별 위젯 캡처와 실제 데스크톱 캡처를 아래에서 구분한다.</p>')
     measurements = {}
     for width in (1366, 1920):
         reference = json.loads((args.reference / f'html-windows-{width}-metrics.json').read_text(encoding='utf-8-sig'))
@@ -36,7 +37,7 @@ def main():
         fragments.append(f'<h2>{width} × {768 if width == 1366 else 1080}</h2><div class="captures">')
         for label, path in (
             ('승인 HTML · Windows Edge', args.reference / f'html-windows-{width}.png'),
-            ('변경 전 · 3bb3efd', args.before / f'integrated/scale-1/edit.json.five-tabs.{width}.png'),
+            ('변경 전 · ' + args.before_label, args.before / f'integrated/scale-1/edit.json.five-tabs.{width}.png'),
             ('변경 후 · ' + args.source[:7], directory / f'edit.json.five-tabs.{width}.png')):
             image = base64.b64encode(path.read_bytes()).decode()
             fragments.append('<figure><h3>' + html.escape(label) + '</h3><img alt="' + html.escape(label) + '" src="data:image/png;base64,' + image + '"></figure>')
@@ -60,10 +61,21 @@ def main():
         fragments.append('</table>')
         fragments.append('<p>Windows Malgun font file present=' + str(reference['malgunFontFilePresent']).lower() + ' · 브라우저 ' + html.escape(reference['browser']['product']) + ' · Qt 헤더 폰트 <code>' + html.escape(json.dumps(geometry.get('headingFonts', []), ensure_ascii=False)) + '</code></p>')
         measurements[str(width)] = rows
+    ordinary = args.native / 'ordinary'
+    if ordinary.is_dir():
+        fragments.append('<h2>실제 Windows 데스크톱: 일반 실행</h2><p>별도 통합 시나리오의 재배치 없이 실행했다. 창 테두리의 화면 포함, 공통 툴바 전체 가시 영역, 실제 마우스 입력 대상 및 확대 버튼의 결과를 검사한다. OS 배율 변경을 뜻하지 않는 Qt 프로세스 배율이다.</p>')
+        for scale in ('1', '1.25', '1.5'):
+            fragments.append(f'<h3>Qt {float(scale) * 100:g}%</h3><div class="captures">')
+            for mode, label in (('empty', '빈 창'), ('three-pdfs', '3개 PDF'), ('restart', '설정 저장 후 재시작')):
+                path = ordinary / f'{scale}-{mode}.json.desktop.png'
+                data = json.loads((ordinary / f'{scale}-{mode}.json').read_text(encoding='utf-8-sig'))
+                encoded = base64.b64encode(path.read_bytes()).decode()
+                fragments.append('<figure><h3>' + label + ' · accepted=' + str(data['accepted']).lower() + '</h3><img src="data:image/png;base64,' + encoded + '"></figure>')
+            fragments.append('</div>')
     fragments.append('''<h2>남은 차이와 기능을 위한 차이</h2>
 <ul><li>Windows 기본 창 테두리와 PDF4QT 고급 메뉴는 유지한다. HTML의 시안 편집·초기화 버튼을 장식용 기능으로 추가하지 않는다.</li>
 <li>폴더·논문·날짜·저자는 실제 데이터다. 시안의 예시 정보와 개수는 앱에 복사하지 않았다.</li>
-<li>PDF4QT가 직접 그리는 기본 회색 PDF 배경은 QSS만으로 바뀌지 않는다. 렌더러를 수정하지 않았으므로 HTML의 #DFE5ED와 차이가 남는다.</li>
+<li>PDF 페이지 바깥 캔버스는 HTML의 #DFE5ED로 맞췄다. PDF 본문의 색상 처리·렌더링 품질은 유지한다.</li>
 <li>실제 PDF 크기·기본 200% 배율·페이지 비율을 유지한다. HTML의 가변 폭 모형 페이지와 흰 페이지 크기/여백은 완전히 같지 않다.</li>
 <li>Qt와 Chromium의 글꼴 래스터화, 기본 입력창/스크롤바 및 모서리 클리핑에는 차이가 남을 수 있다. 전체 유사도 수치나 완성도 백분율은 측정하지 않았다.</li></ul></html>''')
     args.output.parent.mkdir(parents=True, exist_ok=True)

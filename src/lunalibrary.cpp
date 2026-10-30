@@ -526,6 +526,9 @@ public:
         auto* navigationContents = new QWidget(navigationScroll);
         navigationContents->setObjectName(QStringLiteral("LunaNavigationContents"));
         navigationScroll->setWidget(navigationContents);
+        navigationContents->setAutoFillBackground(false);
+        navigationScroll->viewport()->setAutoFillBackground(false);
+        navigationScroll->viewport()->setObjectName(QStringLiteral("LunaNavigationViewport"));
         auto* nav = new QVBoxLayout(navigationContents);
         nav->setSizeConstraint(QLayout::SetMinimumSize);
         nav->setContentsMargins(10, 0, 10, 12);

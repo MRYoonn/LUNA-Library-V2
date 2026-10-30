@@ -4,7 +4,7 @@ QMainWindow::separator { background:@CANVAS@; width:7px; height:7px; }
 QDockWidget#LunaLibraryDock { border:0; background:@CANVAS@; }
 QWidget#LunaLibraryPanel { background:@CANVAS@; color:@TEXT@; font-family:"Malgun Gothic","Segoe UI"; font-size:13px; }
 QScrollArea#LunaNavigation { background:white; border:1px solid #DCE6F2; border-radius:12px; }
-QWidget#LunaNavigationContents { background:white; border:0; }
+QWidget#LunaNavigationContents, QWidget#LunaNavigationViewport { background:transparent; border:0; }
 QWidget#LunaDocuments { background:white; border:1px solid #DCE6F2; border-radius:12px; }
 QWidget#LunaPdfFrame { background:@CANVAS@; border:0; }
 QLabel#LunaBrand { color:@NAVY@; font-family:"Malgun Gothic"; font-size:20px; font-weight:700; background:transparent; }

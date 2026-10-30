@@ -1929,6 +1929,22 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     auto* favorite = list->findChild<QAction*>(QStringLiteral("LunaToggleFavorite"));
     if (!favorite) return fail("Favorite action missing");
     const QString path = item->data(Qt::UserRole).toString();
+    // Confirm the actual Qt card model reacts to a local citation change.
+    // Synthetic fixture only; no PDF/DOI is uploaded.
+    auto* citationPanel = dynamic_cast<LibraryPanel*>(dock->widget());
+    if (!citationPanel || !citationPanel->bibliography_.save(DocumentClaim::identity(path),
+        {{"title", QStringLiteral("Synthetic Citation Card")},
+         {"authors", QStringLiteral("Synthetic A")},
+         {"journal", QStringLiteral("Test Journal")},
+         {"year", QStringLiteral("2026")}, {"volume", QStringLiteral("42")},
+         {"page", QStringLiteral("12-20")}}, true))
+        return fail("Synthetic citation could not be saved");
+    if (item->text() != QStringLiteral("Synthetic Citation Card") ||
+        luna::Bibliography::citation(item->data(Qt::UserRole + 5).toMap()) != QStringLiteral("Test Journal 2026, 42, 12-20"))
+        return fail("Citation did not populate the actual library card");
+    search->setText(QStringLiteral("Test Journal"));
+    if (item->isHidden()) return fail("Citation journal was not searchable");
+    search->clear();
     favorite->trigger();
     QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
     if (!item->data(Qt::UserRole + 2).toBool() || !settings.value(QStringLiteral("library/favorites")).toStringList().contains(path))

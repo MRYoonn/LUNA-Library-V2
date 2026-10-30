@@ -65,6 +65,30 @@ int main(int argc, char** argv) {
         // A wrapped author list is a supported common RSC case.
         return 28;
     }
+    // Regression from a real user report: the PDF metadata and first extracted
+    // author fragment said "Hao Fang" while the cover ends in John J. Molloy.
+    const QString rscCover = QStringLiteral(
+        "Chemical Science\nCite this: Chem. Sci., 2026, 17, 247\n"
+        "Fused 3D boron heterocycles via EnT catalysis:\n"
+        "synthesis, modification and validation as beta-lactamase inhibitors\n"
+        "Hannah M. Kortman, Hao Fang, Kane A. C. Bastick, Charlotte Völkel,\n"
+        "Dominik Oberthür, Peter H. Seeberger, Markus Perbandt\n"
+        "and John J. Molloy*a\n");
+    const QString last = luna::Bibliography::firstPageLastAuthor(rscCover);
+    if (last != QStringLiteral("John J. Molloy")) return 38;
+    if (luna::Bibliography::firstPageLastAuthor(QStringLiteral(
+            "Chemical Science\nCite this: Chem. Sci., 2026, 17, 247\n"
+            "Hannah M. Kortman, Hao Fang")).size() != 0) return 39;
+    store.ingest("auto-rsc", QStringLiteral("Fused 3D boron heterocycles via EnT catalysis"),
+                 QStringLiteral("Hao Fang"));
+    if (store.record("auto-rsc").value("authors") != QStringLiteral("Hao Fang")) return 40;
+    if (!store.enrichFromFirstPage("auto-rsc", {{"authors", last}}) ||
+        store.record("auto-rsc").value("authors") != QStringLiteral("John J. Molloy")) return 41;
+    if (!store.save("manual-rsc", {{"authors", QStringLiteral("Manual Correct Author")}}, true))
+        return 42;
+    store.enrichFromFirstPage("manual-rsc", {{"authors", last}});
+    if (store.record("manual-rsc").value("authors") != QStringLiteral("Manual Correct Author"))
+        return 43;
     const QVariantMap jpcb = luna::Bibliography::firstPageCitation(
         QStringLiteral("J. Phys. Chem. B 2004, 108, 5472–5476\nLow Energy Electron Interactions with Uracil"));
     if (jpcb.value("journal") != QStringLiteral("J. Phys. Chem. B") ||

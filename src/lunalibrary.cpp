@@ -898,8 +898,11 @@ private:
         // Never use the first incomplete author-list fragment as last author.
         if (!citation.isEmpty()) {
             const QString finalAuthor = luna::Bibliography::firstPageLastAuthor(text);
-            if (!finalAuthor.isEmpty())
+            if (!finalAuthor.isEmpty()) {
                 evidence.insert(QStringLiteral("authors"), finalAuthor);
+                evidence.insert(QStringLiteral("authorEvidence"),
+                                QStringLiteral("first-page-terminal-and"));
+            }
         }
         bibliography_.enrichFromFirstPage(identity, evidence);
     }

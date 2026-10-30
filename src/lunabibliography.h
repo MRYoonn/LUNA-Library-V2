@@ -61,6 +61,14 @@ public:
                         {"page", match.captured(QStringLiteral("page")).remove(QLatin1Char(' '))}};
             }
         }
+        // Some publisher proofs show the journal name, but deliberately do
+        // not yet contain a final publication year, volume or article number.
+        // Record only an explicit masthead; never infer missing publication data.
+        for (qsizetype i = 0; i < lines.size() && i < 12; ++i) {
+            const QString heading = lines[i].simplified();
+            if (heading.compare(QStringLiteral("Nature Communications"), Qt::CaseInsensitive) == 0)
+                return {{"journal", QStringLiteral("Nature Communications")}};
+        }
         return {};
     }
 

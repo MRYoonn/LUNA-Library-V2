@@ -237,8 +237,22 @@ public:
 
     QVariantMap record(const QString& identity) const {
         QVariantMap value = settings().value(key(resolve(identity))).toMap();
-        if (!credibleTitle(value.value("title").toString())) value.remove("title");
-        if (!credibleAuthor(value.value("authors").toString())) value.remove("authors");
+        const bool manual = value.value("manual").toBool();
+        const QString title = value.value("title").toString().simplified();
+        const QString author = value.value("authors").toString().simplified();
+        // Never hide a legitimate manually edited short title or one-word
+        // family name. Suppress only notorious generated placeholders, even
+        // when an older auto-extraction dialog accidentally marked them manual.
+        static const QRegularExpression placeholder(QStringLiteral(
+            R"(^(?:No Job Name|Microsoft Word(?:\b.*)?|Untitled|New Document|Document1)\b)"),
+            QRegularExpression::CaseInsensitiveOption);
+        const bool brokenTitle = placeholder.match(title).hasMatch() ||
+            (!manual && !title.isEmpty() && !credibleTitle(title));
+        const bool brokenAuthor = author.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
+            author.contains(QStringLiteral("the energetics"), Qt::CaseInsensitive) ||
+            (!manual && !author.isEmpty() && !credibleAuthor(author));
+        if (brokenTitle) value.remove("title");
+        if (brokenAuthor) value.remove("authors");
         return value;
     }
 

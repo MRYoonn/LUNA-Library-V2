@@ -836,9 +836,12 @@ private:
         QDialog dialog(this);
         dialog.setObjectName(QStringLiteral("LunaBibliographyEditor"));
         dialog.setWindowTitle(QStringLiteral("논문 서지정보 수정"));
+        dialog.setMinimumWidth(620); // Fit a typical full bibliographic reference.
         QFormLayout form(&dialog);
+        form.setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
         QLineEdit fullCitation(existing.value("citation").toString(), &dialog);
         fullCitation.setObjectName(QStringLiteral("LunaBibliographyCitation"));
+        fullCitation.setClearButtonEnabled(true);
         fullCitation.setPlaceholderText(QStringLiteral("서지정보 전체를 붙여넣으세요. 이 내용이 카드에 우선 표시됩니다."));
         QLineEdit title(existing.value("title").toString(), &dialog);
         QLineEdit authors(existing.value("authors").toString(), &dialog);

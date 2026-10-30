@@ -43,7 +43,7 @@ public:
         text.replace(QChar(0x00a0), QLatin1Char(' '));
         const auto lines = text.split(QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
         static const QRegularExpression pattern(QStringLiteral(
-            R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
+            R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|J\.?\s*Phys\.?\s*Chem\.?\s*[ABC]\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Org\.?\s*Biomol\.?\s*Chem\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
             QRegularExpression::CaseInsensitiveOption);
         int checked = 0;
         for (qsizetype i = 0; i < lines.size() && checked < 140; ++i, ++checked) {
@@ -156,8 +156,73 @@ public:
         return {};
     }
 
+    // Recall's evidence rule: never present arbitrary strings as trusted metadata.
+    // In particular PDF printer defaults and body sentences are not paper titles.
+    static bool credibleTitle(const QString& value) {
+        const QString text = value.simplified();
+        if (text.size() < 12 || text.size() > 240) return false;
+        static const QRegularExpression placeholder(QStringLiteral(
+            R"((?:^|\b)(?:No Job Name|Microsoft Word|Untitled|New Document|Document1|Supporting Information|Revised Supporting Information)(?:\b|$))"),
+            QRegularExpression::CaseInsensitiveOption);
+        if (placeholder.match(text).hasMatch() ||
+            text.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("department of"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("university of"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("http"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("abstract"), Qt::CaseInsensitive))
+            return false;
+        return true;
+    }
+    static bool credibleAuthor(const QString& value) {
+        const QString text = lastListedAuthor(value);
+        if (text.size() < 5 || text.size() > 90 ||
+            text.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("department"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("university"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("the energetics"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("research"), Qt::CaseInsensitive))
+            return false;
+        static const QRegularExpression name(QStringLiteral(
+            R"(^[\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}$)"));
+        return name.match(text).hasMatch();
+    }
+    // Reuse Recall's field-level conflict protection. Only fill missing/known-bad
+    // values, never replace a plausible manual correction or invent absent data.
+    bool enrichFromFirstPage(const QString& identity, const QVariantMap& proposal) {
+        if (identity.isEmpty() || proposal.isEmpty()) return false;
+        QVariantMap value = record(identity);
+        bool changedField = false;
+        const auto fill = [&value, &proposal, &changedField](const char* key, bool good) {
+            const QString field = QString::fromLatin1(key);
+            const QString next = proposal.value(field).toString().simplified();
+            if (!good || next.isEmpty()) return;
+            const QString old = value.value(field).toString().simplified();
+            if (!old.isEmpty()) return;
+            value[field] = next.left(4096);
+            changedField = true;
+        };
+        fill("title", credibleTitle(proposal.value("title").toString()));
+        fill("authors", credibleAuthor(proposal.value("authors").toString()));
+        fill("journal", !proposal.value("journal").toString().isEmpty());
+        const QString year = proposal.value("year").toString();
+        static const QRegularExpression yyyy(QStringLiteral(R"(^[12]\d{3}$)"));
+        fill("year", yyyy.match(year).hasMatch());
+        static const QRegularExpression volumePattern(QStringLiteral(R"(^\d{1,4}$)"));
+        fill("volume", volumePattern.match(proposal.value("volume").toString()).hasMatch());
+        static const QRegularExpression pagePattern(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,7})(?:[-–]\d{1,7})?$)"),
+                                                    QRegularExpression::CaseInsensitiveOption);
+        fill("page", pagePattern.match(proposal.value("page").toString()).hasMatch());
+        if (!changedField) return false;
+        value["source"] = QStringLiteral("PDF first-page evidence");
+        // Preserve prior manual ownership, but never mark machine extraction manual.
+        return save(identity, value, value.value("manual").toBool());
+    }
+
     QVariantMap record(const QString& identity) const {
-        return settings().value(key(resolve(identity))).toMap();
+        QVariantMap value = settings().value(key(resolve(identity))).toMap();
+        if (!credibleTitle(value.value("title").toString())) value.remove("title");
+        if (!credibleAuthor(value.value("authors").toString())) value.remove("authors");
+        return value;
     }
 
     bool save(const QString& identity, QVariantMap value, bool manual = true) {
@@ -190,8 +255,8 @@ public:
                 updated = true;
             }
         };
-        fill(QStringLiteral("title"), title, 4096);
-        fill(QStringLiteral("authors"), lastListedAuthor(authors), 4096);
+        if (credibleTitle(title)) fill(QStringLiteral("title"), title, 4096);
+        if (credibleAuthor(authors)) fill(QStringLiteral("authors"), lastListedAuthor(authors), 4096);
         for (const char* field : {"journal", "year", "volume", "page"}) {
             const QString key = QString::fromLatin1(field);
             QString value = structured.value(key).toString();

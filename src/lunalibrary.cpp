@@ -1030,6 +1030,7 @@ private:
         historyCount_->setText(QStringLiteral("%1 · %2개").arg(favorites ? QStringLiteral("즐겨찾기") : QStringLiteral("최근 열람"))
             .arg(historyPdfs_->count()));
         pages_->setCurrentIndex(2);
+        selectActiveCard(); // Newly created Recent/Favorites rows need active blue indication.
     }
     void rememberOpenedDocument() { if (!window()->property("LunaClosing").toBool()) rememberEditor(*viewer_); }
     void rememberDateAlias(const QString& path, const QString& date) {

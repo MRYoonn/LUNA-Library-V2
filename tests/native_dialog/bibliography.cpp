@@ -79,16 +79,28 @@ int main(int argc, char** argv) {
     if (luna::Bibliography::firstPageLastAuthor(QStringLiteral(
             "Chemical Science\nCite this: Chem. Sci., 2026, 17, 247\n"
             "Hannah M. Kortman, Hao Fang")).size() != 0) return 39;
-    store.ingest("auto-rsc", QStringLiteral("Fused 3D boron heterocycles via EnT catalysis"),
-                 QStringLiteral("Hao Fang"));
-    if (store.record("auto-rsc").value("authors") != QStringLiteral("Hao Fang")) return 40;
-    if (!store.enrichFromFirstPage("auto-rsc", {{"authors", last}}) ||
-        store.record("auto-rsc").value("authors") != QStringLiteral("John J. Molloy")) return 41;
+    // Simulate a pre-fix version that had persisted the PDF Info author Hao Fang.
+    if (!store.save("auto-rsc", {{"title", QStringLiteral("Fused 3D boron heterocycles via EnT catalysis")},
+                                 {"authors", QStringLiteral("Hao Fang")},
+                                 {"source", QStringLiteral("PDF metadata")}}, false)) return 40;
+    if (!store.record("auto-rsc").value("authors").toString().isEmpty()) return 41;
+    const QVariantMap verifiedLast{{"authors", last},
+                                   {"authorEvidence", QStringLiteral("first-page-terminal-and")}};
+    if (!store.enrichFromFirstPage("auto-rsc", verifiedLast) ||
+        store.record("auto-rsc").value("authors") != QStringLiteral("John J. Molloy")) return 42;
     if (!store.save("manual-rsc", {{"authors", QStringLiteral("Manual Correct Author")}}, true))
-        return 42;
-    store.enrichFromFirstPage("manual-rsc", {{"authors", last}});
-    if (store.record("manual-rsc").value("authors") != QStringLiteral("Manual Correct Author"))
         return 43;
+    store.enrichFromFirstPage("manual-rsc", verifiedLast);
+    if (store.record("manual-rsc").value("authors") != QStringLiteral("Manual Correct Author"))
+        return 44;
+    if (!store.save("new-pdf-info", {}, false)) return 45;
+    store.ingest("new-pdf-info", QStringLiteral("Fused 3D boron heterocycles via EnT catalysis"),
+                 QStringLiteral("Hao Fang"));
+    if (!store.record("new-pdf-info").value("authors").toString().isEmpty()) return 46;
+    if (!store.save("untrusted-proposal", {}, false)) return 47;
+    if (store.enrichFromFirstPage("untrusted-proposal", {{"authors", QStringLiteral("Hao Fang")}}) ||
+        !store.record("untrusted-proposal").value("authors").toString().isEmpty())
+        return 48;
     const QVariantMap jpcb = luna::Bibliography::firstPageCitation(
         QStringLiteral("J. Phys. Chem. B 2004, 108, 5472–5476\nLow Energy Electron Interactions with Uracil"));
     if (jpcb.value("journal") != QStringLiteral("J. Phys. Chem. B") ||

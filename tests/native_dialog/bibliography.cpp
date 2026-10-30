@@ -142,6 +142,13 @@ int main(int argc, char** argv) {
     if (!store.save("manual-single-name", {{"authors", "Molloy"}}, true)) return 54;
     store.enrichFromFirstPage("manual-single-name", {{"journal", "Chem. Sci."}});
     if (store.record("manual-single-name").value("authors") != QStringLiteral("Molloy")) return 55;
+    store.ingest("si-owned", "PDB structure validation report", "wwPDB", {{"journal", "Chem. Sci."}});
+    if (!store.enrichFromFirstPage("si-owned", {{"documentKind", "supporting_information"}})) return 56;
+    const auto siOwned = store.record("si-owned");
+    if (!siOwned.value("title").toString().isEmpty() || !siOwned.value("journal").toString().isEmpty() ||
+        siOwned.value("unverifiedSiMetadata").toMap().value("title") != QStringLiteral("PDB structure validation report")) return 57;
+    store.ingest("si-owned", "Do not restore machine title", "Hao Fang");
+    if (!store.record("si-owned").value("title").toString().isEmpty()) return 58;
     const QVariantMap jpcb = luna::Bibliography::firstPageCitation(
         QStringLiteral("J. Phys. Chem. B 2004, 108, 5472–5476\nLow Energy Electron Interactions with Uracil"));
     if (jpcb.value("journal") != QStringLiteral("J. Phys. Chem. B") ||

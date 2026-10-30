@@ -261,6 +261,23 @@ public:
         if (identity.isEmpty() || proposal.isEmpty()) return false;
         QVariantMap value = record(identity);
         bool changedField = false;
+        if (proposal.value("documentKind").toString() == QStringLiteral("supporting_information")) {
+            // Preserve all previous data for recovery; suppress only machine-owned
+            // paper fields after the page explicitly identifies itself as SI.
+            QVariantMap archived = value.value("unverifiedSiMetadata").toMap();
+            for (const char* key : {"title", "authors", "journal", "year", "volume", "page", "citation"}) {
+                const QString field = QString::fromLatin1(key);
+                if (value.value(field + QStringLiteral("Source")).toString() != QStringLiteral("manual") &&
+                    value.contains(field)) {
+                    archived[field] = value.take(field);
+                    changedField = true;
+                }
+            }
+            changedField = changedField || value.value("documentKind") != proposal.value("documentKind");
+            value["documentKind"] = proposal.value("documentKind");
+            value["unverifiedSiMetadata"] = archived;
+            return changedField && save(identity, value, false);
+        }
         const auto fill = [&value, &proposal, &changedField](const char* key, bool good) {
             const QString field = QString::fromLatin1(key);
             const QString next = proposal.value(field).toString().simplified();
@@ -370,6 +387,7 @@ public:
         seen_.insert(target);
         auto entry = record(target);
         if (entry.value("manual").toBool()) return;
+        if (entry.value("documentKind").toString() == QStringLiteral("supporting_information")) return;
         bool updated = false;
         const auto fill = [&entry, &updated](const QString& key, const QString& text, int maxLength) {
             const QString value = text.simplified().left(maxLength);

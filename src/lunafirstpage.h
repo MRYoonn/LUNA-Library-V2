@@ -58,6 +58,11 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document) {
         text += line.text + QLatin1Char('\n');
         if (text.size() >= 32000) break;
     }
+    const auto headings = text.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (qsizetype i = 0; i < headings.size() && i < 16; ++i)
+        if (headings[i].contains(QStringLiteral("Supporting Information"), Qt::CaseInsensitive) ||
+            headings[i].contains(QStringLiteral("Supplementary Information"), Qt::CaseInsensitive))
+            return {{"documentKind", QStringLiteral("supporting_information")}};
     QVariantMap evidence = Bibliography::firstPageCitation(text);
     if (evidence.isEmpty()) return {}; // Includes SI: no own publication evidence.
     const auto identity = Bibliography::firstPageIdentity(text);

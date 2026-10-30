@@ -175,7 +175,7 @@ public:
             }
         };
         fill(QStringLiteral("title"), title, 4096);
-        fill(QStringLiteral("authors"), authors, 4096);
+        fill(QStringLiteral("authors"), lastListedAuthor(authors), 4096);
         for (const char* field : {"journal", "year", "volume", "page"}) {
             const QString key = QString::fromLatin1(field);
             QString value = structured.value(key).toString();

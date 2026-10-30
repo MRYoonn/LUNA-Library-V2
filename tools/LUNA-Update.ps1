@@ -148,6 +148,12 @@ try {
         @{ status='unavailable'; available=$false } | ConvertTo-Json -Compress
         exit 0
     }
+    # On network/digest/install errors, return to the existing portable
+    # rather than leaving the user with a closed application.
+    $existing = Join-Path $InstallDir 'LUNA.exe'
+    if (Test-Path -LiteralPath $existing -PathType Leaf) {
+        try { Start-Process -FilePath $existing -WorkingDirectory $InstallDir } catch {}
+    }
     Write-Error 'LUNA update was not applied; existing installation was kept or rollback was attempted.'
     exit 1
 }

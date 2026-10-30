@@ -66,6 +66,7 @@ APPROVED = {
     "tools/probe_research_windows.py",
     "tools/apply_overlay.py", "tools/preflight_public.py",
     "tests/test_public_gate.py",
+    "tests/test_citation_contract.py",
     "tools/verify_portable.py", "tests/test_portable.py",
     "tools/smoke_windows.py",
     "tools/stage_msvc_runtime.ps1",

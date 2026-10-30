@@ -2011,6 +2011,7 @@ bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error
     const QString identity = DocumentClaim::identity(controller->getOriginalFileName());
     QListWidgetItem* card = nullptr;
     QListWidget* list = nullptr;
+    const bool siProbe = qEnvironmentVariableIsSet("LUNA_PUBLIC_BIBLIOGRAPHY_SI_PROBE");
     auto awaitAuthor = [&](const QString& expected) {
         QElapsedTimer timer; timer.start();
         while (timer.elapsed() < 15000) {
@@ -2018,17 +2019,23 @@ bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error
             for (auto* candidate : {panel->folderPdfs_, panel->allPdfs_, panel->historyPdfs_})
                 for (int i = 0; i < candidate->count(); ++i) {
                     auto* row = candidate->item(i);
-                    if (row->data(Qt::UserRole + 6).toString() == identity &&
-                        row->data(Qt::UserRole + 5).toMap().value("authors").toString() == expected) {
-                        card = row; list = candidate; return true;
+                    if (row->data(Qt::UserRole + 6).toString() != identity) continue;
+                    const auto metadata = row->data(Qt::UserRole + 5).toMap();
+                    bool matches = metadata.value("authors").toString() == expected;
+                    if (siProbe) {
+                        matches = metadata.value("documentKind").toString() == QStringLiteral("supporting_information");
+                        for (const char* field : {"title", "authors", "citation", "journal", "year", "volume", "page"})
+                            matches = matches && metadata.value(QString::fromLatin1(field)).toString().isEmpty();
                     }
+                    if (matches) { card = row; list = candidate; return true; }
                 }
         }
         return false;
     };
     const QString correct = QStringLiteral("John J. Molloy");
     if (!awaitAuthor(correct)) {
-        error = "Real PDF automatic card author was not John J. Molloy";
+        error = siProbe ? "Real SI PDF generated paper metadata or was not classified as SI" :
+            "Real PDF automatic card author was not John J. Molloy";
         // Only the explicit, checksum-pinned public CI probe requests raw text.
         // Normal opening/extraction never writes PDF text into logs/settings.
         QString diagnostic;
@@ -2047,6 +2054,11 @@ bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error
     panel->selectActiveCard();
     const int rowBefore = list->row(card), scrollBefore = list->verticalScrollBar()->value();
     const bool activeBefore = card->data(Qt::UserRole + 7).toBool();
+    if (siProbe) {
+        if (!activeBefore || QApplication::activeModalWidget()) { error = "SI active card/modal failure"; return false; }
+        window.grab().save(capturePath + QStringLiteral(".png"));
+        return true;
+    }
     for (const bool manualFlag : {false, true}) {
         QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "LUNA", "LUNA Library");
         const QString key = QStringLiteral("library/bibliography/") + QString::fromLatin1(

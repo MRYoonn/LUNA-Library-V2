@@ -2027,7 +2027,23 @@ bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error
         return false;
     };
     const QString correct = QStringLiteral("John J. Molloy");
-    if (!awaitAuthor(correct)) { error = "Real PDF automatic card author was not John J. Molloy"; return false; }
+    if (!awaitAuthor(correct)) {
+        error = "Real PDF automatic card author was not John J. Molloy";
+        // Only the explicit, checksum-pinned public CI probe requests raw text.
+        // Normal opening/extraction never writes PDF text into logs/settings.
+        QString diagnostic;
+        try {
+            auto snapshot = *controller->getDocument();
+            const auto evidence = luna::extractFirstPage(snapshot, &diagnostic);
+            error += QStringLiteral("\nDirect evidence author: ") + evidence.value("authors").toString() +
+                QStringLiteral("\nJournal: ") + evidence.value("journal").toString() +
+                QStringLiteral("\nKind: ") + evidence.value("documentKind").toString() +
+                QStringLiteral("\nVisual first-page text:\n") + diagnostic.left(12000);
+        } catch (const std::exception& exception) {
+            error += QStringLiteral("\nPDF4QT diagnostic exception: ") + QString::fromUtf8(exception.what());
+        } catch (...) { error += QStringLiteral("\nUnknown PDF4QT diagnostic exception"); }
+        return false;
+    }
     panel->selectActiveCard();
     const int rowBefore = list->row(card), scrollBefore = list->verticalScrollBar()->value();
     const bool activeBefore = card->data(Qt::UserRole + 7).toBool();

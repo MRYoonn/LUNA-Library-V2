@@ -12,7 +12,7 @@
 namespace luna {
 // Runs on an owned document snapshot and worker-local PDF4QT caches. No viewer
 // pointers survive a tab close, document replacement or library destruction.
-inline QVariantMap extractFirstPage(pdf::PDFDocument& document) {
+inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnostic = nullptr) {
     const auto* catalog = document.getCatalog();
     if (!catalog || catalog->getPageCount() < 1) return {};
     const auto* page = catalog->getPage(0);
@@ -24,15 +24,16 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document) {
     auto cms = manager.getCurrentCMS();
     pdf::PDFICCProfileCache profiles;
     pdf::PDFOptionalContentActivity activity(&document, pdf::OCUsage::View, nullptr);
-    // Work in visual coordinates (top to bottom), independent of content-stream
-    // and text-block order. Superscript fragments stay near their author row.
+    // PDFTextLayoutGenerator emits text positions in PDF page space. Its device
+    // matrix does not transform text glyph positions; map those explicitly below.
     pdf::PDFTextLayoutGenerator generator(pdf::PDFRenderer::getDefaultFeatures(), page,
         &document, &fonts, &profiles, cms.data(), &activity,
-        QTransform(1, 0, 0, -1, 0, page->getMediaBox().height()), pdf::PDFMeshQualitySettings());
+        QTransform(), pdf::PDFMeshQualitySettings());
     generator.processContents();
     const auto layout = generator.createTextLayout();
     struct Line { double x, y; QString text; };
     std::vector<Line> lines;
+    const QTransform visual(1, 0, 0, -1, 0, page->getMediaBox().height());
     for (const auto& block : layout.getTextBlocks())
         for (const auto& line : block.getLines()) {
             QString text;
@@ -47,7 +48,8 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document) {
                 }
                 text += current.character;
             }
-            lines.push_back({line.getTopLeft().x(), line.getTopLeft().y(), text});
+            const QPointF position = visual.map(line.getTopLeft());
+            lines.push_back({position.x(), position.y(), text});
         }
     std::stable_sort(lines.begin(), lines.end(), [](const Line& a, const Line& b) {
         if (a.y != b.y) return a.y < b.y;
@@ -58,6 +60,7 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document) {
         text += line.text + QLatin1Char('\n');
         if (text.size() >= 32000) break;
     }
+    if (diagnostic) *diagnostic = text;
     const auto headings = text.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     for (qsizetype i = 0; i < headings.size() && i < 16; ++i)
         if (headings[i].contains(QStringLiteral("Supporting Information"), Qt::CaseInsensitive) ||

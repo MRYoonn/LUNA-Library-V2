@@ -109,7 +109,7 @@ def bibliography_probe(package: Path, output: Path):
                 failure = Path(str(report) + ".failure.png")
                 if failure.is_file():
                     shutil.copyfile(failure, output / f"bibliography-{restart}-failure.png")
-                detail = report.read_text(encoding="utf-8")[:2048] if report.is_file() else "No native bibliography diagnostic"
+                detail = report.read_text(encoding="utf-8")[:14000] if report.is_file() else "No native bibliography diagnostic"
                 raise RuntimeError(detail) from error
             if report.read_bytes() != b"LUNA_RESEARCH_ROUNDTRIP_OK\n" or pdf.read_bytes() != data:
                 raise RuntimeError("Bibliography marker or original bytes changed")

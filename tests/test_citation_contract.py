@@ -33,8 +33,10 @@ class CitationContractTests(unittest.TestCase):
 
     def test_pdf_open_never_parses_all_pages(self):
         self.assertIn("controller->getDocument()->getInfo()", self.ui)
-        self.assertIn("QTimer::singleShot(0, this, [this, identity, title, authors]", self.ui)
-        self.assertIn("bibliography_.ingest(identity, title, authors)", self.ui)
+        self.assertIn("QTimer::singleShot(0, this, [this, identity, title, authors, structured]", self.ui)
+        self.assertIn("bibliography_.ingest(identity, title, authors, structured)", self.ui)
+        self.assertIn('key == QStringLiteral("journal")', self.ui)
+        self.assertIn('key == QStringLiteral("publicationyear")', self.ui)
         self.assertNotIn("PDFTextLayoutGenerator", self.ui)
 
     def test_native_fixture_exercises_citation_and_restart(self):

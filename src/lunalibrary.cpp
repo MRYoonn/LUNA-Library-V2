@@ -2041,7 +2041,8 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             return;
         auto* input = dialog->findChild<QLineEdit*>(QStringLiteral("LunaBibliographyCitation"));
         auto* buttons = dialog->findChild<QDialogButtonBox*>();
-        if (!input || !buttons || !buttons->button(QDialogButtonBox::Ok)) {
+        if (!input || !buttons || !buttons->button(QDialogButtonBox::Ok) ||
+            !buttons->findChild<QPushButton*>(QStringLiteral("LunaExtractFirstPageCitation"))) {
             dialog->reject();
             return;
         }

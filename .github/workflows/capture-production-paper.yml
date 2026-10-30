@@ -1,0 +1,37 @@
+name: LUNA verified portable - production paper capture
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  capture:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: LUNA-Windows-Portable
+          run-id: 41013214904
+          github-token: ${{ github.token }}
+          path: portable
+      - name: Verify exact accepted EXE and capture ordinary public-paper launches
+        shell: pwsh
+        run: |
+          $info = Get-Content portable/build-info.json -Raw | ConvertFrom-Json
+          $hash = (Get-FileHash portable/LUNA.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($info.commit -ne 'f89c2a1b23aa7d4e469f00fcfd9cab8a5e119c15' -or $hash -ne 'a2da5bf18c2115c2c15a7013f426e2165226513830c553cdc83aec16ae8921bf') { throw 'Unverified portable source or executable' }
+          python -B tools/prepare_desktop_windows.py captures/desktop.json
+          if ($LASTEXITCODE -ne 0) { throw 'Native display mode failed' }
+          python -B tools/probe_chrome_windows.py portable captures/ordinary --public-paper
+          if ($LASTEXITCODE -ne 0) { throw 'Production public-paper launch failed' }
+          Copy-Item portable/build-info.json captures/build-info.json
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: LUNA-Production-Paper-Screenshots
+          path: captures/
+          if-no-files-found: error

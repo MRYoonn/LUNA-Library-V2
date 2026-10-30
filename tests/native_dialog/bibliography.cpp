@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
     store.ingest("before", QStringLiteral("Wrong Title"), QStringLiteral("Wrong Author"));
     if (store.record("before").value("title") != QStringLiteral("Synthetic Paper")) return 6;
     if (store.record("before").value("citation") != pasted) return 7;
-    if (!store.relocate("before", "after") || !store.record("before").isEmpty()) return 8;
+    if (!store.relocate("before", "after") || store.record("before").value("citation") != pasted) return 8;
     if (store.record("after").value("citation") != pasted) return 9;
     if (!store.relocate("after", "before")) return 10;
     { luna::Bibliography reopened;

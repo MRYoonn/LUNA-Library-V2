@@ -49,6 +49,23 @@ int main(int argc, char** argv) {
             QStringLiteral("Photo-enabled and thioamide-directed")) ||
         !proofIdentity.value("authors").toString().contains(QStringLiteral("Heng Jiang")))
         return 25;
+    const QString rscAuthors = QStringLiteral(
+        "Hannah M. Kortman, Hao Fang, Kane A. C. Bastick, Charlotte Völkel, "
+        "Dominik Oberthür, Peter H. Seeberger, Markus Perbandt and John J. Molloy");
+    if (luna::Bibliography::lastListedAuthor(rscAuthors) != QStringLiteral("John J. Molloy"))
+        return 26;
+    if (luna::Bibliography::lastListedAuthor(
+            QStringLiteral("A. Researcher, B. Contributor, C. Professor")) !=
+        QStringLiteral("C. Professor")) return 27;
+    if (luna::Bibliography::firstPageIdentity(
+            QStringLiteral("Fused 3D boron heterocycles via EnT catalysis:\n"
+                           "synthesis, modification and validation as beta-lactamase inhibitors\n"
+                           "Hannah M. Kortman, Hao Fang, Kane A. C. Bastick, Charlotte Völkel,\n"
+                           "Dominik Oberthür, Peter H. Seeberger, Markus Perbandt and John J. Molloy"))
+        .value("authors") != QStringLiteral("John J. Molloy")) {
+        // A wrapped author list is a supported common RSC case.
+        return 28;
+    }
     const QVariantMap structured{
         {"title", QStringLiteral("Synthetic Paper")},
         {"authors", QStringLiteral("Author A")},

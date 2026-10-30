@@ -1,0 +1,70 @@
+name: LUNA Library - Draft GitHub Release
+# Manual gate. Publishing is a separate explicit human action.
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: "Successful Windows Actions run ID"
+        required: true
+        type: string
+      version_tag:
+        description: "Stable version, e.g. v0.9.1.134"
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: luna-release-draft
+  cancel-in-progress: false
+jobs:
+  draft-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate source run and security
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run }}
+          VERSION_TAG: ${{ inputs.version_tag }}
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+          [[ "$SOURCE_RUN" =~ ^[0-9]{8,20}$ ]] || exit 1
+          [[ "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || exit 1
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq '.conclusion')" = success
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq '.path')" = .github/workflows/build-windows.yml
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq '.head_sha')" = "$GITHUB_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq '.head_branch')" = "$GITHUB_REF_NAME"
+          if gh release view "$VERSION_TAG" >/dev/null 2>&1; then exit 1; fi
+          test -z "$(git ls-remote --tags origin "refs/tags/$VERSION_TAG")"
+      - name: Download approved Portable
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run }}
+        run: |
+          set -euo pipefail
+          mkdir -p staging/portable
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name LUNA-Windows-Portable --dir staging/portable
+      - name: Verify and package ZIP and SHA256 manifest
+        shell: bash
+        env:
+          SOURCE_RUN: ${{ inputs.source_run }}
+          VERSION_TAG: ${{ inputs.version_tag }}
+        run: |
+          set -euo pipefail
+          python -B -m tools.prepare_release --portable staging/portable --destination dist --tag "$VERSION_TAG" --source-run "$SOURCE_RUN" --commit "$GITHUB_SHA"
+      - name: Create DRAFT; never publish automatically
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_TAG: ${{ inputs.version_tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$VERSION_TAG" dist/LUNA-Windows-Portable.zip dist/LUNA-Release.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "LUNA Library $VERSION_TAG" --notes "Verified Windows Portable draft. Only publish after real Windows testing."

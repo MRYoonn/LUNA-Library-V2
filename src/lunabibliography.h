@@ -323,6 +323,10 @@ public:
 
     QVariantMap record(const QString& identity) const {
         QVariantMap value = settings().value(key(resolve(identity))).toMap();
+        // The full citation field had only a manual-paste writer in the legacy
+        // editor; automatic extraction wrote structured fields, never this field.
+        if (!value.contains("citationSource") && !value.value("citation").toString().simplified().isEmpty())
+            value["citationSource"] = QStringLiteral("manual");
         // A legacy record-wide flag alone cannot prove that the author was edited.
         // Keep the original value for recovery, but never display an unverified name.
         if (!value.contains("authorsSource")) {

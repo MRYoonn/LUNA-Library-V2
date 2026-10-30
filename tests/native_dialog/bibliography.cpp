@@ -173,6 +173,15 @@ int main(int argc, char** argv) {
         {"titleSource", "pdf_metadata"}})) return 66;
     if (store.record("sidebar-title").value("legacyTitle") != sidebar ||
         store.record("sidebar-title").value("titleSource") != QStringLiteral("pdf_metadata")) return 67;
+    // Unlike the record-wide flag, a legacy pasted citation has an exclusively
+    // manual writer. SI classification must retain that genuine human field.
+    if (!store.save("legacy-si-citation", {{"citation", "Human legacy SI reference"},
+        {"journal", "Chem. Sci."}}, false)) return 68;
+    store.enrichFromFirstPage("legacy-si-citation", {{"documentKind", "supporting_information"}});
+    const auto legacySi = store.record("legacy-si-citation");
+    if (legacySi.value("citation") != QStringLiteral("Human legacy SI reference") ||
+        legacySi.value("citationSource") != QStringLiteral("manual") ||
+        !legacySi.value("journal").toString().isEmpty()) return 69;
     const QVariantMap jpcb = luna::Bibliography::firstPageCitation(
         QStringLiteral("J. Phys. Chem. B 2004, 108, 5472–5476\nLow Energy Electron Interactions with Uracil"));
     if (jpcb.value("journal") != QStringLiteral("J. Phys. Chem. B") ||

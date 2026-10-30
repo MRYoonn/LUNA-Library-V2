@@ -1476,7 +1476,10 @@ protected:
         if (object == window_ && event->type() == QEvent::Close) {
             QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
             settings.setValue(QStringLiteral("window/geometry"), window_->saveGeometry());
-            settings.setValue(QStringLiteral("window/state"), window_->saveState());
+            // v0.9.1 owns a separate layout state. Never replay the old
+            // PDF4QT/QMainWindow toolbar layout; that can hide the reader toolbar.
+            // Keep the legacy value untouched so users can roll back safely.
+            settings.setValue(QStringLiteral("window/layout-v091"), window_->saveState(91));
         }
         return QObject::eventFilter(object, event);
     }
@@ -1679,7 +1682,10 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     window.resize(QSize(1366, 768).boundedTo(available));
     QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
     window.restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
-    window.restoreState(settings.value(QStringLiteral("window/state")).toByteArray());
+    // Preserve the prior geometry and library preferences, but do not restore
+    // the old window/state blob: legacy PDF4QT toolbar ownership was different.
+    const QByteArray layoutV091 = settings.value(QStringLiteral("window/layout-v091")).toByteArray();
+    if (!layoutV091.isEmpty()) window.restoreState(layoutV091, 91);
     focus->setChecked(dock->isHidden());
     hideAdvancedToolbars(viewer); // Old saved PDF4QT toolbar rows must not reappear.
     controls->hide(); // Legacy actions remain in View; this empty row has no UI role.

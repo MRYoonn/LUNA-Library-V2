@@ -192,7 +192,7 @@ int main(int argc, char** argv) {
     if (!store.record("garbage").value("title").toString().isEmpty() ||
         !store.record("garbage").value("authors").toString().isEmpty()) return 33;
     if (!store.save("old-fragment", {{"title", QStringLiteral("Fused 3D boron heterocycles via EnT")},
-                                      {"authors", QStringLiteral("validation as beta-lactamase inhibitors")}}, true))
+                                      {"authors", QStringLiteral("validation as beta-lactamase inhibitors")}}, false))
         return 36;
     if (!store.record("old-fragment").value("authors").toString().isEmpty()) return 37;
     if (!store.enrichFromFirstPage("garbage", jpcb)) return 34;

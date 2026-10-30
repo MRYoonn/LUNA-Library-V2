@@ -798,6 +798,20 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             const bool pageMoved = integrationWait([&] { const auto pages = b->getProgramController()->getPdfWidget()->getDrawWidget()->getCurrentPages(); return std::find(pages.begin(), pages.end(), 1) != pages.end(); });
             result["commonPageInputDiagnostics"] = QJsonObject{{"text", pageInput->text()}, {"value", pageInput->value()}, {"minimum", pageInput->minimum()}, {"maximum", pageInput->maximum()}, {"suffix", pageInput->suffix()}, {"focused", pageInput->hasFocus()}, {"nativeValue", b->findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"))->value()}};
             integrationRequire(pageMoved, "Common page input did not use the native Editor");
+            auto* pageEdit = pageInput->findChild<QLineEdit*>();
+            integrationRequire(pageEdit && pageEdit->isVisible() && pageEdit->width() > 20 && pageEdit->height() > 10, "Common page text editor has no visible layout");
+            result["commonPageEditorGeometry"] = QJsonObject{{"x", pageEdit->x()}, {"y", pageEdit->y()}, {"width", pageEdit->width()}, {"height", pageEdit->height()}, {"text", pageEdit->text()}};
+            pageInput->clearFocus(); QCoreApplication::processEvents();
+            const QImage pageImage = pageInput->grab().toImage(); int pageInk = 0;
+            const qreal pageDpr = pageImage.devicePixelRatio();
+            for (int y = qRound(5 * pageDpr); y < pageImage.height() - qRound(5 * pageDpr); ++y)
+                for (int x = qRound(8 * pageDpr); x < pageImage.width() - qRound(8 * pageDpr); ++x) {
+                    const QColor pixel = pageImage.pixelColor(x, y);
+                    if (pixel.red() < 120 && pixel.green() < 130 && pixel.blue() < 160) ++pageInk;
+                }
+            result["commonPageTextInkPixels"] = pageInk;
+            pageImage.save(report + ".page-input.png");
+            integrationRequire(pageInk >= 8, "Common page input text is not visibly painted");
             integrationRequire(integrationClick(host, zoomInput->lineEdit(), zoomInput->lineEdit()->rect().center()) && integrationKey('A', true) && integrationType(QStringLiteral("150%")) && integrationKey(VK_RETURN) && integrationWait([&] { return qAbs(pb->getZoom() - 1.5) < .001; }), "Common zoom input did not update the active Editor");
             integrationRequire(qAbs(pa->getZoom() - 2.0) < .001, "Common toolbar changed an inactive document");
             result["commonToolbarNativePageZoomAndActionOwnership"] = true;

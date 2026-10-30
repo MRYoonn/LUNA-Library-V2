@@ -47,6 +47,7 @@ QToolBar#LunaCommonReaderToolbar QToolButton { border:0; border-radius:7px; padd
 QToolBar#LunaCommonReaderToolbar QToolButton:hover { background:#E9F1FE; }
 QToolBar#LunaCommonReaderToolbar QToolButton:checked { background:#E3EFFF; }
 QToolBar#LunaCommonReaderToolbar QAbstractSpinBox, QToolBar#LunaCommonReaderToolbar QComboBox { background:white; color:#263D63; border:1px solid #D9E4F2; border-radius:7px; min-height:30px; padding:0 3px; }
+QToolBar#LunaCommonReaderToolbar QAbstractSpinBox QLineEdit { color:#263D63; background:transparent; border:0; padding:0; min-height:0; }
 QToolBar#LunaCommonReaderToolbar QComboBox:disabled, QToolBar#LunaCommonReaderToolbar QAbstractSpinBox:disabled { color:#9CAAC0; background:#F8FAFD; }
 QToolBar#LunaCommonReaderToolbar QComboBox::drop-down { border:0; width:17px; }
 QToolBar#LunaCommonReaderToolbar::separator { background:#DCE5EF; width:1px; margin:13px 9px; }

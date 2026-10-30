@@ -43,6 +43,7 @@ function Get-Manifest($source) {
 }
 function Validate-Archive($archive, $destination) {
     Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
     try {
         $names = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)

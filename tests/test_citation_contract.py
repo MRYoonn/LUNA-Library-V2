@@ -10,6 +10,7 @@ class CitationContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.model = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
         cls.ui = (ROOT / "src/lunalibrary.cpp").read_text(encoding="utf-8")
+        cls.extractor = (ROOT / "src/lunafirstpage.h").read_text(encoding="utf-8")
         cls.native = (ROOT / "tests/native_dialog/bibliography.cpp").read_text(encoding="utf-8")
 
     def test_no_network_or_doi_extractor(self):
@@ -43,10 +44,12 @@ class CitationContractTests(unittest.TestCase):
         self.assertIn("firstPageCitation(QString text)", self.model)
         self.assertIn("firstPageIdentity(const QString& text)", self.model)
         self.assertIn("void extractBibliography(const QString& path)", self.ui)
-        self.assertIn("compiler->createTextLayout(0)", self.ui)
-        self.assertIn("firstPageCitation(text)", self.ui)
-        self.assertIn("firstPageIdentity(text)", self.ui)
-        self.assertIn("bibliography_.enrichFromFirstPage(identity, evidence)", self.ui)
+        self.assertIn("generator.createTextLayout()", self.extractor)
+        self.assertIn("QThread::create", self.ui)
+        self.assertIn("analyzedCitations_.contains(identity)", self.ui)
+        self.assertIn("firstPageCitation(text)", self.extractor)
+        self.assertIn("firstPageIdentity(text)", self.extractor)
+        self.assertIn("bibliography_.enrichFromFirstPage(identity, *result)", self.ui)
         self.assertNotIn("LunaExtractFirstPageCitation", self.ui)
         self.assertNotIn("서지정보 추출 결과", self.ui)
 
@@ -85,8 +88,8 @@ class CitationContractTests(unittest.TestCase):
         self.assertIn("firstPageLastAuthor(const QString& firstPageText)", self.model)
         self.assertIn("first-page-terminal-and", self.model)
         self.assertIn('Q_UNUSED(authors);', self.model)
-        self.assertIn('firstPageLastAuthor(text)', self.ui)
-        self.assertIn('evidence.insert(QStringLiteral("authorEvidence")', self.ui)
+        self.assertIn('firstPageLastAuthor(text)', self.extractor)
+        self.assertIn('evidence["authorEvidence"]', self.extractor)
         self.assertIn('Hannah M. Kortman,ab Hao Fang', self.native)
         self.assertIn('and John J. Molloy\\n*a', self.native)
         self.assertIn('store.record("auto-rsc")', self.native)

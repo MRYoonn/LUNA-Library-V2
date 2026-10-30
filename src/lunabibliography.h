@@ -87,7 +87,7 @@ public:
         authors = authors.simplified();
         if (authors.isEmpty()) return {};
         // Publisher author symbols are not part of the actual name.
-        authors.replace(QRegularExpression(QStringLiteral(R"([\u2020\u2021*]+)")), QString());
+        authors.replace(QRegularExpression(QStringLiteral(R"([\x{2020}\x{2021}*]+)")), QString());
         // RSC commonly uses "and Name" as the final contributor.
         static const QRegularExpression lastAnd(QStringLiteral(
             R"((?:^|[,;]\s*|\s+)(?:and|&)\s+([\p{L}][\p{L}\p{M}\s.'’\-]{2,75})\s*$)"),
@@ -277,9 +277,10 @@ public:
         const QString proposedAuthor = proposal.value("authors").toString().simplified();
         if (proposal.value("authorEvidence").toString() == QStringLiteral("first-page-terminal-and") &&
             credibleAuthor(proposedAuthor) &&
-            !value.value("manual").toBool() &&
+            value.value("authorsSource").toString() != QStringLiteral("manual") &&
             value.value("authors").toString().simplified() != proposedAuthor) {
             value["authors"] = proposedAuthor;
+            value["authorsSource"] = QStringLiteral("first_page_verified");
             value["authorEvidence"] = QStringLiteral("first-page-terminal-and");
             changedField = true;
         }
@@ -295,11 +296,23 @@ public:
         if (!changedField) return false;
         value["source"] = QStringLiteral("PDF first-page evidence");
         // Preserve prior manual ownership, but never mark machine extraction manual.
-        return save(identity, value, value.value("manual").toBool());
+        return save(identity, value, false);
     }
 
     QVariantMap record(const QString& identity) const {
         QVariantMap value = settings().value(key(resolve(identity))).toMap();
+        // A legacy record-wide flag alone cannot prove that the author was edited.
+        // Keep the original value for recovery, but never display an unverified name.
+        if (!value.contains("authorsSource")) {
+            if (!value.value("manual").toBool() &&
+                     value.value("authorEvidence").toString() == QStringLiteral("first-page-terminal-and"))
+                value["authorsSource"] = QStringLiteral("first_page_verified");
+            else {
+                if (!value.value("authors").toString().isEmpty())
+                    value["legacyAuthors"] = value.value("authors");
+                value["authorsSource"] = QStringLiteral("legacy_unknown");
+            }
+        }
         const bool manual = value.value("manual").toBool();
         const QString title = value.value("title").toString().simplified();
         const QString author = value.value("authors").toString().simplified();
@@ -310,14 +323,14 @@ public:
             R"(^(?:No Job Name|Microsoft Word(?:\b.*)?|Untitled|New Document|Document1)\b)"),
             QRegularExpression::CaseInsensitiveOption);
         const bool brokenTitle = placeholder.match(title).hasMatch() ||
-            (!manual && !title.isEmpty() && !credibleTitle(title));
+            (!manual && value.value("titleSource").toString() != QStringLiteral("manual") && !title.isEmpty() && !credibleTitle(title));
         const bool brokenAuthor = author.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("the energetics"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("validation as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("lactamase inhibitors"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("towards"), Qt::CaseInsensitive) ||
-            (!manual && value.value("authorEvidence").toString() !=
-                QStringLiteral("first-page-terminal-and")) ||
+            (value.value("authorsSource").toString() != QStringLiteral("manual") &&
+             value.value("authorsSource").toString() != QStringLiteral("first_page_verified")) ||
             (!manual && !author.isEmpty() && !credibleAuthor(author));
         if (brokenTitle) value.remove("title");
         if (brokenAuthor) value.remove("authors");
@@ -329,6 +342,14 @@ public:
         const QString target = resolve(identity);
         value.remove("doi"); // Keep old users' local citation records DOI-free, too.
         value["manual"] = manual;
+        if (manual) {
+            const QVariantMap previous = record(identity);
+            for (const char* field : {"title", "authors", "citation", "journal", "year", "volume", "page"}) {
+                const QString name = QString::fromLatin1(field);
+                if (!value.contains(name + QStringLiteral("Source")) || value.value(name) != previous.value(name))
+                    value[name + QStringLiteral("Source")] = QStringLiteral("manual");
+            }
+        }
         auto store = settings();
         store.setValue(key(target), value);
         store.sync();

@@ -114,6 +114,31 @@ int main(int argc, char** argv) {
     if (store.enrichFromFirstPage("untrusted-proposal", {{"authors", QStringLiteral("Hao Fang")}}) ||
         !store.record("untrusted-proposal").value("authors").toString().isEmpty())
         return 48;
+    // Seed the historical on-disk schema directly: save() now marks actual edits.
+    for (const bool oldManual : {false, true}) {
+        const QString id = oldManual ? QStringLiteral("legacy-manual-flag") : QStringLiteral("legacy-auto");
+        QSettings legacy(QSettings::IniFormat, QSettings::UserScope, "LUNA", "LUNA Library");
+        const QString key = QStringLiteral("library/bibliography/") + QString::fromLatin1(
+            QCryptographicHash::hash(id.toUtf8(), QCryptographicHash::Sha256).toHex());
+        legacy.setValue(key, QVariantMap{{"authors", "Hao Fang"}, {"manual", oldManual},
+                                       {"source", "Manual"}, {"citation", "Keep citation"}});
+        legacy.sync();
+        if (!store.record(id).value("authors").toString().isEmpty()) return 50;
+        if (!store.enrichFromFirstPage(id, verifiedLast)) return 51;
+        // Two reconstructed readers must retain corrected output AND original data.
+        for (int restart = 0; restart < 2; ++restart) {
+            luna::Bibliography reopened;
+            const auto entry = reopened.record(id);
+            if (entry.value("authors") != QStringLiteral("John J. Molloy") ||
+                entry.value("legacyAuthors") != QStringLiteral("Hao Fang") ||
+                entry.value("citation") != QStringLiteral("Keep citation")) return 52;
+        }
+    }
+    // Editing only another field must not transfer manual ownership to the author.
+    auto mixed = store.record("auto-rsc");
+    mixed["title"] = QStringLiteral("Explicit human title");
+    if (!store.save("auto-rsc", mixed, true) ||
+        store.record("auto-rsc").value("authorsSource") != QStringLiteral("first_page_verified")) return 53;
     const QVariantMap jpcb = luna::Bibliography::firstPageCitation(
         QStringLiteral("J. Phys. Chem. B 2004, 108, 5472–5476\nLow Energy Electron Interactions with Uracil"));
     if (jpcb.value("journal") != QStringLiteral("J. Phys. Chem. B") ||

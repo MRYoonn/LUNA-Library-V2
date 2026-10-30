@@ -5,6 +5,8 @@
 #include "lunafilemove.h"
 #include "lunadocumentclaim.h"
 #include "lunabibliography.h"
+#include "lunafirstpage.h"
+#include <QThread>
 #include "pdfdocument.h"
 #include "pdfcompiler.h"
 #include "pdftextlayout.h"
@@ -877,34 +879,25 @@ private:
         }
         if (!controller->getDocument()->getCatalog() ||
             controller->getDocument()->getCatalog()->getPageCount() < 1) return;
-        auto* compiler = controller->getPdfWidget()->getDrawWidgetProxy()->getTextLayoutCompiler();
-        if (!compiler) return;
-        const pdf::PDFTextLayout layout = compiler->createTextLayout(0);
-        const auto flows = pdf::PDFTextFlow::createTextFlows(
-            layout, pdf::PDFTextFlow::SeparateBlocks | pdf::PDFTextFlow::AddLineBreaks, 0);
-        QString text;
-        for (const auto& flow : flows) {
-            text += flow.getText().left(16000) + QLatin1Char('\n');
-            if (text.size() >= 32000) break;
-        }
-        if (text.isEmpty()) return; // Image-only PDF: leave metadata unverified.
-        const QVariantMap citation = luna::Bibliography::firstPageCitation(text);
-        const QVariantMap name = luna::Bibliography::firstPageIdentity(text);
-        QVariantMap evidence = citation;
-        if (!name.value("title").toString().isEmpty())
-            evidence.insert(QStringLiteral("title"), name.value("title"));
-        // An author tail is independently verifiable, even when the PDF's
-        // text-flow order prevents reliable title reconstruction.
-        // Never use the first incomplete author-list fragment as last author.
-        if (!citation.isEmpty()) {
-            const QString finalAuthor = luna::Bibliography::firstPageLastAuthor(text);
-            if (!finalAuthor.isEmpty()) {
-                evidence.insert(QStringLiteral("authors"), finalAuthor);
-                evidence.insert(QStringLiteral("authorEvidence"),
-                                QStringLiteral("first-page-terminal-and"));
-            }
-        }
-        bibliography_.enrichFromFirstPage(identity, evidence);
+        queueBibliography(identity, *controller->getDocument());
+    }
+
+    void queueBibliography(const QString& identity, const pdf::PDFDocument& document) {
+        if (identity.isEmpty() || analyzedCitations_.contains(identity)) return;
+        analyzedCitations_.insert(identity);
+        // Copy the immutable, implicitly shared PDF snapshot before leaving the UI thread.
+        // The worker owns its caches; it never touches the viewer/compiler or QSettings.
+        auto result = std::make_shared<QVariantMap>();
+        auto* worker = QThread::create([snapshot = document, result]() mutable {
+            try { *result = luna::extractFirstPage(snapshot); }
+            catch (...) { /* Invalid/image-only documents remain unverified. */ }
+        });
+        connect(worker, &QThread::finished, this, [this, identity, result] {
+            bibliography_.enrichFromFirstPage(identity, *result);
+        });
+        connect(qApp, &QCoreApplication::aboutToQuit, worker, [worker] { worker->wait(); });
+        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        worker->start(QThread::LowPriority);
     }
 
     void editBibliography(const QString& path) {
@@ -1060,6 +1053,7 @@ private:
         editor.setProperty("LunaRememberedSource", source);
         if (path == editor.property("LunaRememberedPath").toString()) return;
         editor.setProperty("LunaRememberedPath", path);
+        queueBibliography(DocumentClaim::identity(path), *controller->getDocument());
         // Inspect only structured fields already present in the PDF info
         // dictionary. There is no DOI scanning, first-page text parsing or
         // remote lookup; QSettings writes are deferred until after open.
@@ -1646,6 +1640,7 @@ private:
     QPointer<ThumbnailCropOverlay> cropOverlay_;
     pdfviewer::PDFEditorMainWindow* viewer_;
     luna::Bibliography bibliography_;
+    QSet<QString> analyzedCitations_;
     QSet<QString> pendingCitationExtracts_;
     QAction* cropAction_ = nullptr;
     QMetaObject::Connection documentTitleConnection_, cropConnection_;

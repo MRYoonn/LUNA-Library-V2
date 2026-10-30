@@ -81,6 +81,17 @@ class CitationContractTests(unittest.TestCase):
         self.assertIn('lastListedAuthor(authors)', self.model)
         self.assertIn('John J. Molloy', self.native)
 
+    def test_real_rsc_last_author_requires_evidence(self):
+        self.assertIn("firstPageLastAuthor(const QString& firstPageText)", self.model)
+        self.assertIn("first-page-terminal-and", self.model)
+        self.assertIn('Q_UNUSED(authors);', self.model)
+        self.assertIn('firstPageLastAuthor(text)', self.ui)
+        self.assertIn('evidence.insert(QStringLiteral("authorEvidence")', self.ui)
+        self.assertIn('Hannah M. Kortman,ab Hao Fang', self.native)
+        self.assertIn('and John J. Molloy\\n*a', self.native)
+        self.assertIn('store.record("auto-rsc")', self.native)
+        self.assertIn('Manual Correct Author', self.native)
+
     def test_native_fixture_exercises_citation_and_restart(self):
         for text in (
             "store.relocate", "Synthetic Paper", "J. Am. Chem. Soc.",

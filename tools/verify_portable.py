@@ -13,7 +13,7 @@ REQUIRED_BINARIES = (
     "platforms/qwindows.dll", "msvcp140.dll", "vcruntime140.dll",
     "vcruntime140_1.dll",
 )
-REQUIRED_NOTICES = ("PDF4QT_LICENSE.txt", "LUNA_LICENSE_NOTICE.md", "USER_GUIDE_KO.md", "build-info.json")
+REQUIRED_NOTICES = ("PDF4QT_LICENSE.txt", "LUNA_LICENSE_NOTICE.md", "USER_GUIDE_KO.md", "build-info.json", "LUNA-Update.ps1")
 PRIVATE_SUFFIXES = {
     ".pdf", ".db", ".sqlite", ".sqlite3", ".log", ".pem", ".pfx",
     ".p12", ".key", ".token",

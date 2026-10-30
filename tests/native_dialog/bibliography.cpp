@@ -11,6 +11,26 @@ int main(int argc, char** argv) {
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, directory.path());
 
+    const QString firstPage = QStringLiteral(
+        "Research Article\\nJ. Am. Chem. Soc. 2025, 147, 10012–10019\\n"
+        "Visible title\\nAuthor One, Author Two\\n");
+    const QVariantMap parsed = luna::Bibliography::firstPageCitation(firstPage);
+    if (parsed.value("journal") != QStringLiteral("J. Am. Chem. Soc.") ||
+        parsed.value("year") != QStringLiteral("2025") ||
+        parsed.value("volume") != QStringLiteral("147") ||
+        parsed.value("page") != QStringLiteral("10012-10019")) return 19;
+    const QVariantMap ange = luna::Bibliography::firstPageCitation(
+        QStringLiteral("Angew. Chem. Int. Ed. 2024, 63, e202410123"));
+    if (ange.value("page") != QStringLiteral("e202410123")) return 20;
+    if (!luna::Bibliography::firstPageCitation(
+            QStringLiteral("Supporting Information\\nTable of Contents\\nNo volume data")).isEmpty()) return 21;
+    const QVariantMap si = luna::Bibliography::firstPageIdentity(
+        QStringLiteral("Supporting Information\\nCatalytic Ketyl-Olefin Cyclizations Enabled by Proton Coupled-Electron\\n"
+                       "Transfer\\nKyle T. Tarantino, Peng Liu, Robert R. Knowles*\\n"
+                       "Department of Chemistry, Princeton University"));
+    if (si.value("title") != QStringLiteral(
+            "Catalytic Ketyl-Olefin Cyclizations Enabled by Proton Coupled-Electron Transfer") ||
+        !si.value("authors").toString().contains(QStringLiteral("Robert R. Knowles"))) return 22;
     const QVariantMap structured{
         {"title", QStringLiteral("Synthetic Paper")},
         {"authors", QStringLiteral("Author A")},

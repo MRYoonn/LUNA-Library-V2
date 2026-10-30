@@ -156,6 +156,8 @@ public:
             for (qsizetype j = i; j-- > 0 && j + 10 >= i && titleLines.size() < 3;) {
                 const QString candidate = lines[j];
                 if (headingPattern.match(candidate).hasMatch() ||
+                    candidate.startsWith(QStringLiteral("Cite this:"), Qt::CaseInsensitive) ||
+                    candidate.startsWith(QStringLiteral("Cite this"), Qt::CaseInsensitive) ||
                     candidate.contains(QStringLiteral("https://"), Qt::CaseInsensitive) ||
                     candidate.contains(QStringLiteral("doi.org"), Qt::CaseInsensitive))
                     continue;

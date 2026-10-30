@@ -22,6 +22,9 @@ int main(int argc, char** argv) {
     const QVariantMap ange = luna::Bibliography::firstPageCitation(
         QStringLiteral("Angew. Chem. Int. Ed. 2024, 63, e202410123"));
     if (ange.value("page") != QStringLiteral("e202410123")) return 20;
+    const QVariantMap wrapped = luna::Bibliography::firstPageCitation(
+        QStringLiteral("Article\nJ. Am. Chem. Soc.\n2026, 148, 12050–12058"));
+    if (wrapped.value("page") != QStringLiteral("12050-12058")) return 23;
     if (!luna::Bibliography::firstPageCitation(
             QStringLiteral("Supporting Information\nTable of Contents\nNo volume data")).isEmpty()) return 21;
     const QVariantMap si = luna::Bibliography::firstPageIdentity(

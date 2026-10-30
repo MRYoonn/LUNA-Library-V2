@@ -976,11 +976,18 @@ private:
         editor.setProperty("LunaRememberedSource", source);
         if (path == editor.property("LunaRememberedPath").toString()) return;
         editor.setProperty("LunaRememberedPath", path);
-        // Read title and author from the already-loaded PDF info dictionary.
-        // No DOI parsing, network lookup, or extra PDF parsing in the open path.
-        if (const auto* documentInfo = controller->getDocument()->getInfo())
-            bibliography_.ingest(DocumentClaim::identity(path), documentInfo->title,
-                                 documentInfo->author);
+        // Copy metadata from the already-loaded PDF info dictionary, but
+        // persist it only after yielding to the GUI event loop. Never delay the
+        // document-open/first-paint path with QSettings I/O or extra PDF parsing.
+        if (const auto* documentInfo = controller->getDocument()->getInfo()) {
+            const QString identity = DocumentClaim::identity(path);
+            const QString title = documentInfo->title;
+            const QString authors = documentInfo->author;
+            if (!title.isEmpty() || !authors.isEmpty())
+                QTimer::singleShot(0, this, [this, identity, title, authors] {
+                    bibliography_.ingest(identity, title, authors);
+                });
+        }
         QStringList recent = savedPaths(QStringLiteral("library/recent"));
         recent.removeAll(path);
         recent.prepend(path);

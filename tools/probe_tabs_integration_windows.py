@@ -90,8 +90,8 @@ def run(package, output, debugger=None):
             (root / 'UI examples' / 'Research').mkdir(parents=True)
             (root / 'UI examples' / 'References').mkdir()
             a, b = root / 'A.pdf', root / 'B.pdf'
-            a.write_bytes(synthetic_pdf(2).replace(b'smoke', b'alpha'))
-            b.write_bytes(synthetic_pdf(3).replace(b'smoke', b'bravo'))
+            a.write_bytes(synthetic_pdf(2, bibliography_author="Final A. Writer").replace(b'smoke', b'alpha'))
+            b.write_bytes(synthetic_pdf(3, bibliography_author="Final B. Writer").replace(b'smoke', b'bravo'))
             original_b = hashlib.sha256(b.read_bytes()).hexdigest()
             for index, word in enumerate((b'delta', b'gamma', b'omega')):
                 title = f'UI-long-{index + 1} 논문 제목 photochemical mechanisms and independent document state verification.pdf'
@@ -103,7 +103,7 @@ def run(package, output, debugger=None):
             env = os.environ.copy()
             windows_root = Path(os.environ['SystemRoot'])
             env['PATH'] = os.pathsep.join(map(str, (package, windows_root / 'System32', windows_root)))
-            env.update(LUNA_PERF='1', QT_SCALE_FACTOR=scale, QT_QPA_PLATFORM='windows', QT_FORCE_STDERR_LOGGING='1',
+            env.update(LUNA_PERF='1', LUNA_BIBLIOGRAPHY_TAB_FIXTURE='1', QT_SCALE_FACTOR=scale, QT_QPA_PLATFORM='windows', QT_FORCE_STDERR_LOGGING='1',
                        QT_PLUGIN_PATH=str(package), QT_QPA_PLATFORM_PLUGIN_PATH=str(package / 'platforms'))
             with (evidence / 'native.log').open('w', encoding='utf-8') as log:
                 reports = []

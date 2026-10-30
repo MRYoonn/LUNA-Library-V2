@@ -13,11 +13,16 @@ import tempfile
 import json
 
 
-def synthetic_pdf(page_count: int = 1) -> bytes:
+def synthetic_pdf(page_count: int = 1, *, bibliography_author: str | None = None) -> bytes:
     """Public synthetic text with a valid cross-reference table (one to three pages)."""
     if page_count not in (1, 2, 3):
         raise ValueError("Synthetic fixture supports one to three pages")
     content = b"BT /F1 18 Tf 40 160 Td (LUNA synthetic smoke test) Tj ET\n"
+    if bibliography_author:
+        author = bibliography_author.encode("ascii")
+        content += (b"BT /F1 8 Tf 40 125 Td (Chem. Sci. 2026, 17, 247) Tj ET\n"
+                    b"BT /F1 8 Tf 40 110 Td (Author One, Author Two) Tj ET\n"
+                    b"BT /F1 8 Tf 40 95 Td (and " + author + b") Tj ET\n")
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -42,6 +47,10 @@ def synthetic_pdf(page_count: int = 1) -> bytes:
             b"/Resources << /Font << /F1 4 0 R >> >> /Contents 9 0 R >>",
             b"<< /Length " + str(len(third)).encode() + b" >>\nstream\n" + third + b"endstream",
         ])
+    info_reference = 0
+    if bibliography_author:
+        objects.append(b"<< /Author (Hao Fang) >>")
+        info_reference = len(objects)
     data = bytearray(b"%PDF-1.4\n")
     offsets = []
     for number, obj in enumerate(objects, 1):
@@ -51,7 +60,8 @@ def synthetic_pdf(page_count: int = 1) -> bytes:
     data.extend(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode())
     for offset in offsets:
         data.extend(f"{offset:010d} 00000 n \n".encode())
-    data.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode())
+    info = f" /Info {info_reference} 0 R" if info_reference else ""
+    data.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R{info} >>\nstartxref\n{xref}\n%%EOF\n".encode())
     return bytes(data)
 
 

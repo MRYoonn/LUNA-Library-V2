@@ -877,7 +877,7 @@ private:
             auto* compiler = c->getPdfWidget()->getDrawWidgetProxy()->getTextLayoutCompiler();
             if (!compiler) return;
             extract->setEnabled(false);
-            QApplication::setOverrideCursor(Qt::WaitCursor);
+            QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
             const pdf::PDFTextLayout layout = compiler->createTextLayout(0);
             QApplication::restoreOverrideCursor();
             extract->setEnabled(true);

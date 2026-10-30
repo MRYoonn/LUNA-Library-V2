@@ -72,6 +72,27 @@ public:
         return {};
     }
 
+    // Papers can list many authors; LUNA cards display only the final named
+    // author, without claiming they are always the corresponding author.
+    static QString lastListedAuthor(QString authors) {
+        authors = authors.simplified();
+        if (authors.isEmpty()) return {};
+        // Publisher author symbols are not part of the actual name.
+        authors.replace(QRegularExpression(QStringLiteral(R"([\u2020\u2021*]+)")), QString());
+        // RSC commonly uses "and Name" as the final contributor.
+        static const QRegularExpression lastAnd(QStringLiteral(
+            R"((?:^|[,;]\s*|\s+)(?:and|&)\s+([\p{L}][\p{L}\p{M}\s.'’\-]{2,75})\s*$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        const auto joined = lastAnd.match(authors);
+        if (joined.hasMatch()) return joined.captured(1).simplified();
+        const QStringList entries = authors.split(QLatin1Char(','), Qt::SkipEmptyParts);
+        if (entries.size() < 2) return authors.left(90);
+        QString last = entries.last().simplified();
+        last.remove(QRegularExpression(QStringLiteral(R"(^(?:and|&)\s+)"),
+                                       QRegularExpression::CaseInsensitiveOption));
+        return last.left(90);
+    }
+
     // Return tentative title/author candidates for manual review, especially
     // for Supporting Information PDFs without printed journal citations.
     static QVariantMap firstPageIdentity(const QString& text) {
@@ -114,7 +135,7 @@ public:
                 title.contains(QStringLiteral("department"), Qt::CaseInsensitive) ||
                 title.contains(QStringLiteral("university"), Qt::CaseInsensitive))
                 continue;
-            return {{"title", title.left(4096)}, {"authors", authors.left(4096)}};
+            return {{"title", title.left(4096)}, {"authors", lastListedAuthor(authors)}};
         }
         return {};
     }

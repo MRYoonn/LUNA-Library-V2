@@ -20,11 +20,20 @@ def apply(root):
         span('void PDFProgramController::openDocument(const QString& fileName)', 'controller-dispatch'),
         span('void PDFProgramController::onDocumentReadingFinished()', 'document-layout-and-install'),
         span('void PDFProgramController::readSettings(Settings settingsFlags)', 'controller-settings'),
+        ('    auto readDocument = [this, fileName]() -> AsyncReadingResult',
+         '    const auto queuedAt = luna::performanceNow();\n    auto readDocument = [this, fileName, queuedAt]() -> AsyncReadingResult'),
+        ('        AsyncReadingResult result;', '        luna::performanceEvent("reader-worker-queue", queuedAt);\n        AsyncReadingResult result;'),
+        ('            result.signatures = pdf::PDFSignatureHandler::verifySignatures(form, reader.getSource(), parameters);',
+         '            const auto signatureStart = luna::performanceNow();\n            result.signatures = pdf::PDFSignatureHandler::verifySignatures(form, reader.getSource(), parameters);\n            luna::performanceEvent("signature-verification", signatureStart);'),
         ('\n        pdf::PDFDocument document = reader.readFromFile(fileName);',
          '\n        const auto parseStart = luna::performanceNow();\n        pdf::PDFDocument document = reader.readFromFile(fileName);\n        luna::performanceEvent("pdf-parse", parseStart);'),
     ])
     patch('Pdf4QtLibGui/pdftexttospeech.cpp', [span('void PDFTextToSpeech::setSettings(const PDFViewerSettings* viewerSettings)', 'speech-engine-settings')])
     patch('Pdf4QtLibCore/sources/pdfcms.cpp', [span('PDFCMSSettings PDFCMSManager::getDefaultSettings() const', 'color-profile-defaults')])
+    patch('Pdf4QtLibWidgets/sources/pdfdrawspacecontroller.cpp', [
+        ('QColor backgroundColor = darkScheme ? QColor(34, 34, 34) : QColor(Qt::lightGray);',
+         'QColor backgroundColor = darkScheme ? QColor(34, 34, 34) : QColor("#DFE5ED");'),
+    ])
     patch('Pdf4QtLibWidgets/sources/pdfdrawwidget.cpp', [
         ('void PDFDrawWidget::resizeEvent(QResizeEvent* event)', 'void PDFDrawWidget::resizeEvent(QResizeEvent* event)'),
         ('\n}\n\nvoid PDFDrawWidget::resizeEvent', '''

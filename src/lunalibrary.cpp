@@ -507,7 +507,7 @@ public:
         }
         setMinimumWidth(482);
         auto* layout = new QHBoxLayout(this);
-        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setContentsMargins(7, 7, 0, 7);
         split_ = new QSplitter(Qt::Horizontal, this);
         split_->setObjectName(QStringLiteral("LunaLibrarySplitter"));
         split_->setChildrenCollapsible(false);
@@ -521,7 +521,7 @@ public:
         navigationScroll->setMinimumHeight(0);
         navigation_ = navigationScroll;
         navigation_->setObjectName(QStringLiteral("LunaNavigation"));
-        navigation_->setMinimumWidth(192);
+        navigation_->setMinimumWidth(225);
         navigation_->setMaximumWidth(300);
         auto* navigationContents = new QWidget(navigationScroll);
         navigationContents->setObjectName(QStringLiteral("LunaNavigationContents"));
@@ -612,7 +612,7 @@ public:
 
         documents_ = new QWidget(split_);
         documents_->setObjectName(QStringLiteral("LunaDocuments"));
-        documents_->setMinimumWidth(285);
+        documents_->setMinimumWidth(325);
         auto* docs = new QVBoxLayout(documents_);
         docs->setContentsMargins(0, 0, 0, 0);
         docs->setSpacing(0);
@@ -786,7 +786,7 @@ public:
             }
         }
     }
-    void updateMinimum() { setMinimumWidth((navigation_->isHidden() ? 0 : 192) + (documents_->isHidden() ? 0 : 285) + 5); }
+    void updateMinimum() { setMinimumWidth((navigation_->isHidden() ? 0 : 225) + (documents_->isHidden() ? 0 : 325) + 12); }
     void toggleNavigation() { savePanelState(); navigation_->setVisible(navigation_->isHidden()); updateMinimum(); }
     void toggleDocuments() { savePanelState(); documents_->setVisible(documents_->isHidden()); updateMinimum(); }
     void showBothPanels() { navigation_->show(); documents_->show(); updateMinimum(); }
@@ -883,10 +883,16 @@ private:
     void rememberEditor(pdfviewer::PDFEditorMainWindow& editor) {
         auto* controller = editor.getProgramController();
         if (!controller->getDocument()) { editor.setProperty("LunaRememberedPath", QString()); return; }
+        // synchronize() calls this for every open tab at 10 Hz. Only resolve
+        // filesystem identity on a document/path transition, never on idle ticks.
+        const QString source = controller->getOriginalFileName();
+        if (!editor.property("LunaRememberedPath").toString().isEmpty() &&
+            editor.property("LunaRememberedSource").toString() == source) return;
         const QFileInfo info(controller->getOriginalFileName());
         const QString path = info.canonicalFilePath();
         if (!info.isFile() || path.isEmpty() || path == editor.property("LunaRememberedPath").toString()) return;
         editor.setProperty("LunaRememberedPath", path);
+        editor.setProperty("LunaRememberedSource", source);
         QStringList recent = savedPaths(QStringLiteral("library/recent"));
         recent.removeAll(path);
         recent.prepend(path);
@@ -1494,7 +1500,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     dock->setTitleBarWidget(new QWidget(dock));
     dock->setMinimumWidth(1);
     dock->setMaximumWidth(850);
-    dock->setContentsMargins(7, 7, 0, 7);
+    dock->setContentsMargins(0, 0, 0, 0);
     auto* library = new LibraryPanel(&viewer, dock);
     dock->setWidget(library);
     window.addDockWidget(Qt::LeftDockWidgetArea, dock);
@@ -1567,6 +1573,10 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     auto* brand = new QLabel(QStringLiteral("LUNA Library"), brandFrame); brand->setObjectName(QStringLiteral("LunaBrand"));
     QFont brandFont(QStringLiteral("Malgun Gothic")); brandFont.setPixelSize(20); brandFont.setBold(true); brandFont.setLetterSpacing(QFont::AbsoluteSpacing, -.45); brand->setFont(brandFont);
     brand->setAlignment(Qt::AlignVCenter | Qt::AlignLeft); brandRow->addWidget(brand, 0, Qt::AlignVCenter);
+    brand->ensurePolished();
+    brand->setMinimumWidth(QFontMetrics(brand->font()).horizontalAdvance(brand->text()));
+    brandFrame->setMinimumWidth(brandFrame->sizeHint().width());
+    brandFrame->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     window.menuBar()->setObjectName(QStringLiteral("LunaMainMenuBar"));
     auto* menuStyle = new MenuBarStyle; menuStyle->setParent(window.menuBar()); window.menuBar()->setStyle(menuStyle);
     QFont menuFont(QStringLiteral("Malgun Gothic")); menuFont.setPixelSize(13); window.menuBar()->setFont(menuFont);

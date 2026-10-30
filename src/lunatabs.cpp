@@ -710,6 +710,30 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
     if (host.current()) integrationSurface(host.current())->setFocus();
     integrationRequire(captured, "Production tab layout size or capture failed");
 }
+// The same checks run on ordinary empty/positional-file launches, without the
+// integration scenario's focus mode, reparenting or test file-dialog setup.
+static bool auditChrome(NativeTabs& host, QJsonObject& out) {
+    auto* bar = host.findChild<QToolBar*>(QStringLiteral("LunaCommonReaderToolbar"));
+    auto* brand = host.findChild<QWidget*>(QStringLiteral("LunaBrandFrame"));
+    bool ok = bar && brand && bar->isVisible() && bar->visibleRegion().boundingRect().contains(bar->rect().adjusted(1,1,-1,-1));
+    QJsonArray buttons;
+    if (bar) for (auto* action : bar->actions()) {
+        if (action->isSeparator()) continue;
+        auto* widget = bar->widgetForAction(action);
+        const QRect bounds = widget ? QRect(widget->mapTo(&host, QPoint()), widget->size()) : QRect();
+        const bool visible = widget && widget->isVisible() && !widget->visibleRegion().isEmpty() && host.rect().contains(bounds);
+        buttons.append(QJsonObject{{"action", action->objectName()}, {"visible", visible}, {"enabled", action->isEnabled()}, {"x", bounds.x()}, {"y", bounds.y()}, {"width", bounds.width()}, {"height", bounds.height()}});
+        ok &= visible;
+    }
+    if (brand) for (auto* action : host.menuBar()->actions()) {
+        const QRect rect = host.menuBar()->actionGeometry(action);
+        if (!rect.isEmpty()) ok &= !rect.intersects(QRect(brand->mapTo(host.menuBar(), QPoint()), brand->size()));
+    }
+    out["controls"] = buttons; out["accepted"] = ok;
+    out["dpr"] = host.devicePixelRatioF();
+    out["clientWidth"] = host.width(); out["clientHeight"] = host.height();
+    return ok;
+}
 static void verifyIntegration(NativeTabs& host, const QStringList& files, const QString& report, bool restore) {
     QJsonObject result{{"accepted", false}, {"physicalMonitorDpi", "unverified"}, {"input", "Win32 tab clicks, memo typing and shortcuts; Qt crop/highlight and dialog fixtures"}};
     auto write = [&] { result["panelClickDiagnostics"] = host.property("LunaPanelClickDiagnostics").toJsonArray(); QSaveFile output(report); if (output.open(QIODevice::WriteOnly)) { output.write(QJsonDocument(result).toJson()); output.commit(); } };
@@ -1166,12 +1190,37 @@ int runTabbedLibrary(const QStringList& files, const QString& report, bool resto
     if (!report.isEmpty()) qApp->setProperty("LunaLifecycleTracePath", report + ".lifecycle.jsonl");
     const bool previousQuitPolicy = qApp->quitOnLastWindowClosed();
     qApp->setQuitOnLastWindowClosed(false);
+    if (!qEnvironmentVariable("LUNA_UI_AUDIT").isEmpty()) {
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QFileInfo(qEnvironmentVariable("LUNA_UI_AUDIT")).absolutePath() + "/settings");
+    }
     NativeTabs host;
     int opened = 0;
     const QStringList initial = !report.isEmpty() && !restore ? files.mid(0, 1) : files;
     for (const auto& file : initial) if (host.open(file)) ++opened;
     if (!files.isEmpty() && !opened) { qApp->setQuitOnLastWindowClosed(previousQuitPolicy); return 0; }
     host.show();
+#ifdef Q_OS_WIN
+    const QString auditPath = qEnvironmentVariable("LUNA_UI_AUDIT");
+    if (!auditPath.isEmpty()) {
+        QTimer::singleShot(3000, &host, [&host, auditPath] {
+            QJsonObject result; bool ok = auditChrome(host, result);
+            if (auto* editor = host.current(); editor && editor->getProgramController()->getDocument()) {
+                auto* bar = host.findChild<QToolBar*>(QStringLiteral("LunaCommonReaderToolbar"));
+                auto* action = editor->findChild<QAction*>(QStringLiteral("actionZoom_Out"));
+                auto* button = bar->widgetForAction(action);
+                const auto before = editor->getProgramController()->getPdfWidget()->getDrawWidgetProxy()->getZoom();
+                ok &= button && integrationClick(host, button, button->rect().center()) && integrationWait([&] { return editor->getProgramController()->getPdfWidget()->getDrawWidgetProxy()->getZoom() < before; });
+                result["nativeZoomClick"] = ok;
+            }
+            result["accepted"] = ok;
+            host.grab().save(auditPath + ".window.png");
+            host.screen()->grabWindow(0).save(auditPath + ".desktop.png");
+            QSaveFile output(auditPath); if (output.open(QIODevice::WriteOnly)) { output.write(QJsonDocument(result).toJson()); output.commit(); }
+            host.close(); qApp->exit(ok ? 0 : 16);
+        });
+    }
+#endif
     if (!report.isEmpty()) {
 #ifdef Q_OS_WIN
         QTimer::singleShot(0, &host, [&] { verifyIntegration(host, files, report, restore); });

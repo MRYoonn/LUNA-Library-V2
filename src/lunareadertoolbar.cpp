@@ -212,6 +212,8 @@ public:
         bar_ = new QToolBar(QStringLiteral("읽기"), &shell);
         bar_->setObjectName(QStringLiteral("LunaCommonReaderToolbar"));
         bar_->setMovable(false); bar_->setFloatable(false);
+        bar_->setAllowedAreas(Qt::TopToolBarArea);
+        bar_->toggleViewAction()->setVisible(false);
         bar_->setToolButtonStyle(Qt::ToolButtonIconOnly); bar_->setIconSize(QSize(21, 21));
         bar_->setFixedHeight(51); // Exact final HTML toolbar height.
         shell.addToolBar(Qt::TopToolBarArea, bar_);
@@ -249,7 +251,7 @@ public:
         connect(&poll_, &QTimer::timeout, this, [this] { synchronize(); }); poll_.start(100);
     }
     void bind(pdfviewer::PDFEditorMainWindow& editor) {
-        if (editor_ == &editor) { synchronize(); return; }
+        if (editor_ == &editor) { bar_->show(); synchronize(); return; }
         // Finish an old tab's view edit before changing its recipient. A late
         // focus-out must never apply one document's page/zoom text to another.
         page_->clearFocus(); zoom_->lineEdit()->clearFocus(); zoom_->clearFocus();
@@ -264,6 +266,7 @@ public:
         add("actionZoom_Out"); bar_->addAction(zoomAction_); add("actionZoom_In"); bar_->addAction(separators_[2]);
         add("actionSelectText"); add("actionCreateTextHighlight"); add("actionStickyNoteComment"); add("actionDeleteAnnotation"); add("LunaCropThumbnail");
         bar_->addAction(separators_[3]); add("actionFind"); add("actionPrint");
+        bar_->show();
         synchronize();
     }
     void unbind() {

@@ -4,6 +4,7 @@
 #include <QSettings>
 #include <QCryptographicHash>
 #include <QHash>
+#include <QRegularExpression>
 #include <QSet>
 #include <QVariantMap>
 #include <QString>
@@ -51,20 +52,31 @@ public:
 
     // Use only PDF info metadata already read by the native PDF viewer.
     // Do not block page opening on a second parse and never overwrite user edits.
-    void ingest(const QString& identity, const QString& title, const QString& authors) {
+    void ingest(const QString& identity, const QString& title, const QString& authors,
+                const QVariantMap& structured = {}) {
         const QString target = resolve(identity);
         if (target.isEmpty() || seen_.contains(target)) return;
         seen_.insert(target);
         auto entry = record(target);
         if (entry.value("manual").toBool()) return;
         bool updated = false;
-        if (entry.value("title").toString().isEmpty() && !title.simplified().isEmpty()) {
-            entry["title"] = title.simplified().left(4096);
-            updated = true;
-        }
-        if (entry.value("authors").toString().isEmpty() && !authors.simplified().isEmpty()) {
-            entry["authors"] = authors.simplified().left(4096);
-            updated = true;
+        const auto fill = [&entry, &updated](const QString& key, const QString& text, int maxLength) {
+            const QString value = text.simplified().left(maxLength);
+            if (entry.value(key).toString().isEmpty() && !value.isEmpty()) {
+                entry[key] = value;
+                updated = true;
+            }
+        };
+        fill(QStringLiteral("title"), title, 4096);
+        fill(QStringLiteral("authors"), authors, 4096);
+        for (const char* field : {"journal", "year", "volume", "page"}) {
+            const QString key = QString::fromLatin1(field);
+            QString value = structured.value(key).toString();
+            if (key == QStringLiteral("year")) {
+                static const QRegularExpression validYear(QStringLiteral(R"(^[0-9]{4}$)"));
+                if (!validYear.match(value.trimmed()).hasMatch()) continue;
+            }
+            fill(key, value, 256);
         }
         if (updated) {
             entry["source"] = QStringLiteral("PDF metadata");

@@ -42,6 +42,15 @@ public:
             text.replace(mark, QLatin1Char('-'));
         text.replace(QChar(0x00a0), QLatin1Char(' '));
         const auto lines = text.split(QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
+        // SI pages can cite the main article or references. They are not
+        // reliable evidence for the SI PDF's own publication fields.
+        for (qsizetype i = 0; i < lines.size() && i < 16; ++i) {
+            const QString heading = lines[i].simplified();
+            if (heading.compare(QStringLiteral("Supporting Information"), Qt::CaseInsensitive) == 0 ||
+                heading.compare(QStringLiteral("Revised Supporting Information"), Qt::CaseInsensitive) == 0 ||
+                heading.compare(QStringLiteral("Supplementary Information"), Qt::CaseInsensitive) == 0)
+                return {};
+        }
         static const QRegularExpression pattern(QStringLiteral(
             R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|J\.?\s*Phys\.?\s*Chem\.?\s*[ABC]\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Org\.?\s*Biomol\.?\s*Chem\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
             QRegularExpression::CaseInsensitiveOption);

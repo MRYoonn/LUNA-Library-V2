@@ -4,6 +4,8 @@
 #include "lunathumbnailcache.h"
 #include "lunafilemove.h"
 #include "lunadocumentclaim.h"
+#include "lunabibliography.h"
+#include "pdfdocument.h"
 #include "lunareadertoolbar.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -19,6 +21,9 @@
 #include <QApplication>
 #include <QAbstractButton>
 #include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QCryptographicHash>
 #include <QDebug>
 #include <QCursor>
@@ -329,10 +334,17 @@ public:
         painter->restore();
         painter->setFont(captionFont);
         painter->setPen(QColor(kMUTED));
+        const QVariantMap bibliography = index.data(Qt::UserRole + 5).toMap();
+        const QString citation = luna::Bibliography::citation(bibliography);
         painter->drawText(QRect(text.left(), r.top() + 40, text.width(), 15),
-            Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("저널·연도 미확인"));
+            Qt::AlignLeft | Qt::AlignVCenter,
+            QFontMetrics(captionFont).elidedText(
+                citation.isEmpty() ? QStringLiteral("저널·연도 미확인") : citation,
+                Qt::ElideRight, text.width()));
         const QString opened = index.data(Qt::UserRole + 3).toString();
-        const QString metadata = (opened.isEmpty() ? QStringLiteral("열람 기록 없음") : opened) + QStringLiteral(" / 저자 미확인");
+        const QString authors = bibliography.value("authors").toString().simplified();
+        const QString metadata = (authors.isEmpty() ? QStringLiteral("저자 미확인") : authors) +
+            (opened.isEmpty() ? QString() : QStringLiteral(" · ") + opened);
         painter->drawText(QRect(text.left(), r.top() + 57, text.width(), 15),
             Qt::AlignLeft | Qt::AlignVCenter,
             QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, text.width()));
@@ -490,7 +502,7 @@ class LibraryPanel final : public QWidget {
     friend bool luna::verifyCancelledLibraryMove(pdfviewer::PDFEditorMainWindow&, QString&);
 public:
     explicit LibraryPanel(pdfviewer::PDFEditorMainWindow* viewer, QWidget* parent)
-        : QWidget(parent), viewer_(viewer)
+        : QWidget(parent), viewer_(viewer), bibliography_(this)
     {
         setObjectName(QStringLiteral("LunaLibraryPanel"));
         const QStringList favoritePaths = savedPaths(QStringLiteral("library/favorites"));
@@ -747,6 +759,7 @@ public:
         QString start = settings.value(QStringLiteral("library/root")).toString();
         if (!QFileInfo(start).isDir()) start = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
         if (!QFileInfo(start).isDir()) start = QDir::homePath();
+        bibliography_.changed = [this](const QString& identity) { refreshBibliography(identity); };
         selectRoot(start);
         split_->restoreState(settings.value(QStringLiteral("library/splitter")).toByteArray());
     }
@@ -805,6 +818,55 @@ private:
     QStringList savedPaths(const QString& key) const {
         return QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).value(key).toStringList();
     }
+    void refreshBibliography(const QString& identity) {
+        for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) {
+            for (int index = 0; index < list->count(); ++index) {
+                auto* item = list->item(index);
+                const QString path = item->data(Qt::UserRole).toString();
+                if (DocumentClaim::identity(path) == identity) decorate(item, path);
+            }
+            filter(list, query_->text());
+        }
+    }
+    void editBibliography(const QString& path) {
+        const QVariantMap existing = bibliography_.record(DocumentClaim::identity(path));
+        QDialog dialog(this);
+        dialog.setWindowTitle(QStringLiteral("논문 서지정보 수정"));
+        QFormLayout form(&dialog);
+        QLineEdit title(existing.value("title").toString(), &dialog);
+        QLineEdit authors(existing.value("authors").toString(), &dialog);
+        QLineEdit journal(existing.value("journal").toString(), &dialog);
+        QLineEdit year(existing.value("year").toString(), &dialog);
+        QLineEdit volume(existing.value("volume").toString(), &dialog);
+        QLineEdit pages(existing.value("page").toString(), &dialog);
+        form.addRow(QStringLiteral("논문 제목"), &title);
+        form.addRow(QStringLiteral("저자"), &authors);
+        form.addRow(QStringLiteral("저널"), &journal);
+        form.addRow(QStringLiteral("발행 연도"), &year);
+        form.addRow(QStringLiteral("권(Volume)"), &volume);
+        form.addRow(QStringLiteral("페이지 / 논문 번호"), &pages);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+        form.addRow(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+        if (dialog.exec() != QDialog::Accepted) return;
+        const QString revisedYear = year.text().trimmed();
+        static const QRegularExpression yearPattern(QStringLiteral(R"(^[0-9]{4}$)"));
+        if (!revisedYear.isEmpty() && !yearPattern.match(revisedYear).hasMatch()) {
+            QMessageBox::warning(this, QStringLiteral("발행 연도 확인"), QStringLiteral("발행 연도는 네 자리 숫자로 입력하세요."));
+            return;
+        }
+        QVariantMap revised = existing;
+        revised["title"] = title.text().simplified().left(4096);
+        revised["authors"] = authors.text().simplified().left(4096);
+        revised["journal"] = journal.text().simplified().left(4096);
+        revised["year"] = revisedYear;
+        revised["volume"] = volume.text().simplified().left(256);
+        revised["page"] = pages.text().simplified().left(256);
+        revised["source"] = QStringLiteral("Manual");
+        if (!bibliography_.save(DocumentClaim::identity(path), revised, true))
+            QMessageBox::warning(this, QStringLiteral("서지정보 저장 실패"), QStringLiteral("로컬 서지정보를 저장하지 못했습니다."));
+    }
     void decorate(QListWidgetItem* item, const QString& path) {
         item->setData(Qt::UserRole, path);
         const QString location = QDir(root_).relativeFilePath(QFileInfo(path).absolutePath());
@@ -817,8 +879,14 @@ private:
         item->setData(Qt::UserRole + 3, opened.isValid() ? opened.toLocalTime().date().toString(QStringLiteral("yy.MM.dd.")) : QString());
         const QString memo = memos_.value(openedDateKey(path));
         item->setData(Qt::UserRole + 4, memo);
+        const QVariantMap bibliography = bibliography_.record(DocumentClaim::identity(path));
+        item->setData(Qt::UserRole + 5, bibliography);
+        const QString title = bibliography.value("title").toString().simplified();
+        item->setText(title.isEmpty() ? QFileInfo(path).completeBaseName() : title);
         item->setFlags(item->flags() | Qt::ItemIsEditable);
-        item->setToolTip(memo.isEmpty() ? path : memo + QLatin1Char('\n') + path);
+        const QString citation = luna::Bibliography::citation(bibliography);
+        item->setToolTip((memo.isEmpty() ? QString() : memo + QLatin1Char('\n')) +
+            (citation.isEmpty() ? QString() : citation + QLatin1Char('\n')) + path);
     }
     void savePaperMemo(const QString& path, QString text) {
         text.replace(QLatin1Char('\n'), QLatin1Char(' ')); text.replace(QLatin1Char('\r'), QLatin1Char(' '));
@@ -897,6 +965,18 @@ private:
         editor.setProperty("LunaRememberedSource", source);
         if (path == editor.property("LunaRememberedPath").toString()) return;
         editor.setProperty("LunaRememberedPath", path);
+        // Read only the already-loaded native PDF info dictionary. Never re-parse
+        // the PDF or block its first paint on a Crossref network request.
+        if (const auto* documentInfo = controller->getDocument()->getInfo()) {
+            QString doiText = documentInfo->subject + QLatin1Char(' ') + documentInfo->keywords;
+            for (const auto& [key, value] : documentInfo->extra) {
+                if (QString::fromUtf8(key).contains(QStringLiteral("doi"), Qt::CaseInsensitive) ||
+                    !luna::Bibliography::doi(value.toString()).isEmpty())
+                    doiText += QLatin1Char(' ') + value.toString();
+            }
+            bibliography_.ingest(DocumentClaim::identity(path), documentInfo->title,
+                documentInfo->author, doiText);
+        }
         QStringList recent = savedPaths(QStringLiteral("library/recent"));
         recent.removeAll(path);
         recent.prepend(path);
@@ -1173,10 +1253,12 @@ private:
             auto* favorite = menu.addAction(item->data(Qt::UserRole + 2).toBool() ? QStringLiteral("즐겨찾기 해제") : QStringLiteral("즐겨찾기 추가"));
             auto* crop = menu.addAction(QStringLiteral("현재 PDF의 썸네일 지정…"));
             crop->setEnabled(QFileInfo(path).canonicalFilePath() == QFileInfo(viewer_->getProgramController()->getOriginalFileName()).canonicalFilePath());
+            auto* citation = menu.addAction(QStringLiteral("서지정보 수정…"));
             auto* move = menu.addAction(QStringLiteral("PDF와 썸네일 이동…"));
             auto* chosen = menu.exec(list->viewport()->mapToGlobal(point));
             if (chosen == favorite) toggleFavorite(path);
             else if (chosen == crop) startThumbnailCrop();
+            else if (chosen == citation) editBibliography(path);
             else if (chosen == move) moveDocument(path);
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
@@ -1258,6 +1340,9 @@ private:
                         QStringLiteral("파일은 이동했지만 메모 설정을 저장하지 못했습니다. 기존 메모는 보존됩니다: ") + memo);
                 }
             }
+            if (!bibliography_.relocate(sourceIdentity, DocumentClaim::identity(result.documentPath)))
+                QMessageBox::warning(this, QStringLiteral("서지정보 이동 실패"),
+                    QStringLiteral("PDF는 이동했지만 서지정보를 이전하지 못했습니다. 기존 설정을 확인해 주세요."));
             const auto favorites = savedPaths(QStringLiteral("library/favorites"));
             favorites_ = QSet<QString>(favorites.cbegin(), favorites.cend());
             ThumbnailCache::instance()->invalidate();
@@ -1294,7 +1379,11 @@ private:
             QListWidgetItem* item = list->item(i);
             item->setHidden(!word.isEmpty() &&
                             !item->text().contains(word, Qt::CaseInsensitive) &&
-                            !item->data(Qt::UserRole + 4).toString().contains(word, Qt::CaseInsensitive));
+                            !QFileInfo(item->data(Qt::UserRole).toString()).completeBaseName().contains(word, Qt::CaseInsensitive) &&
+                            !item->data(Qt::UserRole + 4).toString().contains(word, Qt::CaseInsensitive) &&
+                            !item->data(Qt::UserRole + 5).toMap().value("authors").toString().contains(word, Qt::CaseInsensitive) &&
+                            !item->data(Qt::UserRole + 5).toMap().value("journal").toString().contains(word, Qt::CaseInsensitive) &&
+                            !luna::Bibliography::citation(item->data(Qt::UserRole + 5).toMap()).contains(word, Qt::CaseInsensitive));
         }
     }
     void selectRoot(const QString& path) {
@@ -1361,8 +1450,7 @@ private:
             auto* item = new QListWidgetItem(
                 style()->standardIcon(QStyle::SP_FileIcon), info.completeBaseName(), list);
             decorate(item, path);
-            item->setHidden(!query_->text().isEmpty() &&
-                             !item->text().contains(query_->text(), Qt::CaseInsensitive));
+            filter(list, query_->text());
         }
         if (list->count() >= kMaximumEntries || !iterator->hasNext()) {
             timer->stop();
@@ -1431,6 +1519,7 @@ private:
     QString hoverRequest_;
     QPointer<ThumbnailCropOverlay> cropOverlay_;
     pdfviewer::PDFEditorMainWindow* viewer_;
+    luna::Bibliography bibliography_;
     QAction* cropAction_ = nullptr;
     QMetaObject::Connection documentTitleConnection_, cropConnection_;
     QSplitter* split_ = nullptr;

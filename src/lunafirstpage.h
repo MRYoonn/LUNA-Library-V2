@@ -68,8 +68,13 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
             return {{"documentKind", QStringLiteral("supporting_information")}};
     QVariantMap evidence = Bibliography::firstPageCitation(text);
     if (evidence.isEmpty()) return {}; // Includes SI: no own publication evidence.
-    const auto identity = Bibliography::firstPageIdentity(text);
-    if (identity.contains("title")) evidence["title"] = identity.value("title");
+    // Visual rows interleave publisher sidebars with title lines. Never promote
+    // that joined prose to an automatic title. Reuse the already-read Info title
+    // only after identifying an article; SI and printer placeholders stay out.
+    if (const auto* info = document.getInfo(); info && Bibliography::credibleTitle(info->title)) {
+        evidence["title"] = info->title.simplified();
+        evidence["titleSource"] = QStringLiteral("pdf_metadata");
+    }
     const auto author = Bibliography::firstPageLastAuthor(text);
     if (!author.isEmpty()) {
         evidence["authors"] = author;

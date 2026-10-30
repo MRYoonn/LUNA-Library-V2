@@ -234,6 +234,7 @@ public:
             R"((?:^|\b)(?:No Job Name|Microsoft Word|Untitled|New Document|Document1|Supporting Information|Revised Supporting Information)(?:\b|$))"),
             QRegularExpression::CaseInsensitiveOption);
         if (placeholder.match(text).hasMatch() ||
+            text.contains(QStringLiteral("All publication charges"), Qt::CaseInsensitive) ||
             text.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
             text.contains(QStringLiteral("department of"), Qt::CaseInsensitive) ||
             text.contains(QStringLiteral("university of"), Qt::CaseInsensitive) ||
@@ -286,7 +287,9 @@ public:
             const QString old = value.value(field).toString().simplified();
             if (!old.isEmpty()) return;
             value[field] = next.left(4096);
-            value[field + QStringLiteral("Source")] = QStringLiteral("first_page_verified");
+            value[field + QStringLiteral("Source")] =
+                field == QStringLiteral("title") && proposal.value("titleSource").toString() == QStringLiteral("pdf_metadata") ?
+                    QStringLiteral("pdf_metadata") : QStringLiteral("first_page_verified");
             changedField = true;
         };
         fill("title", credibleTitle(proposal.value("title").toString()));
@@ -344,6 +347,8 @@ public:
             R"(^(?:No Job Name|Microsoft Word(?:\b.*)?|Untitled|New Document|Document1)\b)"),
             QRegularExpression::CaseInsensitiveOption);
         const bool brokenTitle = placeholder.match(title).hasMatch() ||
+            (value.value("titleSource").toString() != QStringLiteral("manual") &&
+             title.contains(QStringLiteral("All publication charges"), Qt::CaseInsensitive)) ||
             (!manual && value.value("titleSource").toString() != QStringLiteral("manual") &&
              value.value("titleSource").toString() != QStringLiteral("legacy_preserved") &&
              !title.isEmpty() && !credibleTitle(title));
@@ -356,7 +361,10 @@ public:
             (value.value("authorsSource").toString() != QStringLiteral("manual") &&
              value.value("authorsSource").toString() != QStringLiteral("first_page_verified")) ||
             (!author.isEmpty() && !credibleAuthor(author)));
-        if (brokenTitle) value.remove("title");
+        if (brokenTitle) {
+            if (!title.isEmpty()) value["legacyTitle"] = value.value("title");
+            value.remove("title");
+        }
         if (brokenAuthor) value.remove("authors");
         return value;
     }

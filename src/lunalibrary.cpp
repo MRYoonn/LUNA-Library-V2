@@ -2033,6 +2033,7 @@ bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error
         return false;
     };
     const QString correct = QStringLiteral("John J. Molloy");
+    const QString expectedTitle = controller->getDocument()->getInfo()->title.simplified();
     if (!awaitAuthor(correct)) {
         error = siProbe ? "Real SI PDF generated paper metadata or was not classified as SI" :
             "Real PDF automatic card author was not John J. Molloy";
@@ -2072,6 +2073,9 @@ bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error
         panel->analyzedCitations_.remove(identity);
         panel->queueBibliography(identity, *controller->getDocument());
         if (!awaitAuthor(correct)) { error = "Real PDF legacy author repair failed"; return false; }
+        if (card->data(Qt::UserRole + 5).toMap().value("title").toString() != expectedTitle) {
+            error = "Real PDF title was replaced by publisher/sidebar prose"; return false;
+        }
     }
     if (list->row(card) != rowBefore || list->verticalScrollBar()->value() != scrollBefore ||
         card->data(Qt::UserRole + 7).toBool() != activeBefore || QApplication::activeModalWidget()) {

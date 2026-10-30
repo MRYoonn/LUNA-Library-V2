@@ -166,6 +166,13 @@ int main(int argc, char** argv) {
     if (!store.saveEdits("dialog-race", afterDialog, authorEdit)) return 61;
     store.enrichFromFirstPage("dialog-race", verifiedLast);
     if (store.record("dialog-race").value("authors") != QStringLiteral("Manual Correct Author")) return 62;
+    const QString sidebar = QStringLiteral("lactamase inhibitors All publication charges for this article");
+    if (!store.save("sidebar-title", {{"title", sidebar}}, false)) return 64;
+    if (!store.record("sidebar-title").value("title").toString().isEmpty()) return 65;
+    if (!store.enrichFromFirstPage("sidebar-title", {{"title", "Fused 3D boron heterocycles via EnT catalysis"},
+        {"titleSource", "pdf_metadata"}})) return 66;
+    if (store.record("sidebar-title").value("legacyTitle") != sidebar ||
+        store.record("sidebar-title").value("titleSource") != QStringLiteral("pdf_metadata")) return 67;
     const QVariantMap jpcb = luna::Bibliography::firstPageCitation(
         QStringLiteral("J. Phys. Chem. B 2004, 108, 5472–5476\nLow Energy Electron Interactions with Uracil"));
     if (jpcb.value("journal") != QStringLiteral("J. Phys. Chem. B") ||

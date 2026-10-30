@@ -34,6 +34,21 @@ int main(int argc, char** argv) {
     if (si.value("title") != QStringLiteral(
             "Catalytic Ketyl-Olefin Cyclizations Enabled by Proton Coupled-Electron Transfer") ||
         !si.value("authors").toString().contains(QStringLiteral("Robert R. Knowles"))) return 22;
+    const QVariantMap proof = luna::Bibliography::firstPageCitation(
+        QStringLiteral("Nature Communications\nArticle in Press\nPhoto-enabled chemistry"));
+    if (proof.value("journal") != QStringLiteral("Nature Communications") ||
+        !proof.value("year").toString().isEmpty()) return 24;
+    const QVariantMap proofIdentity = luna::Bibliography::firstPageIdentity(
+        QStringLiteral("Nature Communications\nArticle in Press\n"
+            "Photo-enabled and thioamide-directed alpha-C(sp3)-H\n"
+            "carboxylation of alpha-substituted benzylamines with\n"
+            "CO2 towards alpha-tertiary amino acids\n"
+            "Received: 16 October 2025\nAccepted: 14 April 2026\n"
+            "Jie Xu, Chang Liu, Chao-Yi Liu, Miao Peng, Yan Zhang, Ding-Hai Wang & Heng Jiang\n"));
+    if (!proofIdentity.value("title").toString().contains(
+            QStringLiteral("Photo-enabled and thioamide-directed")) ||
+        !proofIdentity.value("authors").toString().contains(QStringLiteral("Heng Jiang")))
+        return 25;
     const QVariantMap structured{
         {"title", QStringLiteral("Synthetic Paper")},
         {"authors", QStringLiteral("Author A")},

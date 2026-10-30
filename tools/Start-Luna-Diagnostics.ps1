@@ -17,9 +17,13 @@ $hasher = [Security.Cryptography.SHA256]::Create()
 try { $exeHash = ([BitConverter]::ToString($hasher.ComputeHash($hashStream))).Replace('-','').ToLowerInvariant() }
 finally { $hashStream.Dispose(); $hasher.Dispose() }
 Write-Host 'Save and close other LUNA windows before reproducing here, so another process does not own the PDFs.'
-Write-Host 'Reproduce Ctrl+W with zero, one and multiple PDFs, including search focus. Then close LUNA normally if it stays open.'
+Write-Host 'Open the slow PDF several times, then close LUNA normally. Per-stage timings and first compiled-page paint are recorded.'
 Write-Host 'Logs stay on this PC. No PDF, thumbnail, memo or settings are copied.'
-$process = Start-Process -FilePath (Join-Path $package 'LUNA.exe') -ArgumentList @('--luna-lifecycle-trace', ('"' + $trace + '"')) -PassThru
+$previousPerformanceLog = $env:LUNA_PERF_LOG
+try {
+    $env:LUNA_PERF_LOG = Join-Path $OutputDirectory 'performance.jsonl'
+    $process = Start-Process -FilePath (Join-Path $package 'LUNA.exe') -ArgumentList @('--luna-lifecycle-trace', ('"' + $trace + '"')) -PassThru
+} finally { $env:LUNA_PERF_LOG = $previousPerformanceLog }
 $processHandle = $process.Handle
 Add-Type -TypeDefinition @'
 using System;

@@ -67,6 +67,8 @@
 #include <QFontMetrics>
 #include <QFontInfo>
 #include <QThread>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QWindow>
 #include <QtMath>
 #include "pdfwidgetannotation.h"
@@ -74,12 +76,35 @@
 #include "pdftextlayout.h"
 #include <stdexcept>
 #include <algorithm>
+#include <cstdio>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
 #endif
 
 namespace luna {
 using Editor = pdfviewer::PDFEditorMainWindow;
+// Opt-in collector writes only the fixed numeric stage schema, never Qt
+// warnings, filenames or document contents. One handler serializes all DLLs.
+static void installPerformanceCollector() {
+    const QString path = qEnvironmentVariable("LUNA_PERF_LOG");
+    if (path.isEmpty()) return;
+    qputenv("LUNA_PERF", "1");
+    static QMutex mutex;
+    static QString outputPath;
+    static QtMessageHandler previous = nullptr;
+    outputPath = path;
+    previous = qInstallMessageHandler([](QtMsgType type, const QMessageLogContext& context, const QString& message) {
+        if (message.startsWith(QStringLiteral("LUNA_PERF {"))) {
+            QMutexLocker lock(&mutex);
+            QFile output(outputPath);
+            if (output.open(QIODevice::WriteOnly | QIODevice::Append)) {
+                output.write(message.mid(10).toUtf8()); output.write("\n");
+            }
+        }
+        if (previous) previous(type, context, message);
+        else std::fprintf(stderr, "%s\n", qPrintable(message));
+    });
+}
 // Presentation only: bound the entire tab, including its icon and close button.
 class CompactPdfTabBar final : public QTabBar {
 public:
@@ -219,6 +244,7 @@ public:
             QMessageBox::warning(this, QStringLiteral("PDF 열기 실패"), QStringLiteral("읽을 수 있는 PDF 파일을 선택해 주세요.")); return nullptr;
         }
         if (auto* existing = find(path)) { trace("document-open-existing-tab", existing->editor); activate(existing->editor); return existing->editor; }
+        performanceEvent("open-path-and-dedup", openStart);
         Editor* editor = nullptr;
         for (const auto& s : sessions_) if (!s->loading && s->identity.isEmpty() && !s->editor->getProgramController()->getDocument()) { editor = s->editor; break; }
         bool created = false;
@@ -416,6 +442,7 @@ private:
         if (auto* modal = QApplication::activeModalWidget()) { pendingActivation_ = editor; modal->raise(); modal->activateWindow(); return; }
         tabs_->setCurrentWidget(editor); if (isMinimized()) showNormal(); raise(); activateWindow(); activateCurrent(); }
     void activateCurrent() {
+        PerformanceSpan span("active-editor-ui-bind");
         auto* editor = current(); if (!editor || closing_) return;
         for (const auto& s : sessions_) if (s->editor != editor)
             for (auto* popup : s->editor->findChildren<QDialog*>())
@@ -1191,6 +1218,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
 
 #endif
 int runTabbedLibrary(const QStringList& files, const QString& report, bool restore) {
+    installPerformanceCollector();
     qApp->setProperty("lunaNativeSessions", true);
     if (!report.isEmpty()) qApp->setProperty("LunaLifecycleTracePath", report + ".lifecycle.jsonl");
     const bool previousQuitPolicy = qApp->quitOnLastWindowClosed();

@@ -45,6 +45,7 @@ APPROVED = {
     "tools/Start-Luna-Diagnostics.ps1", "tools/Start-Luna-Diagnostics.cmd",
     "tools/probe_tabs_integration_windows.py",
     "src/lunaperformance.h", "tools/apply_performance.py", "tools/probe_chrome_windows.py", "tools/prepare_desktop_windows.py",
+    "tools/benchmark_open_windows.py",
     "src/lunatabs.cpp", "src/lunatabs.h",
     "experiments/native_tabs/prepare.py", "experiments/native_tabs/main.cpp",
     "experiments/native_tabs/run_windows.py", "experiments/native_tabs/README.md",

@@ -158,6 +158,9 @@ jobs:
 
   build-windows:
     needs: windows-packaging-preflight
+    permissions:
+      contents: read
+      actions: read
     if: ${{ !inputs.packaging_preflight_only && !inputs.native_probes_only && !inputs.tab_host_source_run }}
     runs-on: windows-2022
     timeout-minutes: 180
@@ -403,6 +406,14 @@ jobs:
           python -B tools/verify_portable.py LUNA-Windows-Portable
           if ($LASTEXITCODE -ne 0) { throw "Portable package verification failed" }
 
+      - name: Download the measured pre-fix baseline for same-machine comparison
+        uses: actions/download-artifact@v4
+        with:
+          name: LUNA-Windows-Portable
+          run-id: 40984112766
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/luna-performance-before
+
       - name: Ordinary launch visibility and native toolbar input
         shell: pwsh
         run: |
@@ -410,6 +421,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native desktop resolution was not applied' }
           python -B tools/probe_chrome_windows.py LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/ordinary"
           if ($LASTEXITCODE -ne 0) { throw 'Ordinary launch chrome is clipped, hidden, or disconnected' }
+
+      - name: Same-machine PDF open benchmark against the pre-fix baseline
+        shell: pwsh
+        run: |
+          python -B tools/benchmark_open_windows.py "$env:RUNNER_TEMP/luna-performance-before" LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/performance"
+          if ($LASTEXITCODE -ne 0) { throw 'Native before/after performance benchmark failed' }
 
       - name: Independent document windows and native annotation round trip
         shell: pwsh

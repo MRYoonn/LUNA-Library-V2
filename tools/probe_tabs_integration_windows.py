@@ -63,8 +63,11 @@ def verify_diagnostic_launcher(package, output, env):
                 raise RuntimeError('Diagnostic parent did not capture the actual approved child exit')
             archive = Path(str(destination) + '.zip')
             with zipfile.ZipFile(archive) as packaged:
-                if set(packaged.namelist()) != {'build-info.json', 'lifecycle.jsonl', 'process-state.jsonl', 'process-exit.json'}:
+                if set(packaged.namelist()) != {'build-info.json', 'lifecycle.jsonl', 'performance.jsonl', 'process-state.jsonl', 'process-exit.json'}:
                     raise RuntimeError('Diagnostic ZIP scope differs from the safe collector contract')
+                timing = [json.loads(row) for row in packaged.read('performance.jsonl').decode('utf-8').splitlines()]
+                if not timing or any(set(row) != {'stage', 'startMs', 'endMs', 'durationMs'} for row in timing):
+                    raise RuntimeError('Performance collector schema contains unexpected fields or no timings')
             return {'accepted': True, 'normalExitCaptured': True, 'liveWindowSamples': len(samples)}
         finally:
             if child.poll() is None:

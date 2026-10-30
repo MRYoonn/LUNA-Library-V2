@@ -58,7 +58,7 @@ APPROVED = {
     "README.md", "SECURITY_POLICY.md", "LICENSE_NOTICE.md", ".gitignore",
     "USER_GUIDE_KO.md",
     ".github/workflows/build-windows.yml",
-    "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunathumbnailcache.h",
+    "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunabibliography.h", "src/lunathumbnailcache.h",
     "tests/native_dialog/thumbnails.cpp",
     "src/lunafilemove.h", "tests/native_dialog/filemoves.cpp",
     "src/lunadocumentclaim.h", "tests/native_dialog/documentclaims.cpp",

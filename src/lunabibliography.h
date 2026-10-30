@@ -102,6 +102,48 @@ public:
         return last.left(90);
     }
 
+    // A fragment such as "Hannah M. Kortman, Hao Fang" is NOT the final
+    // author. Require an explicit ending "and John J. Molloy", with a nearby
+    // comma-delimited author list on the first-page cover. On ambiguity,
+    // return no author rather than the first plausible personal name.
+    static QString firstPageLastAuthor(const QString& firstPageText) {
+        const QStringList raw = firstPageText.left(24000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
+        QStringList lines;
+        for (const QString& candidate : raw) {
+            const QString line = candidate.simplified();
+            if (!line.isEmpty()) lines.append(line);
+            if (lines.size() >= 75) break;
+        }
+        static const QRegularExpression terminal(QStringLiteral(
+            R"((?:^|[\s,])(?:and|&)\s+([\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}))"),
+            QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression superscript(QStringLiteral(
+            R"(^[\s*†‡\p{Ll}\p{N}]*$)"));
+        static const QRegularExpression pairedNames(QStringLiteral(
+            R"([\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}\s*,\s*[\p{Lu}])"));
+        QString found;
+        for (qsizetype i = 0; i < lines.size(); ++i) {
+            const QString& line = lines[i];
+            const auto match = terminal.match(line);
+            if (!match.hasMatch()) continue;
+            if (!superscript.match(line.mid(match.capturedEnd())).hasMatch()) continue;
+            const QString candidate = match.captured(1).simplified();
+            if (!credibleAuthor(candidate)) continue;
+            bool hasAuthorList = pairedNames.match(line).hasMatch();
+            for (qsizetype delta = 1; !hasAuthorList && delta <= 7; ++delta) {
+                if (i >= delta && pairedNames.match(lines[i - delta]).hasMatch())
+                    hasAuthorList = true;
+                if (i + delta < lines.size() && pairedNames.match(lines[i + delta]).hasMatch())
+                    hasAuthorList = true;
+            }
+            if (!hasAuthorList) continue;
+            if (!found.isEmpty() && found != candidate) return {};
+            found = candidate;
+        }
+        return found;
+    }
+
     // Return tentative title/author candidates for manual review, especially
     // for Supporting Information PDFs without printed journal citations.
     static QVariantMap firstPageIdentity(const QString& text) {
@@ -121,6 +163,8 @@ public:
                 return {};
         }
         if (firstPageCitation(text).value("journal").toString().isEmpty()) return {};
+        const QString explicitLastAuthor = firstPageLastAuthor(text);
+        if (explicitLastAuthor.isEmpty()) return {};
         static const QRegularExpression authorsPattern(QStringLiteral(
             R"(^[\p{L}\p{N}\s.,'’\-*†‡&]+$)"));
         static const QRegularExpression headingPattern(QStringLiteral(
@@ -176,7 +220,7 @@ public:
             const QString title = titleLines.join(QLatin1Char(' '));
             if (!credibleTitle(title) || !credibleAuthor(lastListedAuthor(authors)))
                 continue;
-            return {{"title", title.left(4096)}, {"authors", lastListedAuthor(authors)}};
+            return {{"title", title.left(4096)}, {"authors", explicitLastAuthor}};
         }
         return {};
     }
@@ -227,7 +271,17 @@ public:
             changedField = true;
         };
         fill("title", credibleTitle(proposal.value("title").toString()));
-        fill("authors", credibleAuthor(proposal.value("authors").toString()));
+        // Re-extraction is an explicit user action. A confirmed final author
+        // supersedes an earlier incomplete/incorrect AUTO value such as Hao Fang,
+        // but never changes a user-entered manual author.
+        const QString proposedAuthor = proposal.value("authors").toString().simplified();
+        if (credibleAuthor(proposedAuthor) &&
+            !value.value("manual").toBool() &&
+            value.value("authors").toString().simplified() != proposedAuthor) {
+            value["authors"] = proposedAuthor;
+            value["authorEvidence"] = QStringLiteral("first-page-terminal-and");
+            changedField = true;
+        }
         fill("journal", !proposal.value("journal").toString().isEmpty());
         const QString year = proposal.value("year").toString();
         static const QRegularExpression yyyy(QStringLiteral(R"(^[12]\d{3}$)"));

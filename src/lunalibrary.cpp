@@ -833,7 +833,39 @@ private:
             filter(list, query_->text());
         }
     }
-    void editBibliography(const QString& path, bool extractOnOpen = false) {
+    // Explicit user action, no modal dialog and no forced auto-save of
+    // speculative title/author data. Trust only publication evidence found
+    // on the opened document's first page.
+    void extractBibliography(const QString& path) {
+        const QString identity = DocumentClaim::identity(path);
+        if (!viewer_ || !viewer_->getProgramController()) return;
+        auto* controller = viewer_->getProgramController();
+        if (!controller->getDocument() ||
+            DocumentClaim::identity(controller->getOriginalFileName()) != identity) return;
+        if (!controller->getDocument()->getCatalog() ||
+            controller->getDocument()->getCatalog()->getPageCount() < 1) return;
+        auto* compiler = controller->getPdfWidget()->getDrawWidgetProxy()->getTextLayoutCompiler();
+        if (!compiler) return;
+        const pdf::PDFTextLayout layout = compiler->createTextLayout(0);
+        const auto flows = pdf::PDFTextFlow::createTextFlows(
+            layout, pdf::PDFTextFlow::SeparateBlocks | pdf::PDFTextFlow::AddLineBreaks, 0);
+        QString text;
+        for (const auto& flow : flows) {
+            text += flow.getText().left(16000) + QLatin1Char('\n');
+            if (text.size() >= 32000) break;
+        }
+        if (text.isEmpty()) return; // Image-only PDF: leave metadata unverified.
+        const QVariantMap citation = luna::Bibliography::firstPageCitation(text);
+        const QVariantMap name = luna::Bibliography::firstPageIdentity(text);
+        QVariantMap evidence = citation;
+        for (const char* field : {"title", "authors"}) {
+            const QString key = QString::fromLatin1(field);
+            if (!name.value(key).toString().isEmpty()) evidence.insert(key, name.value(key));
+        }
+        bibliography_.enrichFromFirstPage(identity, evidence);
+    }
+
+    void editBibliography(const QString& path) {
         const QVariantMap existing = bibliography_.record(DocumentClaim::identity(path));
         QDialog dialog(this);
         dialog.setObjectName(QStringLiteral("LunaBibliographyEditor"));
@@ -859,66 +891,7 @@ private:
         form.addRow(QStringLiteral("권(Volume)"), &volume);
         form.addRow(QStringLiteral("페이지 / 논문 번호"), &pages);
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-        auto* extract = buttons->addButton(QStringLiteral("첫 페이지 서지정보 추출"),
-                                           QDialogButtonBox::ActionRole);
-        extract->setObjectName(QStringLiteral("LunaExtractFirstPageCitation"));
-        connect(extract, &QPushButton::clicked, &dialog,
-                [this, &dialog, extract, path, userEdited = existing.value("manual").toBool(), &title, &authors, &journal, &year, &volume, &pages] {
-            const auto* c = viewer_ ? viewer_->getProgramController() : nullptr;
-            const QString requested = DocumentClaim::identity(path);
-            if (!c || !c->getDocument() || DocumentClaim::identity(c->getOriginalFileName()) != requested) {
-                QMessageBox::information(&dialog, QStringLiteral("PDF 먼저 열기"),
-                    QStringLiteral("해당 PDF를 먼저 열고 서지정보 추출을 눌러 주세요."));
-                return;
-            }
-            if (!c->getDocument()->getCatalog() || c->getDocument()->getCatalog()->getPageCount() < 1) return;
-            // Opt-in only: this is the first page, never a whole-PDF text scan.
-            // The native compiler owns its PDF fonts, page and content processor.
-            auto* compiler = c->getPdfWidget()->getDrawWidgetProxy()->getTextLayoutCompiler();
-            if (!compiler) return;
-            extract->setEnabled(false);
-            QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
-            const pdf::PDFTextLayout layout = compiler->createTextLayout(0);
-            QApplication::restoreOverrideCursor();
-            extract->setEnabled(true);
-            QString text;
-            const auto flows = pdf::PDFTextFlow::createTextFlows(
-                layout, pdf::PDFTextFlow::SeparateBlocks | pdf::PDFTextFlow::AddLineBreaks, 0);
-            for (const auto& flow : flows) {
-                text += flow.getText().left(16000) + QLatin1Char('\n');
-                if (text.size() >= 32000) break;
-            }
-            const QVariantMap citation = luna::Bibliography::firstPageCitation(text);
-            const QVariantMap identity = luna::Bibliography::firstPageIdentity(text);
-            if (citation.isEmpty() && identity.isEmpty()) {
-                QMessageBox::information(&dialog, QStringLiteral("서지정보 추출 결과"),
-                    QStringLiteral("첫 페이지에서 신뢰할 만한 제목·저자·저널 정보를 찾지 못했습니다.\n"
-                        "스캔 PDF나 별도 SI 문서에는 저널 정보가 없을 수 있습니다.\n"
-                        "서지정보를 직접 입력해 주세요."));
-                return;
-            }
-            // Every candidate is shown for user review; never auto-save or
-            // silently overwrite manually provided fields.
-            if (title.text().isEmpty()) title.setText(identity.value("title").toString());
-            const QString proposedLastAuthor = identity.value("authors").toString();
-            if (!proposedLastAuthor.isEmpty() && authors.text() != proposedLastAuthor) {
-                if (authors.text().isEmpty() || !userEdited ||
-                    QMessageBox::question(&dialog, QStringLiteral("기존 저자 확인"),
-                        QStringLiteral("기존 저자 값을 마지막 저자 '%1'(으)로 교체할까요?\n"
-                            "기존 내용: %2").arg(proposedLastAuthor, authors.text()),
-                        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) == QMessageBox::Yes)
-                    authors.setText(proposedLastAuthor);
-            }
-            if (journal.text().isEmpty()) journal.setText(citation.value("journal").toString());
-            if (year.text().isEmpty()) year.setText(citation.value("year").toString());
-            if (volume.text().isEmpty()) volume.setText(citation.value("volume").toString());
-            if (pages.text().isEmpty()) pages.setText(citation.value("page").toString());
-            QMessageBox::information(&dialog, QStringLiteral("서지정보 추출 결과"),
-                QStringLiteral("첫 페이지에서 찾은 후보를 입력칸에 채웠습니다.\n"
-                    "제목·저자는 잘못 구분될 수 있으므로 내용을 확인한 뒤 저장해 주세요."));
-        });
         form.addRow(buttons);
-        if (extractOnOpen) QTimer::singleShot(0, &dialog, [extract] { extract->click(); });
         connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog, &year] {
             const QString value = year.text().trimmed();
             static const QRegularExpression yearPattern(QStringLiteral(R"(^[0-9]{4}$)"));
@@ -1358,7 +1331,7 @@ private:
             if (chosen == favorite) toggleFavorite(path);
             else if (chosen == crop) startThumbnailCrop();
             else if (chosen == citation) editBibliography(path);
-            else if (chosen == extractCitation) editBibliography(path, true);
+            else if (chosen == extractCitation) extractBibliography(path);
             else if (chosen == move) moveDocument(path);
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {

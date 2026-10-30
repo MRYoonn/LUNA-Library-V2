@@ -37,6 +37,7 @@ APPROVED = {
     'assets/icons/ui-add.svg',
 
     "tests/native_dialog/windowstate.cpp",
+    "tests/native_dialog/bibliography.cpp",
     "tools/probe_editor_lifetime_windows.py",
     ".github/workflows/p0-editor-lifetime.yml",
     "tools/Luna-Crash-Tools.ps1", "tools/Start-Luna-Crash-Diagnostics.ps1", "tools/Start-Luna-Crash-Diagnostics.cmd",

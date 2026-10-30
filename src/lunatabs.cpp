@@ -812,7 +812,10 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             result["commonPageTextInkPixels"] = pageInk;
             pageImage.save(report + ".page-input.png");
             integrationRequire(pageInk >= 8, "Common page input text is not visibly painted");
-            integrationRequire(integrationClick(host, zoomInput->lineEdit(), zoomInput->lineEdit()->rect().center()) && integrationKey('A', true) && integrationType(QStringLiteral("150%")) && integrationKey(VK_RETURN) && integrationWait([&] { return qAbs(pb->getZoom() - 1.5) < .001; }), "Common zoom input did not update the active Editor");
+            integrationRequire(integrationClick(host, zoomInput->lineEdit(), zoomInput->lineEdit()->rect().center()) && integrationWait([&] { return zoomInput->lineEdit()->hasFocus(); }) && integrationKey('A', true) && integrationType(QStringLiteral("150%")) && integrationKey(VK_RETURN), "Common zoom input focus or native typing failed");
+            const bool zoomChanged = integrationWait([&] { return qAbs(pb->getZoom() - 1.5) < .001; });
+            result["commonZoomInputDiagnostics"] = QJsonObject{{"text", zoomInput->currentText()}, {"focused", zoomInput->lineEdit()->hasFocus()}, {"nativeZoom", pb->getZoom()}};
+            integrationRequire(zoomChanged, "Common zoom input did not update the active Editor");
             integrationRequire(qAbs(pa->getZoom() - 2.0) < .001, "Common toolbar changed an inactive document");
             result["commonToolbarNativePageZoomAndActionOwnership"] = true;
             pa->zoom(1.25); pb->zoom(1.5);

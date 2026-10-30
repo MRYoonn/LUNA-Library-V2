@@ -978,16 +978,34 @@ private:
         editor.setProperty("LunaRememberedSource", source);
         if (path == editor.property("LunaRememberedPath").toString()) return;
         editor.setProperty("LunaRememberedPath", path);
-        // Copy metadata from the already-loaded PDF info dictionary, but
-        // persist it only after yielding to the GUI event loop. Never delay the
-        // document-open/first-paint path with QSettings I/O or extra PDF parsing.
+        // Inspect only structured fields already present in the PDF info
+        // dictionary. There is no DOI scanning, first-page text parsing or
+        // remote lookup; QSettings writes are deferred until after open.
         if (const auto* documentInfo = controller->getDocument()->getInfo()) {
             const QString identity = DocumentClaim::identity(path);
             const QString title = documentInfo->title;
             const QString authors = documentInfo->author;
-            if (!title.isEmpty() || !authors.isEmpty())
-                QTimer::singleShot(0, this, [this, identity, title, authors] {
-                    bibliography_.ingest(identity, title, authors);
+            QVariantMap structured;
+            for (const auto& [rawKey, rawValue] : documentInfo->extra) {
+                QString key = QString::fromLatin1(rawKey).trimmed().toLower();
+                key.remove(QLatin1Char(' '));
+                key.remove(QLatin1Char('_'));
+                key.remove(QLatin1Char('-'));
+                QString field;
+                if (key == QStringLiteral("journal") || key == QStringLiteral("journaltitle"))
+                    field = QStringLiteral("journal");
+                else if (key == QStringLiteral("year") || key == QStringLiteral("publicationyear"))
+                    field = QStringLiteral("year");
+                else if (key == QStringLiteral("volume"))
+                    field = QStringLiteral("volume");
+                else if (key == QStringLiteral("pages") || key == QStringLiteral("pagerange") ||
+                         key == QStringLiteral("articlenumber"))
+                    field = QStringLiteral("page");
+                if (!field.isEmpty()) structured[field] = rawValue.toString().left(256);
+            }
+            if (!title.isEmpty() || !authors.isEmpty() || !structured.isEmpty())
+                QTimer::singleShot(0, this, [this, identity, title, authors, structured] {
+                    bibliography_.ingest(identity, title, authors, structured);
                 });
         }
         QStringList recent = savedPaths(QStringLiteral("library/recent"));

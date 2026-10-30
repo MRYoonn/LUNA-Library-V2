@@ -20,7 +20,11 @@ int main(int argc,char** argv) {
     if (luna::Bibliography::citation({{"year", "2026"}, {"volume", "148"}}) != QStringLiteral("2026, 148")) return 12;
     if (luna::Bibliography::citation(data).contains("10.1234")) return 13;
     luna::Bibliography store(nullptr);
-    if (!store.save("before",data) || !store.relocate("before","after") || store.record("after").value("title") != data.value("title")) return 6;
+    if (!store.save("before",data)) return 6;
+    // The user's correction must never be overwritten by automatic PDF info.
+    store.ingest("before", QStringLiteral("Overwritten?"), QStringLiteral("Other"), QString());
+    if (store.record("before").value("title") != data.value("title")) return 14;
+    if (!store.relocate("before","after") || store.record("after").value("title") != data.value("title")) return 6;
     if (!store.relocate("after","before") || store.record("before").value("authors") != data.value("authors")) return 7;
     if (!store.relocate("before","before") || store.record("before").isEmpty()) return 8;
     { luna::Bibliography reopened(nullptr); if (reopened.record("before").value("doi").toString() != doi) return 9; }

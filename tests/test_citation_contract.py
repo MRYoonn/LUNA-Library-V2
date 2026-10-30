@@ -42,11 +42,13 @@ class CitationContractTests(unittest.TestCase):
     def test_first_page_extractor_is_opt_in_and_offline(self):
         self.assertIn("firstPageCitation(QString text)", self.model)
         self.assertIn("firstPageIdentity(const QString& text)", self.model)
-        self.assertIn("LunaExtractFirstPageCitation", self.ui)
+        self.assertIn("void extractBibliography(const QString& path)", self.ui)
         self.assertIn("compiler->createTextLayout(0)", self.ui)
         self.assertIn("firstPageCitation(text)", self.ui)
         self.assertIn("firstPageIdentity(text)", self.ui)
-        self.assertIn("제목·저자는 잘못 구분될 수 있으므로", self.ui)
+        self.assertIn("bibliography_.enrichFromFirstPage(identity, evidence)", self.ui)
+        self.assertNotIn("LunaExtractFirstPageCitation", self.ui)
+        self.assertNotIn("서지정보 추출 결과", self.ui)
 
     def test_shell_does_not_persist_any_qmainwindow_toolbar_state(self):
         self.assertNotIn('window_->saveState(', self.ui)
@@ -56,8 +58,23 @@ class CitationContractTests(unittest.TestCase):
 
     def test_context_menu_has_first_page_extraction(self):
         self.assertIn('LunaExtractCitationContextMenu', self.ui)
-        self.assertIn('editBibliography(path, true)', self.ui)
-        self.assertIn('if (extractOnOpen) QTimer::singleShot(', self.ui)
+        self.assertIn('extractBibliography(path)', self.ui)
+        self.assertNotIn('editBibliography(path, true)', self.ui)
+        self.assertNotIn('if (extractOnOpen) QTimer::singleShot(', self.ui)
+
+    def test_no_prose_or_missing_info_is_invented(self):
+        self.assertIn("credibleTitle(const QString& value)", self.model)
+        self.assertIn("credibleAuthor(const QString& value)", self.model)
+        self.assertIn('QStringLiteral("Supporting Information")', self.model)
+        self.assertIn('QStringLiteral("No Job Name")', self.native)
+        self.assertIn('QStringLiteral("J. Phys. Chem. B")', self.native)
+
+    def test_open_papers_do_not_reorder_or_scroll_list(self):
+        self.assertIn('index.data(Qt::UserRole + 7).toBool()', self.ui)
+        self.assertIn('item->setData(Qt::UserRole + 7, isActive)', self.ui)
+        self.assertNotIn('if (selected) list->setCurrentItem(item', self.ui)
+        self.assertNotIn('if (pages_->currentIndex() == 2 && !showingFavorites_) showHistory(false)', self.ui)
+        self.assertNotIn('list->setSortingEnabled(true)', self.ui)
 
     def test_extracts_last_listed_author_only(self):
         self.assertIn('lastListedAuthor(QString authors)', self.model)

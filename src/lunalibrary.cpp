@@ -850,7 +850,31 @@ private:
         if (!viewer_ || !viewer_->getProgramController()) return;
         auto* controller = viewer_->getProgramController();
         if (!controller->getDocument() ||
-            DocumentClaim::identity(controller->getOriginalFileName()) != identity) return;
+            DocumentClaim::identity(controller->getOriginalFileName()) != identity) {
+            // A context-menu action on an unopened paper should work too:
+            // open/select its tab, then extract after native loading completes.
+            if (identity.isEmpty() || pendingCitationExtracts_.contains(identity)) return;
+            pendingCitationExtracts_.insert(identity);
+            openPdf(path);
+            auto* probe = new QTimer(this);
+            probe->setInterval(100);
+            connect(probe, &QTimer::timeout, this, [this, probe, path, identity, attempts = 0]() mutable {
+                auto stop = [this, probe, identity] {
+                    probe->stop(); probe->deleteLater();
+                    pendingCitationExtracts_.remove(identity);
+                };
+                if (++attempts >= 80) { stop(); return; }
+                if (!viewer_ || !viewer_->getProgramController()) return;
+                auto* current = viewer_->getProgramController();
+                if (current->getDocument() &&
+                    DocumentClaim::identity(current->getOriginalFileName()) == identity) {
+                    stop();
+                    extractBibliography(path);
+                }
+            });
+            probe->start();
+            return;
+        }
         if (!controller->getDocument()->getCatalog() ||
             controller->getDocument()->getCatalog()->getPageCount() < 1) return;
         auto* compiler = controller->getPdfWidget()->getDrawWidgetProxy()->getTextLayoutCompiler();
@@ -1612,6 +1636,7 @@ private:
     QPointer<ThumbnailCropOverlay> cropOverlay_;
     pdfviewer::PDFEditorMainWindow* viewer_;
     luna::Bibliography bibliography_;
+    QSet<QString> pendingCitationExtracts_;
     QAction* cropAction_ = nullptr;
     QMetaObject::Connection documentTitleConnection_, cropConnection_;
     QSplitter* split_ = nullptr;

@@ -834,9 +834,11 @@ private:
     void editBibliography(const QString& path) {
         const QVariantMap existing = bibliography_.record(DocumentClaim::identity(path));
         QDialog dialog(this);
+        dialog.setObjectName(QStringLiteral("LunaBibliographyEditor"));
         dialog.setWindowTitle(QStringLiteral("논문 서지정보 수정"));
         QFormLayout form(&dialog);
         QLineEdit fullCitation(existing.value("citation").toString(), &dialog);
+        fullCitation.setObjectName(QStringLiteral("LunaBibliographyCitation"));
         fullCitation.setPlaceholderText(QStringLiteral("서지정보 전체를 붙여넣으세요. 이 내용이 카드에 우선 표시됩니다."));
         QLineEdit title(existing.value("title").toString(), &dialog);
         QLineEdit authors(existing.value("authors").toString(), &dialog);
@@ -1955,6 +1957,31 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         return fail("Citation did not populate the actual library card");
     search->setText(QStringLiteral("Test Journal"));
     if (item->isHidden()) return fail("Citation journal was not searchable");
+    search->clear();
+    bool editorReached = false;
+    QTimer::singleShot(0, &window, [&] {
+        auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dialog || dialog->objectName() != QStringLiteral("LunaBibliographyEditor"))
+            return;
+        auto* input = dialog->findChild<QLineEdit*>(QStringLiteral("LunaBibliographyCitation"));
+        auto* buttons = dialog->findChild<QDialogButtonBox*>();
+        if (!input || !buttons || !buttons->button(QDialogButtonBox::Ok)) {
+            dialog->reject();
+            return;
+        }
+        editorReached = true;
+        input->setText(QStringLiteral("Synthetic A, Test Journal 2026, 42, 12-20."));
+        buttons->button(QDialogButtonBox::Ok)->click();
+    });
+    citationPanel->editBibliography(path);
+    const QVariantMap manuallyEdited = citationPanel->bibliography_.record(DocumentClaim::identity(path));
+    if (!editorReached ||
+        luna::Bibliography::citation(manuallyEdited) !=
+            QStringLiteral("Synthetic A, Test Journal 2026, 42, 12-20.") ||
+        item->data(Qt::UserRole + 5).toMap().value("citation") != manuallyEdited.value("citation"))
+        return fail("Native bibliography editor did not persist the pasted reference");
+    search->setText(QStringLiteral("Synthetic A, Test Journal"));
+    if (item->isHidden()) return fail("Pasted bibliography was not searchable");
     search->clear();
     favorite->trigger();
     QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));

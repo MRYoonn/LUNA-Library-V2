@@ -90,8 +90,12 @@ function Apply-Package($source, $manifest) {
             throw 'Update package identity mismatch'
         }
         if ($WaitPid -gt 0) {
-            try { Wait-Process -Id $WaitPid -Timeout 300 -ErrorAction Stop }
-            catch { throw 'LUNA did not exit. Update cancelled without changes.' }
+            # The app may already have exited by the time the ZIP downloads.
+            $previous = Get-Process -Id $WaitPid -ErrorAction SilentlyContinue
+            if ($previous) {
+                try { $previous | Wait-Process -Timeout 300 -ErrorAction Stop }
+                catch { throw 'LUNA did not exit. Update cancelled without changes.' }
+            }
         }
         if (Get-CimInstance Win32_Process -Filter "name='LUNA.exe'" | Where-Object { $_.ExecutablePath -eq $app }) {
             throw 'LUNA still running in install folder'

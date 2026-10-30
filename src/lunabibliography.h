@@ -110,13 +110,29 @@ public:
             R"(^(?:(?:Nature|Nature Communications|Article in Press|Supporting Information|Research Article)|(?:Received|Accepted|Published|Cite this article as|DOI)\s*:?.*)$)"),
             QRegularExpression::CaseInsensitiveOption);
         for (qsizetype i = 1; i < lines.size(); ++i) {
-            const QString authors = lines[i];
+            QString authors = lines[i];
             if (authors.size() < 14 || authors.size() > 220 ||
                 !authors.contains(QLatin1Char(',')) ||
                 !authorsPattern.match(authors).hasMatch() ||
                 authors.contains(QStringLiteral("department"), Qt::CaseInsensitive) ||
                 authors.contains(QStringLiteral("university"), Qt::CaseInsensitive) ||
                 authors.contains(QStringLiteral("institute"), Qt::CaseInsensitive)) continue;
+            // RSC author lines often wrap after a comma. Include up to three
+            // immediately following author-like lines, but stop before affiliations
+            // or abstract prose. Keep the candidate review-only.
+            for (qsizetype next = i + 1; next < lines.size() && next <= i + 3; ++next) {
+                const QString continuation = lines[next];
+                const bool appearsAuthorLike = continuation.contains(QLatin1Char(',')) ||
+                    continuation.startsWith(QStringLiteral("and "), Qt::CaseInsensitive) ||
+                    continuation.contains(QStringLiteral(" and "), Qt::CaseInsensitive);
+                if (!appearsAuthorLike || continuation.size() > 220 ||
+                    !authorsPattern.match(continuation).hasMatch() ||
+                    continuation.contains(QStringLiteral("department"), Qt::CaseInsensitive) ||
+                    continuation.contains(QStringLiteral("university"), Qt::CaseInsensitive) ||
+                    continuation.contains(QStringLiteral("institute"), Qt::CaseInsensitive) ||
+                    continuation.contains(QStringLiteral("abstract"), Qt::CaseInsensitive)) break;
+                authors += QLatin1Char(' ') + continuation;
+            }
             // Skip received/accepted dates and publisher banners between title
             // and authors. Never write the candidates without explicit review.
             QStringList titleLines;

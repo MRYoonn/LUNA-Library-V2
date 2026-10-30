@@ -406,7 +406,8 @@ jobs:
       - name: Ordinary launch visibility and native toolbar input
         shell: pwsh
         run: |
-          Set-DisplayResolution -Width 2560 -Height 1440 -Force
+          python -B tools/prepare_desktop_windows.py "$env:RUNNER_TEMP/luna-ui/desktop.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Native desktop resolution was not applied' }
           python -B tools/probe_chrome_windows.py LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/ordinary"
           if ($LASTEXITCODE -ne 0) { throw 'Ordinary launch chrome is clipped, hidden, or disconnected' }
 

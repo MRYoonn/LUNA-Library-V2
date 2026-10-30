@@ -890,9 +890,10 @@ private:
             editor.property("LunaRememberedSource").toString() == source) return;
         const QFileInfo info(controller->getOriginalFileName());
         const QString path = info.canonicalFilePath();
-        if (!info.isFile() || path.isEmpty() || path == editor.property("LunaRememberedPath").toString()) return;
-        editor.setProperty("LunaRememberedPath", path);
+        if (!info.isFile() || path.isEmpty()) return;
         editor.setProperty("LunaRememberedSource", source);
+        if (path == editor.property("LunaRememberedPath").toString()) return;
+        editor.setProperty("LunaRememberedPath", path);
         QStringList recent = savedPaths(QStringLiteral("library/recent"));
         recent.removeAll(path);
         recent.prepend(path);
@@ -1671,7 +1672,8 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
                 window.setWindowTitle(QStringLiteral("LUNA Library · ") + title);
         });
     window.setWindowTitle(QStringLiteral("LUNA Library"));
-    window.resize(1366, 768);
+    const QSize available = window.screen()->availableGeometry().size() - QSize(16, 48);
+    window.resize(QSize(1366, 768).boundedTo(available));
     QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
     window.restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
     window.restoreState(settings.value(QStringLiteral("window/state")).toByteArray());

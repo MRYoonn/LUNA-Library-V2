@@ -715,15 +715,18 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
 static bool auditChrome(NativeTabs& host, QJsonObject& out) {
     auto* bar = host.findChild<QToolBar*>(QStringLiteral("LunaCommonReaderToolbar"));
     auto* brand = host.findChild<QWidget*>(QStringLiteral("LunaBrandFrame"));
-    bool ok = bar && brand && bar->isVisible() && bar->visibleRegion().boundingRect().contains(bar->rect().adjusted(1,1,-1,-1));
+    const QRect desktop = host.screen()->availableGeometry();
+    bool ok = desktop.contains(host.frameGeometry()) && bar && brand && bar->isVisible() && bar->visibleRegion().boundingRect().contains(bar->rect().adjusted(1,1,-1,-1));
     QJsonArray buttons;
     if (bar) for (auto* action : bar->actions()) {
         if (action->isSeparator()) continue;
         auto* widget = bar->widgetForAction(action);
         const QRect bounds = widget ? QRect(widget->mapTo(&host, QPoint()), widget->size()) : QRect();
-        const bool visible = widget && widget->isVisible() && !widget->visibleRegion().isEmpty() && host.rect().contains(bounds);
+        const bool visible = widget && widget->isVisible() && widget->visibleRegion().boundingRect().contains(widget->rect().adjusted(1,1,-1,-1)) && host.rect().contains(bounds) && desktop.contains(QRect(widget->mapToGlobal(QPoint()), widget->size()));
+        auto* hit = widget ? QApplication::widgetAt(widget->mapToGlobal(widget->rect().center())) : nullptr;
+        const bool hitTarget = hit && (hit == widget || widget->isAncestorOf(hit));
         buttons.append(QJsonObject{{"action", action->objectName()}, {"visible", visible}, {"enabled", action->isEnabled()}, {"x", bounds.x()}, {"y", bounds.y()}, {"width", bounds.width()}, {"height", bounds.height()}});
-        ok &= visible;
+        ok &= visible && hitTarget;
     }
     if (brand) for (auto* action : host.menuBar()->actions()) {
         const QRect rect = host.menuBar()->actionGeometry(action);
@@ -732,6 +735,8 @@ static bool auditChrome(NativeTabs& host, QJsonObject& out) {
     out["controls"] = buttons; out["accepted"] = ok;
     out["dpr"] = host.devicePixelRatioF();
     out["clientWidth"] = host.width(); out["clientHeight"] = host.height();
+    out["desktopWidth"] = desktop.width(); out["desktopHeight"] = desktop.height();
+    out["frameOnDesktop"] = desktop.contains(host.frameGeometry());
     return ok;
 }
 static void verifyIntegration(NativeTabs& host, const QStringList& files, const QString& report, bool restore) {
@@ -905,7 +910,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             tabs->setCurrentWidget(extra[1]);
             QWidget* closeButton = tabBar->tabButton(tabs->indexOf(extra[1]), QTabBar::RightSide);
             if (!closeButton) closeButton = tabBar->tabButton(tabs->indexOf(extra[1]), QTabBar::LeftSide);
-            integrationRequire(closeButton && integrationClick(host, closeButton, closeButton->rect().center()) && integrationWait([&] { return host.isVisible() && host.documentCount() == 3 && (!extra[1] || tabs->indexOf(extra[1]) == -1); }), "Tab X closed the wrong document or window");
+            integrationRequire(closeButton && integrationPanelClick(host, closeButton) && integrationWait([&] { return host.isVisible() && host.documentCount() == 3 && (!extra[1] || tabs->indexOf(extra[1]) == -1); }), "Tab X closed the wrong document or window");
             integrationRequire(extra[2] && host.closeTab(tabs->indexOf(extra[2])) && host.documentCount() == 2, "Extra-tab cleanup damaged original documents");
             tabs->setCurrentWidget(a); pa->zoom(1.25); pb->zoom(1.5);
             result["fiveTabsBoundedElidedTooltipScrollAndIndependentViews"] = true;
@@ -1193,6 +1198,7 @@ int runTabbedLibrary(const QStringList& files, const QString& report, bool resto
     if (!qEnvironmentVariable("LUNA_UI_AUDIT").isEmpty()) {
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QFileInfo(qEnvironmentVariable("LUNA_UI_AUDIT")).absolutePath() + "/settings");
+        QSettings(QSettings::IniFormat, QSettings::UserScope, "LUNA", "LUNA Library").setValue("library/root", qEnvironmentVariable("LUNA_AUDIT_ROOT"));
     }
     NativeTabs host;
     int opened = 0;
@@ -1203,8 +1209,18 @@ int runTabbedLibrary(const QStringList& files, const QString& report, bool resto
 #ifdef Q_OS_WIN
     const QString auditPath = qEnvironmentVariable("LUNA_UI_AUDIT");
     if (!auditPath.isEmpty()) {
-        QTimer::singleShot(3000, &host, [&host, auditPath] {
-            QJsonObject result; bool ok = auditChrome(host, result);
+        QTimer::singleShot(3000, &host, [&host, auditPath, files] {
+            const bool loaded = files.isEmpty() || integrationWait([&] {
+                for (auto* editor : host.findChildren<Editor*>()) {
+                    auto* controller = editor->getProgramController();
+                    if (!controller->getDocument() || !controller->canClose()) return false;
+                }
+                return host.documentCount() == files.size();
+            }, 30000);
+            host.raise(); host.activateWindow(); SetForegroundWindow(reinterpret_cast<HWND>(host.winId()));
+            QCoreApplication::processEvents();
+            QJsonObject result; bool ok = auditChrome(host, result) && loaded;
+            result["documentsLoaded"] = loaded;
             if (auto* editor = host.current(); editor && editor->getProgramController()->getDocument()) {
                 auto* bar = host.findChild<QToolBar*>(QStringLiteral("LunaCommonReaderToolbar"));
                 auto* action = editor->findChild<QAction*>(QStringLiteral("actionZoom_Out"));

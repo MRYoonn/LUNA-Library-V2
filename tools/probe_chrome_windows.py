@@ -20,7 +20,7 @@ def run(package, output):
             for mode in ('empty', 'three-pdfs', 'restart'):
                 report = output / f'{scale}-{mode}.json'
                 env = os.environ.copy()
-                env.update(QT_SCALE_FACTOR=scale, LUNA_UI_AUDIT=str(report), LUNA_PERF='1', QT_FORCE_STDERR_LOGGING='1')
+                env.update(QT_SCALE_FACTOR=scale, LUNA_UI_AUDIT=str(report), LUNA_AUDIT_ROOT=temp, LUNA_PERF='1', QT_FORCE_STDERR_LOGGING='1')
                 with report.with_suffix('.log').open('w') as log:
                     subprocess.run([str(package / 'LUNA.exe'), *(documents if mode != 'empty' else [])],
                                    env=env, cwd=package, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=120)

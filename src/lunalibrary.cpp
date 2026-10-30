@@ -1450,7 +1450,14 @@ private:
             auto* item = new QListWidgetItem(
                 style()->standardIcon(QStyle::SP_FileIcon), info.completeBaseName(), list);
             decorate(item, path);
-            filter(list, query_->text());
+            const QString word = query_->text();
+            const QVariantMap meta = item->data(Qt::UserRole + 5).toMap();
+            item->setHidden(!word.isEmpty() &&
+                !item->text().contains(word, Qt::CaseInsensitive) &&
+                !info.completeBaseName().contains(word, Qt::CaseInsensitive) &&
+                !meta.value("authors").toString().contains(word, Qt::CaseInsensitive) &&
+                !meta.value("journal").toString().contains(word, Qt::CaseInsensitive) &&
+                !luna::Bibliography::citation(meta).contains(word, Qt::CaseInsensitive));
         }
         if (list->count() >= kMaximumEntries || !iterator->hasNext()) {
             timer->stop();

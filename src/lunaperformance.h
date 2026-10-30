@@ -12,7 +12,6 @@ inline void performanceEvent(const char* stage, qint64 start, qint64 end = perfo
     if (!qEnvironmentVariableIsSet("LUNA_PERF")) return;
     qInfo().noquote() << "LUNA_PERF" << QJsonDocument(QJsonObject{{"stage", QString::fromLatin1(stage)}, {"startMs", start}, {"endMs", end}, {"durationMs", end-start}}).toJson(QJsonDocument::Compact);
 }
-#endif // LUNA_PERFORMANCE_H
 class PerformanceSpan {
 public:
     explicit PerformanceSpan(const char* name) : name_(name), start_(performanceNow()) {}
@@ -20,3 +19,4 @@ public:
 private: const char* name_; qint64 start_;
 };
 }
+#endif // LUNA_PERFORMANCE_H

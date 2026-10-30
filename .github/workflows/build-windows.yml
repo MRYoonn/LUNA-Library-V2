@@ -399,6 +399,10 @@ jobs:
           Copy-Item 'pdf4qt/3rdparty_licenses' "$output/third_party_licenses" -Recurse
           Copy-Item 'LICENSE_NOTICE.md' "$output/LUNA_LICENSE_NOTICE.md"
           Copy-Item 'USER_GUIDE_KO.md' "$output/USER_GUIDE_KO.md"
+          Copy-Item 'tools/LUNA-Update.ps1' "$output/LUNA-Update.ps1"
+          $updateTokens = $null; $updateErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $output 'LUNA-Update.ps1'), [ref]$updateTokens, [ref]$updateErrors) | Out-Null
+          if ($updateErrors.Count) { throw 'Updater PowerShell syntax failed' }
           Copy-Item 'tools/Start-Luna-Diagnostics.*' $output
           Copy-Item 'tools/*Crash*.ps1','tools/*Crash*.cmd','CRASH_DIAGNOSTICS_KO.md' $output
           $diagnosticTokens = $null; $diagnosticErrors = $null

@@ -74,6 +74,18 @@ int main(int argc, char** argv) {
         "Hannah M. Kortman, Hao Fang, Kane A. C. Bastick, Charlotte Völkel,\n"
         "Dominik Oberthür, Peter H. Seeberger, Markus Perbandt\n"
         "and John J. Molloy*a\n");
+    // RSC's real extracted reading stream inserts a, ab, c, *d, *a
+    // affiliation markers inside/after names, sometimes on separate lines.
+    const QString publisherStream = QStringLiteral(
+        "Chemical Science\nCite this: Chem. Sci., 2026, 17, 247\n"
+        "Fused 3D boron heterocycles via EnT catalysis:\n"
+        "synthesis, modification and validation as beta-lactamase inhibitors\n"
+        "Hannah M. Kortman,ab Hao Fang,ab Kane A. C. Bastick,a Charlotte Völkel,ab\n"
+        "Dominik Oberthür,c Peter H. Seeberger,\n"
+        "ab Markus Perbandt\n*d\nand John J. Molloy\n*a\n"
+        "The installation of a boron unit into bioactive scaffolds continues.\n");
+    if (luna::Bibliography::firstPageLastAuthor(publisherStream) !=
+        QStringLiteral("John J. Molloy")) return 49;
     const QString last = luna::Bibliography::firstPageLastAuthor(rscCover);
     if (last != QStringLiteral("John J. Molloy")) return 38;
     if (luna::Bibliography::firstPageLastAuthor(QStringLiteral(

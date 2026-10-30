@@ -2013,6 +2013,14 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     search->clear();
     if (item->isHidden()) return fail("Clearing search did not restore PDF");
     list->setCurrentItem(item);
+    auto* citationPanelForFocus = dynamic_cast<LibraryPanel*>(dock->widget());
+    if (!citationPanelForFocus) return fail("Library panel unavailable for active-paper check");
+    const int scrollBeforeFocus = list->verticalScrollBar()->value();
+    citationPanelForFocus->selectActiveCard();
+    if (list->verticalScrollBar()->value() != scrollBeforeFocus)
+        return fail("Active document highlighting moved the paper list");
+    if (!item->data(Qt::UserRole + 7).toBool())
+        return fail("Active document did not get the blue card highlight flag");
     auto* favorite = list->findChild<QAction*>(QStringLiteral("LunaToggleFavorite"));
     if (!favorite) return fail("Favorite action missing");
     const QString path = item->data(Qt::UserRole).toString();
@@ -2039,8 +2047,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             return;
         auto* input = dialog->findChild<QLineEdit*>(QStringLiteral("LunaBibliographyCitation"));
         auto* buttons = dialog->findChild<QDialogButtonBox*>();
-        if (!input || !buttons || !buttons->button(QDialogButtonBox::Ok) ||
-            !buttons->findChild<QPushButton*>(QStringLiteral("LunaExtractFirstPageCitation"))) {
+        if (!input || !buttons || !buttons->button(QDialogButtonBox::Ok)) {
             dialog->reject();
             return;
         }

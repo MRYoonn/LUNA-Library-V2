@@ -33,6 +33,33 @@ public:
         return result;
     }
 
+    // Conservative citation extraction from the printed first page only.
+    // Only known journal patterns are accepted; unknown text is left untouched.
+    // No DOI parsing or online queries are performed.
+    static QVariantMap firstPageCitation(QString text) {
+        text = text.left(32000);
+        for (const QChar mark : {QChar(0x2013), QChar(0x2014), QChar(0x2212)})
+            text.replace(mark, QLatin1Char('-'));
+        text.replace(QChar(0x00a0), QLatin1Char(' '));
+        const auto lines = text.split(QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
+        static const QRegularExpression pattern(QStringLiteral(
+            R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
+            QRegularExpression::CaseInsensitiveOption));
+        int checked = 0;
+        for (const QString& raw : lines) {
+            if (++checked > 140) break;
+            const QString line = raw.simplified();
+            if (line.size() > 320) continue;
+            const auto match = pattern.match(line);
+            if (!match.hasMatch()) continue;
+            return {{"journal", match.captured(QStringLiteral("journal")).simplified()},
+                    {"year", match.captured(QStringLiteral("year"))},
+                    {"volume", match.captured(QStringLiteral("volume"))},
+                    {"page", match.captured(QStringLiteral("page")).remove(QLatin1Char(' '))}};
+        }
+        return {};
+    }
+
     QVariantMap record(const QString& identity) const {
         return settings().value(key(resolve(identity))).toMap();
     }

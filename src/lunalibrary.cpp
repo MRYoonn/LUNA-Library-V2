@@ -953,7 +953,7 @@ private:
         revised["volume"] = volume.text().simplified().left(256);
         revised["page"] = pages.text().simplified().left(256);
         revised["source"] = QStringLiteral("Manual");
-        if (!bibliography_.save(DocumentClaim::identity(path), revised, true))
+        if (!bibliography_.saveEdits(DocumentClaim::identity(path), existing, revised))
             QMessageBox::warning(this, QStringLiteral("서지정보 저장 실패"), QStringLiteral("로컬 서지정보를 저장하지 못했습니다."));
     }
     void decorate(QListWidgetItem* item, const QString& path) {

@@ -378,6 +378,24 @@ public:
         return true;
     }
 
+    // Merge only fields actually changed in the dialog against its opening
+    // snapshot. Background extraction may have updated other fields meanwhile.
+    bool saveEdits(const QString& identity, const QVariantMap& before, const QVariantMap& edited) {
+        if (identity.isEmpty()) return false;
+        QVariantMap current = record(identity);
+        bool modified = false;
+        for (const char* key : {"title", "authors", "citation", "journal", "year", "volume", "page"}) {
+            const QString field = QString::fromLatin1(key);
+            if (edited.value(field).toString().simplified() == before.value(field).toString().simplified()) continue;
+            current[field] = edited.value(field);
+            current[field + QStringLiteral("Source")] = QStringLiteral("manual");
+            modified = true;
+        }
+        if (!modified) return true;
+        current["source"] = QStringLiteral("Manual field edits");
+        return save(identity, current, false);
+    }
+
     // Use only PDF info metadata already read by the native PDF viewer.
     // Do not block page opening on a second parse and never overwrite user edits.
     void ingest(const QString& identity, const QString& title, const QString& authors,

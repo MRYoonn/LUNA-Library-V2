@@ -149,6 +149,22 @@ int main(int argc, char** argv) {
         siOwned.value("unverifiedSiMetadata").toMap().value("title") != QStringLiteral("PDB structure validation report")) return 57;
     store.ingest("si-owned", "Do not restore machine title", "Hao Fang");
     if (!store.record("si-owned").value("title").toString().isEmpty()) return 58;
+    // A dialog opened before async extraction must not re-save its stale blank
+    // author as a manual deletion when the user changes only the citation.
+    const auto dialogBefore = store.record("dialog-race");
+    store.enrichFromFirstPage("dialog-race", verifiedLast);
+    auto dialogEdited = dialogBefore;
+    dialogEdited["citation"] = QStringLiteral("Human pasted citation");
+    if (!store.saveEdits("dialog-race", dialogBefore, dialogEdited)) return 59;
+    const auto afterDialog = store.record("dialog-race");
+    if (afterDialog.value("authors") != QStringLiteral("John J. Molloy") ||
+        afterDialog.value("authorsSource") != QStringLiteral("first_page_verified") ||
+        afterDialog.value("citationSource") != QStringLiteral("manual")) return 60;
+    auto authorEdit = afterDialog;
+    authorEdit["authors"] = QStringLiteral("Manual Correct Author");
+    if (!store.saveEdits("dialog-race", afterDialog, authorEdit)) return 61;
+    store.enrichFromFirstPage("dialog-race", verifiedLast);
+    if (store.record("dialog-race").value("authors") != QStringLiteral("Manual Correct Author")) return 62;
     const QVariantMap jpcb = luna::Bibliography::firstPageCitation(
         QStringLiteral("J. Phys. Chem. B 2004, 108, 5472–5476\nLow Energy Electron Interactions with Uracil"));
     if (jpcb.value("journal") != QStringLiteral("J. Phys. Chem. B") ||

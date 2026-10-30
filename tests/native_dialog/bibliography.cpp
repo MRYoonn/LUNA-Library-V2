@@ -31,9 +31,7 @@ int main(int argc, char** argv) {
         QStringLiteral("Supporting Information\nCatalytic Ketyl-Olefin Cyclizations Enabled by Proton Coupled-Electron\n"
                        "Transfer\nKyle T. Tarantino, Peng Liu, Robert R. Knowles*\n"
                        "Department of Chemistry, Princeton University"));
-    if (si.value("title") != QStringLiteral(
-            "Catalytic Ketyl-Olefin Cyclizations Enabled by Proton Coupled-Electron Transfer") ||
-        !si.value("authors").toString().contains(QStringLiteral("Robert R. Knowles"))) return 22;
+    if (!si.isEmpty()) return 22; // SI without authoritative publication data: leave blank.
     const QVariantMap proof = luna::Bibliography::firstPageCitation(
         QStringLiteral("Nature Communications\nArticle in Press\nPhoto-enabled chemistry"));
     if (proof.value("journal") != QStringLiteral("Nature Communications") ||
@@ -58,7 +56,8 @@ int main(int argc, char** argv) {
             QStringLiteral("A. Researcher, B. Contributor, C. Professor")) !=
         QStringLiteral("C. Professor")) return 27;
     if (luna::Bibliography::firstPageIdentity(
-            QStringLiteral("Fused 3D boron heterocycles via EnT catalysis:\n"
+            QStringLiteral("Chemical Science\nCite this: Chem. Sci., 2026, 17, 247\n"
+                           "Fused 3D boron heterocycles via EnT catalysis:\n"
                            "synthesis, modification and validation as beta-lactamase inhibitors\n"
                            "Hannah M. Kortman, Hao Fang, Kane A. C. Bastick, Charlotte Völkel,\n"
                            "Dominik Oberthür, Peter H. Seeberger, Markus Perbandt and John J. Molloy"))
@@ -66,6 +65,16 @@ int main(int argc, char** argv) {
         // A wrapped author list is a supported common RSC case.
         return 28;
     }
+    const QVariantMap jpcb = luna::Bibliography::firstPageCitation(
+        QStringLiteral("J. Phys. Chem. B 2004, 108, 5472–5476\nLow Energy Electron Interactions with Uracil"));
+    if (jpcb.value("journal") != QStringLiteral("J. Phys. Chem. B") ||
+        jpcb.value("year") != QStringLiteral("2004") ||
+        jpcb.value("page") != QStringLiteral("5472-5476")) return 29;
+    if (!luna::Bibliography::firstPageCitation(
+        QStringLiteral("Supporting Information\nJ. Org. Chem. 2026, 91, 124–129")).isEmpty()) return 30;
+    if (luna::Bibliography::credibleTitle(QStringLiteral("No Job Name")) ||
+        luna::Bibliography::credibleTitle(QStringLiteral("Microsoft Word - SI-JOC.docx")) ||
+        luna::Bibliography::credibleAuthor(QStringLiteral("as well as the energetics involved"))) return 31;
     const QVariantMap structured{
         {"title", QStringLiteral("Synthetic Paper")},
         {"authors", QStringLiteral("Author A")},
@@ -95,12 +104,20 @@ int main(int argc, char** argv) {
       if (reopened.record("before").value("authors") != QStringLiteral("Author A")) return 11;
     }
     // Local metadata import must only fill missing fields, never erase a citation.
-    store.ingest("auto", QStringLiteral("PDF title"), QStringLiteral("PDF author"),
+    store.ingest("auto", QStringLiteral("Photocatalytic Coupling of Uracil Derivatives"), QStringLiteral("Alice B. Example"),
         {{"journal", QStringLiteral("J. Org. Chem.")}, {"year", QStringLiteral("2025")},
          {"volume", QStringLiteral("90")}, {"page", QStringLiteral("100–108")}});
-    if (store.record("auto").value("title") != QStringLiteral("PDF title")) return 12;
+    if (store.record("auto").value("title") != QStringLiteral("Photocatalytic Coupling of Uracil Derivatives")) return 12;
     if (luna::Bibliography::citation(store.record("auto")) !=
         QStringLiteral("J. Org. Chem. 2025, 90, 100–108")) return 13;
+    if (!store.save("garbage", {{"title", QStringLiteral("No Job Name")},
+                                {"authors", QStringLiteral("as well as the energetics involved")}}, false))
+        return 32;
+    if (!store.record("garbage").value("title").toString().isEmpty() ||
+        !store.record("garbage").value("authors").toString().isEmpty()) return 33;
+    if (!store.enrichFromFirstPage("garbage", jpcb)) return 34;
+    if (store.record("garbage").value("journal") != QStringLiteral("J. Phys. Chem. B") ||
+        !store.record("garbage").value("title").toString().isEmpty()) return 35;
     store.ingest("invalid-year", {}, {}, {{"year", QStringLiteral("unknown")}});
     if (!store.record("invalid-year").value("year").toString().isEmpty()) return 18;
     if (!store.save("conflict", {{"citation", QStringLiteral("Keep existing")}})) return 14;

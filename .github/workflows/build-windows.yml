@@ -1,7 +1,13 @@
 name: LUNA Library V2 - PDF4QT Windows Portable
 
-# Manual builds only. No private data, secrets, or untrusted PR execution.
+# Manual builds by default. A change to THIS workflow on the citation beta
+# branch deliberately starts one full Windows validation, without secrets/PR code.
 on:
+  push:
+    branches:
+      - feature/beta-citation-cards
+    paths:
+      - .github/workflows/build-windows.yml
   workflow_dispatch:
     inputs:
       production_paper_capture:

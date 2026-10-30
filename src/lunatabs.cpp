@@ -759,6 +759,22 @@ static bool auditChrome(NativeTabs& host, QJsonObject& out) {
         const QRect rect = host.menuBar()->actionGeometry(action);
         if (!rect.isEmpty()) ok &= !rect.intersects(QRect(brand->mapTo(host.menuBar(), QPoint()), brand->size()));
     }
+    // A successful build must not ship the recurrent tiny Open/Save toolbar
+    // at the upper-left after reopening LUNA. The shell owns only the one
+    // common reader bar; embedded PDF4QT mainToolBar widgets stay hidden.
+    int unexpectedToolbars = 0;
+    for (auto* toolbar : host.findChildren<QToolBar*>()) {
+        if (toolbar == bar) continue;
+        if ((toolbar->objectName() == QStringLiteral("mainToolBar") ||
+             toolbar->objectName() == QStringLiteral("LunaLibraryToolbar")) &&
+            toolbar->isVisible())
+            ++unexpectedToolbars;
+        if (toolbar->objectName() == QStringLiteral("mainToolBar") &&
+            host.toolBarArea(toolbar) != Qt::NoToolBarArea)
+            ++unexpectedToolbars;
+    }
+    out["unexpectedToolbars"] = unexpectedToolbars;
+    ok &= unexpectedToolbars == 0;
     out["controls"] = buttons; out["accepted"] = ok;
     out["dpr"] = host.devicePixelRatioF();
     out["clientWidth"] = host.width(); out["clientHeight"] = host.height();

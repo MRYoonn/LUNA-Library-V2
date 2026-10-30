@@ -39,6 +39,21 @@ class CitationContractTests(unittest.TestCase):
         self.assertIn('key == QStringLiteral("publicationyear")', self.ui)
         self.assertNotIn("PDFTextLayoutGenerator", self.ui)
 
+    def test_first_page_extractor_is_opt_in_and_offline(self):
+        self.assertIn("firstPageCitation(QString text)", self.model)
+        self.assertIn("firstPageIdentity(const QString& text)", self.model)
+        self.assertIn("LunaExtractFirstPageCitation", self.ui)
+        self.assertIn("compiler->createTextLayout(0)", self.ui)
+        self.assertIn("firstPageCitation(text)", self.ui)
+        self.assertIn("firstPageIdentity(text)", self.ui)
+        self.assertIn("제목·저자는 잘못 구분될 수 있으므로", self.ui)
+
+    def test_versioned_toolbar_layout_never_restores_legacy_state(self):
+        self.assertIn('window/layout-v091', self.ui)
+        self.assertIn('window_->saveState(91)', self.ui)
+        self.assertIn('restoreState(settings.value(QStringLiteral("window/layout-v091")).toByteArray(), 91)', self.ui)
+        self.assertNotIn('window.restoreState(settings.value(QStringLiteral("window/state"))', self.ui)
+
     def test_native_fixture_exercises_citation_and_restart(self):
         for text in (
             "store.relocate", "Synthetic Paper", "J. Am. Chem. Soc.",

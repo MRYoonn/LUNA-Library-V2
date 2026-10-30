@@ -219,6 +219,8 @@ jobs:
           if ('${{ inputs.native_tabs_proof }}' -ne 'true') { $proofArguments += '--backend-only' }
           python -B experiments/native_tabs/prepare.py pdf4qt @proofArguments
           if ($LASTEXITCODE -ne 0) { throw "Native session source gate failed" }
+          python -B tools/apply_performance.py pdf4qt
+          if ($LASTEXITCODE -ne 0) { throw "Performance instrumentation failed" }
 
       - name: Identify the Windows compiler image for dependency caching
         id: compiler-image

@@ -100,7 +100,7 @@ def run(package, output, debugger=None):
             env = os.environ.copy()
             windows_root = Path(os.environ['SystemRoot'])
             env['PATH'] = os.pathsep.join(map(str, (package, windows_root / 'System32', windows_root)))
-            env.update(QT_SCALE_FACTOR=scale, QT_QPA_PLATFORM='windows', QT_FORCE_STDERR_LOGGING='1',
+            env.update(LUNA_PERF='1', QT_SCALE_FACTOR=scale, QT_QPA_PLATFORM='windows', QT_FORCE_STDERR_LOGGING='1',
                        QT_PLUGIN_PATH=str(package), QT_QPA_PLATFORM_PLUGIN_PATH=str(package / 'platforms'))
             with (evidence / 'native.log').open('w', encoding='utf-8') as log:
                 reports = []

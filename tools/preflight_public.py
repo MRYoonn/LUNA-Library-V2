@@ -44,6 +44,7 @@ APPROVED = {
     "tests/crash_collector/CMakeLists.txt", "tests/crash_collector/main.cpp", "CRASH_DIAGNOSTICS_KO.md",
     "tools/Start-Luna-Diagnostics.ps1", "tools/Start-Luna-Diagnostics.cmd",
     "tools/probe_tabs_integration_windows.py",
+    "src/lunaperformance.h", "tools/apply_performance.py",
     "src/lunatabs.cpp", "src/lunatabs.h",
     "experiments/native_tabs/prepare.py", "experiments/native_tabs/main.cpp",
     "experiments/native_tabs/run_windows.py", "experiments/native_tabs/README.md",

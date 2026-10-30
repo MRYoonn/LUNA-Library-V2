@@ -261,6 +261,7 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "lunareadertoolbar.cpp": (own / "lunareadertoolbar.cpp").read_bytes(),
         folder / "lunareadertoolbar.h": (own / "lunareadertoolbar.h").read_bytes(),
         folder / "lunaeditorsmoke.cpp": (own / "lunaeditorsmoke.cpp").read_bytes(),
+        folder / "lunaperformance.h": (own / "lunaperformance.h").read_bytes(),
         folder / "lunaeditorsmoke.h": (own / "lunaeditorsmoke.h").read_bytes(),
         folder / "lunathumbnailcache.h": (own / "lunathumbnailcache.h").read_bytes(),
         folder / "lunafilemove.h": (own / "lunafilemove.h").read_bytes(),

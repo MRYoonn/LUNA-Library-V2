@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Native Editor sessions: ownership and close flow validated by Astra's proof.
 #include "lunatabs.h"
+#include "lunaperformance.h"
 #include "lunalibrary.h"
 #include "lunareadertoolbar.h"
 #include "lunadocumentclaim.h"
@@ -208,6 +209,8 @@ public:
         return false;
     }
     Editor* open(const QString& path, const char* origin = "api-or-startup") {
+        const qint64 openStart = performanceNow();
+        PerformanceSpan openSpan("open-dispatch");
         setProperty("LunaOpenOrigin", QString::fromLatin1(origin));
         setProperty("LunaRequestedDocument", QString::fromLatin1(QCryptographicHash::hash(DocumentClaim::identity(path).toUtf8(), QCryptographicHash::Sha256).toHex().left(16)));
         trace("document-open-request", current());
@@ -221,12 +224,15 @@ public:
         bool created = false;
         if (!editor) { editor = createEditor(); finishEditor(editor); created = true; }
         auto* s = session(editor); auto claim = makeClaim(editor);
+        const auto claimStart = performanceNow();
         const auto acquired = claim->acquire(path);
+        performanceEvent("file-claim", claimStart);
         if (acquired != DocumentClaim::Result::Acquired) {
             if (created) dispose(editor);
             if (acquired == DocumentClaim::Result::Error) QMessageBox::warning(this, QStringLiteral("PDF 열기 실패"), QStringLiteral("문서 사용권을 확보하지 못했습니다. 파일은 변경하지 않았습니다."));
             return nullptr;
         }
+        editor->getProgramController()->getPdfWidget()->getDrawWidget()->getWidget()->setProperty("LunaOpenStart", openStart);
         s->identity = DocumentClaim::identity(path); s->claim = std::move(claim); s->loading = true;
         editor->setProperty("LunaLoadGeneration", editor->property("LunaLoadGeneration").toInt() + 1);
         editor->setProperty("LunaOpenOrigin", QString::fromLatin1(origin));
@@ -305,6 +311,7 @@ private:
         return std::make_unique<DocumentClaim>([this, guarded] { if (guarded) activate(guarded); });
     }
     Editor* createEditor() {
+        PerformanceSpan span("editor-create");
         auto* editor = new Editor(tabs_); editor->setWindowFlags(Qt::Widget);
         const int serial = property("LunaEditorCreations").toInt() + 1; setProperty("LunaEditorCreations", serial); editor->setProperty("LunaEditorSerial", serial);
         connect(editor, &QObject::destroyed, this, [this, serial] { setProperty("LunaLastDestroyedEditor", serial); trace("editor-destroyed"); });
@@ -322,6 +329,7 @@ private:
         trace("editor-created", editor); return editor;
     }
     void finishEditor(Editor* editor) {
+        PerformanceSpan span("editor-ui-bind");
         prepareReaderSession(*editor, *this);
         if (auto* bar = editor->findChild<QToolBar*>(QStringLiteral("mainToolBar"))) bar->hide();
         editor->statusBar()->hide();

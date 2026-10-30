@@ -42,6 +42,7 @@
 #include <QLinearGradient>
 #include <QSet>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QStyledItemDelegate>
 #include <QStyleOptionViewItem>
 #include <QFileIconProvider>

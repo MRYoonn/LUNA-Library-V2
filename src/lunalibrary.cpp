@@ -1609,7 +1609,7 @@ protected:
         if (object == window_ && event->type() == QEvent::Close) {
             QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
             settings.setValue(QStringLiteral("window/geometry"), window_->saveGeometry());
-            settings.setValue(QStringLiteral("window/state"), window_->saveState());
+            settings.setValue(QStringLiteral("window/layout-v091"), window_->saveState(91));
         }
         return QObject::eventFilter(object, event);
     }
@@ -1812,7 +1812,8 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     window.resize(QSize(1366, 768).boundedTo(available));
     QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
     window.restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
-    window.restoreState(settings.value(QStringLiteral("window/state")).toByteArray());
+    // Never load legacy window/state: it can resurrect PDF4QT toolbar rows.
+    window.restoreState(settings.value(QStringLiteral("window/layout-v091")).toByteArray(), 91);
     focus->setChecked(dock->isHidden());
     hideAdvancedToolbars(viewer); // Old saved PDF4QT toolbar rows must not reappear.
     controls->hide(); // Legacy actions remain in View; this empty row has no UI role.

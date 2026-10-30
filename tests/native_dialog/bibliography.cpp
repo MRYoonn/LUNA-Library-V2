@@ -139,6 +139,9 @@ int main(int argc, char** argv) {
     mixed["title"] = QStringLiteral("Explicit human title");
     if (!store.save("auto-rsc", mixed, true) ||
         store.record("auto-rsc").value("authorsSource") != QStringLiteral("first_page_verified")) return 53;
+    if (!store.save("manual-single-name", {{"authors", "Molloy"}}, true)) return 54;
+    store.enrichFromFirstPage("manual-single-name", {{"journal", "Chem. Sci."}});
+    if (store.record("manual-single-name").value("authors") != QStringLiteral("Molloy")) return 55;
     const QVariantMap jpcb = luna::Bibliography::firstPageCitation(
         QStringLiteral("J. Phys. Chem. B 2004, 108, 5472–5476\nLow Energy Electron Interactions with Uracil"));
     if (jpcb.value("journal") != QStringLiteral("J. Phys. Chem. B") ||

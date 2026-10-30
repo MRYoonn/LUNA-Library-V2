@@ -268,6 +268,7 @@ public:
             const QString old = value.value(field).toString().simplified();
             if (!old.isEmpty()) return;
             value[field] = next.left(4096);
+            value[field + QStringLiteral("Source")] = QStringLiteral("first_page_verified");
             changedField = true;
         };
         fill("title", credibleTitle(proposal.value("title").toString()));
@@ -324,14 +325,15 @@ public:
             QRegularExpression::CaseInsensitiveOption);
         const bool brokenTitle = placeholder.match(title).hasMatch() ||
             (!manual && value.value("titleSource").toString() != QStringLiteral("manual") && !title.isEmpty() && !credibleTitle(title));
-        const bool brokenAuthor = author.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
+        const bool brokenAuthor = value.value("authorsSource").toString() != QStringLiteral("manual") &&
+            (author.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("the energetics"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("validation as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("lactamase inhibitors"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("towards"), Qt::CaseInsensitive) ||
             (value.value("authorsSource").toString() != QStringLiteral("manual") &&
              value.value("authorsSource").toString() != QStringLiteral("first_page_verified")) ||
-            (!manual && !author.isEmpty() && !credibleAuthor(author));
+            (!author.isEmpty() && !credibleAuthor(author)));
         if (brokenTitle) value.remove("title");
         if (brokenAuthor) value.remove("authors");
         return value;
@@ -372,6 +374,7 @@ public:
             const QString value = text.simplified().left(maxLength);
             if (entry.value(key).toString().isEmpty() && !value.isEmpty()) {
                 entry[key] = value;
+                entry[key + QStringLiteral("Source")] = QStringLiteral("pdf_metadata");
                 updated = true;
             }
         };

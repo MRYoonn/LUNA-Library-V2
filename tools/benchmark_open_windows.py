@@ -114,7 +114,7 @@ def run(before, after, output):
         paths = []
         for i in range(5):
             path = root / f'fixture-{i}.pdf'
-            path.write_bytes(paper if i % 2 else synthetic_pdf(8))
+            path.write_bytes(paper if i % 2 else synthetic_pdf(3))
             paths.append(path)
         workloads = {'repeat-synthetic-close-reopen': [paths[0]] * 10,
                      'repeat-public-paper-close-reopen': [paths[1]] * 10,

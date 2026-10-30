@@ -264,7 +264,8 @@ public:
         const auto fill = [&value, &proposal, &changedField](const char* key, bool good) {
             const QString field = QString::fromLatin1(key);
             const QString next = proposal.value(field).toString().simplified();
-            if (!good || next.isEmpty()) return;
+            if (!good || next.isEmpty() ||
+                value.value(field + QStringLiteral("Source")).toString() == QStringLiteral("manual")) return;
             const QString old = value.value(field).toString().simplified();
             if (!old.isEmpty()) return;
             value[field] = next.left(4096);
@@ -372,7 +373,8 @@ public:
         bool updated = false;
         const auto fill = [&entry, &updated](const QString& key, const QString& text, int maxLength) {
             const QString value = text.simplified().left(maxLength);
-            if (entry.value(key).toString().isEmpty() && !value.isEmpty()) {
+            if (entry.value(key + QStringLiteral("Source")).toString() != QStringLiteral("manual") &&
+                entry.value(key).toString().isEmpty() && !value.isEmpty()) {
                 entry[key] = value;
                 entry[key + QStringLiteral("Source")] = QStringLiteral("pdf_metadata");
                 updated = true;

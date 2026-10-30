@@ -880,12 +880,14 @@ private:
         }
         if (!controller->getDocument()->getCatalog() ||
             controller->getDocument()->getCatalog()->getPageCount() < 1) return;
-        queueBibliography(identity, *controller->getDocument());
+        queueBibliography(identity, *controller->getDocument(), true);
     }
 
-    void queueBibliography(const QString& identity, const pdf::PDFDocument& document) {
-        if (identity.isEmpty() || analyzedCitations_.contains(identity)) return;
+    void queueBibliography(const QString& identity, const pdf::PDFDocument& document, bool force = false) {
+        if (identity.isEmpty() || runningCitations_.contains(identity) ||
+            (!force && analyzedCitations_.contains(identity))) return;
         analyzedCitations_.insert(identity);
+        runningCitations_.insert(identity);
         // Copy the immutable, implicitly shared PDF snapshot before leaving the UI thread.
         // The worker owns its caches; it never touches the viewer/compiler or QSettings.
         auto result = std::make_shared<QVariantMap>();
@@ -894,6 +896,7 @@ private:
             catch (...) { /* Invalid/image-only documents remain unverified. */ }
         });
         connect(worker, &QThread::finished, this, [this, identity, result] {
+            runningCitations_.remove(identity);
             bibliography_.enrichFromFirstPage(identity, *result);
         });
         connect(qApp, &QCoreApplication::aboutToQuit, worker, [worker] { worker->wait(); });
@@ -1642,6 +1645,7 @@ private:
     pdfviewer::PDFEditorMainWindow* viewer_;
     luna::Bibliography bibliography_;
     QSet<QString> analyzedCitations_;
+    QSet<QString> runningCitations_;
     QSet<QString> pendingCitationExtracts_;
     QAction* cropAction_ = nullptr;
     QMetaObject::Connection documentTitleConnection_, cropConnection_;

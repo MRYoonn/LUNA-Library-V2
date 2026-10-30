@@ -824,7 +824,7 @@ private:
             QList<QListWidgetItem*> matching;
             for (int index = 0; index < list->count(); ++index) {
                 auto* item = list->item(index);
-                if (DocumentClaim::identity(item->data(Qt::UserRole).toString()) == identity)
+                if (item->data(Qt::UserRole + 6).toString() == identity)
                     matching.append(item);
             }
             for (auto* item : matching) decorate(item, item->data(Qt::UserRole).toString());
@@ -882,17 +882,19 @@ private:
     }
     void decorate(QListWidgetItem* item, const QString& path) {
         item->setData(Qt::UserRole, path);
+        const QString fileIdentity = DocumentClaim::identity(path);
+        item->setData(Qt::UserRole + 6, fileIdentity);
         const QString location = QDir(root_).relativeFilePath(QFileInfo(path).absolutePath());
         item->setData(Qt::UserRole + 1, location == QStringLiteral(".") ? QStringLiteral("라이브러리 폴더 · PDF") : location);
         item->setData(Qt::UserRole + 2, favorites_.contains(path));
         QString date = openedDates_.value(openedDateKey(path));
         if (date.isEmpty() && datedNames_.contains(QFileInfo(path).fileName().toCaseFolded()))
-            date = displayedDates_.value(DocumentClaim::identity(path));
+            date = displayedDates_.value(fileIdentity);
         const QDateTime opened = QDateTime::fromString(date, Qt::ISODate);
         item->setData(Qt::UserRole + 3, opened.isValid() ? opened.toLocalTime().date().toString(QStringLiteral("yy.MM.dd.")) : QString());
         const QString memo = memos_.value(openedDateKey(path));
         item->setData(Qt::UserRole + 4, memo);
-        const QVariantMap bibliography = bibliography_.record(DocumentClaim::identity(path));
+        const QVariantMap bibliography = bibliography_.record(fileIdentity);
         item->setData(Qt::UserRole + 5, bibliography);
         const QString title = bibliography.value("title").toString().simplified();
         item->setText(title.isEmpty() ? QFileInfo(path).completeBaseName() : title);

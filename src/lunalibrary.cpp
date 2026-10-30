@@ -891,9 +891,15 @@ private:
         const QVariantMap citation = luna::Bibliography::firstPageCitation(text);
         const QVariantMap name = luna::Bibliography::firstPageIdentity(text);
         QVariantMap evidence = citation;
-        for (const char* field : {"title", "authors"}) {
-            const QString key = QString::fromLatin1(field);
-            if (!name.value(key).toString().isEmpty()) evidence.insert(key, name.value(key));
+        if (!name.value("title").toString().isEmpty())
+            evidence.insert(QStringLiteral("title"), name.value("title"));
+        // An author tail is independently verifiable, even when the PDF's
+        // text-flow order prevents reliable title reconstruction.
+        // Never use the first incomplete author-list fragment as last author.
+        if (!citation.isEmpty()) {
+            const QString finalAuthor = luna::Bibliography::firstPageLastAuthor(text);
+            if (!finalAuthor.isEmpty())
+                evidence.insert(QStringLiteral("authors"), finalAuthor);
         }
         bibliography_.enrichFromFirstPage(identity, evidence);
     }

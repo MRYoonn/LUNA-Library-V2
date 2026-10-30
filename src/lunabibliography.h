@@ -155,12 +155,20 @@ public:
             QStringList titleLines;
             for (qsizetype j = i; j-- > 0 && j + 10 >= i && titleLines.size() < 3;) {
                 const QString candidate = lines[j];
-                if (headingPattern.match(candidate).hasMatch() ||
-                    candidate.startsWith(QStringLiteral("Cite this:"), Qt::CaseInsensitive) ||
+                const bool publicationBoundary =
                     candidate.startsWith(QStringLiteral("Cite this"), Qt::CaseInsensitive) ||
+                    !firstPageCitation(candidate).isEmpty() ||
                     candidate.contains(QStringLiteral("https://"), Qt::CaseInsensitive) ||
-                    candidate.contains(QStringLiteral("doi.org"), Qt::CaseInsensitive))
-                    continue;
+                    candidate.contains(QStringLiteral("doi.org"), Qt::CaseInsensitive);
+                if (publicationBoundary) break;
+                // Acceptance dates can be between the author block and title,
+                // but mastheads and article-type headings stop title collection.
+                if (headingPattern.match(candidate).hasMatch()) {
+                    if (candidate.startsWith(QStringLiteral("Received"), Qt::CaseInsensitive) ||
+                        candidate.startsWith(QStringLiteral("Accepted"), Qt::CaseInsensitive))
+                        continue;
+                    break;
+                }
                 if (candidate.size() > 250) break;
                 if (candidate.size() >= 5)
                     titleLines.prepend(candidate);

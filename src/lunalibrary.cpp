@@ -833,7 +833,7 @@ private:
             filter(list, query_->text());
         }
     }
-    void editBibliography(const QString& path) {
+    void editBibliography(const QString& path, bool extractOnOpen = false) {
         const QVariantMap existing = bibliography_.record(DocumentClaim::identity(path));
         QDialog dialog(this);
         dialog.setObjectName(QStringLiteral("LunaBibliographyEditor"));
@@ -910,6 +910,7 @@ private:
                     "제목·저자는 잘못 구분될 수 있으므로 내용을 확인한 뒤 저장해 주세요."));
         });
         form.addRow(buttons);
+        if (extractOnOpen) QTimer::singleShot(0, &dialog, [extract] { extract->click(); });
         connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog, &year] {
             const QString value = year.text().trimmed();
             static const QRegularExpression yearPattern(QStringLiteral(R"(^[0-9]{4}$)"));
@@ -1342,11 +1343,14 @@ private:
             auto* crop = menu.addAction(QStringLiteral("현재 PDF의 썸네일 지정…"));
             crop->setEnabled(QFileInfo(path).canonicalFilePath() == QFileInfo(viewer_->getProgramController()->getOriginalFileName()).canonicalFilePath());
             auto* citation = menu.addAction(QStringLiteral("서지정보 수정…"));
+            auto* extractCitation = menu.addAction(QStringLiteral("첫 페이지 서지정보 추출…"));
+            extractCitation->setObjectName(QStringLiteral("LunaExtractCitationContextMenu"));
             auto* move = menu.addAction(QStringLiteral("PDF와 썸네일 이동…"));
             auto* chosen = menu.exec(list->viewport()->mapToGlobal(point));
             if (chosen == favorite) toggleFavorite(path);
             else if (chosen == crop) startThumbnailCrop();
             else if (chosen == citation) editBibliography(path);
+            else if (chosen == extractCitation) editBibliography(path, true);
             else if (chosen == move) moveDocument(path);
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {

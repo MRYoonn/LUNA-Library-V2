@@ -77,15 +77,21 @@ public:
         const QString old = resolve(oldIdentity);
         if (old == newIdentity) return true;
         const QVariantMap data = record(old);
-        // Never overwrite an unrelated existing citation during a move.
-        if (!record(newIdentity).isEmpty()) return false;
-        if (!data.isEmpty() && !save(newIdentity, data, data.value("manual").toBool())) return false;
         auto store = settings();
+        // Check the destination key directly: it may be an old in-memory alias.
+        if (!store.value(key(newIdentity)).toMap().isEmpty()) return false;
+        if (!data.isEmpty()) {
+            store.setValue(key(newIdentity), data);
+            store.sync();
+            if (store.status() != QSettings::NoError) return false;
+        }
         store.remove(key(old));
         store.sync();
         if (store.status() != QSettings::NoError) return false;
+        aliases_.remove(newIdentity);
         aliases_.insert(old, newIdentity);
         seen_.remove(old);
+        if (changed) changed(newIdentity);
         return true;
     }
 

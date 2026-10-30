@@ -863,7 +863,7 @@ private:
                                            QDialogButtonBox::ActionRole);
         extract->setObjectName(QStringLiteral("LunaExtractFirstPageCitation"));
         connect(extract, &QPushButton::clicked, &dialog,
-                [this, &dialog, extract, path, &journal, &year, &volume, &pages] {
+                [this, &dialog, extract, path, &title, &authors, &journal, &year, &volume, &pages] {
             const auto* c = viewer_ ? viewer_->getProgramController() : nullptr;
             const QString requested = DocumentClaim::identity(path);
             if (!c || !c->getDocument() || DocumentClaim::identity(c->getOriginalFileName()) != requested) {
@@ -888,22 +888,26 @@ private:
                 text += flow.getText().left(16000) + QLatin1Char('\n');
                 if (text.size() >= 32000) break;
             }
-            const QVariantMap result = luna::Bibliography::firstPageCitation(text);
-            if (result.isEmpty()) {
+            const QVariantMap citation = luna::Bibliography::firstPageCitation(text);
+            const QVariantMap identity = luna::Bibliography::firstPageIdentity(text);
+            if (citation.isEmpty() && identity.isEmpty()) {
                 QMessageBox::information(&dialog, QStringLiteral("서지정보 추출 결과"),
-                    QStringLiteral("첫 페이지에서 확실한 저널·연도·권·페이지 표기를 찾지 못했습니다.\n"
-                        "텍스트를 선택할 수 없는 스캔 PDF 또는 별도 SI 문서일 수 있습니다.\n"
-                        "서지정보 한 줄을 직접 붙여넣어 주세요."));
+                    QStringLiteral("첫 페이지에서 신뢰할 만한 제목·저자·저널 정보를 찾지 못했습니다.\n"
+                        "스캔 PDF나 별도 SI 문서에는 저널 정보가 없을 수 있습니다.\n"
+                        "서지정보를 직접 입력해 주세요."));
                 return;
             }
-            // Never silently replace manual corrections. User reviews all
-            // proposed values in the existing editor before pressing Save.
-            if (journal.text().isEmpty()) journal.setText(result.value("journal").toString());
-            if (year.text().isEmpty()) year.setText(result.value("year").toString());
-            if (volume.text().isEmpty()) volume.setText(result.value("volume").toString());
-            if (pages.text().isEmpty()) pages.setText(result.value("page").toString());
+            // Every candidate is shown for user review; never auto-save or
+            // silently overwrite manually provided fields.
+            if (title.text().isEmpty()) title.setText(identity.value("title").toString());
+            if (authors.text().isEmpty()) authors.setText(identity.value("authors").toString());
+            if (journal.text().isEmpty()) journal.setText(citation.value("journal").toString());
+            if (year.text().isEmpty()) year.setText(citation.value("year").toString());
+            if (volume.text().isEmpty()) volume.setText(citation.value("volume").toString());
+            if (pages.text().isEmpty()) pages.setText(citation.value("page").toString());
             QMessageBox::information(&dialog, QStringLiteral("서지정보 추출 결과"),
-                QStringLiteral("첫 페이지의 서지정보를 입력칸에 채웠습니다. 내용을 확인하고 저장해 주세요."));
+                QStringLiteral("첫 페이지에서 찾은 후보를 입력칸에 채웠습니다.\n"
+                    "제목·저자는 잘못 구분될 수 있으므로 내용을 확인한 뒤 저장해 주세요."));
         });
         form.addRow(buttons);
         connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog, &year] {

@@ -40,9 +40,14 @@ int main(int argc, char** argv) {
       if (reopened.record("before").value("authors") != QStringLiteral("Author A")) return 11;
     }
     // Local metadata import must only fill missing fields, never erase a citation.
-    store.ingest("auto", QStringLiteral("PDF title"), QStringLiteral("PDF author"));
+    store.ingest("auto", QStringLiteral("PDF title"), QStringLiteral("PDF author"),
+        {{"journal", QStringLiteral("J. Org. Chem.")}, {"year", QStringLiteral("2025")},
+         {"volume", QStringLiteral("90")}, {"page", QStringLiteral("100–108")}});
     if (store.record("auto").value("title") != QStringLiteral("PDF title")) return 12;
-    if (!store.record("auto").value("journal").toString().isEmpty()) return 13;
+    if (luna::Bibliography::citation(store.record("auto")) !=
+        QStringLiteral("J. Org. Chem. 2025, 90, 100–108")) return 13;
+    store.ingest("invalid-year", {}, {}, {{"year", QStringLiteral("unknown")}});
+    if (!store.record("invalid-year").value("year").toString().isEmpty()) return 18;
     if (!store.save("conflict", {{"citation", QStringLiteral("Keep existing")}})) return 14;
     if (store.relocate("auto", "conflict")) return 15;
     if (store.record("conflict").value("citation") != QStringLiteral("Keep existing")) return 16;

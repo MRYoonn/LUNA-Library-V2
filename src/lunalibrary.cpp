@@ -820,11 +820,14 @@ private:
     }
     void refreshBibliography(const QString& identity) {
         for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) {
+            // Sorting can reorder rows when their visible titles change.
+            QList<QListWidgetItem*> matching;
             for (int index = 0; index < list->count(); ++index) {
                 auto* item = list->item(index);
-                const QString path = item->data(Qt::UserRole).toString();
-                if (DocumentClaim::identity(path) == identity) decorate(item, path);
+                if (DocumentClaim::identity(item->data(Qt::UserRole).toString()) == identity)
+                    matching.append(item);
             }
+            for (auto* item : matching) decorate(item, item->data(Qt::UserRole).toString());
             filter(list, query_->text());
         }
     }
@@ -833,12 +836,15 @@ private:
         QDialog dialog(this);
         dialog.setWindowTitle(QStringLiteral("논문 서지정보 수정"));
         QFormLayout form(&dialog);
+        QLineEdit fullCitation(existing.value("citation").toString(), &dialog);
+        fullCitation.setPlaceholderText(QStringLiteral("서지정보 전체를 붙여넣으세요. 이 내용이 카드에 우선 표시됩니다."));
         QLineEdit title(existing.value("title").toString(), &dialog);
         QLineEdit authors(existing.value("authors").toString(), &dialog);
         QLineEdit journal(existing.value("journal").toString(), &dialog);
         QLineEdit year(existing.value("year").toString(), &dialog);
         QLineEdit volume(existing.value("volume").toString(), &dialog);
         QLineEdit pages(existing.value("page").toString(), &dialog);
+        form.addRow(QStringLiteral("서지정보 한 줄"), &fullCitation);
         form.addRow(QStringLiteral("논문 제목"), &title);
         form.addRow(QStringLiteral("저자"), &authors);
         form.addRow(QStringLiteral("저널"), &journal);
@@ -847,16 +853,21 @@ private:
         form.addRow(QStringLiteral("페이지 / 논문 번호"), &pages);
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
         form.addRow(buttons);
-        connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog, &year] {
+            const QString value = year.text().trimmed();
+            static const QRegularExpression yearPattern(QStringLiteral(R"(^[0-9]{4}$)"));
+            if (!value.isEmpty() && !yearPattern.match(value).hasMatch()) {
+                QMessageBox::warning(&dialog, QStringLiteral("발행 연도 확인"),
+                    QStringLiteral("발행 연도는 네 자리 숫자로 입력하세요."));
+                return; // Preserve user input on validation error.
+            }
+            dialog.accept();
+        });
         connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
         if (dialog.exec() != QDialog::Accepted) return;
         const QString revisedYear = year.text().trimmed();
-        static const QRegularExpression yearPattern(QStringLiteral(R"(^[0-9]{4}$)"));
-        if (!revisedYear.isEmpty() && !yearPattern.match(revisedYear).hasMatch()) {
-            QMessageBox::warning(this, QStringLiteral("발행 연도 확인"), QStringLiteral("발행 연도는 네 자리 숫자로 입력하세요."));
-            return;
-        }
         QVariantMap revised = existing;
+        revised["citation"] = fullCitation.text().simplified().left(4096);
         revised["title"] = title.text().simplified().left(4096);
         revised["authors"] = authors.text().simplified().left(4096);
         revised["journal"] = journal.text().simplified().left(4096);
@@ -965,18 +976,11 @@ private:
         editor.setProperty("LunaRememberedSource", source);
         if (path == editor.property("LunaRememberedPath").toString()) return;
         editor.setProperty("LunaRememberedPath", path);
-        // Read only the already-loaded native PDF info dictionary. Never re-parse
-        // the PDF or block its first paint on a Crossref network request.
-        if (const auto* documentInfo = controller->getDocument()->getInfo()) {
-            QString doiText = documentInfo->subject + QLatin1Char(' ') + documentInfo->keywords;
-            for (const auto& [key, value] : documentInfo->extra) {
-                if (QString::fromUtf8(key).contains(QStringLiteral("doi"), Qt::CaseInsensitive) ||
-                    !luna::Bibliography::doi(value.toString()).isEmpty())
-                    doiText += QLatin1Char(' ') + value.toString();
-            }
+        // Read title and author from the already-loaded PDF info dictionary.
+        // No DOI parsing, network lookup, or extra PDF parsing in the open path.
+        if (const auto* documentInfo = controller->getDocument()->getInfo())
             bibliography_.ingest(DocumentClaim::identity(path), documentInfo->title,
-                documentInfo->author, doiText);
-        }
+                                 documentInfo->author);
         QStringList recent = savedPaths(QStringLiteral("library/recent"));
         recent.removeAll(path);
         recent.prepend(path);

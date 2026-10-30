@@ -84,28 +84,35 @@ public:
             if (lines.size() >= 55) break;
         }
         static const QRegularExpression authorsPattern(QStringLiteral(
-            R"(^[\p{L}\s.'’\-*†‡]+(?:,\s*[\p{L}\s.'’\-*†‡]+){1,}$)"));
+            R"(^[\p{L}\p{N}\s.,'’\-*†‡&]+$)"));
+        static const QRegularExpression headingPattern(QStringLiteral(
+            R"(^(?:(?:Nature|Nature Communications|Article in Press|Supporting Information|Research Article)|(?:Received|Accepted|Published|Cite this article as|DOI)\s*:?.*)$)"),
+            QRegularExpression::CaseInsensitiveOption);
         for (qsizetype i = 1; i < lines.size(); ++i) {
             const QString authors = lines[i];
-            if (authors.size() < 14 || authors.size() > 200 ||
-                !authorsPattern.match(authors).hasMatch()) continue;
-            QString title = lines[i-1].simplified();
-            if (title.size() < 18 && i >= 2)
-                title = lines[i-2].simplified() + QLatin1Char(' ') + title;
-            else if (i >= 2) {
-                const QString previous = lines[i-2].simplified();
-                if (previous.size() >= 18 && previous.size() <= 180 &&
-                    !previous.contains(QStringLiteral("supporting information"), Qt::CaseInsensitive) &&
-                    !previous.contains(QStringLiteral("article"), Qt::CaseInsensitive) &&
-                    !previous.contains(QStringLiteral("doi"), Qt::CaseInsensitive))
-                    title = previous + QLatin1Char(' ') + title;
+            if (authors.size() < 14 || authors.size() > 220 ||
+                !authors.contains(QLatin1Char(',')) ||
+                !authorsPattern.match(authors).hasMatch() ||
+                authors.contains(QStringLiteral("department"), Qt::CaseInsensitive) ||
+                authors.contains(QStringLiteral("university"), Qt::CaseInsensitive) ||
+                authors.contains(QStringLiteral("institute"), Qt::CaseInsensitive)) continue;
+            // Skip received/accepted dates and publisher banners between title
+            // and authors. Never write the candidates without explicit review.
+            QStringList titleLines;
+            for (qsizetype j = i; j-- > 0 && j + 10 >= i && titleLines.size() < 3;) {
+                const QString candidate = lines[j];
+                if (headingPattern.match(candidate).hasMatch() ||
+                    candidate.contains(QStringLiteral("https://"), Qt::CaseInsensitive) ||
+                    candidate.contains(QStringLiteral("doi.org"), Qt::CaseInsensitive))
+                    continue;
+                if (candidate.size() > 250) break;
+                if (candidate.size() >= 5)
+                    titleLines.prepend(candidate);
             }
+            const QString title = titleLines.join(QLatin1Char(' '));
             if (title.size() < 18 || title.size() > 350 ||
-                title.contains(QStringLiteral("supporting information"), Qt::CaseInsensitive) ||
                 title.contains(QStringLiteral("department"), Qt::CaseInsensitive) ||
-                title.contains(QStringLiteral("university"), Qt::CaseInsensitive) ||
-                title.contains(QStringLiteral("doi"), Qt::CaseInsensitive) ||
-                title.contains(QRegularExpression(QStringLiteral(R"((?:19|20)\d{2}\s*[,;])"))))
+                title.contains(QStringLiteral("university"), Qt::CaseInsensitive))
                 continue;
             return {{"title", title.left(4096)}, {"authors", authors.left(4096)}};
         }

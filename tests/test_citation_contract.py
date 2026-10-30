@@ -92,6 +92,12 @@ class CitationContractTests(unittest.TestCase):
         self.assertIn('store.record("auto-rsc")', self.native)
         self.assertIn('Manual Correct Author', self.native)
 
+    def test_native_bibliography_store_declared_before_regressions(self):
+        declaration = "luna::Bibliography store;"
+        self.assertEqual(self.native.count(declaration), 1)
+        self.assertLess(self.native.index(declaration), self.native.index('store.save("auto-rsc"'))
+        self.assertLess(self.native.index(declaration), self.native.index('store.save("before"'))
+
     def test_native_fixture_exercises_citation_and_restart(self):
         for text in (
             "store.relocate", "Synthetic Paper", "J. Am. Chem. Soc.",

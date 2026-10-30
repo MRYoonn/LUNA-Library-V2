@@ -4,6 +4,7 @@
 #include "lunaperformance.h"
 #include "lunalibrary.h"
 #include "lunareadertoolbar.h"
+#include "lunaupdater.h"
 #include "lunadocumentclaim.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -193,6 +194,10 @@ public:
         // document/window Close actions, and Qt may choose another shortcut.
         // Our application event filter intercepts ShortcutOverride + KeyPress.
         finishEditor(initial);
+        updater_ = new UpdateController(*this);
+        QTimer::singleShot(12000, updater_, [this] {
+            if (updater_ && !closing_) updater_->check(false);
+        });
         setLibraryDocumentRouter(*this, [this](const QString& path) { open(path, "library-open"); },
             [this](const QString& path) {
                 auto* existing = find(path);
@@ -449,6 +454,11 @@ private:
                 if (popup->isVisible() && popup->windowFlags().testFlag(Qt::Popup)) popup->reject();
         bindLibraryEditor(*this, *editor);
         menuBar()->clear(); for (auto* action : editor->menuBar()->actions()) menuBar()->addAction(action);
+        if (updater_) {
+            if (auto* help = editor->findChild<QMenu*>(QStringLiteral("menuHelp"))) {
+                if (!help->actions().contains(updater_->action())) help->addAction(updater_->action());
+            }
+        }
         bindCommonReaderToolbar(*this, *editor);
         editor->getProgramController()->getPdfWidget()->setFocus(); updateTitle(editor);
     }
@@ -570,6 +580,7 @@ private:
     QTabWidget* tabs_ = nullptr;
     QAction* open_ = nullptr;
     QAction* quit_ = nullptr;
+    UpdateController* updater_ = nullptr;
     QTimer poll_;
     bool closing_ = false;
     QPointer<Editor> pendingActivation_;

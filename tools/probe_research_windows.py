@@ -71,12 +71,26 @@ def bibliography_probe(package: Path, output: Path):
         raise RuntimeError("Bibliography integration requires native Windows")
     package = package.resolve(strict=True)
     output.mkdir(parents=True, exist_ok=True)
-    source = "https://europepmc.org/articles/PMC12599387?pdf=render"
-    with urlopen(Request(source, headers={"User-Agent": "LUNA-public-fixture-validation"}), timeout=60) as response:
-        data = response.read(20_000_001)
+    # Use the official download API directly; the article front door can reject
+    # hosted Windows runners before redirecting to this exact public resource.
+    sources = (
+        "https://europepmc.org/api/getPdf?pmcid=PMC12599387",
+        "https://pubs.rsc.org/en/content/articlepdf/2026/sc/d5sc05518k",
+        "https://europepmc.org/articles/PMC12599387?pdf=render",
+    )
     expected = "c9dbf56b210daa1518408b37d1ff172136ea049ab3e1f5bc4aeca00254f85b93"
-    if hashlib.sha256(data).hexdigest() != expected or not data.startswith(b"%PDF-"):
-        raise RuntimeError("Public RSC publisher copy checksum mismatch")
+    failures = []
+    for source in sources:
+        try:
+            with urlopen(Request(source, headers={"User-Agent": "LUNA-public-fixture-validation"}), timeout=60) as response:
+                data = response.read(2_000_001)
+            if hashlib.sha256(data).hexdigest() != expected or not data.startswith(b"%PDF-"):
+                raise RuntimeError("Public RSC publisher copy checksum mismatch")
+            break
+        except Exception as error:
+            failures.append(f"{source}: {error}")
+    else:
+        raise RuntimeError("Pinned public PDF unavailable; no verification was performed: " + "; ".join(failures))
     environment = os.environ.copy()
     system = Path(os.environ["SystemRoot"])
     environment.update(PATH=os.pathsep.join(map(str, (package, system / "System32", system))),
@@ -88,8 +102,15 @@ def bibliography_probe(package: Path, output: Path):
         pdf.write_bytes(data)
         for restart in range(3):
             report = root / f"bibliography-{restart}.txt"
-            subprocess.run([str(package / "LUNA.exe"), "--luna-research-report", str(report), str(pdf)],
-                cwd=root, env=environment, check=True, timeout=90)
+            try:
+                subprocess.run([str(package / "LUNA.exe"), "--luna-research-report", str(report), str(pdf)],
+                    cwd=root, env=environment, check=True, timeout=90)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                failure = Path(str(report) + ".failure.png")
+                if failure.is_file():
+                    shutil.copyfile(failure, output / f"bibliography-{restart}-failure.png")
+                detail = report.read_text(encoding="utf-8")[:2048] if report.is_file() else "No native bibliography diagnostic"
+                raise RuntimeError(detail) from error
             if report.read_bytes() != b"LUNA_RESEARCH_ROUNDTRIP_OK\n" or pdf.read_bytes() != data:
                 raise RuntimeError("Bibliography marker or original bytes changed")
             shutil.copyfile(Path(str(report) + ".png"), output / f"bibliography-{restart}.png")

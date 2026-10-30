@@ -293,8 +293,12 @@ public:
         painter->save();
         const QRect r = option.rect;
         const bool selected = option.state & QStyle::State_Selected;
-        painter->fillRect(r, QColor(selected ? kSELECTION : kPANEL));
-        if (!selected && (option.state & QStyle::State_MouseOver)) painter->fillRect(r, QColor("#F6F9FF"));
+        const bool activeDocument = index.data(Qt::UserRole + 7).toBool();
+        painter->fillRect(r, QColor(activeDocument ? "#EAF3FF" :
+            selected ? "#E4EDFC" : kPANEL));
+        if (activeDocument) painter->fillRect(QRect(r.left(), r.top(), 3, r.height()), QColor("#79A6DF"));
+        if (!activeDocument && !selected && (option.state & QStyle::State_MouseOver))
+            painter->fillRect(r, QColor("#F6F9FF"));
         painter->setPen(QColor(kLINE));
         painter->drawLine(r.bottomLeft(), r.bottomRight());
         const QRect paper(r.left() + 11, r.top() + 15, 88, 65);
@@ -790,17 +794,21 @@ public:
     }
     void recordEditor(pdfviewer::PDFEditorMainWindow& editor) { rememberEditor(editor); }
     void selectActiveCard() {
-        if (!viewer_ || !viewer_->getProgramController() || !viewer_->getProgramController()->getDocument()) return;
-        const QString path = viewer_->getProgramController()->getOriginalFileName();
-        const QString active = DocumentClaim::identity(path);
-        const QString filename = QFileInfo(path).fileName();
+        // Active-document color is independent of QListWidget selection.
+        // Never call setCurrentItem: it scrolls to the item and makes the
+        // paper list jump when opening tabs or changing the current PDF.
+        QString active;
+        if (viewer_ && viewer_->getProgramController() &&
+            viewer_->getProgramController()->getDocument())
+            active = DocumentClaim::identity(viewer_->getProgramController()->getOriginalFileName());
         for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) {
-            const QSignalBlocker block(list);
+            if (!list) continue;
             for (int row = 0; row < list->count(); ++row) {
-                auto* item = list->item(row); const QString candidate = item->data(Qt::UserRole).toString();
-                const bool selected = candidate == path || (QFileInfo(candidate).fileName().compare(filename, Qt::CaseInsensitive) == 0 && DocumentClaim::identity(candidate) == active);
-                item->setSelected(selected);
-                if (selected) list->setCurrentItem(item, QItemSelectionModel::NoUpdate);
+                auto* item = list->item(row);
+                const bool isActive = !active.isEmpty() &&
+                    item->data(Qt::UserRole + 6).toString() == active;
+                if (item->data(Qt::UserRole + 7).toBool() != isActive)
+                    item->setData(Qt::UserRole + 7, isActive);
             }
         }
     }
@@ -1074,7 +1082,8 @@ private:
         }
         editor.setProperty("LunaPreserveReopenView", false);
         if (viewer_ == &editor) selectActiveCard();
-        if (pages_->currentIndex() == 2 && !showingFavorites_) showHistory(false);
+        // Opening a paper must not rebuild or reorder the visible Recent list.
+        // Refresh it only when the user explicitly reopens that navigation view.
     }
     void importPdfs() {
         const QStringList files = QFileDialog::getOpenFileNames(this,
@@ -1536,7 +1545,8 @@ private:
         if (list->count() >= kMaximumEntries || !iterator->hasNext()) {
             timer->stop();
             iterator.reset();
-            list->setSortingEnabled(true);
+            // Sort once after scanning, but keep auto-sorting disabled.
+            // Metadata title updates must not relocate the visible card.
             list->sortItems(Qt::AscendingOrder);
             count->setText(QStringLiteral("%1 PDF · %2개")
                 .arg(all ? QStringLiteral("전체") : QStringLiteral("현재 폴더"))

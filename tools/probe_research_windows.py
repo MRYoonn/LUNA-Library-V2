@@ -65,9 +65,45 @@ def probe(package: Path, output: Path):
     print("[NOTICE] This public-paper check is separate from synthetic PDF regressions; other papers and long-session use are not implied.")
 
 
+def bibliography_probe(package: Path, output: Path):
+    """Public PMC publisher copy, never a private user file or an uploaded PDF."""
+    if sys.platform != "win32":
+        raise RuntimeError("Bibliography integration requires native Windows")
+    package = package.resolve(strict=True)
+    output.mkdir(parents=True, exist_ok=True)
+    source = "https://europepmc.org/articles/PMC12599387?pdf=render"
+    with urlopen(Request(source, headers={"User-Agent": "LUNA-public-fixture-validation"}), timeout=60) as response:
+        data = response.read(20_000_001)
+    expected = "c9dbf56b210daa1518408b37d1ff172136ea049ab3e1f5bc4aeca00254f85b93"
+    if hashlib.sha256(data).hexdigest() != expected or not data.startswith(b"%PDF-"):
+        raise RuntimeError("Public RSC publisher copy checksum mismatch")
+    environment = os.environ.copy()
+    system = Path(os.environ["SystemRoot"])
+    environment.update(PATH=os.pathsep.join(map(str, (package, system / "System32", system))),
+        QT_PLUGIN_PATH=str(package), QT_QPA_PLATFORM_PLUGIN_PATH=str(package / "platforms"),
+        QT_QPA_PLATFORM="windows", QT_SCALE_FACTOR="1", LUNA_PUBLIC_BIBLIOGRAPHY_PROBE="1")
+    with tempfile.TemporaryDirectory(prefix="luna-public-bibliography-") as temporary:
+        root = Path(temporary)
+        pdf = root / "public-rsc.pdf"
+        pdf.write_bytes(data)
+        for restart in range(3):
+            report = root / f"bibliography-{restart}.txt"
+            subprocess.run([str(package / "LUNA.exe"), "--luna-research-report", str(report), str(pdf)],
+                cwd=root, env=environment, check=True, timeout=90)
+            if report.read_bytes() != b"LUNA_RESEARCH_ROUNDTRIP_OK\n" or pdf.read_bytes() != data:
+                raise RuntimeError("Bibliography marker or original bytes changed")
+            shutil.copyfile(Path(str(report) + ".png"), output / f"bibliography-{restart}.png")
+    (output / "PUBLIC_PAPER_CREDIT.txt").write_text(
+        "Public CC BY RSC publisher copy: PMC12599387. Source: " + source + "\n"
+        "PDF is a temporary test input, never uploaded or packaged. SHA256: " + expected + "\n",
+        encoding="utf-8")
+    print("[PASS] Real RSC PDF: automatic John J. Molloy card, legacy Hao Fang repair, no dialog/jump, two fresh-process restarts, original bytes preserved")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("directory", type=Path)
     parser.add_argument("--screenshots-directory", type=Path, required=True)
+    parser.add_argument("--bibliography", action="store_true")
     args = parser.parse_args()
-    probe(args.directory, args.screenshots_directory)
+    (bibliography_probe if args.bibliography else probe)(args.directory, args.screenshots_directory)

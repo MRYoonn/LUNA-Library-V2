@@ -507,6 +507,7 @@ private:
 };
 
 class LibraryPanel final : public QWidget {
+    friend bool luna::verifyBibliographyUi(pdfviewer::PDFEditorMainWindow&, QString&, const QString&);
     friend bool luna::verifyLibraryUi(pdfviewer::PDFEditorMainWindow&, QString&, const QString&);
     friend bool luna::verifyCancelledLibraryMove(pdfviewer::PDFEditorMainWindow&, QString&);
 public:
@@ -1995,6 +1996,56 @@ bool verifyCancelledLibraryMove(pdfviewer::PDFEditorMainWindow& window, QString&
         !original.open(QIODevice::ReadOnly) || original.readAll() != bytes) {
         error = QStringLiteral("Cancelling unsaved PDF movement changed document state or files"); return false;
     }
+    return true;
+}
+
+bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error, const QString& capturePath) {
+    auto* dock = window.findChild<QDockWidget*>(QStringLiteral("LunaLibraryDock"));
+    auto* panel = dock ? dynamic_cast<LibraryPanel*>(dock->widget()) : nullptr;
+    auto* controller = window.getProgramController();
+    if (!panel || !controller->getDocument()) { error = "Bibliography panel/document missing"; return false; }
+    const QString identity = DocumentClaim::identity(controller->getOriginalFileName());
+    QListWidgetItem* card = nullptr;
+    QListWidget* list = nullptr;
+    auto awaitAuthor = [&](const QString& expected) {
+        QElapsedTimer timer; timer.start();
+        while (timer.elapsed() < 15000) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            for (auto* candidate : {panel->folderPdfs_, panel->allPdfs_, panel->historyPdfs_})
+                for (int i = 0; i < candidate->count(); ++i) {
+                    auto* row = candidate->item(i);
+                    if (row->data(Qt::UserRole + 6).toString() == identity &&
+                        row->data(Qt::UserRole + 5).toMap().value("authors").toString() == expected) {
+                        card = row; list = candidate; return true;
+                    }
+                }
+        }
+        return false;
+    };
+    const QString correct = QStringLiteral("John J. Molloy");
+    if (!awaitAuthor(correct)) { error = "Real PDF automatic card author was not John J. Molloy"; return false; }
+    panel->selectActiveCard();
+    const int rowBefore = list->row(card), scrollBefore = list->verticalScrollBar()->value();
+    const bool activeBefore = card->data(Qt::UserRole + 7).toBool();
+    for (const bool manualFlag : {false, true}) {
+        QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "LUNA", "LUNA Library");
+        const QString key = QStringLiteral("library/bibliography/") + QString::fromLatin1(
+            QCryptographicHash::hash(identity.toUtf8(), QCryptographicHash::Sha256).toHex());
+        settings.setValue(key, QVariantMap{{"authors", "Hao Fang"}, {"manual", manualFlag}, {"source", "Manual"}});
+        settings.sync();
+        panel->refreshBibliography(identity);
+        if (!card->data(Qt::UserRole + 5).toMap().value("authors").toString().isEmpty()) {
+            error = "Legacy unverified author was visible"; return false;
+        }
+        panel->analyzedCitations_.remove(identity);
+        panel->queueBibliography(identity, *controller->getDocument());
+        if (!awaitAuthor(correct)) { error = "Real PDF legacy author repair failed"; return false; }
+    }
+    if (list->row(card) != rowBefore || list->verticalScrollBar()->value() != scrollBefore ||
+        card->data(Qt::UserRole + 7).toBool() != activeBefore || QApplication::activeModalWidget()) {
+        error = "Bibliography update moved the card/scroll/highlight or showed a dialog"; return false;
+    }
+    window.grab().save(capturePath + QStringLiteral(".png"));
     return true;
 }
 

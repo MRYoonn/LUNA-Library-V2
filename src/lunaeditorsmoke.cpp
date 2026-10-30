@@ -118,6 +118,8 @@ void key(QWidget* widget, int code, Qt::KeyboardModifiers modifiers) {
 
 bool verifyResearchRoundTrip(pdfviewer::PDFEditorMainWindow& window,
                              const QString& reportPath, QString& error) {
+    if (qEnvironmentVariableIsSet("LUNA_PUBLIC_BIBLIOGRAPHY_PROBE"))
+        return verifyBibliographyUi(window, error, reportPath);
     auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
     auto* controller = window.getProgramController();
     auto* pdfWidget = controller->getPdfWidget();

@@ -490,6 +490,8 @@ jobs:
         run: |
           python -B tools/probe_research_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui/research"
           if ($LASTEXITCODE -ne 0) { throw "Public research PDF verification failed" }
+          python -B tools/probe_research_windows.py LUNA-Windows-Portable --bibliography --screenshots-directory "$env:RUNNER_TEMP/luna-ui/bibliography"
+          if ($LASTEXITCODE -ne 0) { throw "Real RSC bibliography verification failed" }
 
       - name: Native Windows Qt 125 and 150 percent layout checks
         shell: pwsh

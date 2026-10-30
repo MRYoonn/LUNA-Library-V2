@@ -191,6 +191,20 @@ private:
 // Shell-owned presentation only. Native QAction ownership and each Editor's
 // QWidgetAction/defaultWidget remain in that Editor. Never share a native
 // defaultWidget between two QToolBars or reparent a document's toolbar.
+// Keep the native spin-box validator and keyboard handling. Its frameless
+// editor needs explicit bounds inside the styled, buttonless toolbar field.
+class CommonPageInput final : public QSpinBox {
+protected:
+    bool event(QEvent* event) override {
+        const bool handled = QSpinBox::event(event);
+        if (event->type() == QEvent::Resize || event->type() == QEvent::Show || event->type() == QEvent::StyleChange) {
+            lineEdit()->setGeometry(rect().adjusted(4, 1, -4, -1));
+            lineEdit()->show();
+        }
+        return handled;
+    }
+};
+
 class CommonReaderToolbar final : public QObject {
 public:
     explicit CommonReaderToolbar(QMainWindow& shell) : QObject(&shell), shell_(shell) {
@@ -201,7 +215,7 @@ public:
         bar_->setToolButtonStyle(Qt::ToolButtonIconOnly); bar_->setIconSize(QSize(21, 21));
         bar_->setFixedHeight(51); // Exact final HTML toolbar height.
         shell.addToolBar(Qt::TopToolBarArea, bar_);
-        page_ = new QSpinBox; page_->setObjectName(QStringLiteral("LunaCommonPage"));
+        page_ = new CommonPageInput; page_->setObjectName(QStringLiteral("LunaCommonPage"));
         page_->setButtonSymbols(QAbstractSpinBox::NoButtons); page_->setAlignment(Qt::AlignCenter);
         page_->setFixedWidth(68); page_->setToolTip(QStringLiteral("현재 페이지 / 전체 페이지 · Enter로 이동"));
         page_->setAccessibleName(QStringLiteral("현재 페이지 / 전체 페이지"));

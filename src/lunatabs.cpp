@@ -799,8 +799,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             result["commonPageInputDiagnostics"] = QJsonObject{{"text", pageInput->text()}, {"value", pageInput->value()}, {"minimum", pageInput->minimum()}, {"maximum", pageInput->maximum()}, {"suffix", pageInput->suffix()}, {"focused", pageInput->hasFocus()}, {"nativeValue", b->findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"))->value()}};
             integrationRequire(pageMoved, "Common page input did not use the native Editor");
             auto* pageEdit = pageInput->findChild<QLineEdit*>();
+            if (pageEdit) result["commonPageEditorGeometry"] = QJsonObject{{"visible", pageEdit->isVisible()}, {"x", pageEdit->x()}, {"y", pageEdit->y()}, {"width", pageEdit->width()}, {"height", pageEdit->height()}, {"text", pageEdit->text()}};
             integrationRequire(pageEdit && pageEdit->isVisible() && pageEdit->width() > 20 && pageEdit->height() > 10, "Common page text editor has no visible layout");
-            result["commonPageEditorGeometry"] = QJsonObject{{"x", pageEdit->x()}, {"y", pageEdit->y()}, {"width", pageEdit->width()}, {"height", pageEdit->height()}, {"text", pageEdit->text()}};
             pageInput->clearFocus(); QCoreApplication::processEvents();
             const QImage pageImage = pageInput->grab().toImage(); int pageInk = 0;
             const qreal pageDpr = pageImage.devicePixelRatio();

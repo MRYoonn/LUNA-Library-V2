@@ -1455,6 +1455,7 @@ private:
             item->setHidden(!word.isEmpty() &&
                 !item->text().contains(word, Qt::CaseInsensitive) &&
                 !info.completeBaseName().contains(word, Qt::CaseInsensitive) &&
+                !item->data(Qt::UserRole + 4).toString().contains(word, Qt::CaseInsensitive) &&
                 !meta.value("authors").toString().contains(word, Qt::CaseInsensitive) &&
                 !meta.value("journal").toString().contains(word, Qt::CaseInsensitive) &&
                 !luna::Bibliography::citation(meta).contains(word, Qt::CaseInsensitive));

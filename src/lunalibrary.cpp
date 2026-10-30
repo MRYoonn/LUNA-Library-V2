@@ -344,7 +344,7 @@ public:
                 citation.isEmpty() ? QStringLiteral("저널·연도 미확인") : citation,
                 Qt::ElideRight, text.width()));
         const QString opened = index.data(Qt::UserRole + 3).toString();
-        const QString authors = bibliography.value("authors").toString().simplified();
+        const QString authors = luna::Bibliography::lastListedAuthor(bibliography.value("authors").toString());
         const QString metadata = (authors.isEmpty() ? QStringLiteral("저자 미확인") : authors) +
             (opened.isEmpty() ? QString() : QStringLiteral(" · ") + opened);
         painter->drawText(QRect(text.left(), r.top() + 57, text.width(), 15),
@@ -863,7 +863,7 @@ private:
                                            QDialogButtonBox::ActionRole);
         extract->setObjectName(QStringLiteral("LunaExtractFirstPageCitation"));
         connect(extract, &QPushButton::clicked, &dialog,
-                [this, &dialog, extract, path, &title, &authors, &journal, &year, &volume, &pages] {
+                [this, &dialog, extract, path, userEdited = existing.value("manual").toBool(), &title, &authors, &journal, &year, &volume, &pages] {
             const auto* c = viewer_ ? viewer_->getProgramController() : nullptr;
             const QString requested = DocumentClaim::identity(path);
             if (!c || !c->getDocument() || DocumentClaim::identity(c->getOriginalFileName()) != requested) {
@@ -900,7 +900,15 @@ private:
             // Every candidate is shown for user review; never auto-save or
             // silently overwrite manually provided fields.
             if (title.text().isEmpty()) title.setText(identity.value("title").toString());
-            if (authors.text().isEmpty()) authors.setText(identity.value("authors").toString());
+            const QString proposedLastAuthor = identity.value("authors").toString();
+            if (!proposedLastAuthor.isEmpty() && authors.text() != proposedLastAuthor) {
+                if (authors.text().isEmpty() || !userEdited ||
+                    QMessageBox::question(&dialog, QStringLiteral("기존 저자 확인"),
+                        QStringLiteral("기존 저자 값을 마지막 저자 '%1'(으)로 교체할까요?\n"
+                            "기존 내용: %2").arg(proposedLastAuthor, authors.text()),
+                        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) == QMessageBox::Yes)
+                    authors.setText(proposedLastAuthor);
+            }
             if (journal.text().isEmpty()) journal.setText(citation.value("journal").toString());
             if (year.text().isEmpty()) year.setText(citation.value("year").toString());
             if (volume.text().isEmpty()) volume.setText(citation.value("volume").toString());

@@ -6,6 +6,8 @@
 #include "lunadocumentclaim.h"
 #include "lunabibliography.h"
 #include "pdfdocument.h"
+#include "pdfcompiler.h"
+#include "pdftextlayout.h"
 #include "lunareadertoolbar.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -857,6 +859,52 @@ private:
         form.addRow(QStringLiteral("권(Volume)"), &volume);
         form.addRow(QStringLiteral("페이지 / 논문 번호"), &pages);
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+        auto* extract = buttons->addButton(QStringLiteral("첫 페이지 서지정보 추출"),
+                                           QDialogButtonBox::ActionRole);
+        extract->setObjectName(QStringLiteral("LunaExtractFirstPageCitation"));
+        connect(extract, &QPushButton::clicked, &dialog,
+                [this, &dialog, extract, path, &journal, &year, &volume, &pages] {
+            const auto* c = viewer_ ? viewer_->getProgramController() : nullptr;
+            const QString requested = DocumentClaim::identity(path);
+            if (!c || !c->getDocument() || DocumentClaim::identity(c->getOriginalFileName()) != requested) {
+                QMessageBox::information(&dialog, QStringLiteral("PDF 먼저 열기"),
+                    QStringLiteral("해당 PDF를 먼저 열고 서지정보 추출을 눌러 주세요."));
+                return;
+            }
+            if (!c->getDocument()->getCatalog() || c->getDocument()->getCatalog()->getPageCount() < 1) return;
+            // Opt-in only: this is the first page, never a whole-PDF text scan.
+            // The native compiler owns its PDF fonts, page and content processor.
+            auto* compiler = c->getPdfWidget()->getDrawWidgetProxy()->getTextLayoutCompiler();
+            if (!compiler) return;
+            extract->setEnabled(false);
+            QApplication::setOverrideCursor(Qt::WaitCursor);
+            const pdf::PDFTextLayout layout = compiler->createTextLayout(0);
+            QApplication::restoreOverrideCursor();
+            extract->setEnabled(true);
+            QString text;
+            const auto flows = pdf::PDFTextFlow::createTextFlows(
+                layout, pdf::PDFTextFlow::SeparateBlocks | pdf::PDFTextFlow::AddLineBreaks, 0);
+            for (const auto& flow : flows) {
+                text += flow.getText().left(16000) + QLatin1Char('\n');
+                if (text.size() >= 32000) break;
+            }
+            const QVariantMap result = luna::Bibliography::firstPageCitation(text);
+            if (result.isEmpty()) {
+                QMessageBox::information(&dialog, QStringLiteral("서지정보 추출 결과"),
+                    QStringLiteral("첫 페이지에서 확실한 저널·연도·권·페이지 표기를 찾지 못했습니다.\n"
+                        "텍스트를 선택할 수 없는 스캔 PDF 또는 별도 SI 문서일 수 있습니다.\n"
+                        "서지정보 한 줄을 직접 붙여넣어 주세요."));
+                return;
+            }
+            // Never silently replace manual corrections. User reviews all
+            // proposed values in the existing editor before pressing Save.
+            if (journal.text().isEmpty()) journal.setText(result.value("journal").toString());
+            if (year.text().isEmpty()) year.setText(result.value("year").toString());
+            if (volume.text().isEmpty()) volume.setText(result.value("volume").toString());
+            if (pages.text().isEmpty()) pages.setText(result.value("page").toString());
+            QMessageBox::information(&dialog, QStringLiteral("서지정보 추출 결과"),
+                QStringLiteral("첫 페이지의 서지정보를 입력칸에 채웠습니다. 내용을 확인하고 저장해 주세요."));
+        });
         form.addRow(buttons);
         connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog, &year] {
             const QString value = year.text().trimmed();

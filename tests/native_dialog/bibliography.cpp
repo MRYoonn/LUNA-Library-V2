@@ -3,31 +3,51 @@
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QDebug>
-int main(int argc,char** argv) {
-    QCoreApplication app(argc,argv); QTemporaryDir directory;
+
+int main(int argc, char** argv) {
+    QCoreApplication app(argc, argv);
+    QTemporaryDir directory;
     if (!directory.isValid()) return 1;
-    QSettings::setDefaultFormat(QSettings::IniFormat); QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,directory.path());
-    const QString doi = "10.1234/synthetic.fixture";
-    const QByteArray response = R"({"status":"ok","message":{"DOI":"10.1234/synthetic.fixture","title":["Synthetic metadata fixture"],"container-title":["Synthetic journal"],"volume":"24","issue":"2","page":"10-12","created":{"date-parts":[[1999]]},"published-print":{"date-parts":[[2022,1,1]]},"author":[{"given":"Author","family":"A"}]}})";
-    const auto data = luna::Bibliography::crossref(response,doi);
-    if (data.value("year").toString() != "2022" || data.value("journal").toString() != "Synthetic journal" || data.value("authors").toString() != "Author A") return 2;
-    if (!luna::Bibliography::crossref(response,"10.1234/other").isEmpty() || !luna::Bibliography::crossref("not JSON",doi).isEmpty()) return 3;
-    const auto sparse = luna::Bibliography::crossref(R"({"status":"ok","message":{"DOI":"10.1234/synthetic.fixture","created":{"date-parts":[[1999]]}}})",doi);
-    if (!sparse.value("authors").toString().isEmpty() || !sparse.value("year").toString().isEmpty()) return 4;
-    if (luna::Bibliography::doi("https://doi.org/10.1234/synthetic.fixture.") != doi) return 5;
-    if (luna::Bibliography::citation(data) != QStringLiteral("Synthetic journal 2022, 24, 10-12")) return 10;
-    if (!luna::Bibliography::citation({{"doi", doi}}).isEmpty()) return 11;
-    if (luna::Bibliography::citation({{"year", "2026"}, {"volume", "148"}}) != QStringLiteral("2026, 148")) return 12;
-    if (luna::Bibliography::citation(data).contains("10.1234")) return 13;
-    luna::Bibliography store(nullptr);
-    if (!store.save("before",data)) return 6;
-    // The user's correction must never be overwritten by automatic PDF info.
-    store.ingest("before", QStringLiteral("Overwritten?"), QStringLiteral("Other"), QString());
-    if (store.record("before").value("title") != data.value("title")) return 14;
-    if (!store.relocate("before","after") || store.record("after").value("title") != data.value("title")) return 6;
-    if (!store.relocate("after","before") || store.record("before").value("authors") != data.value("authors")) return 7;
-    if (!store.relocate("before","before") || store.record("before").isEmpty()) return 8;
-    { luna::Bibliography reopened(nullptr); if (reopened.record("before").value("doi").toString() != doi) return 9; }
-    qInfo() << "[PASS] DOI match/mismatch, malformed/sparse responses, publication-year provenance and local metadata move/restart; no live service query";
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, directory.path());
+
+    const QVariantMap structured{
+        {"title", QStringLiteral("Synthetic Paper")},
+        {"authors", QStringLiteral("Author A")},
+        {"journal", QStringLiteral("J. Am. Chem. Soc.")},
+        {"year", QStringLiteral("2026")},
+        {"volume", QStringLiteral("148")},
+        {"page", QStringLiteral("15354–15363")}
+    };
+    const QString formatted = QStringLiteral("J. Am. Chem. Soc. 2026, 148, 15354–15363");
+    if (luna::Bibliography::citation(structured) != formatted) return 2;
+    if (!luna::Bibliography::citation({}).isEmpty()) return 3;
+
+    const QString pasted = QStringLiteral("Author A, J. Am. Chem. Soc. 2026, 148, 15354–15363.");
+    QVariantMap complete = structured;
+    complete["citation"] = pasted;
+    if (luna::Bibliography::citation(complete) != pasted) return 4;
+
+    luna::Bibliography store;
+    if (!store.save("before", complete)) return 5;
+    store.ingest("before", QStringLiteral("Wrong Title"), QStringLiteral("Wrong Author"));
+    if (store.record("before").value("title") != QStringLiteral("Synthetic Paper")) return 6;
+    if (store.record("before").value("citation") != pasted) return 7;
+    if (!store.relocate("before", "after") || !store.record("before").isEmpty()) return 8;
+    if (store.record("after").value("citation") != pasted) return 9;
+    if (!store.relocate("after", "before")) return 10;
+    { luna::Bibliography reopened;
+      if (reopened.record("before").value("authors") != QStringLiteral("Author A")) return 11;
+    }
+    // Local metadata import must only fill missing fields, never erase a citation.
+    store.ingest("auto", QStringLiteral("PDF title"), QStringLiteral("PDF author"));
+    if (store.record("auto").value("title") != QStringLiteral("PDF title")) return 12;
+    if (!store.record("auto").value("journal").toString().isEmpty()) return 13;
+    if (!store.save("conflict", {{"citation", QStringLiteral("Keep existing")}})) return 14;
+    if (store.relocate("auto", "conflict")) return 15;
+    if (store.record("conflict").value("citation") != QStringLiteral("Keep existing")) return 16;
+    if (store.save(QString(), structured)) return 17;
+
+    qInfo() << "[PASS] Local-only citation paste/format, override, move/restart, collision and PDF info";
     return 0;
 }

@@ -258,6 +258,9 @@ public:
             (!manual && !title.isEmpty() && !credibleTitle(title));
         const bool brokenAuthor = author.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("the energetics"), Qt::CaseInsensitive) ||
+            author.contains(QStringLiteral("validation as"), Qt::CaseInsensitive) ||
+            author.contains(QStringLiteral("lactamase inhibitors"), Qt::CaseInsensitive) ||
+            author.contains(QStringLiteral("towards"), Qt::CaseInsensitive) ||
             (!manual && !author.isEmpty() && !credibleAuthor(author));
         if (brokenTitle) value.remove("title");
         if (brokenAuthor) value.remove("authors");

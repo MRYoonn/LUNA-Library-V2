@@ -333,6 +333,8 @@ public:
             }
         }
         const bool manual = value.value("manual").toBool();
+        if (manual && !value.contains("titleSource") && !value.value("title").toString().isEmpty())
+            value["titleSource"] = QStringLiteral("legacy_preserved");
         const QString title = value.value("title").toString().simplified();
         const QString author = value.value("authors").toString().simplified();
         // Never hide a legitimate manually edited short title or one-word
@@ -342,7 +344,9 @@ public:
             R"(^(?:No Job Name|Microsoft Word(?:\b.*)?|Untitled|New Document|Document1)\b)"),
             QRegularExpression::CaseInsensitiveOption);
         const bool brokenTitle = placeholder.match(title).hasMatch() ||
-            (!manual && value.value("titleSource").toString() != QStringLiteral("manual") && !title.isEmpty() && !credibleTitle(title));
+            (!manual && value.value("titleSource").toString() != QStringLiteral("manual") &&
+             value.value("titleSource").toString() != QStringLiteral("legacy_preserved") &&
+             !title.isEmpty() && !credibleTitle(title));
         const bool brokenAuthor = value.value("authorsSource").toString() != QStringLiteral("manual") &&
             (author.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("the energetics"), Qt::CaseInsensitive) ||

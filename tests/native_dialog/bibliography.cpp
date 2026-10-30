@@ -120,11 +120,12 @@ int main(int argc, char** argv) {
         QSettings legacy(QSettings::IniFormat, QSettings::UserScope, "LUNA", "LUNA Library");
         const QString key = QStringLiteral("library/bibliography/") + QString::fromLatin1(
             QCryptographicHash::hash(id.toUtf8(), QCryptographicHash::Sha256).toHex());
-        legacy.setValue(key, QVariantMap{{"authors", "Hao Fang"}, {"manual", oldManual},
+        legacy.setValue(key, QVariantMap{{"title", "DNA"}, {"authors", "Hao Fang"}, {"manual", oldManual},
                                        {"source", "Manual"}, {"citation", "Keep citation"}});
         legacy.sync();
         if (!store.record(id).value("authors").toString().isEmpty()) return 50;
         if (!store.enrichFromFirstPage(id, verifiedLast)) return 51;
+        if (oldManual && store.record(id).value("title") != QStringLiteral("DNA")) return 63;
         // Two reconstructed readers must retain corrected output AND original data.
         for (int restart = 0; restart < 2; ++restart) {
             luna::Bibliography reopened;

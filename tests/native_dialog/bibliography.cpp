@@ -10,6 +10,7 @@ int main(int argc, char** argv) {
     if (!directory.isValid()) return 1;
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, directory.path());
+    luna::Bibliography store;
 
     const QString firstPage = QStringLiteral(
         "Research Article\nJ. Am. Chem. Soc. 2025, 147, 10012–10019\n"
@@ -140,7 +141,6 @@ int main(int argc, char** argv) {
     complete["citation"] = pasted;
     if (luna::Bibliography::citation(complete) != pasted) return 4;
 
-    luna::Bibliography store;
     if (!store.save("before", complete)) return 5;
     store.ingest("before", QStringLiteral("Wrong Title"), QStringLiteral("Wrong Author"));
     if (store.record("before").value("title") != QStringLiteral("Synthetic Paper")) return 6;

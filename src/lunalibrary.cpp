@@ -1665,7 +1665,8 @@ protected:
         if (object == window_ && event->type() == QEvent::Close) {
             QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
             settings.setValue(QStringLiteral("window/geometry"), window_->saveGeometry());
-            settings.setValue(QStringLiteral("window/layout-v091"), window_->saveState(91));
+            // LUNA uses a fixed toolbar/dock layout; Qt saveState() would traverse
+            // nested PDF editor toolbars and persist them as shell toolbars.
         }
         return QObject::eventFilter(object, event);
     }
@@ -1868,8 +1869,10 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     window.resize(QSize(1366, 768).boundedTo(available));
     QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
     window.restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
-    // Never load legacy window/state: it can resurrect PDF4QT toolbar rows.
-    window.restoreState(settings.value(QStringLiteral("window/layout-v091")).toByteArray(), 91);
+    // Never restore QMainWindow toolbar/dock state (legacy OR v0.9.1).
+    // Qt 6 recursively discovers nested PDF4QT mainToolBar widgets. Even a
+    // versioned key can capture ghost toolbars after the first clean exit.
+    // Keep only window geometry and the independent library splitter setting.
     focus->setChecked(dock->isHidden());
     hideAdvancedToolbars(viewer); // Old saved PDF4QT toolbar rows must not reappear.
     controls->hide(); // Legacy actions remain in View; this empty row has no UI role.

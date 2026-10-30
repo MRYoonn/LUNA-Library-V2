@@ -275,7 +275,8 @@ public:
         // supersedes an earlier incomplete/incorrect AUTO value such as Hao Fang,
         // but never changes a user-entered manual author.
         const QString proposedAuthor = proposal.value("authors").toString().simplified();
-        if (credibleAuthor(proposedAuthor) &&
+        if (proposal.value("authorEvidence").toString() == QStringLiteral("first-page-terminal-and") &&
+            credibleAuthor(proposedAuthor) &&
             !value.value("manual").toBool() &&
             value.value("authors").toString().simplified() != proposedAuthor) {
             value["authors"] = proposedAuthor;
@@ -315,6 +316,8 @@ public:
             author.contains(QStringLiteral("validation as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("lactamase inhibitors"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("towards"), Qt::CaseInsensitive) ||
+            (!manual && value.value("authorEvidence").toString() !=
+                QStringLiteral("first-page-terminal-and")) ||
             (!manual && !author.isEmpty() && !credibleAuthor(author));
         if (brokenTitle) value.remove("title");
         if (brokenAuthor) value.remove("authors");
@@ -352,7 +355,9 @@ public:
             }
         };
         if (credibleTitle(title)) fill(QStringLiteral("title"), title, 4096);
-        if (credibleAuthor(authors)) fill(QStringLiteral("authors"), lastListedAuthor(authors), 4096);
+        // PDF Info "Author" is often a creator/first-author field.
+        // It cannot establish the final listed author, so never auto-import it.
+        Q_UNUSED(authors);
         for (const char* field : {"journal", "year", "volume", "page"}) {
             const QString key = QString::fromLatin1(field);
             QString value = structured.value(key).toString();

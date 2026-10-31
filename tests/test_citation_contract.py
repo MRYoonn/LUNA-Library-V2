@@ -28,7 +28,7 @@ class CitationContractTests(unittest.TestCase):
         self.assertIn('entry.value("titleSource").toString()==QStringLiteral("manual")', self.model)
         self.assertIn('QThread::create', self.ui)
         self.assertIn('enqueueImportedMetadata(path)', self.ui)
-        self.assertIn('beginMetadataLookup(identity, doi)', self.ui)
+        self.assertIn('beginMetadataLookup(identity, doi, restore)', self.ui)
 
     def test_full_citation_can_be_pasted_into_native_editor(self):
         self.assertIn("LunaBibliographyCitation", self.ui)
@@ -53,7 +53,7 @@ class CitationContractTests(unittest.TestCase):
     def test_local_first_three_pages_doi_and_online_async(self):
         self.assertIn("firstPageCitation(QString text)", self.model)
         self.assertIn("firstPageIdentity(const QString& text)", self.model)
-        self.assertIn("void extractBibliography(const QString& path)", self.ui)
+        self.assertIn("void extractBibliography(const QString& path, bool restore = false)", self.ui)
         self.assertIn("generator.createTextLayout()", self.extractor)
         self.assertIn("QThread::create", self.ui)
         self.assertIn("analyzedCitations_.contains(identity)", self.ui)

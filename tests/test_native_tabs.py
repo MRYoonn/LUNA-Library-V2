@@ -295,6 +295,31 @@ class NativeTabsContract(unittest.TestCase):
             self.assertIn(token, script)
         ast.parse(script)
 
+    def test_portable_folder_icons_use_files_inside_sync_folders(self):
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        guide = (ROOT / 'USER_GUIDE_KO.md').read_text(encoding='utf-8')
+        for token in (
+            'LUNA.folder-icon.png', 'class LunaFolderModel final',
+            'QFileSystemModel::data(index, role)',
+            'LunaChangeFolderIcon', 'LunaResetFolderIcon',
+            'void refreshVisibleFolderIcons()', 'folderIconPoll_->setInterval(3000)',
+            'bool saveFolderIcon(const QString& folder, const QString& imagePath, QString* error)',
+            'bool resetFolderIcon(const QString& folder, QString* error)',
+            'QSaveFile output(path)', 'output.setDirectWriteFallback(false)',
+            'image.save(&output, "PNG")', 'output.commit()',
+            'if (!allowedIconFolder(folder, error)) return false;',
+            'const QString relative = QDir(root_).relativeFilePath(canonical);',
+            'if (QFileInfo(path).isSymLink())',
+            'model_->refreshFolderIcon(model_->index(folder));',
+            'Folder icon sidecar was not displayed from its folder',
+            'Folder icon reset altered PDF or thumbnail files',
+        ):
+            self.assertIn(token, library, token)
+        self.assertIn('MYBOX', guide)
+        self.assertIn('LUNA.folder-icon.png', guide)
+        self.assertNotIn('desktop.ini', library)
+        self.assertNotIn('MYBOX_TOKEN', library)
+
     def test_1000_pdf_incremental_scanner_is_bounded_and_diagnostic(self):
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
         start = library.index('    void scanBatch(bool all) {')

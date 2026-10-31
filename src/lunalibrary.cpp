@@ -1252,13 +1252,23 @@ private:
         QLineEdit year(existing.value("year").toString(), &dialog);
         QLineEdit volume(existing.value("volume").toString(), &dialog);
         QLineEdit pages(existing.value("page").toString(), &dialog);
+        QLineEdit doi(existing.value("doi").toString(), &dialog);
+        QLineEdit issue(existing.value("issue").toString(), &dialog);
+        QLineEdit articleNumber(existing.value("article_number").toString(), &dialog);
+        QLineEdit journalShort(existing.value("journal_abbreviation").toString(), &dialog);
+        QLineEdit seniorAuthor(existing.value("senior_author_override").toString(), &dialog);
         form.addRow(QStringLiteral("서지정보 한 줄"), &fullCitation);
         form.addRow(QStringLiteral("논문 제목"), &title);
         form.addRow(QStringLiteral("저자"), &authors);
         form.addRow(QStringLiteral("저널"), &journal);
         form.addRow(QStringLiteral("발행 연도"), &year);
         form.addRow(QStringLiteral("권(Volume)"), &volume);
-        form.addRow(QStringLiteral("페이지 / 논문 번호"), &pages);
+        form.addRow(QStringLiteral("페이지"), &pages);
+        form.addRow(QStringLiteral("DOI (사용자 확인)"), &doi);
+        form.addRow(QStringLiteral("저널 공식 축약명"), &journalShort);
+        form.addRow(QStringLiteral("호(Issue)"), &issue);
+        form.addRow(QStringLiteral("논문 번호"), &articleNumber);
+        form.addRow(QStringLiteral("대표 저자 직접 지정"), &seniorAuthor);
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
         form.addRow(buttons);
         connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog, &year] {
@@ -1273,6 +1283,12 @@ private:
         });
         connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
         if (dialog.exec() != QDialog::Accepted) return;
+        const QString revisedDoi=doi.text().simplified();
+        if(!revisedDoi.isEmpty() && luna::Metadata::normalizeDoi(revisedDoi).isEmpty()) {
+            QMessageBox::warning(this,QStringLiteral("DOI 형식 오류"),
+                QStringLiteral("입력된 DOI를 검증할 수 없습니다. 기존 서지정보는 변경되지 않았습니다."));
+            return;
+        }
         const QString revisedYear = year.text().trimmed();
         QVariantMap revised = existing;
         revised["citation"] = fullCitation.text().simplified().left(4096);
@@ -1282,6 +1298,11 @@ private:
         revised["year"] = revisedYear;
         revised["volume"] = volume.text().simplified().left(256);
         revised["page"] = pages.text().simplified().left(256);
+        revised["doi"] = luna::Metadata::normalizeDoi(revisedDoi);
+        revised["journal_abbreviation"] = journalShort.text().simplified().left(256);
+        revised["issue"] = issue.text().simplified().left(80);
+        revised["article_number"] = articleNumber.text().simplified().left(128);
+        revised["senior_author_override"] = seniorAuthor.text().simplified().left(256);
         revised["source"] = QStringLiteral("Manual");
         if (!bibliography_.saveEdits(DocumentClaim::identity(path), existing, revised))
             QMessageBox::warning(this, QStringLiteral("서지정보 저장 실패"), QStringLiteral("로컬 서지정보를 저장하지 못했습니다."));

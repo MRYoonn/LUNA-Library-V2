@@ -99,6 +99,35 @@ bool inMenu(pdfviewer::PDFEditorMainWindow& window, QAction* action) {
     return false;
 }
 
+// Visual anchor for browser-like vertical autoscroll. Unlike PDF4QT's
+// four-way panning cursor, this shows only the up/down directions.
+class VerticalAutoscrollMarker final : public QWidget {
+public:
+    explicit VerticalAutoscrollMarker(QWidget* parent) : QWidget(parent) {
+        setObjectName(QStringLiteral("LunaVerticalAutoscrollMarker"));
+        setFixedSize(36, 48);
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        hide();
+    }
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(QColor("#315277"), 1.2));
+        p.setBrush(QColor(248, 251, 255, 235));
+        p.drawRoundedRect(rect().adjusted(2, 2, -2, -2), 11, 11);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor("#315277"));
+        QPolygon up; up << QPoint(18, 7) << QPoint(11, 17) << QPoint(25, 17);
+        QPolygon down; down << QPoint(11, 31) << QPoint(25, 31) << QPoint(18, 41);
+        p.drawPolygon(up);
+        p.drawPolygon(down);
+        p.setBrush(QColor("#FFFFFF"));
+        p.setPen(QPen(QColor("#315277"), 1.2));
+        p.drawEllipse(QPoint(18, 24), 4, 4);
+    }
+};
+
 class ReadingInteraction final : public QObject {
 public:
     explicit ReadingInteraction(pdfviewer::PDFEditorMainWindow& window) : QObject(&window), window_(window) {
@@ -172,12 +201,7 @@ public:
             if (nativeDelete && !toolsMenu->actions().contains(nativeDelete))
                 toolsMenu->addAction(nativeDelete);
         }
-        autoscrollMarker_ = new QWidget(draw_);
-        autoscrollMarker_->setObjectName(QStringLiteral("LunaVerticalAutoscrollMarker"));
-        autoscrollMarker_->setFixedSize(36, 48);
-        autoscrollMarker_->setAttribute(Qt::WA_TransparentForMouseEvents);
-        autoscrollMarker_->hide();
-        autoscrollMarker_->installEventFilter(this);
+        autoscrollMarker_ = new VerticalAutoscrollMarker(draw_);
         autoscrollTimer_.setInterval(16);
         connect(&autoscrollTimer_, &QTimer::timeout, this, [this] { tickVerticalAutoscroll(); });
         qApp->installEventFilter(this);

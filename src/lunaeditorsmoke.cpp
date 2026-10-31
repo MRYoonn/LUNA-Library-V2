@@ -402,15 +402,14 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     QApplication::clipboard()->clear(); widget->setFocus(); key(widget, Qt::Key_C, Qt::ControlModifier);
     if (!waitFor([&] { return QApplication::clipboard()->text() == selectedText; })) return fail("Ctrl+C did not copy selected PDF text");
 
-    // LUNA's reader tools use selection-first semantics, distinct from PDF4QT's
-    // native Insert > highlight drag tool. Exercise the actual document writer.
-    checkpoint("Reader phase: selection-first highlight and non-overlap");
-    auto* lunaHighlight = action("LunaHighlightSelected");
+    // A colored marker is the tool itself: click color, drag glyphs, release
+    // to write a real PDF highlight without an extra apply button.
+    checkpoint("Reader phase: eight one-click highlight pens and recolor");
     auto* lunaErase = action("LunaEraseSelected");
     auto* lunaTextBox = action("LunaFreeTextBox");
-    if (!lunaHighlight || !lunaErase || !lunaTextBox || !lunaTextBox->isCheckable())
-        return fail("LUNA selection-first highlight/eraser or transparent memo tool is missing");
-    checkpoint("Reader phase: persistent eight-color highlight palette");
+    if (!lunaErase || !lunaTextBox || !lunaTextBox->isCheckable() ||
+        action("LunaHighlightSelected"))
+        return fail("Separate highlight action still present or LUNA reader tools missing");
     auto* palette = window.findChild<QMenu*>(QStringLiteral("LunaHighlightPalette"));
     if (!palette) return fail("LUNA highlight palette missing from native Tools menu");
     const auto choices = palette->actions();
@@ -421,48 +420,45 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         QStringLiteral("#A3E8DF"), QStringLiteral("#CED4DE")
     };
     if (choices.size() < expectedColors.size() + 2)
-        return fail("LUNA highlight palette lost a preset or custom color action");
-    for (qsizetype i = 0; i < expectedColors.size(); ++i) {
-        if (!choices[i]->isCheckable() ||
-            choices[i]->data().toString().compare(expectedColors[i], Qt::CaseInsensitive))
-            return fail("LUNA highlight palette preset mismatch");
-    }
-    // Desktop toolbar contract: Print -> Eraser -> Highlighter -> six
-    // inline swatches. The remaining two colors stay in Tools.
+        return fail("Eight highlight colors and custom palette entry missing");
     auto* readerBar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
     if (!readerBar) return fail("Native reader toolbar not found");
     const auto toolbarActions = readerBar->actions();
     const int printPos = toolbarActions.indexOf(action("actionPrint"));
     const int erasePos = toolbarActions.indexOf(lunaErase);
-    const int highlightPos = toolbarActions.indexOf(lunaHighlight);
-    if (printPos < 0 || erasePos != printPos + 2 || highlightPos != erasePos + 1 ||
+    if (printPos < 0 || erasePos != printPos + 2 ||
         !toolbarActions[printPos + 1]->isSeparator())
-        return fail("Reader toolbar must put eraser/highlighter immediately after Print");
-    for (int i = 1; i <= 6; ++i) {
-        const auto* swatch = action(QStringLiteral("LunaHighlightSwatch%1").arg(i).toLatin1().constData());
-        if (!swatch || toolbarActions.indexOf(const_cast<QAction*>(swatch)) != highlightPos + i)
-            return fail("Reader toolbar inline swatches are missing or out of order");
+        return fail("Print / eraser / eight colored marker order regressed");
+    for (int i = 1; i <= 8; ++i) {
+        auto* marker = action(QStringLiteral("LunaHighlightSwatch%1").arg(i).toLatin1().constData());
+        if (!marker || !marker->isCheckable() ||
+            toolbarActions.indexOf(marker) != erasePos + i)
+            return fail("Eight colored marker icons are missing or out of order");
     }
     const QString settingKey = QStringLiteral("annotations/highlightColor");
     const QVariant previousColor = QSettings().value(settingKey);
     for (qsizetype i = 0; i < expectedColors.size(); ++i) {
         choices[i]->trigger();
-        if (QSettings().value(settingKey).toString().compare(expectedColors[i], Qt::CaseInsensitive))
-            return fail("LUNA highlight palette failed to persist chosen colors");
+        if (!select->isChecked() ||
+            QSettings().value(settingKey).toString().compare(expectedColors[i], Qt::CaseInsensitive))
+            return fail("Color menu did not arm native text selection and persist");
+        auto* marker = action(QStringLiteral("LunaHighlightSwatch%1").arg(i + 1).toLatin1().constData());
+        if (!marker || !marker->isChecked())
+            return fail("Active color marker indicator did not synchronize");
     }
-    // Inline squares must update the same persistent color as menu presets.
+    // Toolbar activation must also arm text selection and persist the color.
     action("LunaHighlightSwatch5")->trigger();
-    if (QSettings().value(settingKey).toString().compare(QStringLiteral("#FFC58A"), Qt::CaseInsensitive) ||
+    if (!select->isChecked() ||
+        QSettings().value(settingKey).toString().compare(QStringLiteral("#FFC58A"), Qt::CaseInsensitive) ||
         !action("LunaHighlightSwatch5")->isChecked())
-        return fail("Inline highlight swatch did not select and persist its color");
-    // Exercise the actual PDF writer with a non-default preset. The color
-    // must be the latest persisted value, not the old editor-tab cache.
-    choices[1]->trigger();
-    if (!waitFor([&] { return lunaHighlight->isEnabled(); }))
-        return fail("LUNA highlighter did not enable after native text selection");
-    click(lunaHighlight);
-    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1 && !lunaHighlight->isEnabled(); }))
-        return fail("LUNA selected-text highlight was not created");
+        return fail("Inline highlighter icon failed to arm text drag");
+
+    choices[1]->trigger(); // green
+    mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
+        return fail("Colored marker did not auto-highlight dragged text");
     bool greenWritten = false;
     for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
         if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
@@ -472,69 +468,88 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
             std::abs(components[1] - 230.0 / 255.0) < 0.02 &&
             std::abs(components[2] - 164.0 / 255.0) < 0.02;
     }
-    if (previousColor.isValid()) QSettings().setValue(settingKey, previousColor);
-    else QSettings().remove(settingKey);
-    if (!greenWritten) return fail("LUNA highlight palette color not written to PDF annotation");
-    // Repeating exactly the same text range must not darken it by stacking.
+    if (!greenWritten) return fail("Drag highlight color not written to native PDF annotation");
+    // Same-color drag must not stack transparency.
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
-    if (!waitFor([&] { return lunaHighlight->isEnabled(); }))
-        return fail("LUNA highlighter did not re-enable for a fresh selection");
-    click(lunaHighlight);
+    QCoreApplication::processEvents();
     if (annotations(pdf::AnnotationType::Highlight) != 1)
-        return fail("LUNA highlighter duplicated a pre-existing marked region");
-    checkpoint("Reader phase: partly overlapping highlight retains unmarked words");
-    // Highlight characters 0..7, then drag 0..12 (old + new). The latter
-    // must create a second annotation for the unmarked tail only. No invisible
-    // mark and no duplicated alpha over the old letters.
-    if (characters.size() < 13) return fail("Synthetic text too short for overlap regression");
-    const auto expandedPageEnd = characters[12].boundingBox.boundingRect().center() + QPointF(1, -2);
-    const auto expandedSnapshot = proxy->getSnapshot();
-    const auto* expandedPage = expandedSnapshot.getPageSnapshot(0);
-    if (!expandedPage) return fail("Overlap test page not visible");
-    const QPoint expandedEnd = expandedPage->pageToDeviceMatrix.map(expandedPageEnd).toPoint();
-    if (!widget->rect().contains(expandedEnd)) return fail("Overlap test endpoint offscreen");
-    mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
-    mouse(widget,QEvent::MouseMove,expandedEnd,Qt::NoButton,Qt::LeftButton);
-    mouse(widget,QEvent::MouseButtonRelease,expandedEnd,Qt::LeftButton,Qt::NoButton);
-    if (!waitFor([&] { return lunaHighlight->isEnabled(); }))
-        return fail("Highlighter disabled when selecting old and new words together");
-    click(lunaHighlight);
+        return fail("Repeated same-color marker duplicated existing annotation");
+
+    // Partially repaint the center, retaining the first and last green words
+    // from the original note. Then undo once to restore exact old color.
+    checkpoint("Reader phase: recolor only selected overlap, preserve outer segments");
+    if (characters.size() < 13) return fail("Synthetic text too short for recolor regression");
+    const auto snapshot = proxy->getSnapshot();
+    const auto* selectedPage = snapshot.getPageSnapshot(0);
+    if (!selectedPage) return fail("Recolor test page not visible");
+    const QPoint middleStart = selectedPage->pageToDeviceMatrix.map(
+        characters[2].boundingBox.boundingRect().center() - QPointF(1, 0)).toPoint();
+    const QPoint middleEnd = selectedPage->pageToDeviceMatrix.map(
+        characters[5].boundingBox.boundingRect().center() + QPointF(1, -2)).toPoint();
+    if (!widget->rect().contains(middleStart) || !widget->rect().contains(middleEnd))
+        return fail("Recolor regression glyphs outside viewport");
+    choices[2]->trigger(); // pink
+    mouse(widget,QEvent::MouseButtonPress,middleStart,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,middleEnd,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,middleEnd,Qt::LeftButton,Qt::NoButton);
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 2; }))
-        return fail("Partly overlapping highlight ignored previously unmarked text");
-    QPainterPath firstMark, secondMark;
-    int marks = 0;
+        return fail("Partly overlapping recolor failed to retain old and new colors");
+    bool oldColorStillPresent = false, pinkPresent = false;
+    QPainterPath oldPath, newPath;
     for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
         if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
-        const auto* marked = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
-        if (!marked) return fail("Highlight annotation geometry unreadable");
-        if (marks++ == 0) firstMark = marked->getHiglightArea().getPath();
-        else secondMark = marked->getHiglightArea().getPath();
+        const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+        if (!ann) return fail("Recolor geometry missing");
+        const auto rgb = ann->getColor();
+        if (rgb.size() < 3) continue;
+        if (qAbs(rgb[1] - 230.0/255.0) < 0.02) {
+            oldColorStillPresent = true; oldPath = ann->getHiglightArea().getPath();
+        }
+        if (qAbs(rgb[0] - 255.0/255.0) < 0.02 && qAbs(rgb[1] - 179.0/255.0) < 0.02) {
+            pinkPresent = true; newPath = ann->getHiglightArea().getPath();
+        }
     }
-    if (firstMark.intersects(secondMark))
-        return fail("New highlight duplicated old highlight instead of clipping overlap");
+    if (!oldColorStillPresent || !pinkPresent || oldPath.intersects(newPath))
+        return fail("Recolor lost unselected old color or stacked alpha on new color");
     action("actionUndo")->trigger();
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
-        return fail("Partly overlapping highlight did not undo cleanly");
-    checkpoint("Reader phase: selection-first eraser matches highlight geometry");
-    // Erase with the same dragged text selection, not a click-to-delete
-    // annotation tool. A complete highlight is removed, PDF text stays.
+        return fail("Recolor did not undo atomically");
+    // Dragging existing and previously uncolored text must repaint the full
+    // selected range in new color, not silently skip the overlap.
+    const QPoint extendedEnd = selectedPage->pageToDeviceMatrix.map(
+        characters[12].boundingBox.boundingRect().center() + QPointF(1, -2)).toPoint();
+    if (!widget->rect().contains(extendedEnd)) return fail("Expanded recolor endpoint offscreen");
+    choices[2]->trigger();
+    mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,extendedEnd,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,extendedEnd,Qt::LeftButton,Qt::NoButton);
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
+        return fail("Old plus new text was not recolored to the selected marker");
+    action("actionUndo")->trigger();
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
+        return fail("Expanded selected-range recolor did not undo");
+
+    // Escape returns to plain selection without auto-highlighting, so the
+    // existing select-then-erase button remains available.
+    key(widget, Qt::Key_Escape, Qt::NoModifier);
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
     if (!waitFor([&] { return lunaErase->isEnabled(); }))
-        return fail("LUNA selection-first eraser did not enable after text drag");
+        return fail("Eraser not enabled after unarmed text drag");
     click(lunaErase);
-    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0 && !lunaErase->isEnabled(); }))
-        return fail("LUNA selection-first eraser failed to remove the selected highlight");
-    if (!action("actionUndo")) return fail("Native undo is missing");
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0; }))
+        return fail("Selection-first eraser did not remove previous highlight");
     action("actionUndo")->trigger();
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
         return fail("Selection-first eraser did not preserve native undo");
     action("actionUndo")->trigger();
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0; }))
-        return fail("Selection-first highlight did not participate in native undo");
+        return fail("Initial colored marker did not preserve native undo");
+    if (previousColor.isValid()) QSettings().setValue(settingKey, previousColor);
+    else QSettings().remove(settingKey);
 
     checkpoint("Reader phase: transparent on-page FreeText note");
     bool freeTextEditor = false;

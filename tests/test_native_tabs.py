@@ -28,6 +28,9 @@ class NativeTabsContract(unittest.TestCase):
     def test_selection_first_highlight_and_freetext_contract(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
+        # pdfdrawspacecontroller.h only forward-declares the compiler.
+        # pdfcompiler.h owns the complete type used by getTextLayoutLazy().
+        self.assertIn('#include "pdfcompiler.h"', adapter)
         for token in (
             'LunaHighlightSelected', 'LunaFreeTextBox',
             'selected->getSelectedText().trimmed().isEmpty()',

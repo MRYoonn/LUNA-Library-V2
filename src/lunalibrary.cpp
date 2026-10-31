@@ -716,6 +716,7 @@ protected:
         // Library folder tree handles URL drops as real file moves/copies;
         // the global editor drop-to-open handler must not intercept them.
         if (widget->objectName() == QStringLiteral("LunaFolderDropTree") ||
+            widget->objectName() == QStringLiteral("LunaFolderDocumentsButton") ||
             (widget->parentWidget() && widget->parentWidget()->objectName() ==
              QStringLiteral("LunaFolderDropTree"))) return false;
         auto* drop = static_cast<QDropEvent*>(event);
@@ -1024,6 +1025,17 @@ public:
         favorites->setObjectName(QStringLiteral("LunaFavoriteDocumentsButton"));
         for (auto* b : {pdfTab_, folderTab_, recent, favorites}) b->setProperty("lunaNavigation", true);
         folderTab_->setChecked(true);
+        folderTab_->setAcceptDrops(true);
+        folderTab_->installEventFilter(this);
+        folderTab_->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(folderTab_, &QPushButton::customContextMenuRequested, this, [this](const QPoint& point) {
+            QMenu menu(this);
+            auto* rename = menu.addAction(QStringLiteral("최상위 폴더 이름 변경…"));
+            auto* paste = menu.addAction(QStringLiteral("최상위 폴더에 PDF 붙여넣기"));
+            auto* chosen = menu.exec(folderTab_->mapToGlobal(point));
+            if (chosen == rename) renameFolder(root_);
+            else if (chosen == paste) pastePdfs(root_);
+        });
         auto badge = [](QPushButton* button) {
             auto* layout = new QHBoxLayout(button); layout->setContentsMargins(0, 0, 9, 0); layout->addStretch();
             auto* label = new QLabel(button); label->setObjectName(QStringLiteral("LunaNavigationCount"));
@@ -2004,6 +2016,30 @@ private:
         openPdf(opened);
     }
     bool eventFilter(QObject* observed, QEvent* event) override {
+        if (observed == folderTab_ &&
+            (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove ||
+             event->type() == QEvent::Drop)) {
+            auto* drag = static_cast<QDropEvent*>(event);
+            const auto urls = drag->mimeData()->urls();
+            QStringList paths;
+            for (const auto& url : urls) {
+                const QFileInfo info(url.toLocalFile());
+                if (!url.isLocalFile() || !info.isFile() || info.isSymLink() ||
+                    info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
+                    return QWidget::eventFilter(observed, event);
+                if (!paths.contains(info.canonicalFilePath())) paths.append(info.canonicalFilePath());
+            }
+            if (paths.isEmpty() || !QFileInfo(root_).isDir())
+                return QWidget::eventFilter(observed, event);
+            const auto* sourceList = qobject_cast<QListWidget*>(drag->source());
+            const bool internal = sourceList &&
+                sourceList->objectName() == QStringLiteral("LunaDocumentList");
+            const bool copy = !internal || bool(drag->modifiers() & Qt::ControlModifier);
+            drag->setDropAction(copy ? Qt::CopyAction : Qt::MoveAction);
+            drag->accept();
+            if (event->type() == QEvent::Drop) transferPdfs(paths, root_, copy);
+            return true;
+        }
         const bool historyViewport = historyPdfs_ && observed == historyPdfs_->viewport();
         const bool folderViewport = folderPdfs_ && observed == folderPdfs_->viewport();
         const bool allViewport = allPdfs_ && observed == allPdfs_->viewport();
@@ -3535,7 +3571,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (captured.isNull() || captured.size() != expected) return fail("Native crop PNG has wrong dimensions");
     // Real Windows filesystem contract: copying must create BOTH physical
     // files, refuse a second same-name copy and never delete the source.
-    QTemporaryDir copied(QDir(pdf.absolutePath()).filePath(QStringLiteral("luna-file-copy-XXXXXX")));
+    QTemporaryDir copied; // Keep generated copies outside the library's recursive scanner.
     if (!copied.isValid()) return fail("Cannot create physical PDF copy test directory");
     const auto copiedFiles = copyPdfWithThumbnails(path, copied.path());
     const QString copiedThumb = QDir(copied.path()).filePath(pdf.completeBaseName() +

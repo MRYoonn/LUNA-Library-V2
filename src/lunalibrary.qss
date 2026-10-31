@@ -10,7 +10,7 @@ QWidget#LunaPdfFrame { background:@CANVAS@; border:0; }
 QLabel#LunaBrand { color:@NAVY@; font-family:"Malgun Gothic"; font-size:20px; font-weight:700; background:transparent; }
 QLabel#LunaSection { color:#29466C; font-size:14px; font-weight:600; }
 QLabel#LunaSecondary { color:@MUTED@; font-size:11px; }
-QLabel#LunaLibraryTitle { color:@NAVY@; font-family:"Malgun Gothic"; font-size:20px; font-weight:700; letter-spacing:-0.45px; background:transparent; }
+QLabel#LunaLibraryTitle { color:@NAVY@; font-family:"Malgun Gothic"; font-size:20px; font-weight:700; background:transparent; }
 QLabel#LunaCount { color:@MUTED@; }
 QPushButton[lunaNavigation="true"] { text-align:left; padding:6px 35px 6px 9px; border:0; border-radius:6px; color:#33496B; background:transparent; }
 QPushButton[lunaNavigation="true"]:hover { background:#F0F5FD; }

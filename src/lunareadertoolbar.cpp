@@ -593,10 +593,17 @@ private:
             clearPendingSelection(); return;
         }
         QPainterPath area;
+        QList<QRectF> erasedBands;
+        bool rotatedSelection = false;
         for (qsizetype i = 0; i + 3 < quads.size(); i += 4) {
             QPolygonF quad;
             for (qsizetype j = 0; j < 4; ++j) quad << quads[i + j];
             area.addPolygon(quad); area.closeSubpath();
+            const QRectF rect = quad.boundingRect().normalized();
+            if (rect.isValid()) erasedBands.append(rect);
+            if (qAbs(quad[0].y() - quad[1].y()) > 0.7 ||
+                qAbs(quad[2].y() - quad[3].y()) > 0.7)
+                rotatedSelection = true;
         }
         const auto pageIndex = selectionPage_;
         clearPendingSelection();
@@ -604,42 +611,89 @@ private:
         const auto* page = c->getDocument()->getCatalog()->getPage(pageIndex);
         if (!page) return;
         const auto existing = manager->getPageAnnotations(pageIndex).annotations;
-        pdf::PDFDocumentModifier modifier(c->getDocument());
-        int affected = 0;
+        struct EraseEdit { pdf::PDFObjectReference ref; QPolygonF remainder; };
+        QList<EraseEdit> edits;
         for (const auto& item : existing) {
-            if (item.annotation->getType() != pdf::AnnotationType::Highlight ||
-                !manager->canDeleteAnnotation(item)) continue;
+            if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
             const auto* marked = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
             if (!marked) continue;
             const auto& path = marked->getHiglightArea().getPath();
             if (!area.intersects(path) && !area.contains(path) && !path.contains(area)) continue;
-            // Preserve the other lines of a multi-line highlight. Editing
-            // QuadPoints in place keeps the annotation's author, color,
-            // opacity and comments, unlike deleting/recreating the mark.
+            const auto& oldQuads = marked->getHiglightArea().getQuadrilaterals();
+            if (oldQuads.empty()) {
+                QMessageBox::warning(draw_, QStringLiteral("형광펜 지우개 제한"),
+                    QStringLiteral("기존 형광펜에 QuadPoints 정보가 없어 선택 범위만 안전하게 지울 수 없습니다."));
+                return;
+            }
             QPolygonF remaining;
-            bool erasedQuadrilateral = false;
-            const auto& quadrilaterals = marked->getHiglightArea().getQuadrilaterals();
-            for (const auto& quad : quadrilaterals) {
-                QPolygonF geometry;
-                for (const auto& point : quad) geometry << point;
-                QPainterPath region; region.addPolygon(geometry); region.closeSubpath();
-                if (area.intersects(region) || area.contains(region) || region.contains(area)) {
-                    erasedQuadrilateral = true;
+            bool changed = false;
+            for (const auto& quad : oldQuads) {
+                QPolygonF originalShape;
+                for (const auto& point : quad) originalShape << point;
+                if (originalShape.size() != 4) {
+                    QMessageBox::warning(draw_, QStringLiteral("형광펜 지우개 제한"),
+                        QStringLiteral("지원하지 않는 PDF 주석 좌표입니다."));
+                    return;
+                }
+                const QRectF original = originalShape.boundingRect().normalized();
+                const bool rotatedOld = qAbs(originalShape[0].y() - originalShape[1].y()) > 0.7 ||
+                    qAbs(originalShape[2].y() - originalShape[3].y()) > 0.7;
+                QList<QPair<qreal, qreal>> remainingX{{original.left(), original.right()}};
+                for (const QRectF& erased : erasedBands) {
+                    const QRectF overlap = original.intersected(erased);
+                    if (overlap.height() < qMin(original.height(), erased.height()) * 0.45 ||
+                        overlap.width() < 0.3) continue;
+                    if (rotatedOld || rotatedSelection) {
+                        QMessageBox::warning(draw_, QStringLiteral("형광펜 지우개 제한"),
+                            QStringLiteral("회전된 글자 영역은 현재 안전하게 부분 삭제할 수 없습니다."));
+                        return;
+                    }
+                    QList<QPair<qreal, qreal>> next;
+                    const qreal lo = erased.left() - 0.20, hi = erased.right() + 0.20;
+                    for (const auto& interval : remainingX) {
+                        if (hi <= interval.first || lo >= interval.second) {
+                            next.append(interval); continue;
+                        }
+                        if (lo - interval.first > 0.7)
+                            next.append({interval.first, lo});
+                        if (interval.second - hi > 0.7)
+                            next.append({hi, interval.second});
+                    }
+                    remainingX = std::move(next);
+                    changed = true;
+                }
+                if (remainingX.size() == 1 &&
+                    qAbs(remainingX.front().first - original.left()) < 0.01 &&
+                    qAbs(remainingX.front().second - original.right()) < 0.01) {
+                    for (const auto& point : originalShape) remaining << point;
                 } else {
-                    for (const auto& point : quad) remaining << point;
+                    for (const auto& interval : remainingX) {
+                        const QRectF fragment(QPointF(interval.first, original.top()),
+                                              QPointF(interval.second, original.bottom()));
+                        if (fragment.width() > 0.7 && fragment.height() > 0.7)
+                            remaining << fragment.topLeft() << fragment.topRight()
+                                      << fragment.bottomLeft() << fragment.bottomRight();
+                    }
                 }
             }
-            if (!erasedQuadrilateral && !quadrilaterals.empty()) continue;
-            const auto ref = item.annotation->getSelfReference();
-            if (remaining.isEmpty()) {
-                modifier.getBuilder()->removeAnnotation(page->getPageReference(), ref);
-            } else {
-                modifier.getBuilder()->setAnnotationQuadPoints(ref, remaining);
-                modifier.getBuilder()->updateAnnotationAppearanceStreams(ref);
+            if (!changed) continue;
+            if (!manager->canDeleteAnnotation(item) || !manager->canModifyAnnotation(item)) {
+                QMessageBox::warning(draw_, QStringLiteral("형광펜 지우개 제한"),
+                    QStringLiteral("선택 영역에 수정 권한이 없는 형광펜이 포함되어 있습니다."));
+                return;
             }
-            ++affected;
+            edits.append({item.annotation->getSelfReference(), remaining});
         }
-        if (!affected) return;
+        if (edits.isEmpty()) return;
+        pdf::PDFDocumentModifier modifier(c->getDocument());
+        for (const auto& edit : edits) {
+            if (edit.remainder.isEmpty())
+                modifier.getBuilder()->removeAnnotation(page->getPageReference(), edit.ref);
+            else {
+                modifier.getBuilder()->setAnnotationQuadPoints(edit.ref, edit.remainder);
+                modifier.getBuilder()->updateAnnotationAppearanceStreams(edit.ref);
+            }
+        }
         modifier.markAnnotationsChanged();
         if (modifier.finalize())
             Q_EMIT c->getToolManager()->documentModified(

@@ -1069,6 +1069,10 @@ public:
             change->setObjectName(QStringLiteral("LunaChangeFolderIcon"));
             auto* reset = menu.addAction(QStringLiteral("기본 아이콘으로 복원"));
             reset->setObjectName(QStringLiteral("LunaResetFolderIcon"));
+            menu.addSeparator();
+            auto* rename = menu.addAction(QStringLiteral("이름 변경 (F2)"));
+            rename->setObjectName(QStringLiteral("LunaRenameFolder"));
+            auto* paste = menu.addAction(QStringLiteral("이 폴더에 PDF 붙여넣기 (Ctrl+V)"));
             reset->setEnabled(folderIconId(folder) != QStringLiteral("general"));
             auto* chosen = menu.exec(tree_->viewport()->mapToGlobal(point));
             if (chosen == change) {
@@ -1107,7 +1111,26 @@ public:
                 QString error;
                 if (!resetFolderIcon(folder, &error))
                     QMessageBox::warning(this, QStringLiteral("아이콘 초기화 실패"), error);
-            }
+            } else if (chosen == rename) renameFolder(folder);
+            else if (chosen == paste) pastePdfs(folder);
+        });
+        auto* renameFolderAction = new QAction(QStringLiteral("폴더 이름 변경"), tree_);
+        renameFolderAction->setShortcut(QKeySequence(Qt::Key_F2));
+        renameFolderAction->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        tree_->addAction(renameFolderAction);
+        connect(renameFolderAction, &QAction::triggered, this, [this] {
+            const QModelIndex index = tree_->currentIndex();
+            if (index.isValid() && model_->isDir(index))
+                renameFolder(model_->filePath(index));
+        });
+        auto* pasteFolderAction = new QAction(QStringLiteral("PDF를 폴더에 붙여넣기"), tree_);
+        pasteFolderAction->setShortcut(QKeySequence::Paste);
+        pasteFolderAction->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        tree_->addAction(pasteFolderAction);
+        connect(pasteFolderAction, &QAction::triggered, this, [this] {
+            const QModelIndex index = tree_->currentIndex();
+            if (index.isValid() && model_->isDir(index))
+                pastePdfs(model_->filePath(index));
         });
         for (int i = 1; i < 4; ++i) tree_->hideColumn(i);
         nav->addWidget(tree_, 1);
@@ -2595,6 +2618,137 @@ private:
                 model_->refreshFolderIcon(index);
             folderIconStamps_.insert(folder, stamp);
         }
+    }
+    void renameFolder(const QString& path) {
+        const QFileInfo folder(path);
+        if (!folder.isDir() || folder.isSymLink()) return;
+        const QString original = folder.canonicalFilePath();
+        if (original.isEmpty() ||
+            !(original == root_ ||
+              original.startsWith(root_ + QLatin1Char('/'), Qt::CaseInsensitive))) return;
+        bool accepted = false;
+        const QString name = QInputDialog::getText(this, QStringLiteral("폴더 이름 변경"),
+            QStringLiteral("새 폴더 이름"), QLineEdit::Normal, folder.fileName(), &accepted).trimmed();
+        if (!accepted || name == folder.fileName()) return;
+        static const QRegularExpression invalid(QStringLiteral(R"REGEX([<>:"/\\|?*])REGEX"));
+        static const QRegularExpression reserved(
+            QStringLiteral(R"REGEX(^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\..*)?$)REGEX"),
+            QRegularExpression::CaseInsensitiveOption);
+        if (name.isEmpty() || name == QStringLiteral(".") || name == QStringLiteral("..") ||
+            name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' ')) ||
+            invalid.match(name).hasMatch() || reserved.match(name).hasMatch()) {
+            QMessageBox::warning(this, QStringLiteral("잘못된 폴더 이름"),
+                QStringLiteral("Windows에서 허용되지 않는 폴더 이름입니다."));
+            return;
+        }
+        const QString destination = QDir(folder.absolutePath()).filePath(name);
+        if (QFileInfo::exists(destination)) {
+            QMessageBox::warning(this, QStringLiteral("폴더 이름 중복"),
+                QStringLiteral("대상 폴더가 이미 존재하므로 덮어쓰지 않습니다."));
+            return;
+        }
+        const QString openPath = viewer_->getProgramController()->getOriginalFileName();
+        if (!openPath.isEmpty() &&
+            (openPath.startsWith(original + QLatin1Char('/'), Qt::CaseInsensitive) ||
+             openPath.startsWith(original + QLatin1Char('\\'), Qt::CaseInsensitive))) {
+            QMessageBox::information(this, QStringLiteral("열린 PDF"),
+                QStringLiteral("폴더 내부 PDF를 닫은 다음 폴더 이름을 변경해 주세요."));
+            return;
+        }
+        // Resolve old identities and old memo keys before Windows renames the
+        // directory; after the rename these paths no longer exist.
+        struct FileIdentity { QString oldPath, identity, relative, dateKey; };
+        QList<FileIdentity> files;
+        QDirIterator scan(original, QStringList{QStringLiteral("*.pdf"), QStringLiteral("*.PDF")},
+                          QDir::Files | QDir::Readable | QDir::NoDotAndDotDot,
+                          QDirIterator::Subdirectories);
+        while (scan.hasNext()) {
+            const QString oldPath = scan.next();
+            files.append({oldPath, DocumentClaim::identity(oldPath),
+                          QDir(original).relativeFilePath(oldPath), openedDateKey(oldPath)});
+        }
+        if (!renameWithoutReplacement(original, destination)) {
+            QMessageBox::warning(this, QStringLiteral("폴더 이름 변경 실패"),
+                QStringLiteral("다른 프로그램에서 파일을 사용 중이거나 권한이 없습니다. 원래 폴더는 유지됩니다."));
+            return;
+        }
+        const auto rewrite = [&](const QString& value) {
+            if (value.compare(original, Qt::CaseInsensitive) == 0) return destination;
+            if (value.startsWith(original + QLatin1Char('/'), Qt::CaseInsensitive) ||
+                value.startsWith(original + QLatin1Char('\\'), Qt::CaseInsensitive))
+                return destination + value.mid(original.size());
+            return value;
+        };
+        QSettings settings(QSettings::defaultFormat(), QSettings::UserScope,
+                           QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        for (const QString& key : {QStringLiteral("library/favorites"), QStringLiteral("library/recent")}) {
+            QStringList values = settings.value(key).toStringList();
+            for (QString& value : values) value = rewrite(value);
+            values.removeDuplicates();
+            settings.setValue(key, values);
+        }
+        bool partialMetadataFailure = false;
+        for (const auto& file : files) {
+            const QString newPath = QDir(destination).filePath(file.relative);
+            const QString newKey = openedDateKey(newPath);
+            for (const QString& prefix : {QStringLiteral("library/memos/"),
+                                         QStringLiteral("library/openedDates/")}) {
+                const QVariant value = settings.value(prefix + file.dateKey);
+                if (value.isValid() && !settings.contains(prefix + newKey)) {
+                    settings.setValue(prefix + newKey, value);
+                    if (prefix == QStringLiteral("library/memos/")) {
+                        memos_.insert(newKey, value.toString());
+                        memos_.remove(file.dateKey);
+                    } else {
+                        openedDates_.insert(newKey, value.toString());
+                        openedDates_.remove(file.dateKey);
+                    }
+                    settings.remove(prefix + file.dateKey);
+                }
+            }
+            if (!bibliography_.relocate(file.identity, DocumentClaim::identity(newPath)))
+                partialMetadataFailure = true;
+        }
+        const bool rootChanged = original.compare(root_, Qt::CaseInsensitive) == 0;
+        if (rootChanged) {
+            root_ = destination;
+            settings.setValue(QStringLiteral("library/root"), root_);
+        }
+        current_ = rewrite(current_);
+        settings.sync();
+        if (settings.status() != QSettings::NoError) partialMetadataFailure = true;
+        const QStringList favorites = settings.value(QStringLiteral("library/favorites")).toStringList();
+        favorites_ = QSet<QString>(favorites.cbegin(), favorites.cend());
+        // Folder icon JSON moves with the directory. Rewrite only the relative
+        // location hint, preserving stable folderId and custom iconId.
+        QStringList folders{destination};
+        QDirIterator descendants(destination, QDir::Dirs | QDir::NoDotAndDotDot,
+                                 QDirIterator::Subdirectories);
+        while (descendants.hasNext()) folders.append(descendants.next());
+        for (const QString& folderPath : folders) {
+            const QString metadataFile = folderMetadataPath(folderPath);
+            if (!QFileInfo(metadataFile).isFile()) continue;
+            QJsonObject metadata = readFolderMetadata(folderPath);
+            if (metadata.isEmpty()) continue;
+            metadata.insert(QStringLiteral("relativePath"),
+                            QDir(root_).relativeFilePath(folderPath));
+            const QByteArray bytes = QJsonDocument(metadata).toJson(QJsonDocument::Indented);
+            QSaveFile writer(metadataFile);
+            writer.setDirectWriteFallback(false);
+            if (!writer.open(QIODevice::WriteOnly) ||
+                writer.write(bytes) != bytes.size() || !writer.commit())
+                partialMetadataFailure = true;
+        }
+        folderIconStamps_.clear();
+        if (rootChanged) selectRoot(root_);
+        else {
+            model_->setRootPath(root_);
+            tree_->setRootIndex(model_->index(root_));
+            refreshFileLists();
+        }
+        if (partialMetadataFailure)
+            QMessageBox::warning(this, QStringLiteral("폴더 변경 완료 · 메타데이터 확인"),
+                QStringLiteral("실제 폴더 이름은 변경됐지만 일부 사용자 정보 갱신이 실패했습니다. 기존 설정을 삭제하지 않았습니다."));
     }
     void createFolder() {
         if (!QFileInfo(current_).isDir()) return;

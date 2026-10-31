@@ -318,7 +318,7 @@ class NativeTabsContract(unittest.TestCase):
         ), 1):
             svg = artworks[f'{i:02d}_{icon_id}.svg']
             self.assertIn('<svg xmlns="http://www.w3.org/2000/svg"', svg)
-            self.assertIn('id="' + icon_id + '"', library)
+            self.assertIn('{"' + icon_id + '","', library)
             self.assertIn(':/luna/folders/', library)
         for token in (
             'LUNA.folder.json', 'class LunaFolderModel final',

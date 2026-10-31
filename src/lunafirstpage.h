@@ -25,7 +25,7 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
     pdf::PDFICCProfileCache profiles;
     pdf::PDFOptionalContentActivity activity(&document,pdf::OCUsage::View,nullptr);
     QStringList pages;
-    for (int i=0; i<qMin(3,catalog->getPageCount()); ++i) {
+    for (int i=0; i<std::min<int>(3, int(catalog->getPageCount())); ++i) {
         const auto* page=catalog->getPage(i);
         if(!page) {pages.append({});continue;}
         pdf::PDFTextLayoutGenerator generator(pdf::PDFRenderer::getDefaultFeatures(),page,

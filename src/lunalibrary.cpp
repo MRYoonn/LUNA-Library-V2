@@ -2541,6 +2541,28 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     const QImage captured(thumbnail);
     const QSize expected = QRect(from, to).size() * draw->devicePixelRatioF();
     if (captured.isNull() || captured.size() != expected) return fail("Native crop PNG has wrong dimensions");
+    // A portable folder icon is a sibling file inside the synchronized
+    // folder, not a per-PC QSettings path or Windows Explorer desktop.ini.
+    QString iconError;
+    const QString iconFolder = pdf.absolutePath();
+    const QString portableIcon = folderIconPath(iconFolder);
+    if (QFileInfo::exists(portableIcon)) return fail("Synthetic folder icon pre-existed");
+    if (!library->saveFolderIcon(iconFolder, thumbnail, &iconError)) {
+        error = QStringLiteral("Folder icon save failed: ") + iconError; return false;
+    }
+    const QImage iconImage(portableIcon);
+    const QModelIndex iconIndex = library->model_->index(iconFolder);
+    if (!QFileInfo::exists(portableIcon) || iconImage.isNull() ||
+        iconImage.width() > 192 || iconImage.height() > 192 ||
+        !iconIndex.isValid() ||
+        library->model_->data(iconIndex, Qt::DecorationRole).value<QIcon>().isNull())
+        return fail("Folder icon sidecar was not displayed from its folder");
+    if (!library->resetFolderIcon(iconFolder, &iconError) || QFileInfo::exists(portableIcon)) {
+        error = QStringLiteral("Folder icon reset did not preserve normal files: ") + iconError;
+        return false;
+    }
+    if (!QFileInfo::exists(thumbnail) || !QFileInfo::exists(path))
+        return fail("Folder icon reset altered PDF or thumbnail files");
     const QPoint card = list->visualItemRect(item).center();
     mouse(list->viewport(), QEvent::MouseMove, card, Qt::NoButton, Qt::NoButton);
     if (!wait([&] { return library->thumbnailPopup_ && library->thumbnailPopup_->isVisible() && library->fade_->state() == QAbstractAnimation::Stopped; }))

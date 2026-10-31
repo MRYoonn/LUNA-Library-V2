@@ -32,6 +32,7 @@
 #include <QMessageBox>
 #include <QMenu>
 #include <QSettings>
+#include <QStringList>
 #include <QAbstractButton>
 #include <QPushButton>
 #include <QSpinBox>

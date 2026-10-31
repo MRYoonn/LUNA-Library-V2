@@ -201,10 +201,16 @@ public:
             if (nativeDelete && !toolsMenu->actions().contains(nativeDelete))
                 toolsMenu->addAction(nativeDelete);
         }
-        autoscrollMarker_ = new VerticalAutoscrollMarker(draw_);
+        // Do not register one filter per PDF tab on the *entire* application.
+        // This previously intercepted shell and library startup events before
+        // the Reader action set was fully initialized. The draw-widget filter
+        // above is sufficient for scrolling/notes and keeps tab isolation.
         autoscrollTimer_.setInterval(16);
         connect(&autoscrollTimer_, &QTimer::timeout, this, [this] { tickVerticalAutoscroll(); });
-        qApp->installEventFilter(this);
+        connect(qApp, &QGuiApplication::applicationStateChanged, this,
+            [this](Qt::ApplicationState state) {
+                if (state != Qt::ApplicationActive) stopVerticalAutoscroll();
+            });
         // A PDF FreeText annotation is a true on-page text box rather than a
         // sticky-note icon. PDF4QT's modifier owns its save/undo machinery.
         textBox_ = new QAction(readerIcon(QStringLiteral("note")), QStringLiteral("메모 상자"), &window_);
@@ -387,6 +393,8 @@ private:
         auto* scroll = c->getPdfWidget()->getVerticalScrollbar();
         if (!scroll || scroll->maximum() <= scroll->minimum()) return;
         scrollOrigin_ = draw_->mapToGlobal(point);
+        // Avoid constructing a child overlay during native shell startup.
+        if (!autoscrollMarker_) autoscrollMarker_ = new VerticalAutoscrollMarker(draw_);
         autoscrollMarker_->move(point - QPoint(18, 24));
         autoscrollMarker_->show();
         autoscrollMarker_->raise();
@@ -399,7 +407,7 @@ private:
         if (!autoscrollActive_) return;
         autoscrollActive_ = false;
         autoscrollTimer_.stop();
-        autoscrollMarker_->hide();
+        if (autoscrollMarker_) autoscrollMarker_->hide();
         draw_->unsetCursor();
     }
     void tickVerticalAutoscroll() {
@@ -635,21 +643,20 @@ private:
         return false;
     }
     bool eventFilter(QObject* object, QEvent* event) override {
-        // Install on qApp as well as the draw surface: a click elsewhere or
-        // Escape must cancel autoscroll, including in embedded native tabs.
+        // Handle only the PDF draw widget; never steal mouse/key events
+        // globally from the native tab shell, toolbar, menus or QDialogs.
+        if (object != draw_) return false;
         if (autoscrollActive_) {
             if (event->type() == QEvent::KeyPress &&
                 static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape)
                 stopVerticalAutoscroll();
             if (event->type() == QEvent::MouseButtonPress ||
                 event->type() == QEvent::MouseButtonDblClick) {
-                if (object != draw_) { stopVerticalAutoscroll(); return false; }
                 const auto* mouse = static_cast<QMouseEvent*>(event);
                 stopVerticalAutoscroll();
                 if (mouse->button() == Qt::MiddleButton) return true;
             }
         }
-        if (object != draw_) return false;
         if (draggingTextBox_) {
             auto* c = window_.getProgramController();
             auto* manager = c->getPdfWidget()->getAnnotationManager();

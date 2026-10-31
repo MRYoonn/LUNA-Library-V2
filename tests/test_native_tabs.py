@@ -35,7 +35,7 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('rect.moveLeft(qBound(crop.left()', adapter)
         self.assertIn('rect.moveTop(qBound(crop.top()', adapter)
         for token in (
-            'LunaHighlightSelected', 'LunaEraseSelected', 'LunaFreeTextBox',
+            'LunaHighlightSwatch%1', 'LunaEraseSelected', 'LunaFreeTextBox',
             'selected->getSelectedText().trimmed().isEmpty()',
             'PDFTextSelectionPainter painter(&selection)',
             'getHiglightArea().getQuadrilaterals()', 'createAnnotationHighlight(',

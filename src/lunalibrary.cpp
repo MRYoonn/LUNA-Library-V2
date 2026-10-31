@@ -6,6 +6,10 @@
 #include "lunadocumentclaim.h"
 #include "lunabibliography.h"
 #include "lunafirstpage.h"
+#include "lunametadatafetch.h"
+#include "pdfdocumentreader.h"
+#include "pdfprogress.h"
+#include <QQueue>
 #include "lunaperformance.h"
 #include <QThread>
 #include "pdfdocument.h"
@@ -989,6 +993,7 @@ public:
         if (!QFileInfo(start).isDir()) start = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
         if (!QFileInfo(start).isDir()) start = QDir::homePath();
         bibliography_.changed = [this](const QString& identity) { refreshBibliography(identity); };
+        metadataFetcher_ = new luna::MetadataFetcher(this);
         selectRoot(start);
         split_->restoreState(settings.value(QStringLiteral("library/splitter")).toByteArray());
     }
@@ -1138,6 +1143,11 @@ private:
             connect(worker, &QThread::finished, this, [this, identity, result] {
                 runningCitations_.remove(identity);
                 bibliography_.enrichFromFirstPage(identity, *result);
+                if (result->value(QStringLiteral("documentKind")).toString() !=
+                    QStringLiteral("supporting_information")) {
+                    const QString doi = result->value(QStringLiteral("doi")).toString();
+                    if (!doi.isEmpty()) beginMetadataLookup(identity, doi);
+                }
             });
             connect(qApp, &QCoreApplication::aboutToQuit, worker, [worker] { worker->wait(); });
             connect(worker, &QThread::finished, worker, &QObject::deleteLater);
@@ -1157,6 +1167,65 @@ private:
         } else {
             startWorker();
         }
+    }
+
+    void beginMetadataLookup(const QString& identity, const QString& doi, bool refresh = false) {
+        if (!metadataFetcher_ || identity.isEmpty()) return;
+        const QString safe=luna::Metadata::normalizeDoi(doi);
+        if (safe.isEmpty()) return;
+        const QVariantMap old=bibliography_.record(identity);
+        if (!refresh && old.value("doi").toString()==safe &&
+            old.value("metadata_status").toString()==QStringLiteral("complete"))return;
+        // Reuse local data during offline and transient provider failures.
+        const QDateTime last=QDateTime::fromString(
+            old.value(QStringLiteral("metadata_checked_at")).toString(),Qt::ISODateWithMs);
+        if(!refresh && last.isValid() && last.secsTo(QDateTime::currentDateTimeUtc())<3600 &&
+           old.value(QStringLiteral("doi")).toString()==safe)return;
+        metadataFetcher_->lookup(safe,[this,identity,safe](QVariantMap data, QString reason) {
+            if(!data.isEmpty()) {
+                bibliography_.mergeVerifiedOnline(identity,safe,data,reason);
+            } else if(reason != QStringLiteral("loading")) {
+                bibliography_.recordLookupFailure(identity,reason);
+            }
+        });
+    }
+    void enqueueImportedMetadata(const QString& path) {
+        const QFileInfo file(path);
+        if (!file.isFile() || file.size()>40*1024*1024 || file.size()==0)return;
+        pendingImportedMetadata_.enqueue(file.absoluteFilePath());
+        startNextImportedMetadata();
+    }
+    void startNextImportedMetadata() {
+        if(importMetadataRunning_ || pendingImportedMetadata_.isEmpty())return;
+        const QString path=pendingImportedMetadata_.dequeue();
+        const QString identity=DocumentClaim::identity(path);
+        importMetadataRunning_=true;
+        auto result=std::make_shared<QVariantMap>();
+        // Worker owns its PDF4QT parser and font caches. No QWidget, QSettings
+        // or viewer controller may be touched from this worker.
+        auto* worker=QThread::create([path,result] {
+            try {
+                pdf::PDFProgress progress(nullptr);
+                pdf::PDFDocumentReader reader(&progress,
+                    [](bool*) {return QString();},false,false);
+                auto document=reader.readFromFile(path);
+                if(reader.getReadingResult()==pdf::PDFDocumentReader::Result::OK)
+                    *result=luna::extractFirstPage(document);
+            }catch(...){} // Password / malformed PDFs never become trusted.
+        });
+        connect(worker,&QThread::finished,this,[this,result,identity] {
+            importMetadataRunning_=false;
+            bibliography_.enrichFromFirstPage(identity,*result);
+            if(result->value(QStringLiteral("documentKind")).toString()!=
+               QStringLiteral("supporting_information")) {
+                const QString doi=result->value(QStringLiteral("doi")).toString();
+                if(!doi.isEmpty())beginMetadataLookup(identity,doi);
+            }
+            QTimer::singleShot(0,this,[this]{startNextImportedMetadata();});
+        });
+        connect(qApp,&QCoreApplication::aboutToQuit,worker,[worker] {worker->wait();});
+        connect(worker,&QThread::finished,worker,&QObject::deleteLater);
+        worker->start(QThread::LowPriority);
     }
 
     void editBibliography(const QString& path) {
@@ -1379,6 +1448,7 @@ private:
         const QStringList files = QFileDialog::getOpenFileNames(this,
             QStringLiteral("PDF 추가 · 원본을 유지하고 현재 폴더에 복사"), current_, QStringLiteral("PDF (*.pdf *.PDF)"));
         QString opened;
+        QStringList imported;
         for (const QString& path : files) {
             const QFileInfo info(path);
             if (!info.isFile() || info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
@@ -1395,6 +1465,7 @@ private:
                 continue;
             }
             opened = target;
+            imported.append(target);
         }
         if (opened.isEmpty()) return;
         allTimer_->stop();
@@ -1404,6 +1475,10 @@ private:
         folderTab_->setChecked(true);
         pages_->setCurrentIndex(0);
         selectFolder(current_);
+        // Opening the last file uses the existing owned-document worker.
+        // Independently scan other newly imported PDFs without opening tabs.
+        for (const QString& path : imported)
+            if(path!=opened) enqueueImportedMetadata(path);
         openPdf(opened);
     }
     bool eventFilter(QObject* observed, QEvent* event) override {
@@ -1633,6 +1708,8 @@ private:
             auto* citation = menu.addAction(QStringLiteral("서지정보 수정…"));
             auto* extractCitation = menu.addAction(QStringLiteral("첫 페이지 서지정보 추출…"));
             extractCitation->setObjectName(QStringLiteral("LunaExtractCitationContextMenu"));
+            auto* refreshCitation = menu.addAction(QStringLiteral("DOI 서지정보 새로고침"));
+            refreshCitation->setObjectName(QStringLiteral("LunaRefreshMetadata"));
             auto* move = menu.addAction(QStringLiteral("PDF와 썸네일 이동…"));
             auto* chosen = menu.exec(list->viewport()->mapToGlobal(point));
             if (chosen == favorite) toggleFavorite(path);
@@ -1644,6 +1721,12 @@ private:
             }
             else if (chosen == citation) editBibliography(path);
             else if (chosen == extractCitation) extractBibliography(path);
+            else if (chosen == refreshCitation) {
+                const QString identity=DocumentClaim::identity(path);
+                const QString cached=bibliography_.record(identity).value("doi").toString();
+                if(!cached.isEmpty())beginMetadataLookup(identity,cached,true);
+                else extractBibliography(path); // Local PDF scan before ANY request.
+            }
             else if (chosen == move) moveDocument(path);
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
@@ -2003,6 +2086,9 @@ private:
     QPointer<ThumbnailCropOverlay> cropOverlay_;
     pdfviewer::PDFEditorMainWindow* viewer_;
     luna::Bibliography bibliography_;
+    luna::MetadataFetcher* metadataFetcher_ = nullptr;
+    QQueue<QString> pendingImportedMetadata_;
+    bool importMetadataRunning_ = false;
     QSet<QString> analyzedCitations_;
     QSet<QString> runningCitations_;
     QHash<QString, QTimer*> delayedCitations_;

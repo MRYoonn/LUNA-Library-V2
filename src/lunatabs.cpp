@@ -161,7 +161,9 @@ public:
         tabs_->tabBar()->setExpanding(false);
         tabs_->tabBar()->setUsesScrollButtons(true);
         auto* initial = createEditor();
+        performanceEvent("native-shell-before-library", performanceNow());
         installLibraryShell(*this, *initial);
+        performanceEvent("native-shell-after-library", performanceNow());
         auto* frame = centralWidget();
         auto* corner = findChild<QWidget*>(QStringLiteral("LunaTabCorner"));
         if (corner) { frame->layout()->removeWidget(corner); tabs_->setCornerWidget(corner, Qt::TopLeftCorner); }
@@ -193,7 +195,9 @@ public:
         // competing QAction shortcut: embedded PDF4QT windows can also register
         // document/window Close actions, and Qt may choose another shortcut.
         // Our application event filter intercepts ShortcutOverride + KeyPress.
+        performanceEvent("native-shell-before-reader-bind", performanceNow());
         finishEditor(initial);
+        performanceEvent("native-shell-after-reader-bind", performanceNow());
         updater_ = new UpdateController(*this);
         QTimer::singleShot(12000, updater_, [this] {
             if (updater_ && !closing_) updater_->check(false);
@@ -361,7 +365,9 @@ private:
     }
     void finishEditor(Editor* editor) {
         PerformanceSpan span("editor-ui-bind");
+        performanceEvent("native-editor-before-reader-prepare", performanceNow());
         prepareReaderSession(*editor, *this);
+        performanceEvent("native-editor-after-reader-prepare", performanceNow());
         if (auto* bar = editor->findChild<QToolBar*>(QStringLiteral("mainToolBar"))) bar->hide();
         editor->statusBar()->hide();
         auto* controller = editor->getProgramController();

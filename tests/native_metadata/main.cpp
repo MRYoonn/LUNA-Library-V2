@@ -98,6 +98,8 @@ int main(int argc,char** argv){
     auto after=store.record(identity);
     expect(after.value("journal")==QStringLiteral("Manually Fixed Journal"),
            "manual journal never overwritten");
+    expect(Bibliography::citation(after).contains(QStringLiteral("Manually Fixed Journal")),
+           "manual journal must outrank stale provider abbreviation on displayed card");
     expect(after.value("senior_author_override")==QStringLiteral("Robert R. Knowles"),
            "senior override remains");
     expect(store.recordLookupFailure(identity,QStringLiteral("offline")),

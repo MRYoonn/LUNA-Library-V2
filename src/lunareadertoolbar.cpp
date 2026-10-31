@@ -182,8 +182,8 @@ public:
         draw_ = controller->getPdfWidget()->getDrawWidget()->getWidget();
         lastDocumentSource_ = controller->getOriginalFileName();
         draw_->installEventFilter(this);
-        // Each color button is a complete text-selection highlighter tool.
-        // There is no separate "apply highlight" toolbar action.
+        // Selection-first: drag with native SelectText, then click one color to apply once.
+        // Color clicks never leave a persistent annotation/drag mode.
         reloadHighlightColor();
         chooseColor_ = new QAction(QStringLiteral("형광펜 색상 변경…"), &window_);
         chooseColor_->setObjectName(QStringLiteral("LunaHighlightColor"));
@@ -229,8 +229,8 @@ public:
             auto* swatch = new QAction(QIcon(new HighlightSwatchIcon(presetColor)),
                 QString::fromUtf8(kHighlightPresets[i].label), &window_);
             swatch->setObjectName(QStringLiteral("LunaHighlightSwatch%1").arg(i + 1));
-            swatch->setCheckable(true);
-            swatch->setToolTip(QStringLiteral("%1 형광펜 · 누른 뒤 텍스트를 드래그하면 즉시 적용").arg(QString::fromUtf8(kHighlightPresets[i].label)));
+            swatch->setCheckable(false);
+            swatch->setToolTip(QStringLiteral("%1 형광펜 · 텍스트를 먼저 선택한 뒤 클릭하면 적용, 선택 모드 유지").arg(QString::fromUtf8(kHighlightPresets[i].label)));
             connect(swatch, &QAction::triggered, this, [this, presetColor] {
                 armHighlighter(presetColor);
             });
@@ -239,12 +239,9 @@ public:
         syncSwatches();
         eraser_ = new QAction(readerIcon(QStringLiteral("erase")), QStringLiteral("형광펜 지우개"), &window_);
         eraser_->setObjectName(QStringLiteral("LunaEraseSelected"));
-        eraser_->setToolTip(QStringLiteral("지우개를 누른 뒤 텍스트를 드래그하면 해당 범위의 형광펜을 삭제합니다. 메모와 본문은 유지합니다."));
-        eraser_->setCheckable(true);
-        connect(eraser_, &QAction::triggered, this, [this](bool checked) {
-            if (checked) armEraser();
-            else { eraserArmed_ = false; selectText(); }
-        });
+        eraser_->setToolTip(QStringLiteral("텍스트를 먼저 선택한 뒤 클릭하면 해당 영역의 형광펜만 지웁니다. 텍스트 선택 모드는 유지합니다."));
+        eraser_->setCheckable(false);
+        connect(eraser_, &QAction::triggered, this, [this] { armEraser(); });
         // Keep the native click-to-delete action accessible in Tools for other
         // annotation types. The compact reader eraser is selection-first.
         if (toolsMenu) {
@@ -320,33 +317,39 @@ private:
         syncSwatches();
     }
     void syncSwatches() {
-        for (int i = 0; i < swatches_.size(); ++i)
-            swatches_[i]->setChecked(highlightArmed_ &&
-                color_ == QColor(QString::fromLatin1(kHighlightPresets[i].value)));
+        // The swatches are one-shot actions, never persistent mode toggles.
+        for (auto* action : swatches_) action->setChecked(false);
     }
     void setHighlightArmed(bool enabled) {
         highlightArmed_ = enabled;
         syncSwatches();
     }
     void armHighlighter(const QColor& next) {
-        if (!next.isValid() || !canAnnotate()) { setHighlightArmed(false); return; }
-        clearPendingSelection();
-        if (textBox_->isChecked()) textBox_->setChecked(false);
-        selectText();  // Explicitly switch back from any native annotation tool.
-        if (!checked("actionSelectText")) { setHighlightArmed(false); return; }
-        eraserArmed_ = false; eraser_->setChecked(false);
-        color_ = next;
-        QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexRgb));
-        setHighlightArmed(true);
-    }
-    void armEraser() {
-        if (!canAnnotate()) { eraserArmed_ = false; eraser_->setChecked(false); return; }
-        clearPendingSelection();
+        if (!next.isValid() || !canAnnotate()) return;
+        // Do not clear the existing dragged-text coordinates before applying.
+        // Only the native PDF text selection can designate the target area.
         if (textBox_->isChecked()) textBox_->setChecked(false);
         selectText();
-        if (!checked("actionSelectText")) { eraser_->setChecked(false); return; }
+        if (!checked("actionSelectText")) return;
+        eraserArmed_ = false;
+        color_ = next;
+        QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexRgb));
+        setHighlightArmed(selectionPage_ >= 0);
+        if (highlightArmed_) applyHighlight();
         setHighlightArmed(false);
-        eraserArmed_ = true; eraser_->setChecked(true);
+        selectText(); // Remain in ordinary native text selection after the click.
+    }
+    void armEraser() {
+        if (!canAnnotate()) return;
+        if (textBox_->isChecked()) textBox_->setChecked(false);
+        selectText();
+        if (!checked("actionSelectText")) return;
+        setHighlightArmed(false);
+        eraserArmed_ = selectionPage_ >= 0;
+        if (eraserArmed_) eraseSelectedHighlights();
+        eraserArmed_ = false;
+        eraser_->setChecked(false);
+        selectText();
     }
     bool checked(const char* name) const { auto* a = nativeAction(window_, name); return a && a->isChecked(); }
     // Match the upstream PDF4QT native tool security gate. A custom action
@@ -1188,14 +1191,10 @@ private:
                 proxy->getPageUnderPoint(mouse->pos(), &end) == selectionPage_;
             if (!good) clearPendingSelection();
             else {
+                // Remember the dragged native range. Do NOT modify the PDF on
+                // mouse release. The subsequent highlighter/eraser click
+                // performs one annotation operation on this exact selection.
                 selectionEnd_ = end;
-                QTimer::singleShot(0, this, [this] {
-                    auto* selected = window_.getProgramController()->getToolManager()->getSelectTextTool();
-                    const bool ready = canAnnotate() && selected && !selected->getSelectedText().trimmed().isEmpty() &&
-                        !textBox_->isChecked() && selectionPage_ >= 0;
-                    if (ready && eraserArmed_) eraseSelectedHighlights();
-                    else if (ready && highlightArmed_) applyHighlight();
-                });
             }
             return false; // Native text-selection tool must receive the release.
         }

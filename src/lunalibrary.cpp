@@ -859,7 +859,7 @@ class PaperFileList final : public QListWidget {
 public:
     using QListWidget::QListWidget;
 protected:
-    QMimeData* mimeData(const QList<QListWidgetItem*> items) const override {
+    QMimeData* mimeData(const QList<QListWidgetItem*>& items) const override {
         auto* data = new QMimeData;
         QList<QUrl> urls;
         QSet<QString> seen;
@@ -1379,46 +1379,36 @@ private:
     // Explicit user action, no modal dialog and no forced auto-save of
     // speculative title/author data. Trust only publication evidence found
     // on the opened document's first page.
-    void extractBibliography(const QString& path) {
+    void extractBibliography(const QString& path, bool restore = false) {
         const QString identity = DocumentClaim::identity(path);
+        if (identity.isEmpty() || !QFileInfo(path).isFile()) return;
         if (!viewer_ || !viewer_->getProgramController()) return;
         auto* controller = viewer_->getProgramController();
         if (!controller->getDocument() ||
             DocumentClaim::identity(controller->getOriginalFileName()) != identity) {
-            // A context-menu action on an unopened paper should work too:
-            // open/select its tab, then extract after native loading completes.
-            if (identity.isEmpty() || pendingCitationExtracts_.contains(identity)) return;
-            pendingCitationExtracts_.insert(identity);
-            openPdf(path);
-            auto* probe = new QTimer(this);
-            probe->setInterval(100);
-            connect(probe, &QTimer::timeout, this, [this, probe, path, identity, attempts = 0]() mutable {
-                auto stop = [this, probe, identity] {
-                    probe->stop(); probe->deleteLater();
-                    pendingCitationExtracts_.remove(identity);
-                };
-                if (++attempts >= 80) { stop(); return; }
-                if (!viewer_ || !viewer_->getProgramController()) return;
-                auto* current = viewer_->getProgramController();
-                if (current->getDocument() &&
-                    DocumentClaim::identity(current->getOriginalFileName()) == identity) {
-                    stop();
-                    extractBibliography(path);
-                }
-            });
-            probe->start();
+            // Independent PDF windows cannot switch the active controller.
+            // Parse the selected file directly in the isolated worker instead.
+            enqueueImportedMetadata(path, restore);
             return;
         }
         if (!controller->getDocument()->getCatalog() ||
             controller->getDocument()->getCatalog()->getPageCount() < 1) return;
+        if (restore) pendingOriginalResets_.insert(identity);
         queueBibliography(identity, *controller->getDocument(), true);
+    }
+    void refreshOriginalBibliography(const QString& path) {
+        if (QMessageBox::question(this, QStringLiteral("원본 서지정보 복원"),
+            QStringLiteral("이 PDF의 수동 수정 서지정보를 검증된 원본 값으로 교체할까요?\\n"
+                           "검증할 수 없는 항목은 그대로 보존됩니다."),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes)
+            return;
+        extractBibliography(path, true);
     }
 
     void queueBibliography(const QString& identity, const pdf::PDFDocument& document, bool force = false) {
         if (identity.isEmpty()) return;
         if (runningCitations_.contains(identity)) {
-            // User-initiated extraction must not wait for the auto-extract
-            // grace period when the document is already in the delayed queue.
+            // The running first-page worker will honor an explicit reset.
             if (force) if (auto* pending = delayedCitations_.value(identity, nullptr))
                 pending->start(0);
             return;
@@ -1446,11 +1436,19 @@ private:
             });
             connect(worker, &QThread::finished, this, [this, identity, result] {
                 runningCitations_.remove(identity);
-                bibliography_.enrichFromFirstPage(identity, *result);
+                const bool restore = pendingOriginalResets_.remove(identity) > 0;
+                const bool found = restore ?
+                    bibliography_.restoreFromFirstPage(identity, *result) :
+                    bibliography_.enrichFromFirstPage(identity, *result);
                 if (result->value(QStringLiteral("documentKind")).toString() !=
                     QStringLiteral("supporting_information")) {
-                    const QString doi = result->value(QStringLiteral("doi")).toString();
-                    if (!doi.isEmpty()) beginMetadataLookup(identity, doi);
+                    QString doi = result->value(QStringLiteral("doi")).toString();
+                    if (restore && doi.isEmpty())
+                        doi = bibliography_.record(identity).value("doi").toString();
+                    if (!doi.isEmpty()) beginMetadataLookup(identity, doi, restore);
+                    else if (restore && !found)
+                        QMessageBox::information(this, QStringLiteral("서지정보 원본 확인 불가"),
+                            QStringLiteral("첫 페이지에서 신뢰할 수 있는 서지정보나 DOI를 찾지 못했습니다. 수정값은 유지됩니다."));
                 }
             });
             connect(qApp, &QCoreApplication::aboutToQuit, worker, [worker] { worker->wait(); });
@@ -1486,23 +1484,33 @@ private:
         if(!refresh && last.isValid() && last.secsTo(QDateTime::currentDateTimeUtc())<3600 &&
            old.value(QStringLiteral("doi")).toString()==safe)return;
         bibliography_.markLookupStarted(identity);
-        metadataFetcher_->lookup(safe,[this,identity,safe](QVariantMap data, QString reason) {
+        metadataFetcher_->lookup(safe,[this,identity,safe,refresh](QVariantMap data, QString reason) {
             if(!data.isEmpty()) {
-                bibliography_.mergeVerifiedOnline(identity,safe,data,reason);
+                const bool updated = refresh ?
+                    bibliography_.restoreVerifiedOnline(identity,safe,data) :
+                    bibliography_.mergeVerifiedOnline(identity,safe,data,reason);
+                if(refresh && !updated)
+                    QMessageBox::information(this,QStringLiteral("원본 서지정보 보존"),
+                        QStringLiteral("DOI가 일치하는 신뢰 가능한 서지정보를 확인하지 못했습니다. 기존 값을 유지합니다."));
             } else if(reason != QStringLiteral("loading")) {
                 bibliography_.recordLookupFailure(identity,reason);
+                if(refresh)
+                    QMessageBox::information(this,QStringLiteral("서지정보 조회 실패"),
+                        QStringLiteral("서지정보를 다시 불러오지 못했습니다 (%1). 기존 값은 보존됩니다.").arg(reason));
             }
         });
     }
-    void enqueueImportedMetadata(const QString& path) {
+    void enqueueImportedMetadata(const QString& path, bool restore = false) {
         const QFileInfo file(path);
-        if (!file.isFile() || file.size()>40*1024*1024 || file.size()==0)return;
-        pendingImportedMetadata_.enqueue(file.absoluteFilePath());
+        if (!file.isFile() || file.size()==0 || file.size()>(restore?200:40)*1024*1024)return;
+        pendingImportedMetadata_.enqueue(qMakePair(file.absoluteFilePath(), restore));
         startNextImportedMetadata();
     }
     void startNextImportedMetadata() {
         if(importMetadataRunning_ || pendingImportedMetadata_.isEmpty())return;
-        const QString path=pendingImportedMetadata_.dequeue();
+        const auto request=pendingImportedMetadata_.dequeue();
+        const QString path=request.first;
+        const bool restore=request.second;
         const QString identity=DocumentClaim::identity(path);
         importMetadataRunning_=true;
         auto result=std::make_shared<QVariantMap>();
@@ -1518,13 +1526,20 @@ private:
                     *result=luna::extractFirstPage(document);
             }catch(...){} // Password / malformed PDFs never become trusted.
         });
-        connect(worker,&QThread::finished,this,[this,result,identity] {
+        connect(worker,&QThread::finished,this,[this,result,identity,restore] {
             importMetadataRunning_=false;
-            bibliography_.enrichFromFirstPage(identity,*result);
+            const bool found = restore ?
+                bibliography_.restoreFromFirstPage(identity,*result) :
+                bibliography_.enrichFromFirstPage(identity,*result);
             if(result->value(QStringLiteral("documentKind")).toString()!=
                QStringLiteral("supporting_information")) {
-                const QString doi=result->value(QStringLiteral("doi")).toString();
-                if(!doi.isEmpty())beginMetadataLookup(identity,doi);
+                QString doi=result->value(QStringLiteral("doi")).toString();
+                if(restore && doi.isEmpty())
+                    doi=bibliography_.record(identity).value("doi").toString();
+                if(!doi.isEmpty())beginMetadataLookup(identity,doi,restore);
+                else if(restore && !found)
+                    QMessageBox::information(this,QStringLiteral("서지정보 원본 확인 불가"),
+                        QStringLiteral("PDF 첫 페이지에서 검증할 서지정보를 찾지 못했습니다. 기존 값을 유지합니다."));
             }
             QTimer::singleShot(0,this,[this]{startNextImportedMetadata();});
         });
@@ -2617,12 +2632,13 @@ private:
     luna::Bibliography bibliography_;
     bool compactPaperMode_ = false;
     luna::MetadataFetcher* metadataFetcher_ = nullptr;
-    QQueue<QString> pendingImportedMetadata_;
+    QQueue<QPair<QString, bool>> pendingImportedMetadata_;
     bool importMetadataRunning_ = false;
     QSet<QString> analyzedCitations_;
     QSet<QString> runningCitations_;
     QHash<QString, QTimer*> delayedCitations_;
     QSet<QString> pendingCitationExtracts_;
+    QSet<QString> pendingOriginalResets_;
     QAction* cropAction_ = nullptr;
     QAction* pagePreviewAction_ = nullptr;
     QMetaObject::Connection documentTitleConnection_, cropConnection_;

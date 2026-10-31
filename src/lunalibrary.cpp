@@ -51,6 +51,9 @@
 #include <QSet>
 #include <QHash>
 #include <QScrollArea>
+#include <QAbstractScrollArea>
+#include <QWheelEvent>
+#include <QEasingCurve>
 #include <QScrollBar>
 #include <QStyledItemDelegate>
 #include <QStyleOptionViewItem>
@@ -271,6 +274,51 @@ QString openedDateKey(const QString& path) {
     return QString::fromLatin1(QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex());
 }
 
+// Animated discrete wheel scrolling for the library's scrollable lists.
+// Native precision touchpad pixelDelta is intentionally left to Qt so it keeps
+// inertial/gesture scrolling, unlike forcibly converting every delta to steps.
+class SmoothLibraryWheel final : public QObject {
+public:
+    explicit SmoothLibraryWheel(QAbstractScrollArea* area, int step)
+        : QObject(area), area_(area), step_(step), animation_(new QPropertyAnimation(this)) {
+        animation_->setTargetObject(area->verticalScrollBar());
+        animation_->setPropertyName("value");
+        animation_->setDuration(155);
+        animation_->setEasingCurve(QEasingCurve::OutCubic);
+        area->viewport()->installEventFilter(this);
+    }
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (!area_ || watched != area_->viewport() || event->type() != QEvent::Wheel)
+            return QObject::eventFilter(watched, event);
+        auto* wheel = static_cast<QWheelEvent*>(event);
+        if (!wheel->pixelDelta().isNull() || wheel->angleDelta().y() == 0 ||
+            (wheel->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier))) {
+            if (!wheel->pixelDelta().isNull()) animation_->stop();
+            return false;
+        }
+        auto* scrollbar = area_->verticalScrollBar();
+        if (!scrollbar || scrollbar->maximum() <= scrollbar->minimum()) return false;
+        const int from = scrollbar->value();
+        const int baseline = animation_->state() == QAbstractAnimation::Running ?
+            animation_->endValue().toInt() : from;
+        const int delta = qRound(double(wheel->angleDelta().y()) * step_ / 120.0);
+        if (!delta) return false;
+        const int target = qBound(scrollbar->minimum(), baseline - delta, scrollbar->maximum());
+        animation_->stop();
+        if (target == from) return false; // allow normal boundary propagation
+        animation_->setStartValue(from);
+        animation_->setEndValue(target);
+        animation_->start();
+        wheel->accept();
+        return true;
+    }
+private:
+    QPointer<QAbstractScrollArea> area_;
+    int step_;
+    QPropertyAnimation* animation_;
+};
+
 // The document list stays a SINGLE vertical QListWidget: one horizontally
 // arranged, full-width paper card per row. Never switch it to a two-column grid.
 // Exactly one paper per row. Inside each card, the cropped thumbnail is
@@ -280,8 +328,11 @@ class DocumentCard final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
     static constexpr int kCardHeight = 322;
+    static constexpr int kCompactHeight = 112;
+    void setCompact(bool compact) { compact_ = compact; }
+    bool compact() const { return compact_; }
     QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override {
-        return {300, kCardHeight};
+        return {300, compact_ ? kCompactHeight : kCardHeight};
     }
     std::function<void(const QString&, const QString&)> saveMemo;
     static QRect contentRect(const QRect& r) {
@@ -306,6 +357,12 @@ public:
     static QRect favoriteRect(const QRect& r) {
         return QRect(r.right() - 48, r.top() + 22, 28, 28);
     }
+    static QRect compactFavoriteRect(const QRect& r) {
+        return QRect(r.right() - 32, r.top() + 11, 22, 22);
+    }
+    static QRect compactMemoRect(const QRect& r) {
+        return QRect(r.left() + 101, r.top() + 87, qMax(18, r.width() - 115), 20);
+    }
     QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
         auto* editor = new QLineEdit(parent);
         editor->setObjectName(QStringLiteral("LunaPaperMemoEditor"));
@@ -322,11 +379,13 @@ public:
         if (saveMemo) saveMemo(index.data(Qt::UserRole).toString(), static_cast<QLineEdit*>(editor)->text());
     }
     void updateEditorGeometry(QWidget* editor, const QStyleOptionViewItem& option, const QModelIndex&) const override {
-        editor->setGeometry(memoRect(option.rect).adjusted(21, 0, 0, 0));
+        editor->setGeometry((compact_ ? compactMemoRect(option.rect) :
+            memoRect(option.rect)).adjusted(21, 0, 0, 0));
     }
     // Never open the memo on a single/double left-click; only the right-click
     // context action invokes list->editItem(item). Double-click opens the PDF.
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        if (compact_) { paintCompact(painter, option, index); return; }
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
         painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
@@ -458,6 +517,114 @@ public:
             QIcon::Selected : QIcon::Disabled);
         painter->restore();
     }
+private:
+    // Restored density of the original paper list: thumbnail at LEFT, title,
+    // one-line citation and one-line memo at RIGHT; still one paper per row.
+    void paintCompact(QPainter* painter, const QStyleOptionViewItem& option,
+                      const QModelIndex& index) const {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+        const QRect r = option.rect;
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool active = index.data(Qt::UserRole + 7).toBool();
+        const bool hovered = option.state & QStyle::State_MouseOver;
+        painter->setPen(QPen(QColor(active ? "#92B7EE" : selected ? "#BAD1F2" : kLINE), 1));
+        painter->setBrush(QColor(active ? "#F1F7FF" : selected ? "#EAF2FF" :
+                                 hovered ? "#F8FBFF" : kPANEL));
+        painter->drawRoundedRect(r.adjusted(4, 3, -5, -4), 7, 7);
+        const QRect thumb(r.left() + 11, r.top() + 12, 79, 88);
+        painter->setPen(QPen(QColor(kTHUMB_LINE), 1));
+        painter->setBrush(Qt::white);
+        painter->drawRoundedRect(thumb, 5, 5);
+        const QFileInfo pdf(index.data(Qt::UserRole).toString());
+        const QString sidecar = pdf.absolutePath() + QLatin1Char('/') +
+            pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
+        QPointer<QWidget> view(const_cast<QWidget*>(option.widget));
+        const QImage image = ThumbnailCache::instance()->request(sidecar, view, [view] {
+            if (auto* list = qobject_cast<QAbstractItemView*>(view.data())) list->viewport()->update();
+            else if (view) view->update();
+        });
+        if (!image.isNull()) {
+            const QRect frame = thumb.adjusted(3, 3, -3, -3);
+            const QSize fitted = image.size().scaled(frame.size(), Qt::KeepAspectRatio);
+            painter->save();
+            QPainterPath clip;
+            clip.addRoundedRect(thumb.adjusted(1,1,-1,-1), 4, 4);
+            painter->setClipPath(clip);
+            painter->drawImage(QRect(QPoint(frame.center().x() - fitted.width()/2,
+                                           frame.center().y() - fitted.height()/2), fitted), image);
+            painter->restore();
+        } else {
+            readerIcon(QStringLiteral("documents")).paint(painter,
+                QRect(thumb.center().x()-13, thumb.center().y()-18, 26, 32));
+        }
+
+        const int left = r.left() + 101;
+        const int width = qMax(18, r.right() - left - 11);
+        QFont titleFont = option.font;
+        titleFont.setFamily(QStringLiteral("Malgun Gothic"));
+        titleFont.setPixelSize(12);
+        titleFont.setWeight(QFont::Bold);
+        painter->setFont(titleFont);
+        painter->setPen(QColor(kNAVY));
+        const QFontMetrics titleMetrics(titleFont);
+        const QString title = index.data(Qt::DisplayRole).toString().simplified();
+        QTextLayout layout(title, titleFont);
+        QTextOption wrap;
+        wrap.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+        layout.setTextOption(wrap);
+        layout.beginLayout();
+        const int lineHeight = qMax(16, titleMetrics.height());
+        for (int row=0; row<2; ++row) {
+            QTextLine line = layout.createLine();
+            if (!line.isValid()) break;
+            const int available = qMax(16, width - (row == 0 ? 25 : 0));
+            line.setLineWidth(available);
+            const QString text = row == 0 ?
+                title.mid(line.textStart(), line.textLength()).trimmed() :
+                title.mid(line.textStart()).trimmed();
+            painter->drawText(QRect(left, r.top()+9+row*lineHeight, available, lineHeight+1),
+                Qt::AlignVCenter | Qt::AlignLeft,
+                titleMetrics.elidedText(text, Qt::ElideRight, available));
+        }
+        layout.endLayout();
+
+        QFont captionFont = option.font;
+        captionFont.setFamily(QStringLiteral("Malgun Gothic"));
+        captionFont.setPixelSize(11);
+        painter->setFont(captionFont);
+        painter->setPen(QColor(kMUTED));
+        const QVariantMap bibliography = index.data(Qt::UserRole + 5).toMap();
+        const QString citation = luna::Bibliography::citation(bibliography);
+        const QString author = luna::Bibliography::lastListedAuthor(
+            bibliography.value(QStringLiteral("authors")).toString());
+        const bool formatted = !bibliography.value("doi").toString().isEmpty() ||
+                               !bibliography.value("citation").toString().isEmpty();
+        const QString metadata = formatted ? citation :
+            ((author.isEmpty() ? QStringLiteral("저자 미확인") : author) +
+             QStringLiteral(", ") +
+             (citation.isEmpty() ? QStringLiteral("저널·연도 미확인") : citation));
+        painter->drawText(QRect(left, r.top()+57, width, 20), Qt::AlignVCenter | Qt::AlignLeft,
+            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, width));
+        painter->setPen(QColor(kLINE));
+        painter->drawLine(left, r.top()+83, left+width, r.top()+83);
+        painter->setPen(QColor(index.data(Qt::UserRole + 4).toString().isEmpty() ?
+                               "#829BBE" : "#48648A"));
+        const QRect memo = compactMemoRect(r);
+        readerIcon(QStringLiteral("memo-inline")).paint(painter,
+            QRect(memo.left(), memo.center().y()-7, 15, 15));
+        const QString note = index.data(Qt::UserRole + 4).toString();
+        painter->drawText(memo.adjusted(20, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft,
+            QFontMetrics(captionFont).elidedText(
+                note.isEmpty() ? QStringLiteral("메모 추가") : note, Qt::ElideRight,
+                qMax(15, memo.width()-20)));
+        readerIcon(QStringLiteral("star")).paint(painter,
+            compactFavoriteRect(r).adjusted(1,1,-1,-1), Qt::AlignCenter,
+            index.data(Qt::UserRole + 2).toBool() ? QIcon::Selected : QIcon::Disabled);
+        painter->restore();
+    }
+    bool compact_ = false;
 };
 
 class IndependentDocuments final : public QObject {

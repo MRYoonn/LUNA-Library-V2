@@ -2515,6 +2515,24 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     // the old delegate's left-click/double-click editorEvent.
     if (!list->itemDelegate() || !DocumentCard::memoRect(list->visualItemRect(item)).isValid())
         return fail("Paper memo row geometry missing");
+    const QRect paperCard = list->visualItemRect(item);
+    const QRect cardImage = DocumentCard::thumbnailRect(paperCard);
+    const QRect cardTitle = DocumentCard::titleRect(paperCard);
+    const QRect cardCitation = DocumentCard::citationRect(paperCard);
+    const QRect cardMemo = DocumentCard::memoRect(paperCard);
+    // Native UI contract: IMAGE at the top, then full-width TITLE, CITATION,
+    // MEMO below it. NOT a small thumbnail to the left of text.
+    if (paperCard.height() != DocumentCard::kCardHeight ||
+        cardImage.bottom() >= cardTitle.top() ||
+        cardTitle.bottom() >= cardCitation.top() ||
+        cardCitation.bottom() >= cardMemo.top() ||
+        cardImage.left() != cardTitle.left() ||
+        cardTitle.left() != cardCitation.left() ||
+        cardCitation.left() != cardMemo.left() ||
+        cardImage.width() != cardTitle.width() ||
+        cardTitle.width() != cardCitation.width() ||
+        cardCitation.width() != cardMemo.width())
+        return fail("Stacked card image/title/citation/memo geometry regressed");
     // Confirm the actual Qt card model reacts to a local citation change.
     // Synthetic fixture only; no PDF/DOI is uploaded.
     auto* citationPanel = dynamic_cast<LibraryPanel*>(dock->widget());

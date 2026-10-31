@@ -269,25 +269,38 @@ QString openedDateKey(const QString& path) {
 
 // The document list stays a SINGLE vertical QListWidget: one horizontally
 // arranged, full-width paper card per row. Never switch it to a two-column grid.
+// Exactly one paper per row. Inside each card, the cropped thumbnail is
+// ABOVE the two-line title, one-line citation and memo (user-approved layout).
+// Do not turn the document pane into a grid or a left-thumbnail list.
 class DocumentCard final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
-    static constexpr int kCardHeight = 140;
-    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {300, kCardHeight}; }
-    std::function<void(const QString&, const QString&)> saveMemo;
-    static QRect thumbnailRect(const QRect& r) {
-        return QRect(r.left() + 14, r.top() + 13, 96, 113);
+    static constexpr int kCardHeight = 322;
+    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override {
+        return {300, kCardHeight};
     }
-    static QRect textRect(const QRect& r) {
-        // Shared left/right edges for title, author+citation AND memo.
-        return QRect(r.left() + 122, r.top() + 14, qMax(25, r.width() - 138), 111);
+    std::function<void(const QString&, const QString&)> saveMemo;
+    static QRect contentRect(const QRect& r) {
+        return QRect(r.left() + 16, r.top() + 14, qMax(25, r.width() - 32), kCardHeight - 28);
+    }
+    static QRect thumbnailRect(const QRect& r) {
+        const QRect content = contentRect(r);
+        return QRect(content.left(), r.top() + 14, content.width(), 164);
+    }
+    static QRect titleRect(const QRect& r) {
+        const QRect content = contentRect(r);
+        return QRect(content.left(), r.top() + 190, content.width(), 45);
+    }
+    static QRect citationRect(const QRect& r) {
+        const QRect content = contentRect(r);
+        return QRect(content.left(), r.top() + 241, content.width(), 24);
     }
     static QRect memoRect(const QRect& r) {
-        const QRect content = textRect(r);
-        return QRect(content.left(), r.top() + 102, content.width(), 23);
+        const QRect content = contentRect(r);
+        return QRect(content.left(), r.top() + 280, content.width(), 26);
     }
     static QRect favoriteRect(const QRect& r) {
-        return QRect(r.right() - 38, r.top() + 13, 24, 24);
+        return QRect(r.right() - 48, r.top() + 22, 28, 28);
     }
     QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
         auto* editor = new QLineEdit(parent);
@@ -298,90 +311,101 @@ public:
     }
     void setEditorData(QWidget* editor, const QModelIndex& index) const override {
         auto* input = static_cast<QLineEdit*>(editor);
-        input->setText(index.data(Qt::UserRole + 4).toString()); input->selectAll();
+        input->setText(index.data(Qt::UserRole + 4).toString());
+        input->selectAll();
     }
     void setModelData(QWidget* editor, QAbstractItemModel*, const QModelIndex& index) const override {
         if (saveMemo) saveMemo(index.data(Qt::UserRole).toString(), static_cast<QLineEdit*>(editor)->text());
     }
     void updateEditorGeometry(QWidget* editor, const QStyleOptionViewItem& option, const QModelIndex&) const override {
-        editor->setGeometry(memoRect(option.rect).adjusted(18, 0, 0, 0));
+        editor->setGeometry(memoRect(option.rect).adjusted(21, 0, 0, 0));
     }
-    // NO editorEvent override: only the card's right-click -> 메모 편집… opens it.
+    // Never open the memo on a single/double left-click; only the right-click
+    // context action invokes list->editItem(item). Double-click opens the PDF.
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
         const QRect r = option.rect;
-        const QRect surface = r.adjusted(5, 3, -6, -4);
+        const QRect card = r.adjusted(5, 4, -6, -5);
         const bool selected = option.state & QStyle::State_Selected;
         const bool activeDocument = index.data(Qt::UserRole + 7).toBool();
         const bool hovered = option.state & QStyle::State_MouseOver;
         painter->setPen(QPen(QColor(activeDocument ? "#92B7EE" : selected ? "#BAD1F2" : kLINE), 1));
         painter->setBrush(QColor(activeDocument ? "#F1F7FF" : selected ? "#EAF2FF" :
             hovered ? "#F8FBFF" : kPANEL));
-        painter->drawRoundedRect(surface, 9, 9);
+        painter->drawRoundedRect(card, 10, 10);
 
-        const QRect thumbnail = thumbnailRect(r);
-        painter->setPen(QPen(QColor(kTHUMB_LINE), 1));
+        // Top: full-width image reserved even before the asynchronous thumb loads.
+        // Use KeepAspectRatio so neither molecular structures nor article images
+        // are stretched, and never change the original saved crop.
+        const QRect imageArea = thumbnailRect(r);
+        painter->setPen(QPen(QColor(kLINE), 1));
         painter->setBrush(Qt::white);
-        painter->drawRoundedRect(thumbnail, 6, 6);
+        painter->drawRoundedRect(imageArea, 7, 7);
         const QFileInfo pdf(index.data(Qt::UserRole).toString());
-        const QString sidecar = pdf.absolutePath() + QLatin1Char('/') + pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
+        const QString sidecar = pdf.absolutePath() + QLatin1Char('/') +
+            pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
         QPointer<QWidget> view(const_cast<QWidget*>(option.widget));
         const QImage image = ThumbnailCache::instance()->request(sidecar, view, [view] {
             if (auto* list = qobject_cast<QAbstractItemView*>(view.data())) list->viewport()->update();
             else if (view) view->update();
         });
         if (!image.isNull()) {
-            const QRect frame = thumbnail.adjusted(3, 3, -3, -3);
+            const QRect frame = imageArea.adjusted(3, 3, -3, -3);
             const QSize fitted = image.size().scaled(frame.size(), Qt::KeepAspectRatio);
-            const QRect target(QPoint(frame.center().x() - fitted.width()/2,
-                                     frame.center().y() - fitted.height()/2), fitted);
+            const QRect target(QPoint(frame.center().x() - fitted.width() / 2,
+                                     frame.center().y() - fitted.height() / 2), fitted);
             painter->save();
-            QPainterPath clip; clip.addRoundedRect(thumbnail.adjusted(1, 1, -1, -1), 5, 5);
+            QPainterPath clip;
+            clip.addRoundedRect(imageArea.adjusted(1, 1, -1, -1), 6, 6);
             painter->setClipPath(clip);
             painter->drawImage(target, image);
             painter->restore();
         } else {
             readerIcon(QStringLiteral("documents")).paint(painter,
-                QRect(thumbnail.center().x() - 15, thumbnail.center().y() - 23, 30, 34));
-            QFont pdfFont = option.font; pdfFont.setPixelSize(11);
-            painter->setFont(pdfFont); painter->setPen(QColor(kMUTED));
-            painter->drawText(thumbnail.adjusted(0, 67, 0, -7),
+                QRect(imageArea.center().x() - 18, imageArea.center().y() - 30, 36, 42));
+            QFont placeholder = option.font;
+            placeholder.setPixelSize(11);
+            painter->setFont(placeholder);
+            painter->setPen(QColor(kMUTED));
+            painter->drawText(QRect(imageArea.left(), imageArea.center().y() + 16,
+                                    imageArea.width(), 21),
                 Qt::AlignHCenter | Qt::AlignVCenter, QStringLiteral("PDF"));
         }
 
-        const QRect content = textRect(r);
+        // Middle: bold title, max two lines. The second line explicitly
+        // elides the entire remaining title instead of silently clipping.
+        const QRect heading = titleRect(r);
         QFont titleFont = option.font;
         titleFont.setFamily(QStringLiteral("Malgun Gothic"));
         titleFont.setPixelSize(13);
         titleFont.setWeight(QFont::Bold);
         const QFontMetrics titleMetrics(titleFont);
-        painter->setFont(titleFont); painter->setPen(QColor(kNAVY));
-
-        // Word-wrapped native text layout with an ACTUAL ellipsis when a title
-        // exceeds two lines. First line reserves space for the favorite star.
+        painter->setFont(titleFont);
+        painter->setPen(QColor(kNAVY));
         const QString title = index.data(Qt::DisplayRole).toString().simplified();
-        QTextLayout layout(title, titleFont);
-        QTextOption wrap; wrap.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
-        layout.setTextOption(wrap);
-        layout.beginLayout();
-        const int lineHeight = qMax(19, titleMetrics.height() + 1);
+        QTextLayout titleLayout(title, titleFont);
+        QTextOption wrap;
+        wrap.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+        titleLayout.setTextOption(wrap);
+        titleLayout.beginLayout();
+        const int lineHeight = qMax(20, titleMetrics.height() + 1);
         for (int row = 0; row < 2; ++row) {
-            QTextLine line = layout.createLine();
+            QTextLine line = titleLayout.createLine();
             if (!line.isValid()) break;
-            const int width = qMax(25, content.width() - (row == 0 ? 28 : 0));
-            line.setLineWidth(width);
-            // Last visible line receives ALL remaining source text, so eliding
-            // retains the suffix glyph rather than silently clipping it.
-            const QString lineText = row == 0
-                ? title.mid(line.textStart(), line.textLength()).trimmed()
-                : title.mid(line.textStart()).trimmed();
-            painter->drawText(QRect(content.left(), r.top() + 13 + row * lineHeight,
-                                    width, lineHeight + 2), Qt::AlignLeft | Qt::AlignVCenter,
-                titleMetrics.elidedText(lineText, Qt::ElideRight, width));
+            line.setLineWidth(heading.width());
+            const QString visibleText = row == 0 ?
+                title.mid(line.textStart(), line.textLength()).trimmed() :
+                title.mid(line.textStart()).trimmed();
+            const QString elided = titleMetrics.elidedText(visibleText, Qt::ElideRight, heading.width());
+            painter->drawText(QRect(heading.left(), heading.top() + row * lineHeight,
+                                    heading.width(), lineHeight + 1),
+                Qt::AlignLeft | Qt::AlignVCenter, elided);
         }
-        layout.endLayout();
+        titleLayout.endLayout();
 
+        // Below the title: LAST listed author + full citation, one line only.
         QFont captionFont = option.font;
         captionFont.setFamily(QStringLiteral("Malgun Gothic"));
         captionFont.setPixelSize(12);
@@ -395,27 +419,32 @@ public:
             (lastAuthor.isEmpty() ? QStringLiteral("저자 미확인") : lastAuthor) +
             QStringLiteral(", ") +
             (citation.isEmpty() ? QStringLiteral("저널·연도 미확인") : citation);
-        const QRect citationArea(content.left(), r.top() + 65, content.width(),
-                                 qMax(20, QFontMetrics(captionFont).height() + 3));
-        painter->drawText(citationArea, Qt::AlignLeft | Qt::AlignVCenter,
-            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, citationArea.width()));
+        const QRect citeArea = citationRect(r);
+        painter->drawText(citeArea, Qt::AlignLeft | Qt::AlignVCenter,
+            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, citeArea.width()));
 
-        // The memo uses exactly the same text-column width. Keep the divider
-        // close to the citation rather than adding an empty third author row.
+        // Bottom: memo uses the SAME full-width text column, close to citation.
+        const QRect content = contentRect(r);
         painter->setPen(QColor(kLINE));
-        painter->drawLine(content.left(), r.top() + 96, content.right(), r.top() + 96);
+        painter->drawLine(content.left(), r.top() + 272, content.right(), r.top() + 272);
         const QString memo = index.data(Qt::UserRole + 4).toString();
         painter->setPen(QColor(memo.isEmpty() ? "#829BBE" : "#48648A"));
         const QRect note = memoRect(r);
         readerIcon(QStringLiteral("memo-inline")).paint(painter,
             QRect(note.left(), note.center().y() - 8, 16, 16),
             Qt::AlignCenter, QIcon::Normal, QIcon::Off);
-        const QRect noteLabel = note.adjusted(21, 0, 0, 0);
-        painter->drawText(noteLabel, Qt::AlignLeft | Qt::AlignVCenter,
+        const QRect noteText = note.adjusted(22, 0, 0, 0);
+        painter->drawText(noteText, Qt::AlignLeft | Qt::AlignVCenter,
             QFontMetrics(captionFont).elidedText(
                 memo.isEmpty() ? QStringLiteral("메모 추가") : memo,
-                Qt::ElideRight, noteLabel.width()));
-        readerIcon(QStringLiteral("star")).paint(painter, favoriteRect(r).adjusted(2, 2, -2, -2),
+                Qt::ElideRight, noteText.width()));
+
+        // Favorite control belongs to the image's upper-right corner.
+        const QRect favorite = favoriteRect(r);
+        painter->setPen(QPen(QColor(kLINE), 1));
+        painter->setBrush(QColor(255, 255, 255, 240));
+        painter->drawEllipse(favorite);
+        readerIcon(QStringLiteral("star")).paint(painter, favorite.adjusted(3, 3, -3, -3),
             Qt::AlignCenter, index.data(Qt::UserRole + 2).toBool() ?
             QIcon::Selected : QIcon::Disabled);
         painter->restore();

@@ -70,6 +70,9 @@ class NativeTabsContract(unittest.TestCase):
             self.assertIn('{"' + label + '", "' + hex_color + '"}', adapter)
         self.assertIn('connect(palette, &QMenu::aboutToShow', adapter)
         self.assertIn('palette->addAction(chooseColor_)', adapter)
+        smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
+        self.assertIn('Reader phase: persistent four-color highlight palette', smoke)
+        self.assertIn('LUNA highlight palette failed to persist chosen colors', smoke)
         self.assertIn('annotations/highlightColor', adapter)
         self.assertNotIn('add("LunaHighlightColor")', adapter)
 

@@ -115,7 +115,7 @@ int main(int argc,char** argv){
         {"authorships",QJsonArray{QJsonObject{{"author",
             QJsonObject{{"display_name",QStringLiteral("Abigail G. Doyle")}}}}}}
     };
-    expect(fromOpenAlex(alex,doi).value("page").toString()==QStringLiteral("20349–20356"),
+    expect(fromOpenAlex(alex,doi).value("page").toString()==(QStringLiteral("20349") + QChar(0x2013) + QStringLiteral("20356")),
            "OpenAlex verified fallback page range");
     expect(fromOpenAlex(alex,QStringLiteral("10.1000/else")).isEmpty(),
            "OpenAlex mismatch rejected");
@@ -126,8 +126,7 @@ int main(int argc,char** argv){
     Bibliography store;
     const QString identity=QStringLiteral("synthetic:test:one");
     expect(store.mergeVerifiedOnline(identity,doi,online),"persist verified record");
-    expect(Bibliography::citation(store.record(identity))==QStringLiteral(
-        "Abigail G. Doyle, J. Am. Chem. Soc. 2024, 146, 20349–20356."),
+    expect(Bibliography::citation(store.record(identity))==expectedCitation,
         "saved citation remains formatted");
     QVariantMap existing=store.record(identity);
     existing["journal"]=QStringLiteral("Manually Fixed Journal");

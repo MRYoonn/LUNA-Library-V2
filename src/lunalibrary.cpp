@@ -1886,6 +1886,8 @@ private:
             return;
         }
         cloneCopiedSettings(source, result.documentPath);
+        if (bibliography_.record(DocumentClaim::identity(result.documentPath)).isEmpty())
+            enqueueImportedMetadata(result.documentPath);
         refreshFileLists();
     }
     void transferPdfs(const QStringList& paths, const QString& destination, bool copy) {
@@ -1988,18 +1990,14 @@ private:
             if (!info.isFile() || info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
             const QString target = QDir(current_).filePath(info.fileName());
             if (info.canonicalFilePath() == QFileInfo(target).canonicalFilePath()) { opened = target; continue; }
-            if (QFileInfo::exists(target)) {
-                QMessageBox::information(this, QStringLiteral("같은 이름의 PDF"),
-                    QStringLiteral("현재 폴더에 같은 이름의 파일이 있어 덮어쓰지 않았습니다.\n%1").arg(info.fileName()));
+            const auto copied = copyPdfWithThumbnails(path, current_);
+            if (!copied.success) {
+                QMessageBox::warning(this, QStringLiteral("PDF 추가 실패"), copied.error);
                 continue;
             }
-            if (!QFile::copy(path, target)) {
-                QMessageBox::warning(this, QStringLiteral("PDF 추가 실패"),
-                    QStringLiteral("파일을 복사하지 못했습니다. 원본은 그대로 유지됩니다.\n%1").arg(info.fileName()));
-                continue;
-            }
-            opened = target;
-            imported.append(target);
+            cloneCopiedSettings(path, copied.documentPath);
+            opened = copied.documentPath;
+            imported.append(copied.documentPath);
         }
         if (opened.isEmpty()) return;
         allTimer_->stop();

@@ -212,7 +212,7 @@ inline QString yearFromCrossref(const QJsonObject& obj) {
     const auto validYear=[](const QJsonValue& value) -> QString {
         const QString raw = value.isString() ? value.toString().trimmed() :
             value.toVariant().toString().trimmed();
-        static const QRegularExpression yearPattern(QStringLiteral(R"(^((?:1[6-9]|20|21)\d{2})(?:$|[-T]) )").trimmed());
+        static const QRegularExpression yearPattern(QStringLiteral(R"(^((?:1[6-9]|20|21)\d{2})(?:$|[-T]))"));
         const auto match = yearPattern.match(raw);
         return match.hasMatch() ? match.captured(1) : QString();
     };

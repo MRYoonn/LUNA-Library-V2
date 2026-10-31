@@ -538,6 +538,31 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     click(lunaErase);
     if (!lunaErase->isChecked() || !select->isChecked())
         return fail("Eraser did not arm native text selection");
+    // A selected substring must remove only that substring, not the entire
+    // multi-word green highlight annotation.
+    checkpoint("Reader phase: eraser removes only chosen glyph range");
+    mouse(widget,QEvent::MouseButtonPress,middleStart,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,middleEnd,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,middleEnd,Qt::LeftButton,Qt::NoButton);
+    if (!waitFor([&] {
+        if (annotations(pdf::AnnotationType::Highlight) != 1) return false;
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations)
+            if (item.annotation->getType() == pdf::AnnotationType::Highlight) {
+                const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+                return ann && ann->getHiglightArea().getQuadrilaterals().size() >= 2;
+            }
+        return false;
+    })) return fail("Eraser removed nonselected words from same highlight");
+    action("actionUndo")->trigger();
+    if (!waitFor([&] {
+        if (annotations(pdf::AnnotationType::Highlight) != 1) return false;
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations)
+            if (item.annotation->getType() == pdf::AnnotationType::Highlight) {
+                const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+                return ann && ann->getHiglightArea().getQuadrilaterals().size() == 1;
+            }
+        return false;
+    })) return fail("Partial eraser did not restore original quad on Undo");
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);

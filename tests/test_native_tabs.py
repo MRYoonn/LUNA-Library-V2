@@ -38,6 +38,7 @@ class NativeTabsContract(unittest.TestCase):
             'textBox_->setChecked(false)', 'PDFDocumentModifier modifier',
             'isModificationAllowed()', 'c->getDocument() != originalDocument',
             'LunaFreeTextEditDialog', 'setAnnotationContents(annotationRef, nextText)',
+            'LunaHighlightColor', 'annotations/highlightColor',
             'setFreeTextAnnotationStyle(annotationRef, style)',
         ):
             self.assertIn(token, adapter, token)

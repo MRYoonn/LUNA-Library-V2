@@ -2208,34 +2208,16 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     auto* favorite = list->findChild<QAction*>(QStringLiteral("LunaToggleFavorite"));
     if (!favorite) return fail("Favorite action missing");
     const QString path = item->data(Qt::UserRole).toString();
-    // Manual tags are intentionally independent of auto bibliography or PDF
-    // text. Verify the real editing dialog, durable settings and search model.
+    // Tags are removed from the card and popup, but old QSettings entries
+    // are deliberately left untouched for a safe rollback.
     auto* manualPanel = dynamic_cast<LibraryPanel*>(dock->widget());
-    if (!manualPanel || !item->data(Qt::UserRole + 8).toStringList().isEmpty())
-        return fail("Synthetic paper unexpectedly contains auto-extracted tags");
-    bool tagDialogReached = false;
-    QTimer tagDialog;
-    QObject::connect(&tagDialog, &QTimer::timeout, &window, [&] {
-        if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) {
-            tagDialogReached = true;
-            dialog->setTextValue(QStringLiteral("PCET, Thiouracil, Photochemistry"));
-            dialog->accept();
-        }
-    });
-    tagDialog.start(30);
-    manualPanel->editManualTags(path);
-    tagDialog.stop();
-    const QStringList expectedTags = {QStringLiteral("PCET"),
-        QStringLiteral("Thiouracil"), QStringLiteral("Photochemistry")};
-    const QString tagKey = QStringLiteral("library/manualTags/") + openedDateKey(path);
-    QSettings tagSettings(QSettings::defaultFormat(), QSettings::UserScope,
-        QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
-    if (!tagDialogReached || item->data(Qt::UserRole + 8).toStringList() != expectedTags ||
-        tagSettings.value(tagKey).toStringList() != expectedTags)
-        return fail("Manual paper tags did not persist through the native editor");
-    search->setText(QStringLiteral("Photochemistry"));
-    if (item->isHidden()) return fail("Third user-entered tag was not searchable");
-    search->clear();
+    if (!manualPanel || item->data(Qt::UserRole + 8).isValid() ||
+        list->editTriggers() != QAbstractItemView::NoEditTriggers)
+        return fail("Removed tags or accidental paper memo edit triggers returned");
+    // Explicit editing is allowed only through the context action, never by
+    // the old delegate's left-click/double-click editorEvent.
+    if (!list->itemDelegate() || !DocumentCard::memoRect(list->visualItemRect(item)).isValid())
+        return fail("Paper memo row geometry missing");
     // Confirm the actual Qt card model reacts to a local citation change.
     // Synthetic fixture only; no PDF/DOI is uploaded.
     auto* citationPanel = dynamic_cast<LibraryPanel*>(dock->widget());

@@ -419,10 +419,15 @@ public:
         const QString lastAuthor = luna::Bibliography::lastListedAuthor(
             bibliography.value(QStringLiteral("authors")).toString());
         const QString citation = luna::Bibliography::citation(bibliography);
+        // Network-verified lab citation already includes the selected senior
+        // author. Never prefix the same author twice on the displayed card.
         const QString metadata =
-            (lastAuthor.isEmpty() ? QStringLiteral("저자 미확인") : lastAuthor) +
-            QStringLiteral(", ") +
-            (citation.isEmpty() ? QStringLiteral("저널·연도 미확인") : citation);
+            (!bibliography.value(QStringLiteral("doi")).toString().isEmpty() ||
+             !bibliography.value(QStringLiteral("citation")).toString().isEmpty()) ?
+            citation :
+            ((lastAuthor.isEmpty() ? QStringLiteral("저자 미확인") : lastAuthor) +
+             QStringLiteral(", ") +
+             (citation.isEmpty() ? QStringLiteral("저널·연도 미확인") : citation));
         const QRect citeArea = citationRect(r);
         painter->drawText(citeArea, Qt::AlignLeft | Qt::AlignVCenter,
             QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, citeArea.width()));
@@ -1301,9 +1306,16 @@ private:
         item->setFlags(item->flags() | Qt::ItemIsEditable);
         const QString citation = luna::Bibliography::citation(bibliography);
         const QString lastAuthor = luna::Bibliography::lastListedAuthor(bibliography.value("authors").toString());
+        const bool formattedCitation = !bibliography.value("doi").toString().isEmpty() ||
+            !bibliography.value("citation").toString().isEmpty();
+        const QString metadataStatus = bibliography.value("metadata_status").toString();
+        const QString doi = bibliography.value("doi").toString();
         item->setToolTip((memo.isEmpty() ? QString() : memo + QLatin1Char('\n')) +
-            (lastAuthor.isEmpty() ? QString() : lastAuthor + QLatin1Char('\n')) +
-            (citation.isEmpty() ? QString() : citation + QLatin1Char('\n')) + path);
+            (!formattedCitation && !lastAuthor.isEmpty() ? lastAuthor + QLatin1Char('\n') : QString()) +
+            (citation.isEmpty() ? QString() : citation + QLatin1Char('\n')) +
+            (doi.isEmpty() ? QString() : QStringLiteral("DOI: ") + doi + QLatin1Char('\n')) +
+            (metadataStatus.isEmpty() ? QString() : QStringLiteral("서지정보: ") +
+             metadataStatus + QLatin1Char('\n')) + path);
     }
     void savePaperMemo(const QString& path, QString text) {
         text.replace(QLatin1Char('\n'), QLatin1Char(' ')); text.replace(QLatin1Char('\r'), QLatin1Char(' '));

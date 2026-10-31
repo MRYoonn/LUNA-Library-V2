@@ -106,10 +106,12 @@ class NativeTabsContract(unittest.TestCase):
         # annotation and its untouched lines. Only remove the PDF annotation
         # entirely when no quadrilaterals remain.
         self.assertIn('getHiglightArea().getQuadrilaterals()', adapter)
-        self.assertIn('setAnnotationQuadPoints(ref, remaining)', adapter)
-        self.assertIn('updateAnnotationAppearanceStreams(ref)', adapter)
-        self.assertIn('if (remaining.isEmpty()) {', adapter)
-        self.assertIn('removeAnnotation(page->getPageReference(), ref)', adapter)
+        self.assertIn('setAnnotationQuadPoints(edit.ref, edit.remainder)', adapter)
+        self.assertIn('updateAnnotationAppearanceStreams(edit.ref)', adapter)
+        self.assertIn('if (edit.remainder.isEmpty())', adapter)
+        self.assertIn('removeAnnotation(page->getPageReference(), edit.ref)', adapter)
+        self.assertIn('for (const QRectF& erased : erasedBands)', adapter)
+        self.assertIn('const qreal lo = erased.left() - 0.20', adapter)
         self.assertIn('manager->canDeleteAnnotation(item)', adapter)
         self.assertIn('item.annotation->getType() != pdf::AnnotationType::Highlight', adapter)
         self.assertIn('LunaVerticalAutoscrollMarker', adapter)

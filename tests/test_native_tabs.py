@@ -181,6 +181,28 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('native-shell-before-reader-bind', tabs)
         self.assertIn('native-editor-after-reader-prepare', tabs)
 
+    def test_final_freetext_save_reopen_checks_disk_and_load_before_tool(self):
+        smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
+        for token in (
+            'Reader phase: FreeText persisted disk bytes, wait for actual reopen',
+            'Ctrl+S did not invoke native FreeText save',
+            'Native FreeText changes were not persisted by Ctrl+S',
+            'LUNA FreeText persisted document did not reopen: document=%1 busy=%2',
+            'Native text-selection tool unavailable after FreeText reopen',
+            'readFile(saved) == preFreeTextSave',
+            'controller->canClose() && !controller->getIsBusy()',
+        ):
+            self.assertIn(token, smoke)
+        section = smoke.split('checkpoint("Reader phase: FreeText persisted disk bytes, wait for actual reopen")', 1)[1]
+        section = section.split('checkpoint("Reader phase: native print dialog open and cancel")', 1)[0]
+        self.assertIn('controller->closeDocument();', section)
+        self.assertIn('controller->openDocument(saved);', section)
+        self.assertIn('annotations(pdf::AnnotationType::FreeText) != 1', section)
+        self.assertIn('if (!select->isChecked()) select->trigger();', section)
+        self.assertNotIn('controller->getDocument() && select->isChecked() && window.isEnabled()', section)
+        self.assertLess(section.index('annotations(pdf::AnnotationType::FreeText) != 1'),
+                        section.index('if (!select->isChecked()) select->trigger();'))
+
     def test_highlight_palette_uses_eight_one_click_marker_tools(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         self.assertIn('LunaHighlightPalette', adapter)

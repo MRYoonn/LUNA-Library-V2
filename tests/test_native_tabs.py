@@ -264,19 +264,35 @@ class NativeTabsContract(unittest.TestCase):
         self.assertNotIn('getTextFromSelection(', source)
         ast.parse(source)
 
-    def test_manual_card_tags_not_extracted_from_pdf(self):
+    def test_card_author_and_memo_context_only_without_tags(self):
         source = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
         for token in (
-            'library/manualTags', 'void editManualTags(const QString& path)',
-            'LunaEditManualTags', 'DocumentCard::tagsRect(rect)',
-            'index.data(Qt::UserRole + 8).toStringList()',
-            'tags.mid(0, 2)', 'QInputDialog::getText',
-            'tags_.insert(newDateKey, movedTags)', 'tags_.remove(oldDateKey)',
+            'LunaEditPaperMemo', 'list->editItem(item);',
+            'list->setEditTriggers(QAbstractItemView::NoEditTriggers)',
+            'qMax(20, QFontMetrics(captionFont).height() + 3)',
+            'const QRect authorArea(text.left(), r.top() + 57, text.width(),',
             '저자 미확인',
         ):
             self.assertIn(token, source)
-        self.assertNotIn('tags = extractKeywords', source)
-        self.assertNotIn('recentOpened + authors', source)
+        for forbidden in (
+            'void editManualTags(', 'LunaEditManualTags', 'tagsRect(',
+            'index.data(Qt::UserRole + 8).toStringList()',
+            'library/manualTags/', 'tags_.insert(', 'bool editorEvent(',
+        ):
+            self.assertNotIn(forbidden, source)
+        self.assertIn('Removed tags or accidental paper memo edit triggers returned', source)
+
+    def test_horizontal_drag_ignores_rotated_watermark_in_native_selection(self):
+        script = (ROOT / 'tools/apply_performance.py').read_text(encoding='utf-8')
+        for token in (
+            'PDFTextLayout::createTextSelection(',
+            'const QRectF dragRegion = QRectF(point1, point2).normalized()',
+            'dragIntersectsHorizontalText && qAbs(block.getAngle()) > 2.0',
+            '++blockId;',
+            'source = source[:select_start] + selector + source[select_end:]',
+        ):
+            self.assertIn(token, script)
+        ast.parse(script)
 
     def test_1000_pdf_incremental_scanner_is_bounded_and_diagnostic(self):
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')

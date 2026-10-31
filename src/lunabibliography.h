@@ -304,6 +304,9 @@ public:
         if (proposal.value("authorEvidence").toString() == QStringLiteral("first-page-terminal-and") &&
             credibleAuthor(proposedAuthor) &&
             value.value("authorsSource").toString() != QStringLiteral("manual") &&
+            value.value("authorsSource").toString() != QStringLiteral("Crossref") &&
+            value.value("authorsSource").toString() != QStringLiteral("OpenAlex") &&
+            value.value("authorsSource").toString() != QStringLiteral("Crossref + OpenAlex") &&
             value.value("authors").toString().simplified() != proposedAuthor) {
             value["authors"] = proposedAuthor;
             value["authorsSource"] = QStringLiteral("first_page_verified");

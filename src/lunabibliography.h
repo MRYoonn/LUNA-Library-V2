@@ -12,7 +12,8 @@
 #include <functional>
 
 namespace luna {
-// Local-only paper bibliography. No DOI extraction, network lookup or PDF uploads.
+// Local QSettings bibliography. Remote provider requests (in a separate Qt worker)
+// contain only validated DOI identifiers. PDFs and annotations never leave disk.
 class Bibliography final : public QObject {
 public:
     explicit Bibliography(QObject* parent = nullptr) : QObject(parent) {}

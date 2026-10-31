@@ -1011,13 +1011,30 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             result["singleWindowTabsOpenDedupAndZoom"] = true;
             phase("active page previews and actual crop");
             focus->setChecked(false); tabs->setCurrentWidget(b);
-            auto* modes = host.findChild<QTabBar*>(QStringLiteral("LunaContentModes")); auto* grid = host.findChild<QListView*>(QStringLiteral("LunaPageGrid")); modes->setCurrentIndex(1);
-            integrationRequire(integrationWait([&] { return grid->model()->rowCount() == 3 && !grid->model()->index(0, 0).data(Qt::DecorationRole).value<QPixmap>().isNull() && grid->visualRect(grid->model()->index(0, 0)).top() == grid->visualRect(grid->model()->index(1, 0)).top(); }), "B native page grid did not rebind to three pages/two columns");
+            auto* preview = host.findChild<QAction*>(QStringLiteral("LunaPagePreview"));
+            auto* grid = host.findChild<QListView*>(QStringLiteral("LunaPageGrid"));
+            integrationRequire(preview && !preview->isChecked() && grid && !grid->isVisible() &&
+                !host.findChild<QTabBar*>(QStringLiteral("LunaContentModes")),
+                "Page-preview tab row was not removed from the default paper list");
+            auto* nativeView = b->findChild<QMenu*>(QStringLiteral("menuView"));
+            integrationRequire(nativeView && nativeView->actions().contains(preview),
+                "Optional page preview is missing from the native View menu");
+            preview->trigger();
+            integrationRequire(integrationWait([&] { return preview->isChecked() && grid->isVisible() &&
+                grid->model()->rowCount() == 3 &&
+                !grid->model()->index(0, 0).data(Qt::DecorationRole).value<QPixmap>().isNull() &&
+                grid->visualRect(grid->model()->index(0, 0)).top() == grid->visualRect(grid->model()->index(1, 0)).top(); }),
+                "On-demand native page grid did not rebind to three pages/two columns");
             const auto third = grid->model()->index(2, 0); grid->scrollTo(third);
             integrationRequire(integrationWait([&] { return grid->viewport()->rect().contains(grid->visualRect(third).center()); }) &&
                 integrationClick(host, grid->viewport(), grid->visualRect(third).center()), "Real page preview mouse input failed");
             integrationRequire(integrationWait([&] { const auto pages = b->getProgramController()->getPdfWidget()->getDrawWidget()->getCurrentPages(); return std::find(pages.begin(), pages.end(), pdf::PDFInteger(2)) != pages.end(); }), "Page preview did not navigate current B");
-            tabs->setCurrentWidget(a); integrationRequire(grid->model()->rowCount() == 2, "A page model did not return after switch"); modes->setCurrentIndex(0);
+            tabs->setCurrentWidget(a);
+            integrationRequire(grid->model()->rowCount() == 2 && preview->isChecked(),
+                "On-demand page model did not rebind after switching to A");
+            preview->trigger();
+            integrationRequire(!preview->isChecked() && !grid->isVisible(),
+                "Native page grid did not return to the clean paper-list view");
             collapse(); const QString thumbnail = QFileInfo(files[0]).absolutePath() + "/A.luna-thumb.png";
             auto* crop = a->findChild<QAction*>(QStringLiteral("LunaCropThumbnail")); integrationRequire(crop && crop->isEnabled(), "Active thumbnail crop action disabled"); crop->trigger();
             auto* draw = integrationSurface(a); QWidget* overlay = nullptr;

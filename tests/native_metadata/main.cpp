@@ -7,6 +7,7 @@
 #include <QSettings>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonDocument>
 #include <QDebug>
 #include <cstdio>
 #include <cstdlib>
@@ -59,19 +60,33 @@ int main(int argc,char** argv){
 
     checkpoint("crossref-citation");
     const QString doi=QStringLiteral("10.1021/jacs.4c05881");
-    QJsonObject cr {
-        {"DOI",doi},
-        {"title",QJsonArray{QStringLiteral("Synthetic N–H Activation Study")}},
-        {"container-title",QJsonArray{QStringLiteral("Journal of the American Chemical Society")}},
-        {"short-container-title",QJsonArray{QStringLiteral("J. Am. Chem. Soc.")}},
-        {"published",QJsonObject{{"date-parts",QJsonArray{QJsonArray{2024,7,1}}}}},
-        {"volume",QStringLiteral("146")},
-        {"page",QStringLiteral("20349-20356")},
-        {"author",QJsonArray{
-            QJsonObject{{"given",QStringLiteral("Robert R.")},{"family",QStringLiteral("Knowles")}},
-            QJsonObject{{"given",QStringLiteral("Abigail G.")},{"family",QStringLiteral("Doyle")}}
-        }}
-    };
+    // Match Crossref's actual HTTP JSON structure, not nested C++ list
+    // constructors. They previously produced a different date-parts shape on
+    // MSVC while all other synthetic source tests appeared to pass.
+    const QByteArray crossrefJson = R"json({
+        "DOI": "10.1021/jacs.4c05881",
+        "title": ["Synthetic N-H Activation Study"],
+        "container-title": ["Journal of the American Chemical Society"],
+        "short-container-title": ["J. Am. Chem. Soc."],
+        "published": {"date-parts": [[2024, 7, 1]]},
+        "volume": "146",
+        "page": "20349-20356",
+        "author": [
+            {"given": "Robert R.", "family": "Knowles"},
+            {"given": "Abigail G.", "family": "Doyle"}
+        ]
+    })json";
+    QJsonParseError crossrefParse;
+    const QJsonDocument crossrefDocument = QJsonDocument::fromJson(crossrefJson, &crossrefParse);
+    expect(crossrefParse.error==QJsonParseError::NoError && crossrefDocument.isObject(),
+           "canonical Crossref JSON fixture parses as object");
+    const QJsonObject cr = crossrefDocument.object();
+    if(cr.value(QStringLiteral("published")).toObject()
+         .value(QStringLiteral("date-parts")).toArray().isEmpty()) {
+        const QByteArray dump=QJsonDocument(cr).toJson(QJsonDocument::Compact);
+        std::fprintf(stderr,"LUNA_CROSSREF_FIXTURE: %s\n",dump.constData());
+        std::fflush(stderr);
+    }
     const QJsonArray publishedParts = cr.value(QStringLiteral("published")).toObject()
         .value(QStringLiteral("date-parts")).toArray();
     expect(!publishedParts.isEmpty() && !publishedParts.first().toArray().isEmpty(),
@@ -80,15 +95,24 @@ int main(int argc,char** argv){
            "synthetic Crossref year must be present and numeric");
     expect(yearFromCrossref(cr)==QStringLiteral("2024"),
            "Crossref nested date-parts publication year");
-    expect(yearFromCrossref(QJsonObject{{"issued", QJsonObject{
-        {"date-parts",QJsonArray{QJsonArray{2023}}}}}})==QStringLiteral("2023"),
-           "Crossref issued year-only date-parts");
-    expect(yearFromCrossref(QJsonObject{{"published-online", QJsonObject{
-        {"date-time",QStringLiteral("2022-07-11T00:00:00Z")}}}})==QStringLiteral("2022"),
-           "Crossref ISO date-time year");
-    expect(yearFromCrossref(QJsonObject{{"created", QJsonObject{
-        {"date-parts",QJsonArray{QJsonArray{2021}}}}}}).isEmpty(),
+    const auto readFixture=[](const char* json) -> QJsonObject {
+        QJsonParseError parse;
+        const auto doc=QJsonDocument::fromJson(QByteArray(json),&parse);
+        expect(parse.error==QJsonParseError::NoError && doc.isObject(),
+               "date fixture must be valid JSON");
+        return doc.object();
+    };
+    expect(yearFromCrossref(readFixture(R"json({"issued":{"date-parts":[[2023]]}})json")) ==
+           QStringLiteral("2023"), "Crossref issued year-only date-parts");
+    expect(yearFromCrossref(readFixture(R"json({"published-online":{"date-time":"2022-07-11T00:00:00Z"}})json")) ==
+           QStringLiteral("2022"), "Crossref ISO date-time year");
+    expect(yearFromCrossref(readFixture(R"json({"created":{"date-parts":[[2021]]}})json")).isEmpty(),
            "Crossref created timestamp is not a publication year");
+    expect(yearFromCrossref(readFixture(R"json({"published":{"date-parts":[["2024"]]}})json")) ==
+           QStringLiteral("2024"), "Crossref string-valued publication year");
+    expect(yearFromCrossref(readFixture(R"json({"issued":{"date-parts":[[0,1,1]]}})json")).isEmpty(),
+           "invalid publication year must remain empty");
+
     expect(fromCrossref(cr,QStringLiteral("10.1000/wrong")).isEmpty(),"Crossref DOI mismatch rejected");
     auto online=fromCrossref(cr,doi);
     expect(online.value("authors_structured").toStringList().size()==2,"author list preserved");

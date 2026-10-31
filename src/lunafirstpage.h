@@ -84,6 +84,10 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
             return {{"documentKind",QStringLiteral("supporting_information")},
                     {"doiStatus",QStringLiteral("needs_review")}};
     QVariantMap evidence=Bibliography::firstPageCitation(first);
+    // Preserve pre-integration behavior for PDFs with neither own journal
+    // evidence nor an unambiguous DOI. PDF printer metadata alone is not a
+    // publication identity.
+    if(evidence.isEmpty() && !Metadata::acceptableIdentity(candidates))return {};
     if(const auto* info=document.getInfo(); info && Bibliography::credibleTitle(info->title)) {
         evidence["title"]=info->title.simplified();
         evidence["titleSource"]=QStringLiteral("pdf_metadata");

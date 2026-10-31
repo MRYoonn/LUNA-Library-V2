@@ -60,6 +60,19 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('checked("actionCreateTextHighlight")', adapter)
         self.assertIn('checked("actionStickyNoteComment")', adapter)
 
+    def test_highlight_palette_has_four_persistent_presets_without_extra_toolbar_action(self):
+        adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
+        self.assertIn('LunaHighlightPalette', adapter)
+        for label, hex_color in (
+            ('노란색', '#FFE049'), ('초록색', '#A3E6A4'),
+            ('분홍색', '#FFB3CF'), ('파란색', '#9FCAFF'),
+        ):
+            self.assertIn('{"' + label + '", "' + hex_color + '"}', adapter)
+        self.assertIn('connect(palette, &QMenu::aboutToShow', adapter)
+        self.assertIn('palette->addAction(chooseColor_)', adapter)
+        self.assertIn('annotations/highlightColor', adapter)
+        self.assertNotIn('add("LunaHighlightColor")', adapter)
+
     def test_compact_tabs_and_blue_borderless_selection_contract(self):
         tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')

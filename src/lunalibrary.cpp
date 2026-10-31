@@ -44,6 +44,7 @@
 #include <QTextLayout>
 #include <QLinearGradient>
 #include <QSet>
+#include <QHash>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QStyledItemDelegate>
@@ -885,8 +886,15 @@ private:
     }
 
     void queueBibliography(const QString& identity, const pdf::PDFDocument& document, bool force = false) {
-        if (identity.isEmpty() || runningCitations_.contains(identity) ||
-            (!force && analyzedCitations_.contains(identity))) return;
+        if (identity.isEmpty()) return;
+        if (runningCitations_.contains(identity)) {
+            // User-initiated extraction must not wait for the auto-extract
+            // grace period when the document is already in the delayed queue.
+            if (force) if (auto* pending = delayedCitations_.value(identity, nullptr))
+                pending->start(0);
+            return;
+        }
+        if (!force && analyzedCitations_.contains(identity)) return;
         analyzedCitations_.insert(identity);
         runningCitations_.insert(identity);
         // On large SI documents, the first-page metadata worker competes with
@@ -915,10 +923,20 @@ private:
             connect(worker, &QThread::finished, worker, &QObject::deleteLater);
             worker->start(QThread::LowPriority);
         };
-        if (deferForLargePdf)
-            QTimer::singleShot(1200, this, std::move(startWorker));
-        else
+        if (deferForLargePdf) {
+            auto* delay = new QTimer(this);
+            delay->setSingleShot(true);
+            delayedCitations_.insert(identity, delay);
+            connect(delay, &QTimer::timeout, this,
+                [this, delay, identity, startWorker = std::move(startWorker)]() mutable {
+                    delayedCitations_.remove(identity);
+                    delay->deleteLater();
+                    startWorker();
+                });
+            delay->start(1200);
+        } else {
             startWorker();
+        }
     }
 
     void editBibliography(const QString& path) {
@@ -1663,6 +1681,7 @@ private:
     luna::Bibliography bibliography_;
     QSet<QString> analyzedCitations_;
     QSet<QString> runningCitations_;
+    QHash<QString, QTimer*> delayedCitations_;
     QSet<QString> pendingCitationExtracts_;
     QAction* cropAction_ = nullptr;
     QMetaObject::Connection documentTitleConnection_, cropConnection_;

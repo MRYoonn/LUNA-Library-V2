@@ -51,6 +51,7 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidgetAction>
+#include <algorithm>
 #include <memory>
 #include <utility>
 
@@ -335,24 +336,107 @@ private:
         pdf::PDFTextSelectionPainter painter(&selection);
         if (painter.prepareGeometry(selectionPage_, getter, QTransform(), &quads).isEmpty()) { clearPendingSelection(); return; }
 
-        // The PDF format stores one quadrilateral per group of four points.
-        // Conservatively skip any quadrilateral intersecting an existing mark,
-        // rather than stacking transparencies and making text increasingly dark.
-        const auto existing = c->getPdfWidget()->getAnnotationManager()->getPageAnnotations(selectionPage_).annotations;
+        // PDF4QT may return several quads for one visual line (separate PDF
+        // text runs/words). Merge only close, horizontal, same-row runs before
+        // clipping, so visible word spaces also receive a continuous highlight.
+        // This does NOT alter the selected text or bridge across columns.
+        QList<QRectF> bands;
+        QPolygonF rotated;
+        for (qsizetype i = 0; i + 3 < quads.size(); i += 4) {
+            QPolygonF quad;
+            for (qsizetype j = 0; j < 4; ++j) quad << quads[i + j];
+            const QRectF r = quad.boundingRect().normalized();
+            if (!r.isValid() || r.width() < 0.5 || r.height() < 0.5) continue;
+            if (qAbs(quad[0].y() - quad[1].y()) > 0.6 ||
+                qAbs(quad[2].y() - quad[3].y()) > 0.6) {
+                for (const auto& p : quad) rotated << p;
+                continue;
+            }
+            bands.append(r);
+        }
+        std::sort(bands.begin(), bands.end(), [](const QRectF& a, const QRectF& b) {
+            if (qAbs(a.center().y() - b.center().y()) > 1.0)
+                return a.center().y() < b.center().y();
+            return a.left() < b.left();
+        });
+        QList<QRectF> joined;
+        for (const QRectF& band : bands) {
+            bool merged = false;
+            for (QRectF& prev : joined) {
+                const qreal h = qMin(prev.height(), band.height());
+                const qreal gap = qMax(0.0, qMax(prev.left(), band.left()) -
+                    qMin(prev.right(), band.right()));
+                if (qAbs(prev.center().y() - band.center().y()) <= h * 0.30 &&
+                    qAbs(prev.height() - band.height()) <= h * 0.40 &&
+                    gap <= qMin(28.0, 2.2 * h)) {
+                    prev = prev.united(band);
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) joined.append(band);
+        }
+
+        // Old behavior skipped *all* of a quad when even one word overlapped
+        // an existing highlight. Subtract covered X-ranges instead: marking
+        // "old + new" leaves old untouched and creates a real PDF Highlight
+        // annotation for the unmarked words. No invisible/duplicate layers.
+        const auto existing = c->getPdfWidget()->getAnnotationManager()->
+            getPageAnnotations(selectionPage_).annotations;
+        QList<QRectF> painted;
         QPainterPath marked;
         for (const auto& item : existing) {
             if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
-            const auto* highlight = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
-            if (highlight) marked.addPath(highlight->getHiglightArea().getPath());
+            const auto* annotation = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+            if (!annotation) continue;
+            marked.addPath(annotation->getHiglightArea().getPath());
+            for (const auto& quad : annotation->getHiglightArea().getQuadrilaterals()) {
+                QPolygonF polygon;
+                for (const auto& point : quad) polygon << point;
+                const QRectF rect = polygon.boundingRect().normalized();
+                if (rect.isValid()) painted.append(rect);
+            }
         }
         QPolygonF clean;
-        for (qsizetype i = 0; i + 3 < quads.size(); i += 4) {
+        for (const QRectF& band : joined) {
+            QList<QPair<qreal, qreal>> uncovered{{band.left(), band.right()}};
+            for (const QRectF& old : painted) {
+                const QRectF intersection = band.intersected(old);
+                const qreal minHeight = qMin(band.height(), old.height());
+                if (intersection.height() < 0.45 * minHeight ||
+                    intersection.width() < 0.25) continue;
+                QList<QPair<qreal, qreal>> next;
+                // A tiny amount of tolerance prevents 1-pixel double-tint
+                // at the boundary between an old and a new highlight.
+                const qreal lo = old.left() - 0.35, hi = old.right() + 0.35;
+                for (const auto& interval : uncovered) {
+                    if (lo >= interval.second || hi <= interval.first) {
+                        next.append(interval); continue;
+                    }
+                    if (lo - interval.first > 0.8)
+                        next.append({interval.first, lo});
+                    if (interval.second - hi > 0.8)
+                        next.append({hi, interval.second});
+                }
+                uncovered = std::move(next);
+                if (uncovered.isEmpty()) break;
+            }
+            for (const auto& interval : uncovered) {
+                const qreal left = qMax(band.left(), interval.first);
+                const qreal right = qMin(band.right(), interval.second);
+                if (right - left < 0.8) continue;
+                clean << QPointF(left, band.top()) << QPointF(right, band.top())
+                      << QPointF(left, band.bottom()) << QPointF(right, band.bottom());
+            }
+        }
+        // Preserve original geometry for unusual rotated glyphs. Do not
+        // overpaint an existing mark when a rotated quad intersects it.
+        for (qsizetype i = 0; i + 3 < rotated.size(); i += 4) {
             QPolygonF quad;
-            quad.reserve(4);
-            for (qsizetype j = 0; j < 4; ++j) quad << quads[i + j];
-            QPainterPath part; part.addPolygon(quad); part.closeSubpath();
-            if (!marked.intersects(part) && !marked.contains(part))
-                for (const QPointF& point : quad) clean << point;
+            for (int j = 0; j < 4; ++j) quad << rotated[i + j];
+            QPainterPath area; area.addPolygon(quad); area.closeSubpath();
+            if (marked.intersects(area) || marked.contains(area)) continue;
+            for (const auto& p : quad) clean << p;
         }
         const auto pageIndex = selectionPage_;
         clearPendingSelection();
@@ -362,7 +446,7 @@ private:
         if (!page) return;
         const pdf::PDFObjectReference ref = modifier.getBuilder()->createAnnotationHighlight(
             page->getPageReference(), clean, color_);
-        modifier.getBuilder()->setAnnotationOpacity(ref, 0.2);
+        modifier.getBuilder()->setAnnotationOpacity(ref, 0.36);
         modifier.getBuilder()->updateAnnotationAppearanceStreams(ref);
         modifier.markAnnotationsChanged();
         if (modifier.finalize())

@@ -94,6 +94,7 @@
 #include <functional>
 #include <algorithm>
 #include <QImageReader>
+#include <QImage>
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
 #include <QScreen>
@@ -501,6 +502,12 @@ IndependentDocuments* independentDocuments(pdfviewer::PDFEditorMainWindow& windo
     return dynamic_cast<IndependentDocuments*>(window.findChild<QObject*>(QStringLiteral("LunaIndependentDocuments")));
 }
 
+// A real file INSIDE the folder follows ordinary MYBOX folder sync. Avoid
+// desktop.ini, Windows shell flags, machine-specific absolute paths and MYBOX API.
+constexpr const char* kFolderIconSidecar = "LUNA.folder-icon.png";
+QString folderIconPath(const QString& folder) {
+    return QDir(folder).filePath(QString::fromLatin1(kFolderIconSidecar));
+}
 class FolderIcons final : public QObject, public QFileIconProvider {
 public:
     explicit FolderIcons(QObject* parent) : QObject(parent), folder_(readerIcon(QStringLiteral("folder"))) {}
@@ -508,6 +515,24 @@ public:
     QIcon icon(const QFileInfo& info) const override { return info.isDir() ? folder_ : QFileIconProvider::icon(info); }
 private:
     QIcon folder_;
+};
+class LunaFolderModel final : public QFileSystemModel {
+public:
+    explicit LunaFolderModel(QObject* parent) : QFileSystemModel(parent) {}
+    QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override {
+        if (role == Qt::DecorationRole && index.isValid() && isDir(index)) {
+            const QString sidecar = folderIconPath(filePath(index));
+            const QFileInfo file(sidecar);
+            if (file.isFile() && !file.isSymLink() && file.size() <= 5 * 1024 * 1024) {
+                const QIcon selected(sidecar);
+                if (!selected.isNull()) return selected;
+            }
+        }
+        return QFileSystemModel::data(index, role);
+    }
+    void refreshFolderIcon(const QModelIndex& index) {
+        if (index.isValid()) Q_EMIT dataChanged(index, index, {Qt::DecorationRole});
+    }
 };
 
 class LibraryPanel final : public QWidget {
@@ -622,7 +647,7 @@ public:
         rootLabel_->setTextFormat(Qt::PlainText);
         rootLabel_->hide();
         nav->addWidget(folderTab_);
-        model_ = new QFileSystemModel(this);
+        model_ = new LunaFolderModel(this);
         model_->setReadOnly(true); model_->setIconProvider(new FolderIcons(model_));
         model_->setFilter(QDir::AllDirs | QDir::NoDotAndDotDot);
         tree_ = new QTreeView(navigation_);
@@ -631,8 +656,43 @@ public:
         tree_->setAnimated(true);
         tree_->setIndentation(16); tree_->setUniformRowHeights(true); tree_->setIconSize(QSize(18, 18));
         tree_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        tree_->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(tree_, &QTreeView::customContextMenuRequested, this, [this](const QPoint& point) {
+            const QModelIndex index = tree_->indexAt(point);
+            if (!index.isValid() || !model_->isDir(index)) return;
+            const QString folder = model_->filePath(index);
+            QMenu menu(this);
+            auto* change = menu.addAction(QStringLiteral("폴더 아이콘 변경…"));
+            change->setObjectName(QStringLiteral("LunaChangeFolderIcon"));
+            auto* reset = menu.addAction(QStringLiteral("폴더 아이콘 초기화"));
+            reset->setObjectName(QStringLiteral("LunaResetFolderIcon"));
+            reset->setEnabled(QFileInfo::exists(folderIconPath(folder)));
+            auto* chosen = menu.exec(tree_->viewport()->mapToGlobal(point));
+            if (chosen == change) {
+                const QString image = QFileDialog::getOpenFileName(this,
+                    QStringLiteral("폴더 아이콘 이미지 선택"), QString(),
+                    QStringLiteral("이미지 (*.png *.jpg *.jpeg *.webp *.ico)"));
+                if (image.isEmpty()) return;
+                QString error;
+                if (!saveFolderIcon(folder, image, &error))
+                    QMessageBox::warning(this, QStringLiteral("폴더 아이콘 변경 실패"), error);
+            } else if (chosen == reset) {
+                if (QMessageBox::question(this, QStringLiteral("폴더 아이콘 초기화"),
+                    QStringLiteral("이 폴더의 LUNA 아이콘만 제거할까요?"),
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+                QString error;
+                if (!resetFolderIcon(folder, &error))
+                    QMessageBox::warning(this, QStringLiteral("아이콘 초기화 실패"), error);
+            }
+        });
         for (int i = 1; i < 4; ++i) tree_->hideColumn(i);
         nav->addWidget(tree_, 1);
+        // Poll ONLY visible tree rows: changes delivered by MYBOX on another
+        // PC should appear without rescanning a large local paper library.
+        folderIconPoll_ = new QTimer(this);
+        folderIconPoll_->setInterval(3000);
+        connect(folderIconPoll_, &QTimer::timeout, this, [this] { refreshVisibleFolderIcons(); });
+        folderIconPoll_->start();
         auto* location = new QPushButton(readerIcon(QStringLiteral("open")), QString(), libraryHeader);
         location->setFixedSize(30, 30);
         location->setToolTip(QStringLiteral("라이브러리 위치 선택…"));
@@ -1674,6 +1734,94 @@ private:
         if (!controller->askForSaveDocumentBeforeClose()) return;
         controller->openDocument(info.absoluteFilePath());
     }
+    bool allowedIconFolder(const QString& folder, QString* error) const {
+        const QFileInfo info(folder);
+        if (!info.isDir() || info.isSymLink()) {
+            if (error) *error = QStringLiteral("일반 로컬 폴더만 변경할 수 있습니다.");
+            return false;
+        }
+        const QString canonical = info.canonicalFilePath();
+        const QString relative = QDir(root_).relativeFilePath(canonical);
+        if (root_.isEmpty() || canonical.isEmpty() ||
+            relative == QStringLiteral("..") ||
+            relative.startsWith(QStringLiteral("../")) || QDir::isAbsolutePath(relative)) {
+            if (error) *error = QStringLiteral("현재 LUNA 라이브러리 밖의 폴더는 변경하지 않습니다.");
+            return false;
+        }
+        return true;
+    }
+    bool saveFolderIcon(const QString& folder, const QString& imagePath, QString* error) {
+        if (!allowedIconFolder(folder, error)) return false;
+        const QFileInfo file(imagePath);
+        if (!file.isFile() || file.size() <= 0 || file.size() > 5 * 1024 * 1024) {
+            if (error) *error = QStringLiteral("5MB 이하의 정상적인 이미지 파일을 선택하세요.");
+            return false;
+        }
+        QImageReader reader(imagePath);
+        reader.setAutoTransform(true);
+        const QSize original = reader.size();
+        if (!reader.canRead() || !original.isValid() ||
+            original.width() > 4096 || original.height() > 4096) {
+            if (error) *error = QStringLiteral("이미지를 열 수 없거나 크기가 4096px을 초과합니다.");
+            return false;
+        }
+        QImage image = reader.read();
+        if (image.isNull()) {
+            if (error) *error = QStringLiteral("이미지 파일을 해석할 수 없습니다.");
+            return false;
+        }
+        image = image.scaled(QSize(192, 192), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        const QString path = folderIconPath(folder);
+        if (QFileInfo(path).isSymLink()) {
+            if (error) *error = QStringLiteral("연결 파일을 덮어쓰지 않습니다.");
+            return false;
+        }
+        QSaveFile output(path);
+        output.setDirectWriteFallback(false);
+        if (!output.open(QIODevice::WriteOnly) || !image.save(&output, "PNG") || !output.commit()) {
+            if (error) *error = QStringLiteral("폴더 안에 아이콘 PNG를 안전하게 저장하지 못했습니다.");
+            return false;
+        }
+        folderIconStamps_.remove(QFileInfo(folder).canonicalFilePath());
+        model_->refreshFolderIcon(model_->index(folder));
+        tree_->viewport()->update();
+        return true;
+    }
+    bool resetFolderIcon(const QString& folder, QString* error) {
+        if (!allowedIconFolder(folder, error)) return false;
+        const QString path = folderIconPath(folder);
+        if (QFileInfo(path).isSymLink()) {
+            if (error) *error = QStringLiteral("연결 파일은 삭제하지 않습니다.");
+            return false;
+        }
+        if (QFileInfo::exists(path) && !QFile::remove(path)) {
+            if (error) *error = QStringLiteral("LUNA 폴더 아이콘 파일을 삭제하지 못했습니다.");
+            return false;
+        }
+        folderIconStamps_.remove(QFileInfo(folder).canonicalFilePath());
+        model_->refreshFolderIcon(model_->index(folder));
+        tree_->viewport()->update();
+        return true;
+    }
+    void refreshVisibleFolderIcons() {
+        if (!tree_ || !tree_->isVisible() || tree_->viewport()->width() < 1) return;
+        const int x = tree_->viewport()->width() / 2;
+        const int stride = qMax(12, tree_->iconSize().height());
+        for (int y = 1; y < tree_->viewport()->height(); y += stride) {
+            const QModelIndex index = tree_->indexAt(QPoint(x, y));
+            if (!index.isValid() || !model_->isDir(index)) continue;
+            const QString folder = QFileInfo(model_->filePath(index)).canonicalFilePath();
+            if (folder.isEmpty()) continue;
+            const QFileInfo file(folderIconPath(folder));
+            const QString stamp = file.isFile() ?
+                QStringLiteral("%1:%2").arg(file.size()).arg(file.lastModified().toMSecsSinceEpoch()) :
+                QStringLiteral("-");
+            auto found = folderIconStamps_.constFind(folder);
+            if (found != folderIconStamps_.cend() && found.value() != stamp)
+                model_->refreshFolderIcon(index);
+            folderIconStamps_.insert(folder, stamp);
+        }
+    }
     void createFolder() {
         if (!QFileInfo(current_).isDir()) return;
         bool accepted = false;
@@ -1731,8 +1879,10 @@ private:
     QSet<QString> datedNames_;
     QHash<QString, QString> memos_;
     QSet<QString> favorites_;
-    QFileSystemModel* model_ = nullptr;
+    LunaFolderModel* model_ = nullptr;
     QTreeView* tree_ = nullptr;
+    QTimer* folderIconPoll_ = nullptr;
+    QHash<QString, QString> folderIconStamps_;
     QStackedWidget* pages_ = nullptr;
     QListWidget* folderPdfs_ = nullptr;
     QListWidget* allPdfs_ = nullptr;

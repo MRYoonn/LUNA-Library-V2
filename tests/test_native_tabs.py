@@ -269,7 +269,7 @@ class NativeTabsContract(unittest.TestCase):
         for token in (
             'LunaEditPaperMemo', 'list->editItem(item);',
             'list->setEditTriggers(QAbstractItemView::NoEditTriggers)',
-            'qMax(20, QFontMetrics(captionFont).height() + 3)',
+            'return QRect(content.left(), r.top() + 241, content.width(), 24);',
             'const QRect citeArea = citationRect(r);',
             'painter->drawText(citeArea, Qt::AlignLeft | Qt::AlignVCenter,',
             'lastListedAuthor(', '저자 미확인',

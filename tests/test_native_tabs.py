@@ -129,6 +129,8 @@ class NativeTabsContract(unittest.TestCase):
             '"bibliography-first-page-worker"',
             '"elapsedMs": elapsed_ms',
             'completed.stderr.splitlines()',
+            'SI first-page-paint metric missing',
+            'SI PDF parse metric missing',
         ):
             self.assertIn(token, probe, token)
         self.assertNotIn('write_text(completed.stderr', probe)

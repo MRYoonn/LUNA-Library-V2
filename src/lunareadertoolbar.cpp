@@ -128,6 +128,41 @@ protected:
     }
 };
 
+struct HighlightPreset { const char* label; const char* value; };
+constexpr HighlightPreset kHighlightPresets[] = {
+    {"노란색", "#FFE049"}, {"초록색", "#A3E6A4"},
+    {"분홍색", "#FFB3CF"}, {"파란색", "#9FCAFF"},
+    {"주황색", "#FFC58A"}, {"보라색", "#C7B2FF"},
+    {"민트색", "#A3E8DF"}, {"회색", "#CED4DE"}
+};
+
+class HighlightSwatchIcon final : public QIconEngine {
+public:
+    explicit HighlightSwatchIcon(QColor color) : color_(color) {}
+    QIconEngine* clone() const override { return new HighlightSwatchIcon(*this); }
+    QPixmap pixmap(const QSize& size, QIcon::Mode mode, QIcon::State state) override {
+        QPixmap result(size); result.fill(Qt::transparent);
+        QPainter painter(&result); paint(&painter, QRect(QPoint(), size), mode, state);
+        return result;
+    }
+    void paint(QPainter* painter, const QRect& rect, QIcon::Mode, QIcon::State state) override {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        const QRectF square = QRectF(rect).adjusted(3, 3, -3, -3);
+        painter->setBrush(color_);
+        painter->setPen(QPen(QColor("#8E9AAC"), 0.8));
+        painter->drawRoundedRect(square, 2.5, 2.5);
+        if (state == QIcon::On) {
+            painter->setBrush(Qt::NoBrush);
+            painter->setPen(QPen(QColor("#174C83"), 1.7));
+            painter->drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), 3.5, 3.5);
+        }
+        painter->restore();
+    }
+private:
+    QColor color_;
+};
+
 class ReadingInteraction final : public QObject {
 public:
     explicit ReadingInteraction(pdfviewer::PDFEditorMainWindow& window) : QObject(&window), window_(window) {
@@ -151,6 +186,7 @@ public:
             if (!next.isValid()) return;
             color_ = next;
             QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexRgb));
+            syncSwatches();
         });
         // Keep the toolbar compact while exposing reading colors
         // available without repeatedly opening the system QColorDialog.
@@ -162,21 +198,15 @@ public:
         if (toolsMenu) {
             auto* palette = toolsMenu->addMenu(QStringLiteral("형광펜 색상"));
             palette->setObjectName(QStringLiteral("LunaHighlightPalette"));
-            struct Preset { const char* label; const char* color; };
-            constexpr Preset presets[] = {
-                {"노란색", "#FFE049"}, {"초록색", "#A3E6A4"},
-                {"분홍색", "#FFB3CF"}, {"파란색", "#9FCAFF"},
-                {"주황색", "#FFC58A"}, {"보라색", "#C7B2FF"},
-                {"민트색", "#A3E8DF"}, {"회색", "#CED4DE"}
-            };
-            for (const auto& preset : presets) {
+            for (const auto& preset : kHighlightPresets) {
                 auto* choice = palette->addAction(QString::fromUtf8(preset.label));
                 choice->setCheckable(true);
-                choice->setData(QString::fromLatin1(preset.color));
+                choice->setData(QString::fromLatin1(preset.value));
                 connect(choice, &QAction::triggered, this, [this, choice] {
                     color_ = QColor(choice->data().toString());
                     QSettings().setValue(QStringLiteral("annotations/highlightColor"),
                         color_.name(QColor::HexRgb));
+                    syncSwatches();
                 });
             }
             connect(palette, &QMenu::aboutToShow, this, [this, palette] {
@@ -188,6 +218,23 @@ public:
             palette->addSeparator();
             palette->addAction(chooseColor_);
         }
+        // Eight small, directly clickable swatches live immediately after the
+        // eraser/highlighter at the right of Print. Also available in Tools.
+        for (int i = 0; i < 8; ++i) {
+            const QColor presetColor(QString::fromLatin1(kHighlightPresets[i].value));
+            auto* swatch = new QAction(QIcon(new HighlightSwatchIcon(presetColor)),
+                QString::fromUtf8(kHighlightPresets[i].label), &window_);
+            swatch->setObjectName(QStringLiteral("LunaHighlightSwatch%1").arg(i + 1));
+            swatch->setCheckable(true);
+            swatch->setToolTip(QStringLiteral("%1 형광펜 색상 선택").arg(QString::fromUtf8(kHighlightPresets[i].label)));
+            connect(swatch, &QAction::triggered, this, [this, presetColor] {
+                color_ = presetColor;
+                QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexRgb));
+                syncSwatches();
+            });
+            swatches_.append(swatch);
+        }
+        syncSwatches();
         connect(highlight_, &QAction::triggered, this, [this] { applyHighlight(); });
         eraser_ = new QAction(readerIcon(QStringLiteral("erase")), QStringLiteral("형광펜 지우개"), &window_);
         eraser_->setObjectName(QStringLiteral("LunaEraseSelected"));
@@ -249,6 +296,11 @@ private:
         const QColor saved(QSettings().value(QStringLiteral("annotations/highlightColor"),
             QStringLiteral("#FFE049")).toString());
         if (saved.isValid()) color_ = saved;
+        syncSwatches();
+    }
+    void syncSwatches() {
+        for (int i = 0; i < swatches_.size(); ++i)
+            swatches_[i]->setChecked(color_ == QColor(QString::fromLatin1(kHighlightPresets[i].value)));
     }
     bool checked(const char* name) const { auto* a = nativeAction(window_, name); return a && a->isChecked(); }
     // Match the upstream PDF4QT native tool security gate. A custom action
@@ -908,6 +960,7 @@ private:
     QAction* highlight_ = nullptr;
     QAction* eraser_ = nullptr;
     QAction* chooseColor_ = nullptr;
+    QList<QAction*> swatches_;
     QWidget* autoscrollMarker_ = nullptr;
     QTimer autoscrollTimer_;
     QPoint scrollOrigin_;
@@ -998,8 +1051,14 @@ public:
         add("actionSave"); bar_->addAction(separators_[0]);
         add("actionGoToPreviousPage"); bar_->addAction(pageAction_); add("actionGoToNextPage"); bar_->addAction(separators_[1]);
         add("actionZoom_Out"); bar_->addAction(zoomAction_); add("actionZoom_In"); bar_->addAction(separators_[2]);
-        add("actionSelectText"); add("LunaHighlightSelected"); add("LunaFreeTextBox"); add("LunaEraseSelected"); add("LunaCropThumbnail");
+        add("actionSelectText"); add("LunaFreeTextBox"); add("LunaCropThumbnail");
         bar_->addAction(separators_[3]); add("actionFind"); add("actionPrint");
+        bar_->addAction(separators_[0]); // Print | Eraser | Highlight | 8 colors
+        add("LunaEraseSelected"); add("LunaHighlightSelected");
+        for (int i = 1; i <= 8; ++i) {
+            const QByteArray name = QStringLiteral("LunaHighlightSwatch%1").arg(i).toLatin1();
+            add(name.constData());
+        }
         bar_->show();
         synchronize();
     }
@@ -1137,12 +1196,15 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
     auto* interaction = new ReadingInteraction(window);
     // The actions are created after the adapter to preserve QObject ownership;
     // both the embedded toolbar and the shell's common toolbar bind by name.
-    if (auto* hl = window.findChild<QAction*>(QStringLiteral("LunaHighlightSelected"))) bar.insertAction(
-        nativeAction(window, "actionFind"), hl);
-    if (auto* note = window.findChild<QAction*>(QStringLiteral("LunaFreeTextBox"))) bar.insertAction(
-        nativeAction(window, "actionFind"), note);
-    if (auto* erase = window.findChild<QAction*>(QStringLiteral("LunaEraseSelected"))) bar.insertAction(
-        nativeAction(window, "actionFind"), erase);
+    if (auto* note = window.findChild<QAction*>(QStringLiteral("LunaFreeTextBox")))
+        bar.insertAction(nativeAction(window, "actionFind"), note);
+    bar.addSeparator();
+    if (auto* erase = window.findChild<QAction*>(QStringLiteral("LunaEraseSelected"))) bar.addAction(erase);
+    if (auto* hl = window.findChild<QAction*>(QStringLiteral("LunaHighlightSelected"))) bar.addAction(hl);
+    for (int i = 1; i <= 8; ++i) {
+        if (auto* swatch = window.findChild<QAction*>(QStringLiteral("LunaHighlightSwatch%1").arg(i)))
+            bar.addAction(swatch);
+    }
     Q_UNUSED(interaction);
 }
 
@@ -1150,7 +1212,7 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
     auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
     auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
     if (!bar || !bar->isVisible() || bar->orientation() != Qt::Horizontal) return fail("Reading toolbar missing");
-    const QStringList allowed = {"LunaCropThumbnail", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "LunaHighlightSelected", "LunaFreeTextBox", "LunaEraseSelected", "actionFind", "actionPrint"};
+    const QStringList allowed = {"LunaCropThumbnail", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "LunaHighlightSelected", "LunaFreeTextBox", "LunaEraseSelected", "actionFind", "actionPrint", "LunaHighlightSwatch1", "LunaHighlightSwatch2", "LunaHighlightSwatch3", "LunaHighlightSwatch4", "LunaHighlightSwatch5", "LunaHighlightSwatch6", "LunaHighlightSwatch7", "LunaHighlightSwatch8"};
     int controls = 0;
     for (auto* action : bar->actions()) {
         if (action->isSeparator()) continue;

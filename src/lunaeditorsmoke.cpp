@@ -402,8 +402,8 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     QApplication::clipboard()->clear(); widget->setFocus(); key(widget, Qt::Key_C, Qt::ControlModifier);
     if (!waitFor([&] { return QApplication::clipboard()->text() == selectedText; })) return fail("Ctrl+C did not copy selected PDF text");
 
-    // A colored marker is the tool itself: click color, drag glyphs, release
-    // to write a real PDF highlight without an extra apply button.
+    // Required interaction: drag to select text, click the chosen marker,
+    // commit one highlight, and stay in native SelectText mode.
     checkpoint("Reader phase: eight one-click highlight pens and recolor");
     auto* lunaErase = action("LunaEraseSelected");
     auto* lunaTextBox = action("LunaFreeTextBox");
@@ -431,34 +431,38 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         return fail("Print / eraser / eight colored marker order regressed");
     for (int i = 1; i <= 8; ++i) {
         auto* marker = action(QStringLiteral("LunaHighlightSwatch%1").arg(i).toLatin1().constData());
-        if (!marker || !marker->isCheckable() ||
+        if (!marker || marker->isCheckable() ||
             toolbarActions.indexOf(marker) != erasePos + i)
-            return fail("Eight colored marker icons are missing or out of order");
+            return fail("Eight one-shot marker icons are missing or out of order");
     }
     const QString settingKey = QStringLiteral("annotations/highlightColor");
     const QVariant previousColor = QSettings().value(settingKey);
+    // Clear the earlier Ctrl+C selection to verify a bare color click cannot
+    // create an annotation or arm the next drag.
+    mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,start,Qt::LeftButton,Qt::NoButton);
     for (qsizetype i = 0; i < expectedColors.size(); ++i) {
         choices[i]->trigger();
         if (!select->isChecked() ||
             QSettings().value(settingKey).toString().compare(expectedColors[i], Qt::CaseInsensitive))
-            return fail("Color menu did not arm native text selection and persist");
+            return fail("Color menu did not preserve native text selection and preference");
         auto* marker = action(QStringLiteral("LunaHighlightSwatch%1").arg(i + 1).toLatin1().constData());
-        if (!marker || !marker->isChecked())
-            return fail("Active color marker indicator did not synchronize");
+        if (!marker || marker->isChecked() || annotations(pdf::AnnotationType::Highlight) != 0)
+            return fail("Color click without selection armed a marker or modified PDF");
     }
-    // Toolbar activation must also arm text selection and persist the color.
     action("LunaHighlightSwatch5")->trigger();
     if (!select->isChecked() ||
         QSettings().value(settingKey).toString().compare(QStringLiteral("#FFC58A"), Qt::CaseInsensitive) ||
-        !action("LunaHighlightSwatch5")->isChecked())
-        return fail("Inline highlighter icon failed to arm text drag");
+        action("LunaHighlightSwatch5")->isChecked())
+        return fail("Inline marker click without selection changed tool mode");
 
-    choices[1]->trigger(); // green
+    // Select -> color click -> annotation -> SelectText, exactly once.
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
-    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
-        return fail("Colored marker did not auto-highlight dragged text");
+    choices[1]->trigger(); // green
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1 && select->isChecked(); }))
+        return fail("Selection-then-color did not write native highlight and return to SelectText");
     bool greenWritten = false;
     for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
         if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
@@ -492,10 +496,11 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         }
         return false;
     };
-    // Same-color drag must not stack transparency.
+    // Same-color re-application must not stack transparency.
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+    choices[1]->trigger();
     QCoreApplication::processEvents();
     if (annotations(pdf::AnnotationType::Highlight) != 1)
         return fail("Repeated same-color marker duplicated existing annotation");
@@ -513,10 +518,10 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         characters[5].boundingBox.boundingRect().center() + QPointF(1, -2)).toPoint();
     if (!widget->rect().contains(middleStart) || !widget->rect().contains(middleEnd))
         return fail("Recolor regression glyphs outside viewport");
-    choices[2]->trigger(); // pink
     mouse(widget,QEvent::MouseButtonPress,middleStart,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,middleEnd,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,middleEnd,Qt::LeftButton,Qt::NoButton);
+    choices[2]->trigger(); // pink
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 2; }))
         return fail("Partly overlapping recolor failed to retain old and new colors");
     bool oldColorStillPresent = false, pinkPresent = false;
@@ -544,10 +549,10 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     const QPoint extendedEnd = selectedPage->pageToDeviceMatrix.map(
         characters[12].boundingBox.boundingRect().center() + QPointF(1, -2)).toPoint();
     if (!widget->rect().contains(extendedEnd)) return fail("Expanded recolor endpoint offscreen");
-    choices[2]->trigger();
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,extendedEnd,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,extendedEnd,Qt::LeftButton,Qt::NoButton);
+    choices[2]->trigger();
     // Number of annotations was ONE before the drag and can be ONE after
     // the asynchronous replacement. Waiting only for count==1 returned
     // immediately and pressed Undo before the pending event-loop callback
@@ -577,19 +582,15 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!waitFor(originalGreenRestored))
         return fail("Expanded recolor Undo changed original highlight geometry");
 
-    // Escape returns to plain selection without auto-highlighting, so the
-    // existing select-then-erase button remains available.
+    // The eraser also acts on an already selected range, once per click.
     key(widget, Qt::Key_Escape, Qt::NoModifier);
-    if (!lunaErase->isCheckable()) return fail("Eraser is not an armed drag tool");
-    click(lunaErase);
-    if (!lunaErase->isChecked() || !select->isChecked())
-        return fail("Eraser did not arm native text selection");
-    // A selected substring must remove only that substring, not the entire
-    // multi-word green highlight annotation.
+    if (lunaErase->isCheckable()) return fail("Eraser incorrectly remains a drag mode");
     checkpoint("Reader phase: eraser removes only chosen glyph range");
     mouse(widget,QEvent::MouseButtonPress,middleStart,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,middleEnd,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,middleEnd,Qt::LeftButton,Qt::NoButton);
+    click(lunaErase);
+    if (!select->isChecked()) return fail("Eraser click did not return to SelectText");
     if (!waitFor([&] {
         if (annotations(pdf::AnnotationType::Highlight) != 1) return false;
         for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations)
@@ -646,7 +647,8 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     mouse(widget,QEvent::MouseButtonPress,wholeStart,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,wholeEnd,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,wholeEnd,Qt::LeftButton,Qt::NoButton);
-    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0; })) {
+    click(lunaErase);
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0 && select->isChecked(); })) {
         // Report real geometry and tool mode in the exact CI failure rather
         // than repeating an ambiguous error across repeated Windows builds.
         QStringList residues;
@@ -663,7 +665,7 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
                     .arg(remaining.bottom(), 0, 'f', 2);
             }
         }
-        error = QStringLiteral("Click-then-drag eraser did not remove previous highlight: count=%1 armed=%2 select=%3 selectedChars=%4 remnants=%5 firstGlyph=%6 lastGlyph=%7 originalBounds=%8,%9..%10,%11")
+        error = QStringLiteral("Selection-then-click eraser did not remove previous highlight: count=%1 active=%2 select=%3 selectedChars=%4 remnants=%5 firstGlyph=%6 lastGlyph=%7 originalBounds=%8,%9..%10,%11")
             .arg(annotations(pdf::AnnotationType::Highlight))
             .arg(lunaErase->isChecked()).arg(select->isChecked())
             .arg(controller->getToolManager()->getSelectTextTool()->getSelectedText().size())

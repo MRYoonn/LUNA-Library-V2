@@ -563,9 +563,50 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
             }
         return false;
     })) return fail("Partial eraser did not restore original quad on Undo");
-    mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
-    mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
-    mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+    // Earlier recolor/Undo operations can leave an annotation spanning
+    // MORE glyphs than the first 0..7 test drag. Selecting only those first
+    // glyphs must preserve the uncovered suffix, not delete it. For the
+    // *whole-mark* erase check, derive the drag from the actual saved
+    // QuadPoints rather than assuming an old synthetic click endpoint.
+    QRectF markedBeforeErase;
+    int firstMarkedGlyph = -1, lastMarkedGlyph = -1;
+    bool originalGreen = false;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+        if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+        const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+        if (!ann) continue;
+        markedBeforeErase = ann->getHiglightArea().getPath().boundingRect().normalized();
+        const auto rgb = ann->getColor();
+        originalGreen = rgb.size() >= 3 &&
+            qAbs(rgb[0] - 163.0/255.0) < 0.02 &&
+            qAbs(rgb[1] - 230.0/255.0) < 0.02 &&
+            qAbs(rgb[2] - 164.0/255.0) < 0.02;
+    }
+    if (!originalGreen || !markedBeforeErase.isValid())
+        return fail("Recolor/Undo did not restore original green highlight before erase");
+    for (qsizetype i = 0; i < characters.size(); ++i) {
+        const QRectF glyph = characters[i].boundingBox.boundingRect().normalized();
+        const QRectF hit = glyph.intersected(markedBeforeErase);
+        if (glyph.width() < 1 || glyph.height() < 1 ||
+            hit.width() < glyph.width() * 0.45 ||
+            hit.height() < glyph.height() * 0.40) continue;
+        if (firstMarkedGlyph < 0) firstMarkedGlyph = int(i);
+        lastMarkedGlyph = int(i);
+    }
+    if (firstMarkedGlyph < 0 || lastMarkedGlyph < 0 || firstMarkedGlyph >= lastMarkedGlyph)
+        return fail("Could not find original saved highlight glyph range");
+    const auto freshSnapshot = proxy->getSnapshot();
+    const auto* pageForErase = freshSnapshot.getPageSnapshot(0);
+    if (!pageForErase) return fail("Whole-annotation erase page not visible");
+    const QPoint wholeStart = pageForErase->pageToDeviceMatrix.map(
+        characters[firstMarkedGlyph].boundingBox.boundingRect().center() - QPointF(1, 0)).toPoint();
+    const QPoint wholeEnd = pageForErase->pageToDeviceMatrix.map(
+        characters[lastMarkedGlyph].boundingBox.boundingRect().center() + QPointF(1, -2)).toPoint();
+    if (!widget->rect().contains(wholeStart) || !widget->rect().contains(wholeEnd))
+        return fail("Whole-annotation erase glyph range outside viewport");
+    mouse(widget,QEvent::MouseButtonPress,wholeStart,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,wholeEnd,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,wholeEnd,Qt::LeftButton,Qt::NoButton);
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0; })) {
         // Report real geometry and tool mode in the exact CI failure rather
         // than repeating an ambiguous error across repeated Windows builds.
@@ -583,11 +624,14 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
                     .arg(remaining.bottom(), 0, 'f', 2);
             }
         }
-        error = QStringLiteral("Click-then-drag eraser did not remove previous highlight: count=%1 armed=%2 select=%3 selectedChars=%4 remnants=%5")
+        error = QStringLiteral("Click-then-drag eraser did not remove previous highlight: count=%1 armed=%2 select=%3 selectedChars=%4 remnants=%5 firstGlyph=%6 lastGlyph=%7 originalBounds=%8,%9..%10,%11")
             .arg(annotations(pdf::AnnotationType::Highlight))
             .arg(lunaErase->isChecked()).arg(select->isChecked())
             .arg(controller->getToolManager()->getSelectTextTool()->getSelectedText().size())
-            .arg(residues.join(QStringLiteral("; ")));
+            .arg(residues.join(QStringLiteral("; ")))
+            .arg(firstMarkedGlyph).arg(lastMarkedGlyph)
+            .arg(markedBeforeErase.left(), 0, 'f', 2).arg(markedBeforeErase.top(), 0, 'f', 2)
+            .arg(markedBeforeErase.right(), 0, 'f', 2).arg(markedBeforeErase.bottom(), 0, 'f', 2);
         return false;
     }
     action("actionUndo")->trigger();

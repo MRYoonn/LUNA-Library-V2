@@ -118,7 +118,7 @@ public:
                 QStringLiteral("형광펜 색상"));
             if (!next.isValid()) return;
             color_ = next;
-            QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexArgb));
+            QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexRgb));
         });
         if (auto* menu = window_.findChild<QMenu*>(QStringLiteral("menuTools")))
             menu->addAction(chooseColor_);

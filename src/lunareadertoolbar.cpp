@@ -107,13 +107,12 @@ public:
         highlight_->setObjectName(QStringLiteral("LunaHighlightSelected"));
         highlight_->setToolTip(QStringLiteral("텍스트를 먼저 드래그 선택한 뒤 클릭해 강조합니다. 이미 강조한 부분은 중복 표시하지 않습니다."));
         highlight_->setEnabled(false);
-        QColor stored(QSettings().value(QStringLiteral("annotations/highlightColor"),
-            QStringLiteral("#FFE049")).toString());
-        if (stored.isValid()) color_ = stored;
+        reloadHighlightColor();
         chooseColor_ = new QAction(QStringLiteral("형광펜 색상 변경…"), &window_);
         chooseColor_->setObjectName(QStringLiteral("LunaHighlightColor"));
         chooseColor_->setToolTip(QStringLiteral("선택형 형광펜의 색상을 설정합니다. 툴바 버튼은 추가하지 않습니다."));
         connect(chooseColor_, &QAction::triggered, this, [this] {
+            reloadHighlightColor(); // Other native tabs may have changed the shared preference.
             const QColor next = QColorDialog::getColor(color_, draw_,
                 QStringLiteral("형광펜 색상"));
             if (!next.isValid()) return;
@@ -146,6 +145,7 @@ public:
                 });
             }
             connect(palette, &QMenu::aboutToShow, this, [this, palette] {
+                reloadHighlightColor();
                 for (auto* choice : palette->actions())
                     if (choice->isCheckable())
                         choice->setChecked(QColor(choice->data().toString()) == color_);
@@ -183,6 +183,14 @@ public:
         });
     }
 private:
+    // The color is a library-wide setting, not an isolated per-tab preference.
+    // Refresh on menu open and on application so inactive editor tabs cannot
+    // keep painting with a stale color after another tab changes it.
+    void reloadHighlightColor() {
+        const QColor saved(QSettings().value(QStringLiteral("annotations/highlightColor"),
+            QStringLiteral("#FFE049")).toString());
+        if (saved.isValid()) color_ = saved;
+    }
     bool checked(const char* name) const { auto* a = nativeAction(window_, name); return a && a->isChecked(); }
     // Match the upstream PDF4QT native tool security gate. A custom action
     // must never bypass PDF permission flags even if text selection works.
@@ -203,6 +211,7 @@ private:
         if (!highlight_->isEnabled() || selectionPage_ < 0) return;
         auto* c = window_.getProgramController();
         if (!canAnnotate() || !checked("actionSelectText")) { clearPendingSelection(); return; }
+        reloadHighlightColor();
         auto* proxy = c->getPdfWidget()->getDrawWidgetProxy();
         auto* selected = c->getToolManager()->getSelectTextTool();
         if (!selected || selected->getSelectedText().trimmed().isEmpty()) { clearPendingSelection(); return; }

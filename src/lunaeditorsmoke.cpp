@@ -26,6 +26,7 @@
 #include <QLineEdit>
 #include <QDir>
 #include <QMouseEvent>
+#include <QPainterPath>
 #include <QTimer>
 #include <QClipboard>
 #include <QColorDialog>

@@ -289,6 +289,17 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         qAbs(proxy->getZoom() - 2.0) < 0.001 && proxy->getPageLayout() == pdf::PageLayout::OneColumn &&
         vertical->isVisible() && vertical->maximum() > vertical->minimum() && vertical->pageStep() > 0; }))
         return fail("Reopened PDF did not settle into enabled continuous 200% reading view");
+    checkpoint("Reader phase: vertical middle-click autoscroll");
+    // Middle-click should use the LUNA up/down marker, not PDF4QT's
+    // four-direction hand-pan. Escape must cancel without altering PDF data.
+    const QPoint middle = widget->rect().center();
+    mouse(widget, QEvent::MouseButtonPress, middle, Qt::MiddleButton, Qt::MiddleButton);
+    auto* autoscrollMarker = window.findChild<QWidget*>(QStringLiteral("LunaVerticalAutoscrollMarker"));
+    if (!autoscrollMarker || !autoscrollMarker->isVisible())
+        return fail("Middle click did not show the vertical up/down autoscroll marker");
+    mouse(widget, QEvent::MouseButtonRelease, middle, Qt::MiddleButton, Qt::NoButton);
+    key(widget, Qt::Key_Escape, Qt::NoModifier);
+    if (autoscrollMarker->isVisible()) return fail("Escape did not cancel vertical autoscroll");
     checkpoint("Reader phase: page navigation, zoom and advanced view menu");
     auto* pageNumber = window.findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"));
     proxy->goToPage(0);
@@ -394,16 +405,19 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     // native Insert > highlight drag tool. Exercise the actual document writer.
     checkpoint("Reader phase: selection-first highlight and non-overlap");
     auto* lunaHighlight = action("LunaHighlightSelected");
+    auto* lunaErase = action("LunaEraseSelected");
     auto* lunaTextBox = action("LunaFreeTextBox");
-    if (!lunaHighlight || !lunaTextBox || !lunaTextBox->isCheckable())
-        return fail("LUNA selection-first highlight or transparent memo tool is missing");
-    checkpoint("Reader phase: persistent four-color highlight palette");
+    if (!lunaHighlight || !lunaErase || !lunaTextBox || !lunaTextBox->isCheckable())
+        return fail("LUNA selection-first highlight/eraser or transparent memo tool is missing");
+    checkpoint("Reader phase: persistent eight-color highlight palette");
     auto* palette = window.findChild<QMenu*>(QStringLiteral("LunaHighlightPalette"));
     if (!palette) return fail("LUNA highlight palette missing from native Tools menu");
     const auto choices = palette->actions();
     const QStringList expectedColors = {
         QStringLiteral("#FFE049"), QStringLiteral("#A3E6A4"),
-        QStringLiteral("#FFB3CF"), QStringLiteral("#9FCAFF")
+        QStringLiteral("#FFB3CF"), QStringLiteral("#9FCAFF"),
+        QStringLiteral("#FFC58A"), QStringLiteral("#C7B2FF"),
+        QStringLiteral("#A3E8DF"), QStringLiteral("#CED4DE")
     };
     if (choices.size() < expectedColors.size() + 2)
         return fail("LUNA highlight palette lost a preset or custom color action");
@@ -448,7 +462,21 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     click(lunaHighlight);
     if (annotations(pdf::AnnotationType::Highlight) != 1)
         return fail("LUNA highlighter duplicated a pre-existing marked region");
+    checkpoint("Reader phase: selection-first eraser matches highlight geometry");
+    // Erase with the same dragged text selection, not a click-to-delete
+    // annotation tool. A complete highlight is removed, PDF text stays.
+    mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+    if (!waitFor([&] { return lunaErase->isEnabled(); }))
+        return fail("LUNA selection-first eraser did not enable after text drag");
+    click(lunaErase);
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0 && !lunaErase->isEnabled(); }))
+        return fail("LUNA selection-first eraser failed to remove the selected highlight");
     if (!action("actionUndo")) return fail("Native undo is missing");
+    action("actionUndo")->trigger();
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
+        return fail("Selection-first eraser did not preserve native undo");
     action("actionUndo")->trigger();
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0; }))
         return fail("Selection-first highlight did not participate in native undo");

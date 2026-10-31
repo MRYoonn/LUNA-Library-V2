@@ -1419,8 +1419,8 @@ private:
         editor.setProperty("LunaRememberedPath", path);
         queueBibliography(DocumentClaim::identity(path), *controller->getDocument());
         // Inspect only structured fields already present in the PDF info
-        // dictionary. There is no DOI scanning, first-page text parsing or
-        // remote lookup; QSettings writes are deferred until after open.
+        // dictionary. DOI/front-page analysis runs separately in an owned
+        // low-priority worker; QSettings writes stay on the UI thread.
         if (const auto* documentInfo = controller->getDocument()->getInfo()) {
             const QString identity = DocumentClaim::identity(path);
             const QString title = documentInfo->title;

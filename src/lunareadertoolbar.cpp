@@ -171,12 +171,14 @@ private:
         for (qsizetype i = 0; i + 3 < quads.size(); i += 4) {
             QPolygonF quad{quads[i], quads[i + 1], quads[i + 2], quads[i + 3]};
             QPainterPath part; part.addPolygon(quad); part.closeSubpath();
-            if (!marked.intersects(part) && !marked.contains(part)) clean << quad;
+            if (!marked.intersects(part) && !marked.contains(part))
+                for (const QPointF& point : quad) clean << point;
         }
+        const auto pageIndex = selectionPage_;
         clearPendingSelection();
         if (clean.isEmpty()) return;
         pdf::PDFDocumentModifier modifier(c->getDocument());
-        const auto page = c->getDocument()->getCatalog()->getPage(selectionPage_);
+        const auto page = c->getDocument()->getCatalog()->getPage(pageIndex);
         if (!page) return;
         const pdf::PDFObjectReference ref = modifier.getBuilder()->createAnnotationHighlight(
             page->getPageReference(), clean, QColor(255, 224, 73));
@@ -253,15 +255,14 @@ private:
             for (auto it = annotations.rbegin(); it != annotations.rend(); ++it) {
                 const auto& item = *it;
                 if (deleting ? !manager->canDeleteAnnotation(item) :
-                    ((item.annotation->getType() != pdf::AnnotationType::Text &&
-                      item.annotation->getType() != pdf::AnnotationType::FreeText) ||
+                    (item.annotation->getType() != pdf::AnnotationType::Text ||
                      !manager->isAnnotationSelectable(item))) continue;
                 QRectF rectangle = item.annotation->getRectangle();
                 const auto matrix = manager->prepareTransformations(page.pageToDeviceMatrix, widget,
                     item.annotation->getEffectiveFlags(), c->getDocument()->getCatalog()->getPage(page.pageIndex), rectangle);
                 if (matrix.mapRect(rectangle).contains(point)) {
                     *editable = manager->canModifyAnnotation(item);
-                    *freeText = item.annotation->getType() == pdf::AnnotationType::FreeText;
+                    *freeText = false; // FreeText retains PDF4QT's native drag/resize/edit controls.
                     return item.annotation->getSelfReference();
                 }
             }
@@ -336,12 +337,6 @@ private:
             auto* c = window_.getProgramController(); auto* manager = c->getPdfWidget()->getAnnotationManager();
             manager->selectAnnotation(reference, true);
             if (deleting_) { manager->deleteSelectedAnnotations(); selectText(); return true; }
-            if (freeText_) {
-                c->getToolManager()->setActiveTool(nullptr);
-                QKeyEvent key(QEvent::KeyPress, Qt::Key_F2, Qt::NoModifier);
-                manager->keyPressEvent(draw_, &key);
-                manager->clearSelection(); selectText(); return true;
-            }
             // Native note popup plus a route to its existing annotation editor.
             struct PopupState { bool waiting = true; bool edit = false; };
             auto state = std::make_shared<PopupState>();

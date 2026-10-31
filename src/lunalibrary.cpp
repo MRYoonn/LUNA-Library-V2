@@ -98,6 +98,7 @@
 #include <QGridLayout>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QUuid>
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
@@ -569,12 +570,11 @@ public:
     QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override {
         if (role == Qt::DecorationRole && index.isValid() && isDir(index)) {
             const QString folder = filePath(index);
-            auto found = ids_.constFind(folder);
-            if (found == ids_.cend()) {
+            if (!ids_.contains(folder)) {
                 if (ids_.size() > 4096) ids_.clear(); // Bound cache across folder navigation.
-                found = ids_.insert(folder, folderIconId(folder));
+                ids_.insert(folder, folderIconId(folder));
             }
-            return embeddedFolderIcon(found.value());
+            return embeddedFolderIcon(ids_.value(folder));
         }
         return QFileSystemModel::data(index, role);
     }

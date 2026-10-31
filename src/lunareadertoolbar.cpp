@@ -658,6 +658,24 @@ private:
                             QStringLiteral("회전된 글자 영역은 현재 안전하게 부분 삭제할 수 없습니다."));
                         return;
                     }
+                    // PDF4QT's drag endpoints represent character hit
+                    // positions, while its stored Highlight quads include
+                    // full glyph edges. A release at the center of the first
+                    // and last glyph may therefore leave 1-4 pt endcaps,
+                    // even on the exact same text selection. Snap to the
+                    // old quad endpoints only when the selection covers
+                    // almost the entire old quad. Central partial erases
+                    // continue to retain their unselected text.
+                    const qreal snap = qMin(6.0, qMax(0.8, 0.48 * original.height()));
+                    const bool fullQuad =
+                        overlap.width() >= 0.82 * original.width() &&
+                        erased.left() <= original.left() + snap &&
+                        erased.right() >= original.right() - snap;
+                    if (fullQuad) {
+                        remainingX.clear();
+                        changed = true;
+                        break;
+                    }
                     QList<QPair<qreal, qreal>> next;
                     const qreal lo = erased.left() - 0.20, hi = erased.right() + 0.20;
                     for (const auto& interval : remainingX) {

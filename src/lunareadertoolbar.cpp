@@ -226,6 +226,7 @@ public:
         connect(&window_, &QWidget::windowTitleChanged, this, [this] {
             target_ = {}; // A document/title transition cancels an unfinished click.
             stopVerticalAutoscroll();
+            draggingTextBox_ = false;
             clearPendingSelection();
             textBox_->setChecked(false);
             QTimer::singleShot(0, this, [this] {
@@ -596,6 +597,43 @@ private:
         }
         return {};
     }
+    bool beginTextBoxDrag(QMouseEvent* event) {
+        if (event->button() != Qt::LeftButton || !checked("actionSelectText") || !canAnnotate()) return false;
+        auto* c = window_.getProgramController();
+        auto* widget = c->getPdfWidget();
+        auto* manager = widget->getAnnotationManager();
+        const auto snapshot = widget->getDrawWidgetProxy()->getSnapshot();
+        // PDF4QT already implements FreeText movement and resize handles.
+        // The text selection tool normally consumes mouse events first, so
+        // explicitly hand over only FreeText gestures to its native manager.
+        for (const auto& page : snapshot.items) {
+            const auto& items = manager->getPageAnnotations(page.pageIndex).annotations;
+            for (auto it = items.rbegin(); it != items.rend(); ++it) {
+                const auto& item = *it;
+                if (item.annotation->getType() != pdf::AnnotationType::FreeText ||
+                    !manager->isAnnotationSelectable(item) ||
+                    !manager->canModifyAnnotation(item)) continue;
+                QRectF rect = item.annotation->getRectangle();
+                const auto matrix = manager->prepareTransformations(
+                    page.pageToDeviceMatrix, widget, item.annotation->getEffectiveFlags(),
+                    c->getDocument()->getCatalog()->getPage(page.pageIndex), rect);
+                QRectF visible = matrix.mapRect(rect).normalized();
+                // A selected box may be resized from its handles just outside
+                // the displayed rectangle. Do not hijack empty-page text drags.
+                const bool selected = manager->isAnnotationSelected(item.annotation->getSelfReference());
+                if (!visible.adjusted(selected ? -10 : 0, selected ? -10 : 0,
+                                      selected ? 10 : 0, selected ? 10 : 0)
+                                      .contains(event->pos())) continue;
+                clearPendingSelection();
+                target_ = {};
+                manager->mousePressEvent(draw_, event);
+                draggingTextBox_ = true;
+                return true;
+            }
+        }
+        if (manager->hasSelection()) manager->clearSelection();
+        return false;
+    }
     bool eventFilter(QObject* object, QEvent* event) override {
         // Install on qApp as well as the draw surface: a click elsewhere or
         // Escape must cancel autoscroll, including in embedded native tabs.
@@ -612,6 +650,26 @@ private:
             }
         }
         if (object != draw_) return false;
+        if (draggingTextBox_) {
+            auto* c = window_.getProgramController();
+            auto* manager = c->getPdfWidget()->getAnnotationManager();
+            if (event->type() == QEvent::MouseMove) {
+                manager->mouseMoveEvent(draw_, static_cast<QMouseEvent*>(event));
+                return true;
+            }
+            if (event->type() == QEvent::MouseButtonRelease &&
+                static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton) {
+                draggingTextBox_ = false;
+                manager->mouseReleaseEvent(draw_, static_cast<QMouseEvent*>(event));
+                return true;
+            }
+            if (event->type() == QEvent::KeyPress &&
+                static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
+                draggingTextBox_ = false;
+                manager->keyPressEvent(draw_, static_cast<QKeyEvent*>(event));
+                return true;
+            }
+        }
         if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonDblClick) {
             const auto* mouse = static_cast<QMouseEvent*>(event);
             if (mouse->button() == Qt::MiddleButton) {
@@ -653,6 +711,7 @@ private:
         }
         if (event->type() == QEvent::MouseButtonPress) {
             auto* mouse = static_cast<QMouseEvent*>(event);
+            if (beginTextBoxDrag(mouse)) return true;
             target_ = {};
             if (mouse->button() != Qt::LeftButton) return false;
             clearPendingSelection();
@@ -728,7 +787,7 @@ private:
     QWidget* draw_ = nullptr;
     pdf::PDFObjectReference target_;
     QPoint press_;
-    bool deleting_ = false, editable_ = false, drawingBox_ = false;
+    bool deleting_ = false, editable_ = false, drawingBox_ = false, draggingTextBox_ = false;
     QAction* highlight_ = nullptr;
     QAction* eraser_ = nullptr;
     QAction* chooseColor_ = nullptr;

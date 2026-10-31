@@ -1,11 +1,7 @@
 name: LUNA Library V2 - PDF4QT Windows Portable
 
-# Manual builds plus isolated trusted-feature-branch CI. No PR code, secrets or private PDFs.
-# This auto-trigger only exists on feature/annotation-palette-qa for beta validation.
-# Production draft/publish workflows remain manual and unchanged.
+# Manual builds only. No private data, secrets, or untrusted PR execution.
 on:
-  push:
-    branches: ['feature/annotation-palette-qa']
   workflow_dispatch:
     inputs:
       production_paper_capture:

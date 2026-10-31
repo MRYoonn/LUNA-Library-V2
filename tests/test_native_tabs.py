@@ -93,6 +93,28 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('reloadHighlightColor();\n        auto* proxy', adapter)
         self.assertNotIn('add("LunaHighlightColor")', adapter)
 
+    def test_large_si_open_defers_nonessential_work_until_after_first_render(self):
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        page_grid = (ROOT / 'src/lunapagegrid.h').read_text(encoding='utf-8')
+        for token in (
+            'const bool deferForLargePdf = !force && catalog && catalog->getPageCount() >= 80;',
+            'QTimer::singleShot(1200, this, std::move(startWorker));',
+            'bibliography-first-page-worker',
+            'bibliography-worker-dispatch',
+            'worker->start(QThread::LowPriority)',
+            'bibliography_.enrichFromFirstPage(identity, *result)',
+        ):
+            self.assertIn(token, library, token)
+        for token in (
+            'if (model() == native.model() && selectionModel() == native.selectionModel()) return;',
+            'pendingModelSize_ = true;',
+            'if (!isVisible()) return;',
+            'if (isVisible()) {',
+            'thumbnailSize_(previewHeight);',
+            'pendingModelSize_ = false;',
+        ):
+            self.assertIn(token, page_grid, token)
+
     def test_compact_tabs_and_blue_borderless_selection_contract(self):
         tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')

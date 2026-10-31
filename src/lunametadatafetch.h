@@ -70,6 +70,19 @@ public:
                     cr["metadata_diagnostic"]=QStringLiteral("source_title_conflict");
                     finish(cr,QStringLiteral("source_title_conflict"));return;
                 }
+                // Independent providers sometimes disagree on year, issue,
+                // volume or pages (online-first versus final print). Preserve
+                // neither uncertain addition until explicit user review.
+                for(const QString& key : {QStringLiteral("year"),QStringLiteral("volume"),
+                     QStringLiteral("issue"),QStringLiteral("page")}) {
+                    const QString prior=cr.value(key).toString().simplified();
+                    const QString alternate=secondary.value(key).toString().simplified();
+                    if(!prior.isEmpty() && !alternate.isEmpty() && prior!=alternate) {
+                        cr["metadata_status"]=QStringLiteral("needs_review");
+                        cr["metadata_diagnostic"]=QStringLiteral("source_field_conflict:")+key;
+                        finish(cr,QStringLiteral("source_field_conflict"));return;
+                    }
+                }
                 for(const QString& key : {QStringLiteral("title"),QStringLiteral("journal"),
                      QStringLiteral("year"),QStringLiteral("volume"),QStringLiteral("issue"),
                      QStringLiteral("page"),QStringLiteral("authors_structured")}) {
@@ -100,6 +113,8 @@ private:
         QNetworkRequest request(url);
         request.setRawHeader("Accept", "application/json");
         request.setRawHeader("User-Agent","LUNA-Library/0.9 (DOI bibliographic lookup)");
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                             QNetworkRequest::ManualRedirectPolicy);
         request.setTransferTimeout(8500);
         auto* reply=network_.get(request);
         connect(reply,&QNetworkReply::finished,this,[this,reply,provider,done] {

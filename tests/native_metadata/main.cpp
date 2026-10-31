@@ -8,16 +8,39 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDebug>
+#include <cstdio>
+#include <cstdlib>
 using namespace luna;
 using namespace luna::Metadata;
-static void expect(bool yes,const char* what){if(!yes)qFatal("Metadata contract failure: %s",what);}
+// Windows Qt qFatal normally routes diagnostics to OutputDebugString rather
+// than GitHub Actions' captured stderr, leaving only 0xC0000409 in CTest.
+// Print a stable failure identifier and flush BEFORE aborting so failures
+// become reproducible without guessing about code or disabling assertions.
+static void diagnosticMessage(QtMsgType type, const QMessageLogContext&, const QString& text) {
+    const QByteArray bytes=text.toUtf8();
+    std::fprintf(stderr, "LUNA_QT[%d]: %s\\n",int(type),bytes.constData());
+    std::fflush(stderr);
+}
+static void expect(bool yes,const char* what) {
+    if (yes) return;
+    std::fprintf(stderr,"LUNA_METADATA_TEST_FAILED: %s\\n",what);
+    std::fflush(stderr);
+    std::abort();
+}
+static void checkpoint(const char* name) {
+    std::fprintf(stderr,"LUNA_METADATA_CHECKPOINT: %s\\n",name);
+    std::fflush(stderr);
+}
 int main(int argc,char** argv){
     QCoreApplication app(argc,argv);
+    qInstallMessageHandler(diagnosticMessage);
+    checkpoint("setup");
     QTemporaryDir root;
     expect(root.isValid(),"isolated settings root");
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,root.path());
 
+    checkpoint("doi-evidence");
     const auto docs=collectCandidates({QStringLiteral(
         "Title of paper\nDOI: https://doi.org/10.1021/jacs.4c05881\nAuthors")},
         QString(),QStringLiteral("another-10.1111_fake.pdf"));
@@ -34,6 +57,7 @@ int main(int argc,char** argv){
     expect(normalizeDoi(QStringLiteral("https://doi.org/10.1021/JACS.4C05881."))==
            QStringLiteral("10.1021/jacs.4c05881"),"normalization");
 
+    checkpoint("crossref-citation");
     const QString doi=QStringLiteral("10.1021/jacs.4c05881");
     QJsonObject cr {
         {"DOI",doi},
@@ -65,6 +89,7 @@ int main(int argc,char** argv){
            "senior author explicit index");
     online.remove("senior_author_index");
 
+    checkpoint("openalex-parser");
     QJsonObject alex {
         {"doi",QStringLiteral("https://doi.org/")+doi},
         {"title",QStringLiteral("Synthetic N–H Activation Study")},
@@ -83,6 +108,7 @@ int main(int argc,char** argv){
     expect(articleNumberValid(QStringLiteral("e20591"),doi),"article number usable");
     expect(!articleNumberValid(doi,doi),"DOI is not an article number");
 
+    checkpoint("qsettings-merge");
     Bibliography store;
     const QString identity=QStringLiteral("synthetic:test:one");
     expect(store.mergeVerifiedOnline(identity,doi,online),"persist verified record");
@@ -106,6 +132,7 @@ int main(int argc,char** argv){
            "record offline error without data loss");
     expect(!Bibliography::citation(store.record(identity)).isEmpty(),"offline cached citation");
 
+    checkpoint("offline-fallback");
     MetadataFetcher offline;
     qputenv("LUNA_METADATA_OFFLINE","1");
     bool called=false;
@@ -114,6 +141,7 @@ int main(int argc,char** argv){
     });
     expect(called,"offline callback");
     qunsetenv("LUNA_METADATA_OFFLINE");
+    checkpoint("all-native-contracts-passed");
     qInfo()<<"LUNA metadata native contracts passed";
     return 0;
 }

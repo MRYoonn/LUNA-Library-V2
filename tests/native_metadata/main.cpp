@@ -72,6 +72,23 @@ int main(int argc,char** argv){
             QJsonObject{{"given",QStringLiteral("Abigail G.")},{"family",QStringLiteral("Doyle")}}
         }}
     };
+    const QJsonArray publishedParts = cr.value(QStringLiteral("published")).toObject()
+        .value(QStringLiteral("date-parts")).toArray();
+    expect(!publishedParts.isEmpty() && !publishedParts.first().toArray().isEmpty(),
+           "synthetic Crossref publication date-parts shape");
+    expect(publishedParts.first().toArray().first().toVariant().toString()==QStringLiteral("2024"),
+           "synthetic Crossref year must be present and numeric");
+    expect(yearFromCrossref(cr)==QStringLiteral("2024"),
+           "Crossref nested date-parts publication year");
+    expect(yearFromCrossref(QJsonObject{{"issued", QJsonObject{
+        {"date-parts",QJsonArray{QJsonArray{2023}}}}}})==QStringLiteral("2023"),
+           "Crossref issued year-only date-parts");
+    expect(yearFromCrossref(QJsonObject{{"published-online", QJsonObject{
+        {"date-time",QStringLiteral("2022-07-11T00:00:00Z")}}}})==QStringLiteral("2022"),
+           "Crossref ISO date-time year");
+    expect(yearFromCrossref(QJsonObject{{"created", QJsonObject{
+        {"date-parts",QJsonArray{QJsonArray{2021}}}}}}).isEmpty(),
+           "Crossref created timestamp is not a publication year");
     expect(fromCrossref(cr,QStringLiteral("10.1000/wrong")).isEmpty(),"Crossref DOI mismatch rejected");
     auto online=fromCrossref(cr,doi);
     expect(online.value("authors_structured").toStringList().size()==2,"author list preserved");

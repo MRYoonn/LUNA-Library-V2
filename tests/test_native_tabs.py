@@ -36,6 +36,7 @@ class NativeTabsContract(unittest.TestCase):
             'createAnnotationFreeText(', 'QRubberBand::Rectangle',
             'LunaFreeTextFont', 'LunaFreeTextSize',
             'textBox_->setChecked(false)', 'PDFDocumentModifier modifier',
+            'isModificationAllowed()', 'c->getDocument() != originalDocument',
         ):
             self.assertIn(token, adapter, token)
         for token in (
@@ -43,6 +44,9 @@ class NativeTabsContract(unittest.TestCase):
             'highlighter duplicated a pre-existing marked region',
             'Reader phase: transparent on-page FreeText note',
             'FreeText note did not participate in native undo',
+            'Reader phase: FreeText save and reopen',
+            'persistedContentsFound',
+            'LUNA FreeText save/reopen changed native annotation counts',
         ):
             self.assertIn(token, smoke, token)
         self.assertIn('add("LunaHighlightSelected")', adapter)

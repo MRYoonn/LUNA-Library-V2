@@ -270,8 +270,8 @@ class NativeTabsContract(unittest.TestCase):
             'LunaEditPaperMemo', 'list->editItem(item);',
             'list->setEditTriggers(QAbstractItemView::NoEditTriggers)',
             'qMax(20, QFontMetrics(captionFont).height() + 3)',
-            'const QRect citationArea(content.left(), r.top() + 65, content.width(),',
-            'painter->drawText(citationArea, Qt::AlignLeft | Qt::AlignVCenter,',
+            'const QRect citeArea = citationRect(r);',
+            'painter->drawText(citeArea, Qt::AlignLeft | Qt::AlignVCenter,',
             'lastListedAuthor(', '저자 미확인',
         ):
             self.assertIn(token, source)
@@ -283,41 +283,51 @@ class NativeTabsContract(unittest.TestCase):
             self.assertNotIn(forbidden, source)
         self.assertIn('Removed tags or accidental paper memo edit triggers returned', source)
 
-    def test_single_column_horizontal_cards_are_not_a_two_column_grid(self):
+    def test_vertical_cards_stack_full_width_image_title_citation_memo(self):
         source = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
         stylesheet = (ROOT / 'src/lunalibrary.qss').read_text(encoding='utf-8')
         tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
         for token in (
-            'static constexpr int kCardHeight = 140',
+            'static constexpr int kCardHeight = 322',
             'list->setViewMode(QListView::ListMode);',
             'list->setFlow(QListView::TopToBottom);',
             'list->setWrapping(false);',
             'list->setSpacing(0);',
             'static QRect thumbnailRect(const QRect& r)',
-            'static QRect textRect(const QRect& r)',
-            'return QRect(content.left(), r.top() + 102, content.width(), 23);',
+            'static QRect titleRect(const QRect& r)',
+            'static QRect citationRect(const QRect& r)',
+            'static QRect memoRect(const QRect& r)',
+            'return QRect(content.left(), r.top() + 14, content.width(), 164);',
+            'return QRect(content.left(), r.top() + 190, content.width(), 45);',
+            'return QRect(content.left(), r.top() + 241, content.width(), 24);',
+            'return QRect(content.left(), r.top() + 280, content.width(), 26);',
             'titleFont.setWeight(QFont::Bold);',
             'for (int row = 0; row < 2; ++row)',
             'title.mid(line.textStart()).trimmed()',
-            'titleMetrics.elidedText(lineText, Qt::ElideRight, width)',
+            'titleMetrics.elidedText(visibleText, Qt::ElideRight, heading.width())',
             'luna::Bibliography::lastListedAuthor(',
-            'QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, citationArea.width())',
-            'painter->drawLine(content.left(), r.top() + 96, content.right(), r.top() + 96)',
+            'QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, citeArea.width())',
+            'painter->drawLine(content.left(), r.top() + 272, content.right(), r.top() + 272)',
             'readerIcon(QStringLiteral("memo-inline"))',
+            'const QRect favorite = favoriteRect(r);',
+            'QSize fitted = image.size().scaled(',  # source must preserve aspect
+            'QPainterPath clip;',
         ):
             self.assertIn(token, source, token)
-        for forbidden in ('setViewMode(QListView::IconMode)', 'setWrapping(true)',
-                          'setGridSize(', 'QGridLayout',):
-            # QGridLayout is used by the separate folder icon picker and is
-            # unrelated to the QListWidget document-card layout.
-            if forbidden == 'QGridLayout':
-                continue
+        for forbidden in (
+            'setViewMode(QListView::IconMode)',
+            'setWrapping(true)',
+            'return QRect(r.left() + 14, r.top() + 13, 96, 113);',
+            'const QRect content = textRect(r);',
+        ):
             self.assertNotIn(forbidden, source)
-        self.assertIn('card.height() == 140 && list->viewMode() == QListView::ListMode', tabs)
-        self.assertIn('card.top() + 113', tabs)
+        self.assertIn('card.height() == 322 && list->viewMode() == QListView::ListMode', tabs)
+        self.assertIn('card.top() + 293', tabs)
         self.assertIn('headingFont.setPixelSize(20)', source)
         self.assertIn('QLabel#LunaLibraryTitle { color:@NAVY@; font-family:"Malgun Gothic"; font-size:20px;', stylesheet)
         self.assertIn('brandFont.setPixelSize(20)', source)
+        self.assertIn('list->setEditTriggers(QAbstractItemView::NoEditTriggers)', source)
+        self.assertIn('list->editItem(item);', source)
 
     def test_horizontal_drag_ignores_rotated_watermark_in_native_selection(self):
         script = (ROOT / 'tools/apply_performance.py').read_text(encoding='utf-8')

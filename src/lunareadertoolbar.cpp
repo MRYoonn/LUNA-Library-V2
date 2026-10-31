@@ -5,6 +5,7 @@
 #include "pdfprogramcontroller.h"
 #include "pdfdrawwidget.h"
 #include "pdfdrawspacecontroller.h"
+#include "pdfcompiler.h"
 #include "pdfwidgetannotation.h"
 #include "pdfwidgettool.h"
 #include "pdftextlayout.h"

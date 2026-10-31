@@ -132,6 +132,9 @@ class NativeTabsContract(unittest.TestCase):
         ):
             self.assertIn(token, probe, token)
         self.assertNotIn('write_text(completed.stderr', probe)
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        self.assertIn('draw->setProperty("LunaOpenStart", performanceNow());', library)
+        self.assertIn('if (qEnvironmentVariableIsSet("LUNA_PERF")) {', library)
 
     def test_compact_tabs_and_blue_borderless_selection_contract(self):
         tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')

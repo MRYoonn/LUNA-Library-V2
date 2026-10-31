@@ -144,7 +144,11 @@ inline QString officialAbbreviation(const QString& journal, const QString& verif
 }
 inline QString normalizePages(QString pages) {
     pages = pages.simplified();
-    pages.replace(QRegularExpression(QStringLiteral(R"(\s*[-–—]\s*)")), QStringLiteral("–"));
+    // Use numeric Unicode code points: MSVC otherwise depends on the
+    // Windows active source-code page for the en/em dash literals.
+    static const QRegularExpression rangeDash(
+        QStringLiteral(R"(\s*[-\x{2013}\x{2014}]\s*)"));
+    pages.replace(rangeDash, QString(QChar(0x2013)));
     return pages;
 }
 inline bool articleNumberValid(const QString& value, const QString& doi) {

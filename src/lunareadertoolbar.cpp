@@ -390,6 +390,12 @@ private:
             const auto* annotation = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
             if (!annotation) continue;
             marked.addPath(annotation->getHiglightArea().getPath());
+            // Older PDFs may store only /Rect without /QuadPoints.
+            // Such highlights must still block a duplicate transparent layer.
+            if (annotation->getHiglightArea().getQuadrilaterals().empty()) {
+                const QRectF fallback = annotation->getHiglightArea().getPath().boundingRect();
+                if (fallback.isValid()) painted.append(fallback);
+            }
             for (const auto& quad : annotation->getHiglightArea().getQuadrilaterals()) {
                 QPolygonF polygon;
                 for (const auto& point : quad) polygon << point;
@@ -1309,6 +1315,17 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
     }
     if (controls != 3) return fail("Native page/zoom widget actions lost");
     for (const auto& name : allowed) if (!bar->actions().contains(window.findChild<QAction*>(name))) return fail("Essential reading action missing");
+    const auto toolbarOrder = bar->actions();
+    const int printIndex = toolbarOrder.indexOf(nativeAction(window, "actionPrint"));
+    if (printIndex < 0 || printIndex + 8 >= toolbarOrder.size() ||
+        !toolbarOrder[printIndex + 1]->isSeparator() ||
+        toolbarOrder[printIndex + 2] != nativeAction(window, "LunaEraseSelected") ||
+        toolbarOrder[printIndex + 3] != nativeAction(window, "LunaHighlightSelected"))
+        return fail("Print / eraser / highlight order regressed");
+    for (int i = 1; i <= 6; ++i)
+        if (toolbarOrder[printIndex + 3 + i] !=
+            window.findChild<QAction*>(QStringLiteral("LunaHighlightSwatch%1").arg(i)))
+            return fail("Inline highlight palette order regressed");
     for (auto* other : window.findChildren<QToolBar*>())
         if (other != bar && other->objectName() != QStringLiteral("LunaLibraryToolbar") && window.toolBarArea(other) != Qt::NoToolBarArea && other->isVisible()) return fail("Advanced toolbar unexpectedly visible");
     for (const char* name : {"actionSave_As","actionPageLayoutContinuous","actionPageLayoutSinglePage","actionPageLayoutTwoPages","actionCreateTextUnderline","actionBookmarkPage"})

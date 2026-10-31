@@ -58,7 +58,7 @@ class NativeTabsContract(unittest.TestCase):
             'Partly overlapping recolor failed to retain old and new colors',
             'Recolor lost unselected old color or stacked alpha on new color',
             'Recolor Undo changed original saved highlight color or QuadPoints',
-            'Old plus new text was not recolored to the selected marker',
+            'Expanded marker did not commit pink geometry beyond original green coverage',
             'Selection-first eraser did not preserve native undo',
             'Eraser did not arm native text selection',
             'Click-then-drag eraser did not remove previous highlight',

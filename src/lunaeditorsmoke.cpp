@@ -469,6 +469,29 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
             std::abs(components[2] - 164.0 / 255.0) < 0.02;
     }
     if (!greenWritten) return fail("Drag highlight color not written to native PDF annotation");
+    QRectF initialGreenBounds;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+        if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+        const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+        if (ann) initialGreenBounds = ann->getHiglightArea().getPath().boundingRect().normalized();
+    }
+    if (!initialGreenBounds.isValid()) return fail("Initial native highlight had no saved geometry");
+    auto originalGreenRestored = [&]() {
+        if (annotations(pdf::AnnotationType::Highlight) != 1) return false;
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+            if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+            const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+            if (!ann) return false;
+            const QRectF now = ann->getHiglightArea().getPath().boundingRect().normalized();
+            const auto rgb = ann->getColor();
+            return rgb.size() >= 3 && qAbs(rgb[1] - 230.0/255.0) < 0.02 &&
+                qAbs(now.left() - initialGreenBounds.left()) < 0.12 &&
+                qAbs(now.right() - initialGreenBounds.right()) < 0.12 &&
+                qAbs(now.top() - initialGreenBounds.top()) < 0.12 &&
+                qAbs(now.bottom() - initialGreenBounds.bottom()) < 0.12;
+        }
+        return false;
+    };
     // Same-color drag must not stack transparency.
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
@@ -514,8 +537,8 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!oldColorStillPresent || !pinkPresent || oldPath.intersects(newPath))
         return fail("Recolor lost unselected old color or stacked alpha on new color");
     action("actionUndo")->trigger();
-    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
-        return fail("Recolor did not undo atomically");
+    if (!waitFor(originalGreenRestored))
+        return fail("Recolor Undo changed original saved highlight color or QuadPoints");
     // Dragging existing and previously uncolored text must repaint the full
     // selected range in new color, not silently skip the overlap.
     const QPoint extendedEnd = selectedPage->pageToDeviceMatrix.map(
@@ -528,8 +551,8 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
         return fail("Old plus new text was not recolored to the selected marker");
     action("actionUndo")->trigger();
-    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
-        return fail("Expanded selected-range recolor did not undo");
+    if (!waitFor(originalGreenRestored))
+        return fail("Expanded recolor Undo changed original highlight geometry");
 
     // Escape returns to plain selection without auto-highlighting, so the
     // existing select-then-erase button remains available.
@@ -554,15 +577,8 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         return false;
     })) return fail("Eraser removed nonselected words from same highlight");
     action("actionUndo")->trigger();
-    if (!waitFor([&] {
-        if (annotations(pdf::AnnotationType::Highlight) != 1) return false;
-        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations)
-            if (item.annotation->getType() == pdf::AnnotationType::Highlight) {
-                const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
-                return ann && ann->getHiglightArea().getQuadrilaterals().size() == 1;
-            }
-        return false;
-    })) return fail("Partial eraser did not restore original quad on Undo");
+    if (!waitFor(originalGreenRestored))
+        return fail("Partial eraser Undo did not restore original QuadPoints and color");
     // Earlier recolor/Undo operations can leave an annotation spanning
     // MORE glyphs than the first 0..7 test drag. Selecting only those first
     // glyphs must preserve the uncovered suffix, not delete it. For the

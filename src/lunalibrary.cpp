@@ -2602,24 +2602,48 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     const QImage captured(thumbnail);
     const QSize expected = QRect(from, to).size() * draw->devicePixelRatioF();
     if (captured.isNull() || captured.size() != expected) return fail("Native crop PNG has wrong dimensions");
-    // A portable folder icon is a sibling file inside the synchronized
-    // folder, not a per-PC QSettings path or Windows Explorer desktop.ini.
+    // Verify all twenty approved SVG resources and portable metadata.
+    // A selection stores only iconId, and never writes into the PDF.
     QString iconError;
     const QString iconFolder = pdf.absolutePath();
-    const QString portableIcon = folderIconPath(iconFolder);
-    if (QFileInfo::exists(portableIcon)) return fail("Synthetic folder icon pre-existed");
-    if (!library->saveFolderIcon(iconFolder, thumbnail, &iconError)) {
-        error = QStringLiteral("Folder icon save failed: ") + iconError; return false;
-    }
-    const QImage iconImage(portableIcon);
+    const QString metadataPath = folderMetadataPath(iconFolder);
+    if (QFileInfo::exists(metadataPath)) return fail("Synthetic folder metadata pre-existed");
     const QModelIndex iconIndex = library->model_->index(iconFolder);
-    if (!QFileInfo::exists(portableIcon) || iconImage.isNull() ||
-        iconImage.width() > 192 || iconImage.height() > 192 ||
-        !iconIndex.isValid() ||
-        library->model_->data(iconIndex, Qt::DecorationRole).value<QIcon>().isNull())
-        return fail("Folder icon sidecar was not displayed from its folder");
-    if (!library->resetFolderIcon(iconFolder, &iconError) || QFileInfo::exists(portableIcon)) {
-        error = QStringLiteral("Folder icon reset did not preserve normal files: ") + iconError;
+    if (!iconIndex.isValid()) return fail("Synthetic folder icon index missing");
+    QString stableId;
+    for (const auto& preset : kFolderIconPresets) {
+        const QString expected = QString::fromLatin1(preset.id);
+        if (!library->saveFolderIcon(iconFolder, expected, &iconError)) {
+            error = QStringLiteral("Folder icon save failed: ") + iconError; return false;
+        }
+        const QJsonObject saved = readFolderMetadata(iconFolder);
+        if (saved.value(QStringLiteral("iconId")).toString() != expected ||
+            saved.value(QStringLiteral("schemaVersion")).toInt() != 1 ||
+            !saved.contains(QStringLiteral("isImportant")) ||
+            !saved.contains(QStringLiteral("updatedAt")) ||
+            !saved.contains(QStringLiteral("relativePath")) ||
+            QUuid(saved.value(QStringLiteral("folderId")).toString()).isNull())
+            return fail("Selected folder icon metadata corrupt or incomplete");
+        if (!stableId.isEmpty() && stableId != saved.value(QStringLiteral("folderId")).toString())
+            return fail("Folder UUID changed while switching icon preset");
+        stableId = saved.value(QStringLiteral("folderId")).toString();
+        const QIcon rendered = qvariant_cast<QIcon>(
+            library->model_->data(iconIndex, Qt::DecorationRole));
+        if (rendered.isNull() || rendered.pixmap(QSize(20,20)).isNull())
+            return fail("Approved SVG folder icon did not render at 20px");
+    }
+    // Simulate MYBOX delivering the same JSON to a differently rooted folder.
+    // No absolute icon path should be needed on the second machine.
+    const QString secondFolder = QDir(iconFolder).filePath(QStringLiteral("Synthetic examples"));
+    const QString secondMetadata = folderMetadataPath(secondFolder);
+    if (QFileInfo::exists(secondMetadata) || !QFile::copy(metadataPath, secondMetadata) ||
+        folderIconId(secondFolder) != QStringLiteral("temporary"))
+        return fail("Synced folder metadata did not resolve iconId on another path");
+    if (!QFile::remove(secondMetadata)) return fail("Could not clean synthetic MYBOX fixture");
+    if (!library->resetFolderIcon(iconFolder, &iconError) ||
+        folderIconId(iconFolder) != QStringLiteral("general") ||
+        readFolderMetadata(iconFolder).value(QStringLiteral("folderId")).toString() != stableId) {
+        error = QStringLiteral("Folder icon reset corrupted metadata: ") + iconError;
         return false;
     }
     if (!QFileInfo::exists(thumbnail) || !QFileInfo::exists(path))

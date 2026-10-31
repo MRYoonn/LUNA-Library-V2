@@ -347,6 +347,20 @@ class NativeTabsContract(unittest.TestCase):
         self.assertNotIn('MYBOX_TOKEN', library)
         ast.parse(overlay)
 
+    def test_native_tabs_memo_requires_context_menu_not_left_click(self):
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        self.assertIn('phase("context-only memo, search and paired move")', tabs)
+        self.assertIn('Accidental left click opened memo editor', tabs)
+        self.assertIn('openContextMemo()', tabs)
+        self.assertIn('LunaEditPaperMemo', tabs)
+        self.assertIn('integrationClick(host, list->viewport(), memoLocation, true)', tabs)
+        self.assertNotIn('Inline memo editor did not focus', tabs)
+        self.assertNotIn('Memo edit mouse input failed', tabs)
+        self.assertIn('menu.addAction(QStringLiteral("메모 편집…"))', library)
+        self.assertIn('list->setEditTriggers(QAbstractItemView::NoEditTriggers)', library)
+        self.assertIn('list->editItem(item);', library)
+
     def test_1000_pdf_incremental_scanner_is_bounded_and_diagnostic(self):
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
         start = library.index('    void scanBatch(bool all) {')

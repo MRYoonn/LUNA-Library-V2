@@ -1169,16 +1169,43 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             }), "Second Ctrl+W closed LUNA or damaged A");
             result["ctrlWClosesOnlyActiveTabAndPreservesWindow"] = true;
             result["rootShortcutsSearchSaveAsAndSurvivor"] = true;
-            phase("inline memo, search and paired move");
+            phase("context-only memo, search and paired move");
             integrationRequire(integrationWait([&] { list = integrationList(host, files[0], &paper); return list && paper; }), "A paper card missing before memo"); list->scrollToItem(paper);
             const QRect card = list->visualItemRect(paper);
             integrationRequire(card.height() == 96, "Paper card height differs from the compact design");
-            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 160, card.top() + 81}), "Real memo mouse input failed");
-            QLineEdit* edit = nullptr; integrationRequire(integrationWait([&] { edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")); return edit && edit->hasFocus(); }), "Inline memo editor did not focus");
+            const QPoint memoLocation(card.left() + 160, card.top() + 81);
+            // Regression gate: plain left-click MUST NOT enter memo editing.
+            integrationRequire(integrationClick(host, list->viewport(), memoLocation), "Real memo selection mouse input failed");
+            integrationRequire(integrationWait([&] { return !list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")); }, 500), "Accidental left click opened memo editor");
+            QLineEdit* edit = nullptr;
+            auto openContextMemo = [&] {
+                bool chosen = false;
+                QTimer menuPicker;
+                QObject::connect(&menuPicker, &QTimer::timeout, &host, [&] {
+                    if (chosen) return;
+                    auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+                    if (!menu) return;
+                    for (auto* action : menu->actions()) {
+                        if (action->objectName() != QStringLiteral("LunaEditPaperMemo")) continue;
+                        chosen = true;
+                        menu->setActiveAction(action);
+                        integrationKey(VK_RETURN);
+                        break;
+                    }
+                });
+                menuPicker.start(25);
+                const bool clicked = integrationClick(host, list->viewport(), memoLocation, true);
+                const bool focused = clicked && integrationWait([&] {
+                    edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor"));
+                    return chosen && edit && edit->hasFocus();
+                });
+                menuPicker.stop();
+                return focused;
+            };
+            integrationRequire(openContextMemo(), "Right-click paper memo context menu did not focus editor");
             integrationRequire(integrationType(QStringLiteral("초기 메모")) && integrationKey(VK_RETURN), "Real memo typing/Enter failed");
             integrationRequire(integrationWait([&] { return paper->data(Qt::UserRole + 4).toString() == QStringLiteral("초기 메모"); }), "Memo Enter did not persist");
-            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 160, card.top() + 81}), "Memo edit mouse input failed");
-            integrationRequire(integrationWait([&] { edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")); return edit && edit->hasFocus(); }), "Memo edit did not reopen");
+            integrationRequire(openContextMemo(), "Right-click memo edit did not reopen");
             integrationRequire(integrationKey('A', true) && integrationType(memo), "Memo replacement input failed");
             auto* query = host.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch")); integrationRequire(integrationClick(host, query, query->rect().center()), "Memo focus-out click failed");
             integrationRequire(integrationWait([&] { return paper->data(Qt::UserRole + 4).toString() == memo; }) && paper->toolTip().contains(memo), "Memo focus-out did not save with full tooltip");

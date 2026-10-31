@@ -75,6 +75,11 @@ class NativeFileManagementContracts(unittest.TestCase):
         self.assertLess(reload, reselect)
         self.assertLess(reselect, trigger)
         self.assertIn('settings.value(QStringLiteral("library/favorites")).toStringList().contains(path)', UI[trigger:trigger + 360])
+        recent_reload = UI.index('Recent-to-folder navigation did not restore the PDF row', trigger)
+        recent_reselect = UI.index('item = list->item(0);', recent_reload)
+        next_probe = UI.index('const QList<QPair<QString, QWidget*>> toggles', recent_reselect)
+        self.assertLess(recent_reload, recent_reselect)
+        self.assertLess(recent_reselect, next_probe)
 
     def test_one_item_per_real_path_and_no_secondary_hover_popup(self):
         self.assertIn("QSet<QString> allSeen_", UI)

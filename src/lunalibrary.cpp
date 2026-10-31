@@ -675,20 +675,24 @@ public:
         query_->setClearButtonEnabled(true);
         query_->setMinimumHeight(36);
         nav->addWidget(query_);
-        auto* mode = new QTabBar(heading);
-        mode->setObjectName(QStringLiteral("LunaContentModes"));
-        mode->addTab(QStringLiteral("논문 목록"));
-        mode->addTab(QStringLiteral("페이지 보기"));
-        mode->setExpanding(true);
-        mode->setFixedHeight(45);
+        // Reading-first layout: the rarely used page thumbnails belong in
+        // View, not in a second 45-pixel tab row above every paper list.
         docs->addWidget(heading);
-        docs->addWidget(mode);
         pages_ = new QStackedWidget(documents_);
         pages_->setObjectName(QStringLiteral("LunaDocumentPages"));
         auto* content = new QStackedWidget(documents_);
         content->setObjectName(QStringLiteral("LunaContentStack"));
         content->addWidget(pages_);
         docs->addWidget(content, 1);
+        pagePreviewAction_ = new QAction(QStringLiteral("페이지 미리보기"), this);
+        pagePreviewAction_->setObjectName(QStringLiteral("LunaPagePreview"));
+        pagePreviewAction_->setCheckable(true);
+        pagePreviewAction_->setChecked(false);
+        pagePreviewAction_->setToolTip(QStringLiteral("필요할 때만 페이지 썸네일을 표시합니다"));
+        connect(pagePreviewAction_, &QAction::toggled, content,
+            [content](bool enabled) { content->setCurrentIndex(enabled ? 1 : 0); });
+        if (auto* viewMenu = viewer_->findChild<QMenu*>(QStringLiteral("menuView")))
+            viewMenu->addAction(pagePreviewAction_);
         if (auto* native = viewer_->findChild<QListView*>(QStringLiteral("thumbnailsListView"))) {
             QPointer<pdf::PDFThumbnailsItemModel> thumbnails(qobject_cast<pdf::PDFThumbnailsItemModel*>(native->model()));
             auto* grid = new PageGrid(*native, [this](int size) {
@@ -699,10 +703,9 @@ public:
             connect(grid, &QListView::clicked, this, [this](const QModelIndex& index) {
                 if (index.isValid()) viewer_->getProgramController()->getPdfWidget()->getDrawWidgetProxy()->goToPage(index.row());
             });
-            connect(mode, &QTabBar::currentChanged, content, &QStackedWidget::setCurrentIndex);
         } else {
-            mode->setTabEnabled(1, false);
-            mode->setTabToolTip(1, QStringLiteral("PDF4QT 페이지 미리보기 모델을 사용할 수 없습니다."));
+            pagePreviewAction_->setEnabled(false);
+            pagePreviewAction_->setToolTip(QStringLiteral("PDF4QT 페이지 미리보기 모델을 사용할 수 없습니다."));
         }
         auto page = [this](QListWidget*& list, QLabel*& count) {
             auto* p = new QWidget(pages_);
@@ -793,6 +796,9 @@ public:
         hideThumbnail();
         disconnect(documentTitleConnection_); disconnect(cropConnection_);
         viewer_ = &editor;
+        if (auto* viewMenu = editor.findChild<QMenu*>(QStringLiteral("menuView")); viewMenu &&
+            pagePreviewAction_ && !viewMenu->actions().contains(pagePreviewAction_))
+            viewMenu->addAction(pagePreviewAction_);
         if (auto* grid = static_cast<PageGrid*>(findChild<QListView*>(QStringLiteral("LunaPageGrid"))))
             if (auto* native = editor.findChild<QListView*>(QStringLiteral("thumbnailsListView"))) grid->bindNative(*native);
         auto* select = editor.findChild<QAction*>(QStringLiteral("actionSelectText"));
@@ -1691,6 +1697,7 @@ private:
     QHash<QString, QTimer*> delayedCitations_;
     QSet<QString> pendingCitationExtracts_;
     QAction* cropAction_ = nullptr;
+    QAction* pagePreviewAction_ = nullptr;
     QMetaObject::Connection documentTitleConnection_, cropConnection_;
     QSplitter* split_ = nullptr;
     QWidget* navigation_ = nullptr;

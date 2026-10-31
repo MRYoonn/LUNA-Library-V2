@@ -1053,7 +1053,7 @@ public:
         add("actionZoom_Out"); bar_->addAction(zoomAction_); add("actionZoom_In"); bar_->addAction(separators_[2]);
         add("actionSelectText"); add("LunaFreeTextBox"); add("LunaCropThumbnail");
         bar_->addAction(separators_[3]); add("actionFind"); add("actionPrint");
-        bar_->addAction(separators_[0]); // Print | Eraser | Highlight | 8 colors
+        bar_->addAction(separators_[4]); // Print | Eraser | Highlight | 8 colors
         add("LunaEraseSelected"); add("LunaHighlightSelected");
         for (int i = 1; i <= 8; ++i) {
             const QByteArray name = QStringLiteral("LunaHighlightSwatch%1").arg(i).toLatin1();
@@ -1105,7 +1105,7 @@ private:
     QSpinBox* page_ = nullptr;
     QComboBox* zoom_ = nullptr;
     QWidgetAction *pageAction_ = nullptr, *zoomAction_ = nullptr;
-    QAction* separators_[4]{};
+    QAction* separators_[5]{};
     QTimer poll_;
 };
 }
@@ -1172,9 +1172,9 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
     if (auto* nativeDelete = nativeAction(window, "actionDeleteAnnotation"))
         nativeDelete->setToolTip(QStringLiteral("기타 주석을 직접 클릭해 삭제합니다. 형광펜은 선택형 지우개를 사용하세요."));
     bar.addSeparator();
+    add("LunaCropThumbnail", "crop", QStringLiteral("논문 목록 썸네일 크롭"), QStringLiteral("PDF 화면에서 영역을 선택해 논문 목록 썸네일 PNG로 저장"));
     add("actionFind", "search", QStringLiteral("본문 검색"), QStringLiteral("PDF 본문 검색 (Ctrl+F)"));
     add("actionPrint", "print", QStringLiteral("인쇄"), QStringLiteral("PDF 인쇄 (Ctrl+P)"));
-    add("LunaCropThumbnail", "crop", QStringLiteral("논문 목록 썸네일 크롭"), QStringLiteral("PDF 화면에서 영역을 선택해 논문 목록 썸네일 PNG로 저장"));
     bar.setMovable(false); bar.setFloatable(false); bar.setOrientation(Qt::Horizontal);
     bar.setToolButtonStyle(Qt::ToolButtonIconOnly); bar.setIconSize(QSize(20,20));
     bar.setFont(QFont(QStringLiteral("Segoe UI"), 10));

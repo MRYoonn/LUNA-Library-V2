@@ -3443,13 +3443,39 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     auto* recentButton = window.findChild<QPushButton*>(QStringLiteral("LunaRecentDocumentsButton"));
     auto* folderButton = window.findChild<QPushButton*>(QStringLiteral("LunaFolderDocumentsButton"));
     if (!favoritesButton || !recentButton || !folderButton) return fail("Navigation buttons missing");
+    auto wait = [](const std::function<bool()>& ready, int timeoutMs = 5000) {
+        if (ready()) return true;
+        QEventLoop loop;
+        QTimer poll, timeout;
+        bool success = false;
+        QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
+            // Process deletions posted at this nested loop level. Operations
+            // under test must be dispatched inside this loop, not its caller.
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            if (ready()) { success = true; loop.quit(); }
+        });
+        QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+        poll.start(20); timeout.setSingleShot(true); timeout.start(timeoutMs); loop.exec();
+        return success;
+    };
     favoritesButton->click();
     auto* history = pages->currentWidget()->findChild<QListWidget*>();
     if (!history || history->count() != 1 || history->item(0)->data(Qt::UserRole).toString() != path)
         return fail("Favorite navigation did not use real saved data");
     folderButton->click();
+    // selectFolder() clears its QListWidgetItem objects and repopulates
+    // asynchronously. The old 'item' pointer is invalid after navigation,
+    // and Ctrl+D must be triggered on a freshly selected real card.
+    if (!wait([&] { return list->count() == 1 &&
+        list->item(0)->data(Qt::UserRole).toString() == path; }))
+        return fail("Folder navigation did not restore the actual PDF row");
+    item = list->item(0);
+    list->setCurrentItem(item);
     favorite->trigger();
-    if (item->data(Qt::UserRole + 2).toBool()) return fail("Favorite removal failed");
+    settings.sync();
+    if (item->data(Qt::UserRole + 2).toBool() ||
+        settings.value(QStringLiteral("library/favorites")).toStringList().contains(path))
+        return fail("Favorite removal failed");
     recentButton->click();
     history = pages->currentWidget()->findChild<QListWidget*>();
     if (!history || history->count() != 1 || history->item(0)->data(Qt::UserRole).toString() != path)
@@ -3485,21 +3511,6 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     // synthetic library. Nothing here reads or modifies a user's library.
     auto* library = dynamic_cast<LibraryPanel*>(dock->widget());
     if (!library) return fail("Library panel type missing");
-    auto wait = [](const std::function<bool()>& ready, int timeoutMs = 5000) {
-        if (ready()) return true;
-        QEventLoop loop;
-        QTimer poll, timeout;
-        bool success = false;
-        QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
-            // Process deletions posted at this nested loop level. Operations
-            // under test must be dispatched inside this loop, not its caller.
-            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-            if (ready()) { success = true; loop.quit(); }
-        });
-        QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
-        poll.start(20); timeout.setSingleShot(true); timeout.start(timeoutMs); loop.exec();
-        return success;
-    };
     if (!wait([&] { return window.isEnabled() && window.getProgramController()->canClose(); }))
         return fail("Reader busy before crop verification");
     auto* preview = window.findChild<QAction*>(QStringLiteral("LunaPagePreview"));

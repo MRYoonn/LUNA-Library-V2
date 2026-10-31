@@ -74,6 +74,9 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('Reader phase: persistent four-color highlight palette', smoke)
         self.assertIn('LUNA highlight palette failed to persist chosen colors', smoke)
         self.assertIn('annotations/highlightColor', adapter)
+        self.assertIn('void reloadHighlightColor()', adapter)
+        self.assertIn('reloadHighlightColor(); // Other native tabs may have changed', adapter)
+        self.assertIn('reloadHighlightColor();\n        auto* proxy', adapter)
         self.assertNotIn('add("LunaHighlightColor")', adapter)
 
     def test_compact_tabs_and_blue_borderless_selection_contract(self):

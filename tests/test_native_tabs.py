@@ -55,6 +55,10 @@ class NativeTabsContract(unittest.TestCase):
             'LUNA FreeText save/reopen changed native annotation counts',
             'Reader phase: FreeText double-click edit',
             'LUNA FreeText double-click edit did not update the annotation',
+            'visiblePageRect = visiblePage->rect.intersected(QRectF(widget->rect()))',
+            'getPageUnderPoint(boxStart, &localBoxStart)',
+            'getPageUnderPoint(boxEnd, &localBoxEnd)',
+            'LUNA FreeText edit target offscreen: actual=',
         ):
             self.assertIn(token, smoke, token)
         self.assertIn('add("LunaHighlightSelected")', adapter)

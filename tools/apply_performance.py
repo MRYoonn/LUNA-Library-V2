@@ -63,6 +63,113 @@ def apply(root):
 void PDFDrawWidget::resizeEvent'''),
     ])
 
+    # The pinned PDF4QT text selector draws each independent PDF text run as
+    # a separate blue rectangle. Scientific PDFs split one *visual* sentence
+    # into many runs, exposing gaps even where the drag selected every word.
+    # Paint adjoining runs as one contiguous on-screen band. Text extraction,
+    # selection endpoints and stored annotations remain unchanged.
+    import hashlib
+    selection_path = root / 'Pdf4QtLibCore/sources/pdftextlayout.cpp'
+    raw = selection_path.read_bytes()
+    normalized = raw.replace(b'\r\n', b'\n')
+    blob = hashlib.sha1(b'blob ' + str(len(normalized)).encode() + b'\0' + normalized).hexdigest()
+    if blob != 'a50aeb3ca241f41bd54c4d9d49bd5682f1bed2b8':
+        raise ValueError('Unrecognized pinned PDFTextLayout source; refuse selection display patch')
+    source = normalized.decode('utf-8')
+    begin = source.index('void PDFTextSelectionPainter::draw(')
+    finish = source.index('QPainterPath PDFTextSelectionPainter::prepareGeometry(', begin)
+    old = source[begin:finish]
+    if old.count('painter->drawPath(path);') != 1 or old.count('block.getCharacterRangeBoundingPath') != 1:
+        raise ValueError('PDFTextSelectionPainter draw anchor mismatch')
+    painted = r'''void PDFTextSelectionPainter::draw(QPainter* painter,
+                                   PDFInteger pageIndex,
+                                   PDFTextLayoutGetter& textLayoutGetter,
+                                   const QTransform& matrix,
+                                   const PDFColorConvertor& convertor)
+{
+    Q_ASSERT(painter);
+    auto it = m_selection->begin(pageIndex);
+    const auto itEnd = m_selection->end(pageIndex);
+    if (it == itEnd) return;
+    painter->save();
+
+    struct LunaSelectionBand { QRectF rect; QColor color; };
+    QList<LunaSelectionBand> fragments;
+    const PDFTextLayout& layout = textLayoutGetter;
+    const PDFTextBlocks& blocks = layout.getTextBlocks();
+    for (; it != itEnd; ++it)
+    {
+        const PDFTextSelectionColoredItem& item = *it;
+        const PDFCharacterPointer& start = item.start;
+        const PDFCharacterPointer& end = item.end;
+        if (start.blockIndex >= blocks.size() || start.pageIndex != end.pageIndex ||
+            start.blockIndex != end.blockIndex) continue;
+        const PDFTextBlock& block = blocks[start.blockIndex];
+        const QPainterPath path =
+            block.getCharacterRangeBoundingPath(start, end, matrix, HEIGHT_INCREASE_FACTOR);
+        // Rotated/scaled PDF page matrices and rotated text keep their exact
+        // upstream shape, avoiding false bands through tables and figures.
+        if (qAbs(block.getAngle()) > 0.5 || qAbs(matrix.m12()) > 0.001 ||
+            qAbs(matrix.m21()) > 0.001)
+        {
+            QColor brush = item.color;
+            brush.setAlphaF(SELECTION_ALPHA);
+            painter->setPen(convertor.convert(QPen(item.color.darker())));
+            painter->setBrush(convertor.convert(QBrush(brush, Qt::SolidPattern)));
+            painter->drawPath(path);
+            continue;
+        }
+        for (const QPolygonF& polygon : path.toSubpathPolygons())
+        {
+            const QRectF rect = polygon.boundingRect().normalized();
+            if (rect.isValid() && rect.width() > 0.25 && rect.height() > 0.25)
+                fragments.append({rect, item.color});
+        }
+    }
+    std::sort(fragments.begin(), fragments.end(), [](const LunaSelectionBand& a, const LunaSelectionBand& b) {
+        if (a.color.rgba() != b.color.rgba()) return a.color.rgba() < b.color.rgba();
+        if (qAbs(a.rect.center().y() - b.rect.center().y()) > 0.8)
+            return a.rect.center().y() < b.rect.center().y();
+        return a.rect.left() < b.rect.left();
+    });
+    QList<LunaSelectionBand> bands;
+    for (const auto& fragment : fragments)
+    {
+        bool joined = false;
+        for (auto& previous : bands)
+        {
+            const qreal h = qMin(previous.rect.height(), fragment.rect.height());
+            const qreal gap = qMax(0.0, qMax(previous.rect.left(), fragment.rect.left()) -
+                qMin(previous.rect.right(), fragment.rect.right()));
+            // Bridge ordinary inter-word gaps, never the much larger gutter
+            // between two PDF columns or neighboring text rows.
+            if (previous.color == fragment.color &&
+                qAbs(previous.rect.center().y() - fragment.rect.center().y()) <= h * 0.28 &&
+                qAbs(previous.rect.height() - fragment.rect.height()) <= h * 0.4 &&
+                gap <= qMin(48.0, 2.1 * h))
+            {
+                previous.rect = previous.rect.united(fragment.rect);
+                joined = true;
+                break;
+            }
+        }
+        if (!joined) bands.append(fragment);
+    }
+    painter->setPen(Qt::NoPen);
+    for (const auto& band : bands)
+    {
+        QColor brush = band.color;
+        brush.setAlphaF(SELECTION_ALPHA);
+        painter->setBrush(convertor.convert(QBrush(brush, Qt::SolidPattern)));
+        painter->drawRect(band.rect);
+    }
+    painter->restore();
+}
+
+'''
+    selection_path.write_bytes(source[:begin].encode('utf-8') +
+        painted.encode('utf-8') + source[finish:].encode('utf-8'))
+
 
 if __name__ == '__main__':
     apply(Path(sys.argv[1]))

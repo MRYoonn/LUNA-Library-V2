@@ -1236,9 +1236,9 @@ public:
         add("actionZoom_Out"); bar_->addAction(zoomAction_); add("actionZoom_In"); bar_->addAction(separators_[2]);
         add("actionSelectText"); add("LunaFreeTextBox"); add("LunaCropThumbnail");
         bar_->addAction(separators_[3]); add("actionFind"); add("actionPrint");
-        bar_->addAction(separators_[4]); // Print | Eraser | Highlight | 8 colors
-        add("LunaEraseSelected"); add("LunaHighlightSelected");
-        for (int i = 1; i <= 6; ++i) {
+        bar_->addAction(separators_[4]); // Print | Eraser | 8 marker colors
+        add("LunaEraseSelected");
+        for (int i = 1; i <= 8; ++i) {
             const QByteArray name = QStringLiteral("LunaHighlightSwatch%1").arg(i).toLatin1();
             add(name.constData());
         }
@@ -1383,8 +1383,7 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
         bar.insertAction(nativeAction(window, "actionFind"), note);
     bar.addSeparator();
     if (auto* erase = window.findChild<QAction*>(QStringLiteral("LunaEraseSelected"))) bar.addAction(erase);
-    if (auto* hl = window.findChild<QAction*>(QStringLiteral("LunaHighlightSelected"))) bar.addAction(hl);
-    for (int i = 1; i <= 6; ++i) {
+    for (int i = 1; i <= 8; ++i) {
         if (auto* swatch = window.findChild<QAction*>(QStringLiteral("LunaHighlightSwatch%1").arg(i)))
             bar.addAction(swatch);
     }
@@ -1395,7 +1394,7 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
     auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
     auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
     if (!bar || !bar->isVisible() || bar->orientation() != Qt::Horizontal) return fail("Reading toolbar missing");
-    const QStringList allowed = {"LunaCropThumbnail", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "LunaHighlightSelected", "LunaFreeTextBox", "LunaEraseSelected", "actionFind", "actionPrint", "LunaHighlightSwatch1", "LunaHighlightSwatch2", "LunaHighlightSwatch3", "LunaHighlightSwatch4", "LunaHighlightSwatch5", "LunaHighlightSwatch6"};
+    const QStringList allowed = {"LunaCropThumbnail", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "LunaFreeTextBox", "LunaEraseSelected", "actionFind", "actionPrint", "LunaHighlightSwatch1", "LunaHighlightSwatch2", "LunaHighlightSwatch3", "LunaHighlightSwatch4", "LunaHighlightSwatch5", "LunaHighlightSwatch6", "LunaHighlightSwatch7", "LunaHighlightSwatch8"};
     int controls = 0;
     for (auto* action : bar->actions()) {
         if (action->isSeparator()) continue;
@@ -1410,13 +1409,13 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
     for (const auto& name : allowed) if (!bar->actions().contains(window.findChild<QAction*>(name))) return fail("Essential reading action missing");
     const auto toolbarOrder = bar->actions();
     const int printIndex = toolbarOrder.indexOf(nativeAction(window, "actionPrint"));
-    if (printIndex < 0 || printIndex + 9 >= toolbarOrder.size() ||
+    if (printIndex < 0 || printIndex + 10 >= toolbarOrder.size() ||
         !toolbarOrder[printIndex + 1]->isSeparator() ||
         toolbarOrder[printIndex + 2] != nativeAction(window, "LunaEraseSelected") ||
-        toolbarOrder[printIndex + 3] != nativeAction(window, "LunaHighlightSelected"))
-        return fail("Print / eraser / highlight order regressed");
-    for (int i = 1; i <= 6; ++i)
-        if (toolbarOrder[printIndex + 3 + i] !=
+        toolbarOrder[printIndex + 3] != window.findChild<QAction*>(QStringLiteral("LunaHighlightSwatch1")))
+        return fail("Print / eraser / colored marker order regressed");
+    for (int i = 1; i <= 8; ++i)
+        if (toolbarOrder[printIndex + 2 + i] !=
             window.findChild<QAction*>(QStringLiteral("LunaHighlightSwatch%1").arg(i)))
             return fail("Inline highlight palette order regressed");
     for (auto* other : window.findChildren<QToolBar*>())

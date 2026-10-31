@@ -120,8 +120,39 @@ public:
             color_ = next;
             QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexRgb));
         });
-        if (auto* menu = window_.findChild<QMenu*>(QStringLiteral("menuTools")))
-            menu->addAction(chooseColor_);
+        // Keep the toolbar compact while making the four reading colors
+        // available without repeatedly opening the system QColorDialog.
+        auto* toolsMenu = window_.findChild<QMenu*>(QStringLiteral("menuTools"));
+        if (!toolsMenu && window_.menuBar()) {
+            toolsMenu = window_.menuBar()->addMenu(QStringLiteral("LUNA 도구"));
+            toolsMenu->setObjectName(QStringLiteral("LunaToolsMenu"));
+        }
+        if (toolsMenu) {
+            auto* palette = toolsMenu->addMenu(QStringLiteral("형광펜 색상"));
+            palette->setObjectName(QStringLiteral("LunaHighlightPalette"));
+            struct Preset { const char* label; const char* color; };
+            constexpr Preset presets[] = {
+                {"노란색", "#FFE049"}, {"초록색", "#A3E6A4"},
+                {"분홍색", "#FFB3CF"}, {"파란색", "#9FCAFF"}
+            };
+            for (const auto& preset : presets) {
+                auto* choice = palette->addAction(QString::fromUtf8(preset.label));
+                choice->setCheckable(true);
+                choice->setData(QString::fromLatin1(preset.color));
+                connect(choice, &QAction::triggered, this, [this, choice] {
+                    color_ = QColor(choice->data().toString());
+                    QSettings().setValue(QStringLiteral("annotations/highlightColor"),
+                        color_.name(QColor::HexRgb));
+                });
+            }
+            connect(palette, &QMenu::aboutToShow, this, [this, palette] {
+                for (auto* choice : palette->actions())
+                    if (choice->isCheckable())
+                        choice->setChecked(QColor(choice->data().toString()) == color_);
+            });
+            palette->addSeparator();
+            palette->addAction(chooseColor_);
+        }
         connect(highlight_, &QAction::triggered, this, [this] { applyHighlight(); });
         // A PDF FreeText annotation is a true on-page text box rather than a
         // sticky-note icon. PDF4QT's modifier owns its save/undo machinery.

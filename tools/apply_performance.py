@@ -76,6 +76,44 @@ void PDFDrawWidget::resizeEvent'''),
     if blob != 'a50aeb3ca241f41bd54c4d9d49bd5682f1bed2b8':
         raise ValueError('Unrecognized pinned PDFTextLayout source; refuse selection display patch')
     source = normalized.decode('utf-8')
+    # PDF4QT's rectangle selection considers every rotated block separately.
+    # On journal proofs, a diagonal ARTICLE IN PRESS watermark intersects
+    # horizontal paragraphs and is unintentionally selected/copied as text.
+    # Prefer horizontal text only WHEN the drag also hits a horizontal block;
+    # keep legitimate rotated-only selections available.
+    selector_anchor = '    size_t blockId = 0;\\n    for (PDFTextBlock& block : m_blocks)\\n    {'
+    selector_anchor = selector_anchor.replace('\\n', '\n')
+    if source.count(selector_anchor) != 1:
+        raise ValueError('Native PDFTextLayout::createTextSelection anchor mismatch')
+    select_start = source.index('PDFTextLayout::createTextSelection(')
+    select_end = source.index('PDFTextLayout::selectBlock(', select_start)
+    selector = source[select_start:select_end]
+    if selector.count(selector_anchor) != 1 or selector.count('        QTransform angleMatrix;') != 1:
+        raise ValueError('Native PDF selection block traversal changed')
+    selector = selector.replace(selector_anchor, '''    const QRectF dragRegion = QRectF(point1, point2).normalized()
+        .adjusted(-0.75, -0.75, 0.75, 0.75);
+    bool dragIntersectsHorizontalText = false;
+    for (const PDFTextBlock& candidate : m_blocks)
+    {
+        if (qAbs(candidate.getAngle()) <= 2.0 &&
+            candidate.getBoundingBox().boundingRect().intersects(dragRegion))
+        {
+            dragIntersectsHorizontalText = true;
+            break;
+        }
+    }
+    size_t blockId = 0;
+    for (PDFTextBlock& block : m_blocks)
+    {
+        // Keep the block index stable: selection pointers use layout block IDs.
+        // Ignore rotated watermark text ONLY for a drag containing real
+        // horizontal text. Rotated-only selection remains supported.
+        if (dragIntersectsHorizontalText && qAbs(block.getAngle()) > 2.0)
+        {
+            ++blockId;
+            continue;
+        }''', 1)
+    source = source[:select_start] + selector + source[select_end:]
     if source.count('#include <limits>') != 1:
         raise ValueError('PDFTextLayout standard-header anchor mismatch')
     source = source.replace('#include <limits>', '#include <algorithm>\n#include <limits>', 1)

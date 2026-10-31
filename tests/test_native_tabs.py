@@ -317,7 +317,7 @@ class NativeTabsContract(unittest.TestCase):
             self.assertIn(token, library, token)
         self.assertIn('MYBOX', guide)
         self.assertIn('LUNA.folder-icon.png', guide)
-        self.assertNotIn('desktop.ini', library)
+        self.assertNotIn('IconResource=', library)
         self.assertNotIn('MYBOX_TOKEN', library)
 
     def test_1000_pdf_incremental_scanner_is_bounded_and_diagnostic(self):

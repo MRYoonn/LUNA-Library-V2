@@ -3483,6 +3483,12 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (history->item(0)->data(Qt::UserRole + 3).toString() != QDate::currentDate().toString(QStringLiteral("yy.MM.dd.")))
         return fail("Successful open did not record the actual local-calendar date");
     folderButton->click();
+    // The Recent -> Folder transition also rebuilds the list. Never reuse
+    // a stale QListWidgetItem for the subsequent memo and crop checks.
+    if (!wait([&] { return list->count() == 1 &&
+        list->item(0)->data(Qt::UserRole).toString() == path; }))
+        return fail("Recent-to-folder navigation did not restore the PDF row");
+    item = list->item(0);
     const QList<QPair<QString, QWidget*>> toggles = {
         {QStringLiteral("LunaToggleNavigation"), navigation}, {QStringLiteral("LunaToggleDocuments"), documents},
         {QStringLiteral("LunaFocusMode"), dock}

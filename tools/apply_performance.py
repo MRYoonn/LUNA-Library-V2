@@ -131,7 +131,7 @@ void PDFDrawWidget::resizeEvent'''),
     }
     std::sort(fragments.begin(), fragments.end(), [](const LunaSelectionBand& a, const LunaSelectionBand& b) {
         if (a.color.rgba() != b.color.rgba()) return a.color.rgba() < b.color.rgba();
-        if (qAbs(a.rect.center().y() - b.rect.center().y()) > 0.8)
+        if (a.rect.center().y() != b.rect.center().y())
             return a.rect.center().y() < b.rect.center().y();
         return a.rect.left() < b.rect.left();
     });

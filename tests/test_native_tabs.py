@@ -49,6 +49,8 @@ class NativeTabsContract(unittest.TestCase):
             'Reader phase: FreeText save and reopen',
             'persistedContentsFound',
             'LUNA FreeText save/reopen changed native annotation counts',
+            'Reader phase: FreeText double-click edit',
+            'LUNA FreeText double-click edit did not update the annotation',
         ):
             self.assertIn(token, smoke, token)
         self.assertIn('add("LunaHighlightSelected")', adapter)

@@ -1176,7 +1176,10 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             const QPoint memoLocation(card.left() + 160, card.top() + 81);
             // Regression gate: plain left-click MUST NOT enter memo editing.
             integrationRequire(integrationClick(host, list->viewport(), memoLocation), "Real memo selection mouse input failed");
-            integrationRequire(integrationWait([&] { return !list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")); }, 500), "Accidental left click opened memo editor");
+            QElapsedTimer noAccidentalEdit; noAccidentalEdit.start();
+            integrationRequire(integrationWait([&] { return noAccidentalEdit.elapsed() >= 250; }, 1000) &&
+                !list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")),
+                "Accidental left click opened memo editor");
             QLineEdit* edit = nullptr;
             auto openContextMemo = [&] {
                 bool chosen = false;

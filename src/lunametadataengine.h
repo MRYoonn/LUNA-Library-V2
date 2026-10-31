@@ -169,8 +169,15 @@ inline QString labCitation(const QVariantMap& paper) {
     if (author.isEmpty() && !names.isEmpty()) author=names.last();
     if (author.isEmpty()) author=paper.value(QStringLiteral("authors")).toString().section(
         QLatin1Char(','),-1).trimmed();
+    const bool journalManuallyEdited =
+        paper.value(QStringLiteral("journalSource")).toString()==QStringLiteral("manual");
+    const bool abbreviationManuallyEdited =
+        paper.value(QStringLiteral("journal_abbreviationSource")).toString()==QStringLiteral("manual");
+    const QString verifiedShort =
+        (journalManuallyEdited && !abbreviationManuallyEdited) ? QString() :
+        paper.value(QStringLiteral("journal_abbreviation")).toString();
     const QString journal=officialAbbreviation(paper.value(QStringLiteral("journal")).toString(),
-        paper.value(QStringLiteral("journal_abbreviation")).toString());
+        verifiedShort);
     const QString year=paper.value(QStringLiteral("year")).toString();
     const QString volume=paper.value(QStringLiteral("volume")).toString();
     QString pages=paper.value(QStringLiteral("page")).toString();

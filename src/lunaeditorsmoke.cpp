@@ -384,6 +384,59 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!selectedText.contains(QStringLiteral("LUNA"))) return fail("Native text drag selection failed");
     QApplication::clipboard()->clear(); widget->setFocus(); key(widget, Qt::Key_C, Qt::ControlModifier);
     if (!waitFor([&] { return QApplication::clipboard()->text() == selectedText; })) return fail("Ctrl+C did not copy selected PDF text");
+
+    // LUNA's reader tools use selection-first semantics, distinct from PDF4QT's
+    // native Insert > highlight drag tool. Exercise the actual document writer.
+    checkpoint("Reader phase: selection-first highlight and non-overlap");
+    auto* lunaHighlight = action("LunaHighlightSelected");
+    auto* lunaTextBox = action("LunaFreeTextBox");
+    if (!lunaHighlight || !lunaTextBox || !lunaTextBox->isCheckable())
+        return fail("LUNA selection-first highlight or transparent memo tool is missing");
+    if (!waitFor([&] { return lunaHighlight->isEnabled(); }))
+        return fail("LUNA highlighter did not enable after native text selection");
+    click(lunaHighlight);
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1 && !lunaHighlight->isEnabled(); }))
+        return fail("LUNA selected-text highlight was not created");
+    // Repeating exactly the same text range must not darken it by stacking.
+    mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+    if (!waitFor([&] { return lunaHighlight->isEnabled(); }))
+        return fail("LUNA highlighter did not re-enable for a fresh selection");
+    click(lunaHighlight);
+    if (annotations(pdf::AnnotationType::Highlight) != 1)
+        return fail("LUNA highlighter duplicated a pre-existing marked region");
+    if (!action("actionUndo")) return fail("Native undo is missing");
+    action("actionUndo")->trigger();
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0; }))
+        return fail("Selection-first highlight did not participate in native undo");
+
+    checkpoint("Reader phase: transparent on-page FreeText note");
+    bool freeTextEditor = false;
+    QTimer fillFreeText;
+    QObject::connect(&fillFreeText, &QTimer::timeout, &window, [&] {
+        if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+            if (dialog->objectName() == QStringLiteral("LunaFreeTextEditor")) {
+                if (auto* input = dialog->findChild<QPlainTextEdit*>(QStringLiteral("LunaFreeTextContents"))) {
+                    freeTextEditor = true;
+                    input->setPlainText(QStringLiteral("LUNA transparent on-page note"));
+                    dialog->accept();
+                }
+            }
+        }
+    });
+    fillFreeText.start(30);
+    click(lunaTextBox);
+    if (!lunaTextBox->isChecked()) return fail("LUNA on-page note mode did not activate");
+    mouse(widget,QEvent::MouseButtonPress,notePoint,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,notePoint,Qt::LeftButton,Qt::NoButton);
+    fillFreeText.stop();
+    if (!freeTextEditor || !waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 1; }) ||
+        lunaTextBox->isChecked() || !select->isChecked())
+        return fail("LUNA transparent FreeText note missing or did not restore selection");
+    action("actionUndo")->trigger();
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 0; }))
+        return fail("LUNA FreeText note did not participate in native undo");
     auto chooseColor = [&](QColor color) {
         pdf::PDFAnnotationStyleWidget* style = nullptr;
         for (auto* candidate : window.findChildren<pdf::PDFAnnotationStyleWidget*>())

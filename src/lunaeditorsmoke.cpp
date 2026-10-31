@@ -33,6 +33,7 @@
 #include <QMenu>
 #include <QSettings>
 #include <QStringList>
+#include <cmath>
 #include <QAbstractButton>
 #include <QPushButton>
 #include <QSpinBox>
@@ -413,21 +414,31 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     }
     const QString settingKey = QStringLiteral("annotations/highlightColor");
     const QVariant previousColor = QSettings().value(settingKey);
+    for (qsizetype i = 0; i < expectedColors.size(); ++i) {
+        choices[i]->trigger();
+        if (QSettings().value(settingKey).toString().compare(expectedColors[i], Qt::CaseInsensitive))
+            return fail("LUNA highlight palette failed to persist chosen colors");
+    }
+    // Exercise the actual PDF writer with a non-default preset. The color
+    // must be the latest persisted value, not the old editor-tab cache.
     choices[1]->trigger();
-    const bool greenPersisted = !QSettings().value(settingKey).toString().compare(
-        expectedColors[1], Qt::CaseInsensitive);
-    choices[0]->trigger();
-    const bool yellowPersisted = !QSettings().value(settingKey).toString().compare(
-        expectedColors[0], Qt::CaseInsensitive);
-    if (previousColor.isValid()) QSettings().setValue(settingKey, previousColor);
-    else QSettings().remove(settingKey);
-    if (!greenPersisted || !yellowPersisted)
-        return fail("LUNA highlight palette failed to persist chosen colors");
     if (!waitFor([&] { return lunaHighlight->isEnabled(); }))
         return fail("LUNA highlighter did not enable after native text selection");
     click(lunaHighlight);
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1 && !lunaHighlight->isEnabled(); }))
         return fail("LUNA selected-text highlight was not created");
+    bool greenWritten = false;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+        if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+        const auto components = item.annotation->getColor();
+        greenWritten = components.size() >= 3 &&
+            std::abs(components[0] - 163.0 / 255.0) < 0.02 &&
+            std::abs(components[1] - 230.0 / 255.0) < 0.02 &&
+            std::abs(components[2] - 164.0 / 255.0) < 0.02;
+    }
+    if (previousColor.isValid()) QSettings().setValue(settingKey, previousColor);
+    else QSettings().remove(settingKey);
+    if (!greenWritten) return fail("LUNA highlight palette color not written to PDF annotation");
     // Repeating exactly the same text range must not darken it by stacking.
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);

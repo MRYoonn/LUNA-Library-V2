@@ -62,6 +62,8 @@ APPROVED = {
     "USER_GUIDE_KO.md",
     ".github/workflows/build-windows.yml",
     "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunabibliography.h", "src/lunafirstpage.h", "src/lunathumbnailcache.h",
+    "src/lunametadataengine.h", "src/lunametadatafetch.h",
+    "tests/native_metadata/CMakeLists.txt", "tests/native_metadata/main.cpp",
     "tests/native_dialog/thumbnails.cpp",
     "src/lunafilemove.h", "tests/native_dialog/filemoves.cpp",
     "src/lunadocumentclaim.h", "tests/native_dialog/documentclaims.cpp",

@@ -33,6 +33,20 @@ int main(int argc, char** argv) {
                                            {"qt", QString::fromLatin1(qVersion())}}).toJson());
         return 0;
     }
+    if (app.arguments().contains("--versioned-layout")) {
+        // Reproduce legacy window/state without user registry modifications.
+        QMainWindow redesigned;
+        auto* reader = new QToolBar(&redesigned);
+        reader->setObjectName(QStringLiteral("LunaCommonReaderToolbar"));
+        redesigned.addToolBar(reader);
+        if (redesigned.restoreState(state, 91)) return 11;
+        if (redesigned.toolBarArea(reader) != Qt::TopToolBarArea) return 12;
+        const QByteArray versioned = redesigned.saveState(91);
+        if (!redesigned.restoreState(versioned, 91)) return 13;
+        if (redesigned.toolBarArea(reader) != Qt::TopToolBarArea) return 14;
+        qInfo() << "[PASS] v0.9.1 layout ignores legacy toolbar state";
+        return 0;
+    }
     const bool unsafe = app.arguments().contains("--unsafe");
     QMainWindow shell;
     // Match the production ownership boundary: safe sessions join the shell

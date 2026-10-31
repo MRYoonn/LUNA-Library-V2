@@ -2,6 +2,8 @@
 """Pinned CC BY publisher fixture; no research PDF is committed or packaged."""
 import argparse
 import hashlib
+import io
+import zipfile
 import os
 from pathlib import Path
 import shutil
@@ -65,9 +67,87 @@ def probe(package: Path, output: Path):
     print("[NOTICE] This public-paper check is separate from synthetic PDF regressions; other papers and long-session use are not implied.")
 
 
+def bibliography_probe(package: Path, output: Path):
+    """Public PMC publisher copy, never a private user file or an uploaded PDF."""
+    if sys.platform != "win32":
+        raise RuntimeError("Bibliography integration requires native Windows")
+    package = package.resolve(strict=True)
+    output.mkdir(parents=True, exist_ok=True)
+    # Use the official download API directly; the article front door can reject
+    # hosted Windows runners before redirecting to this exact public resource.
+    sources = (
+        "https://europepmc.org/api/getPdf?pmcid=PMC12599387",
+        "https://pubs.rsc.org/en/content/articlepdf/2026/sc/d5sc05518k",
+        "https://europepmc.org/articles/PMC12599387?pdf=render",
+    )
+    expected = "c9dbf56b210daa1518408b37d1ff172136ea049ab3e1f5bc4aeca00254f85b93"
+    failures = []
+    for source in sources:
+        try:
+            with urlopen(Request(source, headers={"User-Agent": "LUNA-public-fixture-validation"}), timeout=60) as response:
+                data = response.read(2_000_001)
+            if hashlib.sha256(data).hexdigest() != expected or not data.startswith(b"%PDF-"):
+                raise RuntimeError("Public RSC publisher copy checksum mismatch")
+            break
+        except Exception as error:
+            failures.append(f"{source}: {error}")
+    else:
+        raise RuntimeError("Pinned public PDF unavailable; no verification was performed: " + "; ".join(failures))
+    # The public second SI attachment is read from the official OA supplement
+    # response. Extract only the fixed member, enforce bounds and pin its bytes.
+    supplement_url = "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC12599387/supplementaryFiles"
+    with urlopen(Request(supplement_url, headers={"User-Agent": "LUNA-public-fixture-validation"}), timeout=120) as response:
+        archive = response.read(40_000_001)
+    if len(archive) > 40_000_000:
+        raise RuntimeError("Public SI archive exceeds fixture bound")
+    member = "SC-017-D5SC05518K-s002.pdf"
+    with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+        if bundle.namelist().count(member) != 1 or bundle.getinfo(member).file_size > 30_000_000:
+            raise RuntimeError("Public SI fixture member changed")
+        si_data = bundle.read(member)
+    si_hash = "12b58a233e193b0e5d2cab553e3c7b4a4da9a9824f9dd24afdab26767f3708b8"
+    if hashlib.sha256(si_data).hexdigest() != si_hash or not si_data.startswith(b"%PDF-"):
+        raise RuntimeError("Public SI publisher copy checksum mismatch")
+    (output / "PUBLIC_PAPER_CREDIT.txt").write_text(
+        "Public CC BY RSC publisher copy: PMC12599387. Source: " + source + "\n"
+        "PDFs are temporary test inputs, never uploaded or packaged. Main SHA256: " + expected + "\n"
+        "Public SI2 source: " + supplement_url + "\nSI2 SHA256: " + si_hash + "\n",
+        encoding="utf-8")
+    environment = os.environ.copy()
+    system = Path(os.environ["SystemRoot"])
+    environment.update(PATH=os.pathsep.join(map(str, (package, system / "System32", system))),
+        QT_PLUGIN_PATH=str(package), QT_QPA_PLATFORM_PLUGIN_PATH=str(package / "platforms"),
+        QT_QPA_PLATFORM="windows", QT_SCALE_FACTOR="1", LUNA_PUBLIC_BIBLIOGRAPHY_PROBE="1")
+    with tempfile.TemporaryDirectory(prefix="luna-public-bibliography-") as temporary:
+        root = Path(temporary)
+        for label, payload, is_si in (("rsc", data, False), ("si2", si_data, True)):
+            pdf = root / f"public-{label}.pdf"
+            pdf.write_bytes(payload)
+            child_environment = environment.copy()
+            child_environment.pop("LUNA_PUBLIC_BIBLIOGRAPHY_SI_PROBE", None)
+            if is_si:
+                child_environment["LUNA_PUBLIC_BIBLIOGRAPHY_SI_PROBE"] = "1"
+            for restart in range(3):
+                report = root / f"bibliography-{label}-{restart}.txt"
+                try:
+                    subprocess.run([str(package / "LUNA.exe"), "--luna-research-report", str(report), str(pdf)],
+                        cwd=root, env=child_environment, check=True, timeout=90)
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                    failure = Path(str(report) + ".failure.png")
+                    if failure.is_file():
+                        shutil.copyfile(failure, output / f"bibliography-{label}-{restart}-failure.png")
+                    detail = report.read_text(encoding="utf-8")[:14000] if report.is_file() else "No native bibliography diagnostic"
+                    raise RuntimeError(detail) from error
+                if report.read_bytes() != b"LUNA_RESEARCH_ROUNDTRIP_OK\n" or pdf.read_bytes() != payload:
+                    raise RuntimeError("Bibliography marker or original bytes changed")
+                shutil.copyfile(Path(str(report) + ".png"), output / f"bibliography-{label}-{restart}.png")
+    print("[PASS] Real RSC main/SI2 PDFs: automatic John J. Molloy card, legacy Hao Fang repair, SI metadata abstention, no dialog/jump, two fresh-process restarts each, original bytes preserved")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("directory", type=Path)
     parser.add_argument("--screenshots-directory", type=Path, required=True)
+    parser.add_argument("--bibliography", action="store_true")
     args = parser.parse_args()
-    probe(args.directory, args.screenshots_directory)
+    (bibliography_probe if args.bibliography else probe)(args.directory, args.screenshots_directory)

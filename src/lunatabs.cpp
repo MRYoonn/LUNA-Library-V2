@@ -4,6 +4,7 @@
 #include "lunaperformance.h"
 #include "lunalibrary.h"
 #include "lunareadertoolbar.h"
+#include "lunaupdater.h"
 #include "lunadocumentclaim.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -193,6 +194,10 @@ public:
         // document/window Close actions, and Qt may choose another shortcut.
         // Our application event filter intercepts ShortcutOverride + KeyPress.
         finishEditor(initial);
+        updater_ = new UpdateController(*this);
+        QTimer::singleShot(12000, updater_, [this] {
+            if (updater_ && !closing_) updater_->check(false);
+        });
         setLibraryDocumentRouter(*this, [this](const QString& path) { open(path, "library-open"); },
             [this](const QString& path) {
                 auto* existing = find(path);
@@ -449,6 +454,11 @@ private:
                 if (popup->isVisible() && popup->windowFlags().testFlag(Qt::Popup)) popup->reject();
         bindLibraryEditor(*this, *editor);
         menuBar()->clear(); for (auto* action : editor->menuBar()->actions()) menuBar()->addAction(action);
+        if (updater_) {
+            if (auto* help = editor->findChild<QMenu*>(QStringLiteral("menuHelp"))) {
+                if (!help->actions().contains(updater_->action())) help->addAction(updater_->action());
+            }
+        }
         bindCommonReaderToolbar(*this, *editor);
         editor->getProgramController()->getPdfWidget()->setFocus(); updateTitle(editor);
     }
@@ -570,6 +580,7 @@ private:
     QTabWidget* tabs_ = nullptr;
     QAction* open_ = nullptr;
     QAction* quit_ = nullptr;
+    UpdateController* updater_ = nullptr;
     QTimer poll_;
     bool closing_ = false;
     QPointer<Editor> pendingActivation_;
@@ -640,8 +651,13 @@ static void integrationHighlight(NativeTabs& host, Editor* e, const QString& rep
     QPoint from, to; QRect selectionBounds;
     integrationRequire(integrationWait([&] {
         pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(0);
-        if (layout.getTextBlocks().empty() || layout.getTextBlocks().front().getLines().empty()) return false;
-        const auto& chars = layout.getTextBlocks().front().getLines().front().getCharacters(); const auto view = proxy->getSnapshot(); const auto* page = view.getPageSnapshot(0);
+        const pdf::PDFTextLine* targetLine = nullptr;
+        for (const auto& block : layout.getTextBlocks()) for (const auto& line : block.getLines()) {
+            QString text; for (const auto& glyph : line.getCharacters()) text += glyph.character;
+            if (text.contains(QStringLiteral("LUNA"))) targetLine = &line;
+        }
+        if (!targetLine) return false;
+        const auto& chars = targetLine->getCharacters(); const auto view = proxy->getSnapshot(); const auto* page = view.getPageSnapshot(0);
         if (chars.size() < 8 || !page) return false;
         selectionBounds = page->pageToDeviceMatrix.mapRect(chars[0].boundingBox.boundingRect().united(chars[7].boundingBox.boundingRect())).toAlignedRect().adjusted(-4, -4, 4, 4);
         from = page->pageToDeviceMatrix.map(chars[0].boundingBox.boundingRect().center() - QPointF(1, 0)).toPoint();
@@ -759,6 +775,22 @@ static bool auditChrome(NativeTabs& host, QJsonObject& out) {
         const QRect rect = host.menuBar()->actionGeometry(action);
         if (!rect.isEmpty()) ok &= !rect.intersects(QRect(brand->mapTo(host.menuBar(), QPoint()), brand->size()));
     }
+    // A successful build must not ship the recurrent tiny Open/Save toolbar
+    // at the upper-left after reopening LUNA. The shell owns only the one
+    // common reader bar; embedded PDF4QT mainToolBar widgets stay hidden.
+    int unexpectedToolbars = 0;
+    for (auto* toolbar : host.findChildren<QToolBar*>()) {
+        if (toolbar == bar) continue;
+        if ((toolbar->objectName() == QStringLiteral("mainToolBar") ||
+             toolbar->objectName() == QStringLiteral("LunaLibraryToolbar")) &&
+            toolbar->isVisible())
+            ++unexpectedToolbars;
+        if (toolbar->objectName() == QStringLiteral("mainToolBar") &&
+            host.toolBarArea(toolbar) != Qt::NoToolBarArea)
+            ++unexpectedToolbars;
+    }
+    out["unexpectedToolbars"] = unexpectedToolbars;
+    ok &= unexpectedToolbars == 0;
     out["controls"] = buttons; out["accepted"] = ok;
     out["dpr"] = host.devicePixelRatioF();
     out["clientWidth"] = host.width(); out["clientHeight"] = host.height();
@@ -848,6 +880,22 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             filePicker.start(30); host.findChild<QAction*>(QStringLiteral("LunaOpenDocuments"))->trigger(); filePicker.stop();
             integrationRequire(openedB && integrationWait([&] { return host.documentCount() == 2 && host.current() != a && ready(host.current()); }), "Public open action did not create B tab");
             auto* b = host.current(); integrationRequire(host.open(files[1]) == b && host.documentCount() == 2, "Duplicate PDF opened another tab");
+            auto isolatedBibliography = [&] {
+                if (!qEnvironmentVariableIsSet("LUNA_BIBLIOGRAPHY_TAB_FIXTURE")) return true;
+                for (int index = 0; index < 2; ++index) {
+                    QListWidgetItem* card = nullptr;
+                    if (!integrationList(host, files[index], &card) || !card) return false;
+                    const QString expected = index == 0 ? QStringLiteral("Final A. Writer") : QStringLiteral("Final B. Writer");
+                    if (card->data(Qt::UserRole + 5).toMap().value("authors").toString() != expected) return false;
+                }
+                return true;
+            };
+            if (qEnvironmentVariableIsSet("LUNA_BIBLIOGRAPHY_TAB_FIXTURE")) {
+                integrationRequire(a->getProgramController()->getDocument()->getInfo()->author == QStringLiteral("Hao Fang") &&
+                    b->getProgramController()->getDocument()->getInfo()->author == QStringLiteral("Hao Fang"), "Wrong Info Author regression fixture was not loaded");
+                integrationRequire(integrationWait(isolatedBibliography), "Asynchronous authors were missing or crossed document tabs");
+                result["asyncBibliographyIsolatedAcrossTabs"] = true;
+            }
             auto* pa = a->getProgramController()->getPdfWidget()->getDrawWidgetProxy(); auto* pb = b->getProgramController()->getPdfWidget()->getDrawWidgetProxy();
             integrationRequire(qAbs(pa->getZoom() - 2.0) < .001 && qAbs(pb->getZoom() - 2.0) < .001, "New integrated documents did not default to 200 percent");
             phase("common toolbar ownership, page and zoom input");
@@ -923,6 +971,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 auto* widget = documents[i]->getProgramController()->getPdfWidget();
                 integrationRequire(qAbs(widget->getDrawWidgetProxy()->getZoom() - zoomValues[i]) < .001 && widget->getVerticalScrollbar()->value() == scrollPositions[i], "Five-tab switch changed independent position or zoom");
             }
+            integrationRequire(isolatedBibliography(), "Repeated tab switches changed another paper's author");
             auto* tabBar = tabs->tabBar();
             integrationRequire(tabBar->usesScrollButtons() && tabBar->elideMode() == Qt::ElideMiddle, "Tab scroll/elision mode changed");
             bool scrolling = false; for (auto* button : tabBar->findChildren<QToolButton*>()) scrolling |= button->isVisible();

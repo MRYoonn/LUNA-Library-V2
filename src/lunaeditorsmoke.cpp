@@ -34,6 +34,7 @@
 #include <QPushButton>
 #include <QSpinBox>
 #include <QTextBrowser>
+#include <QPlainTextEdit>
 #include <QToolBar>
 #include <QToolButton>
 #include <QPointer>
@@ -118,6 +119,8 @@ void key(QWidget* widget, int code, Qt::KeyboardModifiers modifiers) {
 
 bool verifyResearchRoundTrip(pdfviewer::PDFEditorMainWindow& window,
                              const QString& reportPath, QString& error) {
+    if (qEnvironmentVariableIsSet("LUNA_PUBLIC_BIBLIOGRAPHY_PROBE"))
+        return verifyBibliographyUi(window, error, reportPath);
     auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
     auto* controller = window.getProgramController();
     auto* pdfWidget = controller->getPdfWidget();
@@ -382,6 +385,71 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!selectedText.contains(QStringLiteral("LUNA"))) return fail("Native text drag selection failed");
     QApplication::clipboard()->clear(); widget->setFocus(); key(widget, Qt::Key_C, Qt::ControlModifier);
     if (!waitFor([&] { return QApplication::clipboard()->text() == selectedText; })) return fail("Ctrl+C did not copy selected PDF text");
+
+    // LUNA's reader tools use selection-first semantics, distinct from PDF4QT's
+    // native Insert > highlight drag tool. Exercise the actual document writer.
+    checkpoint("Reader phase: selection-first highlight and non-overlap");
+    auto* lunaHighlight = action("LunaHighlightSelected");
+    auto* lunaTextBox = action("LunaFreeTextBox");
+    if (!lunaHighlight || !lunaTextBox || !lunaTextBox->isCheckable())
+        return fail("LUNA selection-first highlight or transparent memo tool is missing");
+    if (!waitFor([&] { return lunaHighlight->isEnabled(); }))
+        return fail("LUNA highlighter did not enable after native text selection");
+    click(lunaHighlight);
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1 && !lunaHighlight->isEnabled(); }))
+        return fail("LUNA selected-text highlight was not created");
+    // Repeating exactly the same text range must not darken it by stacking.
+    mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+    if (!waitFor([&] { return lunaHighlight->isEnabled(); }))
+        return fail("LUNA highlighter did not re-enable for a fresh selection");
+    click(lunaHighlight);
+    if (annotations(pdf::AnnotationType::Highlight) != 1)
+        return fail("LUNA highlighter duplicated a pre-existing marked region");
+    if (!action("actionUndo")) return fail("Native undo is missing");
+    action("actionUndo")->trigger();
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0; }))
+        return fail("Selection-first highlight did not participate in native undo");
+
+    checkpoint("Reader phase: transparent on-page FreeText note");
+    bool freeTextEditor = false;
+    QTimer fillFreeText;
+    QObject::connect(&fillFreeText, &QTimer::timeout, &window, [&] {
+        if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+            if (dialog->objectName() == QStringLiteral("LunaFreeTextEditor")) {
+                if (auto* input = dialog->findChild<QPlainTextEdit*>(QStringLiteral("LunaFreeTextContents"))) {
+                    freeTextEditor = true;
+                    input->setPlainText(QStringLiteral("LUNA transparent on-page note"));
+                    dialog->accept();
+                }
+            }
+        }
+    });
+    fillFreeText.start(30);
+    click(lunaTextBox);
+    if (!lunaTextBox->isChecked()) return fail("LUNA on-page note mode did not activate");
+    mouse(widget,QEvent::MouseButtonPress,notePoint,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,notePoint,Qt::LeftButton,Qt::NoButton);
+    fillFreeText.stop();
+    if (!freeTextEditor || !waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 1; }) ||
+        lunaTextBox->isChecked() || !select->isChecked())
+        return fail("LUNA transparent FreeText note missing or did not restore selection");
+    // A single click near the edge of a 300x220 PDF used to create the
+    // default 180x68 box partially beyond the sheet. Check actual PDF geometry,
+    // not just an in-memory annotation count.
+    const QRectF pageCrop = controller->getDocument()->getCatalog()->getPage(0)->getCropBox().normalized();
+    bool defaultBoxWithinPage = false;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+        if (item.annotation->getType() == pdf::AnnotationType::FreeText) {
+            const QRectF box = item.annotation->getRectangle().normalized();
+            defaultBoxWithinPage = box.width() >= 8 && box.height() >= 8 && pageCrop.contains(box);
+        }
+    }
+    if (!defaultBoxWithinPage) return fail("LUNA default FreeText escaped PDF crop bounds");
+    action("actionUndo")->trigger();
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 0; }))
+        return fail("LUNA FreeText note did not participate in native undo");
     auto chooseColor = [&](QColor color) {
         pdf::PDFAnnotationStyleWidget* style = nullptr;
         for (auto* candidate : window.findChildren<pdf::PDFAnnotationStyleWidget*>())
@@ -602,9 +670,112 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1 && select->isChecked(); })) return fail("Native highlight recreation failed");
-    if (!waitFor([&] { return action("actionSave")->isEnabled() && window.isEnabled(); })) return fail("Native final save remained busy");
+    // Persist the new on-page text box through the actual PDF writer, not just
+    // Undo. Test its original text and its independent annotation type after a
+    // fresh document open. The existing icon-style sticky note must also remain.
+    checkpoint("Reader phase: FreeText save and reopen");
+    const QString persistedFreeText = QStringLiteral("LUNA persistent transparent text box");
+    bool enteredPersistedFreeText = false;
+    QTimer persistedTextInput;
+    QObject::connect(&persistedTextInput, &QTimer::timeout, &window, [&] {
+        if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+            if (dialog->objectName() == QStringLiteral("LunaFreeTextEditor")) {
+                if (auto* input = dialog->findChild<QPlainTextEdit*>(QStringLiteral("LunaFreeTextContents"))) {
+                    enteredPersistedFreeText = true;
+                    input->setPlainText(persistedFreeText);
+                    dialog->accept();
+                }
+            }
+        }
+    });
+    persistedTextInput.start(30);
+    if (!waitFor([&] { return lunaTextBox->isEnabled(); }))
+        return fail("LUNA FreeText tool unavailable after final highlight");
+    click(lunaTextBox);
+    if (!lunaTextBox->isChecked()) return fail("LUNA persistent FreeText entry did not start");
+    if (!waitFor([&] { return points(start,end,notePoint); }))
+        return fail("LUNA persistent FreeText coordinates outside viewport");
+    // Test an explicitly dragged, fully visible FreeText box. The earlier
+    // single-click/Undo case already covers the default 180x68 PDF-point size;
+    // a click near the edge can place that box's *center* outside the viewport,
+    // making a subsequent double-click impossible without scrolling.
+    const auto visibleSnapshot = proxy->getSnapshot();
+    const auto* visiblePage = visibleSnapshot.getPageSnapshot(0);
+    if (!visiblePage) return fail("FreeText drag has no visible page snapshot");
+    const QRectF visiblePageRect = visiblePage->rect.intersected(QRectF(widget->rect()));
+    if (visiblePageRect.width() < 90 || visiblePageRect.height() < 64)
+        return fail("FreeText drag has insufficient visible page area");
+    const QPoint boxCenter = visiblePageRect.center().toPoint();
+    const QPoint boxStart = boxCenter - QPoint(34, 20);
+    const QPoint boxEnd = boxCenter + QPoint(34, 20);
+    QPointF localBoxStart, localBoxEnd;
+    if (!widget->rect().contains(boxStart) || !widget->rect().contains(boxEnd) ||
+        proxy->getPageUnderPoint(boxStart, &localBoxStart) != 0 ||
+        proxy->getPageUnderPoint(boxEnd, &localBoxEnd) != 0 ||
+        QRectF(localBoxStart, localBoxEnd).normalized().width() < 8 ||
+        QRectF(localBoxStart, localBoxEnd).normalized().height() < 8)
+        return fail("FreeText drag rectangle is not fully inside the visible PDF page");
+    mouse(widget,QEvent::MouseButtonPress,boxStart,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,boxEnd,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,boxEnd,Qt::LeftButton,Qt::NoButton);
+    persistedTextInput.stop();
+    if (!enteredPersistedFreeText || !waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 1; }))
+        return fail("LUNA persistent FreeText was not added to the document");
+
+    // Editing an existing on-page FreeText must not require raw PDF-object
+    // editing, nor should a double-click consume the native resize handles.
+    checkpoint("Reader phase: FreeText double-click edit");
+    const QString updatedFreeText = QStringLiteral("LUNA edited transparent text box");
+    bool editedFreeText = false;
+    QTimer reviseFreeText;
+    QObject::connect(&reviseFreeText, &QTimer::timeout, &window, [&] {
+        if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+            if (dialog->objectName() == QStringLiteral("LunaFreeTextEditDialog")) {
+                if (auto* input = dialog->findChild<QPlainTextEdit*>(QStringLiteral("LunaFreeTextEditContents"))) {
+                    if (input->toPlainText() == persistedFreeText) {
+                        editedFreeText = true;
+                        input->setPlainText(updatedFreeText);
+                        dialog->accept();
+                    }
+                }
+            }
+        }
+    });
+    const QPoint editPosition = annotationPoint(pdf::AnnotationType::FreeText);
+    if (!widget->rect().contains(editPosition)) {
+        error = QStringLiteral("LUNA FreeText edit target offscreen: actual=(%1,%2), expected drag center=(%3,%4), viewport=%5x%6")
+            .arg(editPosition.x()).arg(editPosition.y()).arg(boxCenter.x()).arg(boxCenter.y())
+            .arg(widget->width()).arg(widget->height());
+        return false;
+    }
+    reviseFreeText.start(30);
+    mouse(widget, QEvent::MouseButtonDblClick, editPosition, Qt::LeftButton, Qt::LeftButton);
+    reviseFreeText.stop();
+    if (!editedFreeText || !waitFor([&] {
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations)
+            if (item.annotation->getType() == pdf::AnnotationType::FreeText)
+                return item.annotation->getContents() == updatedFreeText;
+        return false;
+    })) return fail("LUNA FreeText double-click edit did not update the annotation");
+
+    if (!waitFor([&] { return action("actionSave")->isEnabled() && window.isEnabled(); }))
+        return fail("Native final save remained busy");
     widget->setFocus(); key(widget,Qt::Key_S,Qt::ControlModifier);
     if (readFile(original) != originalBytes) return fail("Reader regressions modified original PDF");
+    controller->closeDocument(); controller->openDocument(saved);
+    if (!waitFor([&] { return controller->getDocument() && select->isChecked() && window.isEnabled(); }))
+        return fail("LUNA FreeText persisted document did not reopen");
+    if (annotations(pdf::AnnotationType::Highlight) != 1 ||
+        annotations(pdf::AnnotationType::Text) != 1 ||
+        annotations(pdf::AnnotationType::FreeText) != 1)
+        return fail("LUNA FreeText save/reopen changed native annotation counts");
+    bool persistedContentsFound = false;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+        if (item.annotation->getType() == pdf::AnnotationType::FreeText)
+            persistedContentsFound = item.annotation->getContents() == updatedFreeText;
+    }
+    if (!persistedContentsFound || readFile(original) != originalBytes)
+        return fail("LUNA FreeText text or original PDF bytes changed on disk");
     checkpoint("Reader phase: native print dialog open and cancel");
     if (!QPrinterInfo::availablePrinters().isEmpty()) {
 #ifdef Q_OS_WIN

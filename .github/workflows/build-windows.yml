@@ -399,6 +399,10 @@ jobs:
           Copy-Item 'pdf4qt/3rdparty_licenses' "$output/third_party_licenses" -Recurse
           Copy-Item 'LICENSE_NOTICE.md' "$output/LUNA_LICENSE_NOTICE.md"
           Copy-Item 'USER_GUIDE_KO.md' "$output/USER_GUIDE_KO.md"
+          Copy-Item 'tools/LUNA-Update.ps1' "$output/LUNA-Update.ps1"
+          $updateTokens = $null; $updateErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $output 'LUNA-Update.ps1'), [ref]$updateTokens, [ref]$updateErrors) | Out-Null
+          if ($updateErrors.Count) { throw 'Updater PowerShell syntax failed' }
           Copy-Item 'tools/Start-Luna-Diagnostics.*' $output
           Copy-Item 'tools/*Crash*.ps1','tools/*Crash*.cmd','CRASH_DIAGNOSTICS_KO.md' $output
           $diagnosticTokens = $null; $diagnosticErrors = $null
@@ -486,6 +490,8 @@ jobs:
         run: |
           python -B tools/probe_research_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui/research"
           if ($LASTEXITCODE -ne 0) { throw "Public research PDF verification failed" }
+          python -B tools/probe_research_windows.py LUNA-Windows-Portable --bibliography --screenshots-directory "$env:RUNNER_TEMP/luna-ui/bibliography"
+          if ($LASTEXITCODE -ne 0) { throw "Real RSC bibliography verification failed" }
 
       - name: Native Windows Qt 125 and 150 percent layout checks
         shell: pwsh
@@ -517,7 +523,14 @@ jobs:
         if: ${{ !inputs.native_tabs_proof }}
         shell: pwsh
         run: |
-          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ userPcRepeatedCtrlW = 'User confirmed 30 closes on Windows 10 at 30e2a01; current CI legacy-layout disposal regression passed under CDB/page heap'; pythonTests = 39; nativeQtTests = 6; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
+          $pythonTests = [int](& python -B -c "import unittest; loader=unittest.TestLoader(); suite=loader.discover('tests'); assert not loader.errors, loader.errors; print(suite.countTestCases())")
+          if ($LASTEXITCODE -ne 0 -or $pythonTests -lt 1) { throw 'Cannot enumerate executed Python test scope' }
+          $probe = Join-Path $env:RUNNER_TEMP 'luna-dialog-build'
+          $nativeScope = & ctest --test-dir $probe -C Release --show-only=json-v1
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot enumerate executed native Qt test scope' }
+          $nativeTests = ($nativeScope | ConvertFrom-Json).tests.Count
+          if ($nativeTests -lt 1) { throw 'Empty native Qt test scope' }
+          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ userPcRepeatedCtrlW = 'User confirmed 30 closes on Windows 10 at 30e2a01; current CI legacy-layout disposal regression passed under CDB/page heap'; pythonTests = $pythonTests; nativeQtTests = $nativeTests; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; nativeTabBibliographyIsolation = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; publicMainAndSiBibliography = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
       - name: Upload synthetic native UI screenshots
         if: ${{ !cancelled() }}

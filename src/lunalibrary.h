@@ -15,6 +15,7 @@ void setLibraryDocumentRouter(QMainWindow& shell, std::function<void(const QStri
 void prepareReaderSession(pdfviewer::PDFEditorMainWindow& editor, QMainWindow& shell);
 bool openInitialDocument(pdfviewer::PDFEditorMainWindow& window, const QString& path);
 // Used only by the explicit CI mode with a temporary synthetic library.
+bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error, const QString& capturePath);
 bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, const QString& capturePath = {});
 bool verifyCancelledLibraryMove(pdfviewer::PDFEditorMainWindow& window, QString& error);
 }

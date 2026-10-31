@@ -658,9 +658,55 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1 && select->isChecked(); })) return fail("Native highlight recreation failed");
-    if (!waitFor([&] { return action("actionSave")->isEnabled() && window.isEnabled(); })) return fail("Native final save remained busy");
+    // Persist the new on-page text box through the actual PDF writer, not just
+    // Undo. Test its original text and its independent annotation type after a
+    // fresh document open. The existing icon-style sticky note must also remain.
+    checkpoint("Reader phase: FreeText save and reopen");
+    const QString persistedFreeText = QStringLiteral("LUNA persistent transparent text box");
+    bool enteredPersistedFreeText = false;
+    QTimer persistedTextInput;
+    QObject::connect(&persistedTextInput, &QTimer::timeout, &window, [&] {
+        if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+            if (dialog->objectName() == QStringLiteral("LunaFreeTextEditor")) {
+                if (auto* input = dialog->findChild<QPlainTextEdit*>(QStringLiteral("LunaFreeTextContents"))) {
+                    enteredPersistedFreeText = true;
+                    input->setPlainText(persistedFreeText);
+                    dialog->accept();
+                }
+            }
+        }
+    });
+    persistedTextInput.start(30);
+    if (!waitFor([&] { return lunaTextBox->isEnabled(); }))
+        return fail("LUNA FreeText tool unavailable after final highlight");
+    click(lunaTextBox);
+    if (!lunaTextBox->isChecked()) return fail("LUNA persistent FreeText entry did not start");
+    if (!waitFor([&] { return points(start,end,notePoint); }))
+        return fail("LUNA persistent FreeText coordinates outside viewport");
+    mouse(widget,QEvent::MouseButtonPress,notePoint,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,notePoint,Qt::LeftButton,Qt::NoButton);
+    persistedTextInput.stop();
+    if (!enteredPersistedFreeText || !waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 1; }))
+        return fail("LUNA persistent FreeText was not added to the document");
+
+    if (!waitFor([&] { return action("actionSave")->isEnabled() && window.isEnabled(); }))
+        return fail("Native final save remained busy");
     widget->setFocus(); key(widget,Qt::Key_S,Qt::ControlModifier);
     if (readFile(original) != originalBytes) return fail("Reader regressions modified original PDF");
+    controller->closeDocument(); controller->openDocument(saved);
+    if (!waitFor([&] { return controller->getDocument() && select->isChecked() && window.isEnabled(); }))
+        return fail("LUNA FreeText persisted document did not reopen");
+    if (annotations(pdf::AnnotationType::Highlight) != 1 ||
+        annotations(pdf::AnnotationType::Text) != 1 ||
+        annotations(pdf::AnnotationType::FreeText) != 1)
+        return fail("LUNA FreeText save/reopen changed native annotation counts");
+    bool persistedContentsFound = false;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+        if (item.annotation->getType() == pdf::AnnotationType::FreeText)
+            persistedContentsFound = item.annotation->getContents() == persistedFreeText;
+    }
+    if (!persistedContentsFound || readFile(original) != originalBytes)
+        return fail("LUNA FreeText text or original PDF bytes changed on disk");
     checkpoint("Reader phase: native print dialog open and cancel");
     if (!QPrinterInfo::availablePrinters().isEmpty()) {
 #ifdef Q_OS_WIN

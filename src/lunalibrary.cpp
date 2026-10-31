@@ -96,6 +96,9 @@
 #include <QScopedValueRollback>
 #include <QMimeData>
 #include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QClipboard>
+#include <QUrl>
 #include <QDropEvent>
 #include <QSaveFile>
 #include <QMouseEvent>
@@ -845,6 +848,82 @@ private:
     mutable QHash<QString, QString> ids_;
 };
 
+// Native file drags use URLs rather than Qt model indices: the destination
+// remains a real directory and never receives an in-memory-only library row.
+class PaperFileList final : public QListWidget {
+public:
+    using QListWidget::QListWidget;
+protected:
+    QMimeData* mimeData(const QList<QListWidgetItem*> items) const override {
+        auto* data = new QMimeData;
+        QList<QUrl> urls;
+        QSet<QString> seen;
+        for (auto* item : items) {
+            const QString path = item->data(Qt::UserRole).toString();
+            const QFileInfo file(path);
+            if (file.isFile() && !seen.contains(file.canonicalFilePath())) {
+                seen.insert(file.canonicalFilePath());
+                urls.append(QUrl::fromLocalFile(file.canonicalFilePath()));
+            }
+        }
+        data->setUrls(urls);
+        return data;
+    }
+    Qt::DropActions supportedDropActions() const override {
+        return Qt::CopyAction | Qt::MoveAction;
+    }
+};
+
+class FolderFileDropTree final : public QTreeView {
+public:
+    using QTreeView::QTreeView;
+    std::function<void(const QStringList&, const QString&, bool)> dropped;
+protected:
+    static QStringList pdfPaths(const QMimeData* data) {
+        QStringList result;
+        if (!data || !data->hasUrls()) return result;
+        const auto urls = data->urls();
+        if (urls.isEmpty()) return result;
+        for (const auto& url : urls) {
+            if (!url.isLocalFile()) return {};
+            const QFileInfo file(url.toLocalFile());
+            if (!file.isFile() || file.isSymLink() ||
+                file.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
+                return {};
+            if (!result.contains(file.canonicalFilePath()))
+                result.append(file.canonicalFilePath());
+        }
+        return result;
+    }
+    QString folderAt(const QPoint& point) const {
+        auto* folders = qobject_cast<QFileSystemModel*>(model());
+        const QModelIndex index = indexAt(point);
+        if (!folders || !index.isValid() || !folders->isDir(index)) return {};
+        const QFileInfo folder(folders->filePath(index));
+        return folder.isDir() && !folder.isSymLink() ? folder.canonicalFilePath() : QString();
+    }
+    void dragEnterEvent(QDragEnterEvent* event) override {
+        if (pdfPaths(event->mimeData()).isEmpty()) { event->ignore(); return; }
+        event->acceptProposedAction();
+    }
+    void dragMoveEvent(QDragMoveEvent* event) override {
+        if (folderAt(event->position().toPoint()).isEmpty() ||
+            pdfPaths(event->mimeData()).isEmpty()) { event->ignore(); return; }
+        event->setDropAction(event->modifiers() & Qt::ControlModifier ?
+                             Qt::CopyAction : Qt::MoveAction);
+        event->accept();
+    }
+    void dropEvent(QDropEvent* event) override {
+        const auto files = pdfPaths(event->mimeData());
+        const QString folder = folderAt(event->position().toPoint());
+        if (files.isEmpty() || folder.isEmpty() || !dropped) { event->ignore(); return; }
+        const bool copy = bool(event->modifiers() & Qt::ControlModifier);
+        dropped(files, folder, copy);
+        event->setDropAction(copy ? Qt::CopyAction : Qt::MoveAction);
+        event->accept();
+    }
+};
+
 class LibraryPanel final : public QWidget {
     friend bool luna::verifyBibliographyUi(pdfviewer::PDFEditorMainWindow&, QString&, const QString&);
     friend bool luna::verifyLibraryUi(pdfviewer::PDFEditorMainWindow&, QString&, const QString&);
@@ -961,7 +1040,13 @@ public:
         model_ = new LunaFolderModel(this);
         model_->setReadOnly(true); model_->setIconProvider(new FolderIcons(model_));
         model_->setFilter(QDir::AllDirs | QDir::NoDotAndDotDot);
-        tree_ = new QTreeView(navigation_);
+        tree_ = new FolderFileDropTree(navigation_);
+        tree_->setObjectName(QStringLiteral("LunaFolderDropTree"));
+        tree_->setAcceptDrops(true);
+        tree_->setDragDropMode(QAbstractItemView::DropOnly);
+        static_cast<FolderFileDropTree*>(tree_)->dropped = [this](const QStringList& paths, const QString& folder, bool copy) {
+            transferPdfs(paths, folder, copy);
+        };
         tree_->setModel(model_);
         tree_->setHeaderHidden(true);
         tree_->setAnimated(true);
@@ -1167,7 +1252,11 @@ public:
             pages_->setCurrentIndex(0);
             selectFolder(path);
         });
-        connect(folderTab_, &QPushButton::clicked, this, [this] { pages_->setCurrentIndex(0); });
+        connect(folderTab_, &QPushButton::clicked, this, [this] {
+            pages_->setCurrentIndex(0);
+            // The root shortcut always selects and shows the root folder itself.
+            selectFolder(root_);
+        });
         connect(pdfTab_, &QPushButton::clicked, this, [this] {
             pages_->setCurrentIndex(1);
             if (!allScanned_) scanAll();
@@ -1726,17 +1815,8 @@ private:
         const bool allViewport = allPdfs_ && observed == allPdfs_->viewport();
         if (!folderViewport && !allViewport && !historyViewport)
             return QWidget::eventFilter(observed, event);
-        if (event->type() == QEvent::MouseMove) {
-            auto* mouse = static_cast<QMouseEvent*>(event);
-            auto* list = folderViewport ? folderPdfs_ : (allViewport ? allPdfs_ : historyPdfs_);
-            QListWidgetItem* item = list->itemAt(mouse->position().toPoint());
-            if (item && !item->isHidden()) {
-                const QString path = item->data(Qt::UserRole).toString();
-                showThumbnailFor(path);
-            } else {
-                hideThumbnail();
-            }
-        } else if (event->type() == QEvent::Leave ||
+        // Card thumbnails are already visible; never pop up a second hover preview.
+        if (event->type() == QEvent::Leave ||
                    event->type() == QEvent::Hide ||
                    event->type() == QEvent::MouseButtonPress ||
                    event->type() == QEvent::Wheel) {
@@ -1926,7 +2006,7 @@ private:
         }
     }
     QListWidget* makePdfList(QWidget* parent) {
-        auto* list = new QListWidget(parent);
+        auto* list = new PaperFileList(parent);
         list->setMouseTracking(true);
         list->viewport()->installEventFilter(this);
         // Preserve the existing one-card-per-row vertical list.
@@ -1936,7 +2016,10 @@ private:
         list->setWrapping(false);
         list->setSpacing(0);
         list->setUniformItemSizes(true);
-        list->setSelectionMode(QAbstractItemView::SingleSelection);
+        list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+        list->setDragEnabled(true);
+        list->setDragDropMode(QAbstractItemView::DragOnly);
+        list->setDefaultDropAction(Qt::MoveAction);
         list->setEditTriggers(QAbstractItemView::NoEditTriggers);
         list->setSortingEnabled(false);
         list->setObjectName(QStringLiteral("LunaDocumentList"));
@@ -2137,6 +2220,7 @@ private:
         allTimer_->stop();
         allIterator_.reset();
         allPdfs_->clear();
+        allSeen_.clear();
         allScanned_ = false;
         allCount_->setText(QStringLiteral("전체 PDF"));
         selectFolder(root_);
@@ -2149,6 +2233,7 @@ private:
         folderTimer_->stop();
         folderIterator_.reset();
         folderPdfs_->clear();
+        folderSeen_.clear();
         folderPdfs_->setSortingEnabled(false);
         folderCount_->setText(QStringLiteral("PDF 검색 중…"));
         folderIterator_ = std::make_unique<QDirIterator>(
@@ -2160,6 +2245,7 @@ private:
         allTimer_->stop();
         allIterator_.reset();
         allPdfs_->clear();
+        allSeen_.clear();
         allPdfs_->setSortingEnabled(false);
         allScanned_ = true;
         allIterator_ = std::make_unique<QDirIterator>(
@@ -2191,6 +2277,10 @@ private:
             QFileInfo info(path);
             if (!info.isFile() || info.suffix().compare(
                     QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
+            const QString identity = DocumentClaim::identity(path);
+            auto& seen = all ? allSeen_ : folderSeen_;
+            if (identity.isEmpty() || seen.contains(identity)) continue;
+            seen.insert(identity);
             auto* item = new QListWidgetItem(fileIcon, info.completeBaseName(), list);
             decorate(item, path);
             const QString word = query_->text();
@@ -2398,6 +2488,8 @@ private:
     QString root_;
     QString current_;
     bool allScanned_ = false;
+    QSet<QString> allSeen_;
+    QSet<QString> folderSeen_;
 };
 
 class WindowState final : public QObject {

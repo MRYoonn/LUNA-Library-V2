@@ -31,6 +31,9 @@ class NativeTabsContract(unittest.TestCase):
         # pdfdrawspacecontroller.h only forward-declares the compiler.
         # pdfcompiler.h owns the complete type used by getTextLayoutLazy().
         self.assertIn('#include "pdfcompiler.h"', adapter)
+        self.assertIn('page->getCropBox().normalized()', adapter)
+        self.assertIn('rect.moveLeft(qBound(crop.left()', adapter)
+        self.assertIn('rect.moveTop(qBound(crop.top()', adapter)
         for token in (
             'LunaHighlightSelected', 'LunaFreeTextBox',
             'selected->getSelectedText().trimmed().isEmpty()',
@@ -49,6 +52,7 @@ class NativeTabsContract(unittest.TestCase):
             'Reader phase: selection-first highlight and non-overlap',
             'highlighter duplicated a pre-existing marked region',
             'Reader phase: transparent on-page FreeText note',
+            'LUNA default FreeText escaped PDF crop bounds',
             'FreeText note did not participate in native undo',
             'Reader phase: FreeText save and reopen',
             'persistedContentsFound',

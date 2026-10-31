@@ -57,14 +57,14 @@ class NativeTabsContract(unittest.TestCase):
             'Reader phase: recolor only selected overlap, preserve outer segments',
             'Partly overlapping recolor failed to retain old and new colors',
             'Recolor lost unselected old color or stacked alpha on new color',
-            'Recolor did not undo atomically',
+            'Recolor Undo changed original saved highlight color or QuadPoints',
             'Old plus new text was not recolored to the selected marker',
             'Selection-first eraser did not preserve native undo',
             'Eraser did not arm native text selection',
             'Click-then-drag eraser did not remove previous highlight',
             'Reader phase: eraser removes only chosen glyph range',
             'Eraser removed nonselected words from same highlight',
-            'Partial eraser did not restore original quad on Undo',
+            'Partial eraser Undo did not restore original QuadPoints and color',
             'Reader phase: vertical middle-click autoscroll',
             'Escape did not cancel vertical autoscroll',
             'Reader phase: transparent on-page FreeText note',
@@ -133,6 +133,9 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('characters[lastMarkedGlyph].boundingBox.boundingRect().center()', smoke)
         self.assertIn('Recolor/Undo did not restore original green highlight before erase', smoke)
         self.assertIn('Could not find original saved highlight glyph range', smoke)
+        self.assertIn('const QRectF now = ann->getHiglightArea().getPath().boundingRect().normalized();', smoke)
+        self.assertIn('Expanded recolor Undo changed original highlight geometry', smoke)
+        self.assertIn('initialGreenBounds', smoke)
         self.assertIn('manager->canDeleteAnnotation(item)', adapter)
         self.assertIn('item.annotation->getType() != pdf::AnnotationType::Highlight', adapter)
         self.assertIn('LunaVerticalAutoscrollMarker', adapter)

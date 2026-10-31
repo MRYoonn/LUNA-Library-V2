@@ -737,7 +737,8 @@ private:
             if (item.annotation->getSelfReference() == annotation &&
                 item.annotation->getType() == pdf::AnnotationType::FreeText &&
                 manager->canModifyAnnotation(item)) { found = true; break; }
-        if (found) manager->setAnnotationRectangle(annotation, pageRect);
+        if (found && manager->setAnnotationRectangle(annotation, pageRect))
+            manager->selectAnnotation(annotation, true); // Keep handles visible after moving.
     }
     bool eventFilter(QObject* object, QEvent* event) override {
         // Handle only the PDF draw widget; never steal mouse/key events

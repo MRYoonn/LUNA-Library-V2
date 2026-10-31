@@ -1687,16 +1687,23 @@ private:
         QListWidget* list = all ? allPdfs_ : folderPdfs_;
         QLabel* count = all ? allCount_ : folderCount_;
         if (!iterator) { timer->stop(); return; }
+        // Limit each 0-ms timer turn by BOTH item count and wall time.
+        // Expensive Windows file metadata must not freeze the GUI; avoid
+        // repainting all 96px paper cards after each individual insertion.
+        QElapsedTimer batchClock;
+        batchClock.start();
+        const QIcon fileIcon = style()->standardIcon(QStyle::SP_FileIcon);
+        const bool wasUpdating = list->updatesEnabled();
+        if (wasUpdating) list->setUpdatesEnabled(false);
         int checked = 0;
-        while (checked < kScanBatch &&
+        while (checked < kScanBatch && batchClock.elapsed() < 25 &&
                list->count() < kMaximumEntries && iterator->hasNext()) {
             const QString path = iterator->next();
             ++checked;
             QFileInfo info(path);
             if (!info.isFile() || info.suffix().compare(
                     QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
-            auto* item = new QListWidgetItem(
-                style()->standardIcon(QStyle::SP_FileIcon), info.completeBaseName(), list);
+            auto* item = new QListWidgetItem(fileIcon, info.completeBaseName(), list);
             decorate(item, path);
             const QString word = query_->text();
             const QVariantMap meta = item->data(Qt::UserRole + 5).toMap();
@@ -1709,7 +1716,8 @@ private:
                 !meta.value("journal").toString().contains(word, Qt::CaseInsensitive) &&
                 !luna::Bibliography::citation(meta).contains(word, Qt::CaseInsensitive));
         }
-        if (list->count() >= kMaximumEntries || !iterator->hasNext()) {
+        const bool complete = list->count() >= kMaximumEntries || !iterator->hasNext();
+        if (complete) {
             timer->stop();
             iterator.reset();
             // Sort once after scanning, but keep auto-sorting disabled.
@@ -1722,8 +1730,11 @@ private:
         } else {
             count->setText(QStringLiteral("PDF 검색 중… %1개").arg(list->count()));
         }
+        if (wasUpdating) list->setUpdatesEnabled(true);
         queueNavigationCounts();
-        selectActiveCard();
+        // Mark the active card once after discovery, not by walking every
+        // existing item on every batch (quadratic work across 1000+ PDFs).
+        if (complete) selectActiveCard();
     }
     void openItem(QListWidgetItem* item) {
         if (item) openPdf(item->data(Qt::UserRole).toString());

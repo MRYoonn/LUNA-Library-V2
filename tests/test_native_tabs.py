@@ -265,6 +265,23 @@ class NativeTabsContract(unittest.TestCase):
         self.assertNotIn('tags = extractKeywords', source)
         self.assertNotIn('recentOpened + authors', source)
 
+    def test_1000_pdf_incremental_scanner_is_bounded_and_diagnostic(self):
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        start = library.index('    void scanBatch(bool all) {')
+        end = library.index('    void openItem(', start)
+        scan = library[start:end]
+        self.assertIn('batchClock.elapsed() < 25', scan)
+        self.assertIn('const QIcon fileIcon = style()->standardIcon(QStyle::SP_FileIcon);', scan)
+        self.assertIn('if (wasUpdating) list->setUpdatesEnabled(false);', scan)
+        self.assertIn('if (wasUpdating) list->setUpdatesEnabled(true);', scan)
+        self.assertIn('if (complete) selectActiveCard();', scan)
+        self.assertEqual(scan.count('selectActiveCard();'), 1)
+        self.assertIn('list->count() == 1000 && !library->folderTimer_->isActive(); }, 15000', library)
+        self.assertIn('longestGuiGapMs=%4 beats=%5', library)
+        self.assertIn('if (longestGap > 1000)', library)
+        self.assertIn('searchMs > 1000', library)
+        self.assertIn('if (visible != 1', library)
+
     def test_large_si_open_defers_nonessential_work_until_after_first_render(self):
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
         page_grid = (ROOT / 'src/lunapagegrid.h').read_text(encoding='utf-8')

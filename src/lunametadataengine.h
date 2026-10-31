@@ -149,6 +149,13 @@ inline QString labCitation(const QVariantMap& paper) {
     const int chosen=paper.value(QStringLiteral("senior_author_index"), -1).toInt();
     QString author=authorOverride;
     if (author.isEmpty() && chosen>=0 && chosen<names.size()) author=names[chosen];
+    // An explicit user edit of the author field takes priority over
+    // automatically acquired authors_structured (unless a named senior
+    // override/index was explicitly provided).
+    if (author.isEmpty() && paper.value(QStringLiteral("authorsSource")).toString() ==
+        QStringLiteral("manual"))
+        author=paper.value(QStringLiteral("authors")).toString()
+            .section(QLatin1Char(','),-1).trimmed();
     if (author.isEmpty() && !names.isEmpty()) author=names.last();
     if (author.isEmpty()) author=paper.value(QStringLiteral("authors")).toString().section(
         QLatin1Char(','),-1).trimmed();

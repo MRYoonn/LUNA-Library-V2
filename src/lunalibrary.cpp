@@ -1878,7 +1878,7 @@ private:
             return;
         }
         if (QMessageBox::question(this, QStringLiteral("Windows 휴지통으로 이동"),
-            QStringLiteral("PDF와 썸네일을 Windows 휴지통으로 보낼까요?\\n%1").arg(source.fileName()),
+            QStringLiteral("PDF와 썸네일을 Windows 휴지통으로 보낼까요?\n%1").arg(source.fileName()),
             QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes) return;
         const QString identity = DocumentClaim::identity(path);
         if ((activateElsewhere && activateElsewhere(path)) ||
@@ -1917,8 +1917,8 @@ private:
         refreshFileLists();
         if (!leftover.isEmpty())
             QMessageBox::warning(this, QStringLiteral("일부 썸네일 삭제 실패"),
-                QStringLiteral("PDF는 휴지통으로 이동했지만 다음 이미지들은 남아 있습니다:\\n") +
-                leftover.join(QLatin1Char('\\n')));
+                QStringLiteral("PDF는 휴지통으로 이동했지만 다음 이미지들은 남아 있습니다:\n") +
+                leftover.join(QLatin1Char('\n')));
     }
     void importPdfs() {
         const QStringList files = QFileDialog::getOpenFileNames(this,
@@ -2185,6 +2185,18 @@ private:
         favoriteAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+D")));
         favoriteAction->setShortcutContext(Qt::WidgetWithChildrenShortcut);
         list->addAction(favoriteAction);
+        auto* copyFiles = new QAction(QStringLiteral("PDF 파일 복사"), list);
+        copyFiles->setObjectName(QStringLiteral("LunaCopyPdfs"));
+        copyFiles->setShortcut(QKeySequence::Copy);
+        copyFiles->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        list->addAction(copyFiles);
+        connect(copyFiles, &QAction::triggered, this, [this, list] { copySelectedPdfs(list); });
+        auto* pasteFiles = new QAction(QStringLiteral("현재 폴더에 PDF 붙여넣기"), list);
+        pasteFiles->setObjectName(QStringLiteral("LunaPastePdfs"));
+        pasteFiles->setShortcut(QKeySequence::Paste);
+        pasteFiles->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        list->addAction(pasteFiles);
+        connect(pasteFiles, &QAction::triggered, this, [this] { pastePdfs(current_); });
         connect(favoriteAction, &QAction::triggered, this, [this, list] {
             if (auto* item = list->currentItem()) toggleFavorite(item->data(Qt::UserRole).toString());
         });
@@ -2202,9 +2214,15 @@ private:
             auto* citation = menu.addAction(QStringLiteral("서지정보 수정…"));
             auto* extractCitation = menu.addAction(QStringLiteral("첫 페이지 서지정보 추출…"));
             extractCitation->setObjectName(QStringLiteral("LunaExtractCitationContextMenu"));
-            auto* refreshCitation = menu.addAction(QStringLiteral("DOI 서지정보 새로고침"));
+            auto* refreshCitation = menu.addAction(QStringLiteral("원본 서지정보로 새로고침"));
             refreshCitation->setObjectName(QStringLiteral("LunaRefreshMetadata"));
+            menu.addSeparator();
+            auto* copy = menu.addAction(QStringLiteral("PDF 복사 (Ctrl+C)"));
+            auto* paste = menu.addAction(QStringLiteral("현재 폴더에 붙여넣기 (Ctrl+V)"));
+            auto* copyTo = menu.addAction(QStringLiteral("PDF와 썸네일 복사 위치…"));
             auto* move = menu.addAction(QStringLiteral("PDF와 썸네일 이동…"));
+            auto* trash = menu.addAction(QStringLiteral("Windows 휴지통으로 삭제…"));
+            trash->setObjectName(QStringLiteral("LunaTrashPdf"));
             auto* chosen = menu.exec(list->viewport()->mapToGlobal(point));
             if (chosen == favorite) toggleFavorite(path);
             else if (chosen == crop) startThumbnailCrop();
@@ -2215,13 +2233,20 @@ private:
             }
             else if (chosen == citation) editBibliography(path);
             else if (chosen == extractCitation) extractBibliography(path);
-            else if (chosen == refreshCitation) {
-                const QString identity=DocumentClaim::identity(path);
-                const QString cached=bibliography_.record(identity).value("doi").toString();
-                if(!cached.isEmpty())beginMetadataLookup(identity,cached,true);
-                else extractBibliography(path); // Local PDF scan before ANY request.
+            else if (chosen == refreshCitation) refreshOriginalBibliography(path);
+            else if (chosen == copy) {
+                list->setCurrentItem(item);
+                if (!item->isSelected()) item->setSelected(true);
+                copySelectedPdfs(list);
+            }
+            else if (chosen == paste) pastePdfs(current_);
+            else if (chosen == copyTo) {
+                const QString target = QFileDialog::getExistingDirectory(this,
+                    QStringLiteral("PDF와 썸네일 복사 대상 폴더"), QFileInfo(path).absolutePath());
+                if (!target.isEmpty()) copyDocumentTo(path, target);
             }
             else if (chosen == move) moveDocument(path);
+            else if (chosen == trash) trashDocument(path);
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
             const QPoint cursor = list->viewport()->mapFromGlobal(QCursor::pos());

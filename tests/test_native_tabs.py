@@ -138,6 +138,22 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('draw->setProperty("LunaOpenStart", performanceNow());', library)
         self.assertIn('if (qEnvironmentVariableIsSet("LUNA_PERF")) {', library)
 
+    def test_clean_paper_list_keeps_page_preview_on_demand_only(self):
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        guide = (ROOT / 'USER_GUIDE_KO.md').read_text(encoding='utf-8')
+        self.assertIn('LunaPagePreview', library)
+        self.assertIn('pagePreviewAction_->setChecked(false)', library)
+        self.assertIn('viewMenu->addAction(pagePreviewAction_)', library)
+        self.assertIn('content->setCurrentIndex(enabled ? 1 : 0)', library)
+        self.assertNotIn('mode->addTab(QStringLiteral("페이지 보기"))', library)
+        self.assertIn('window.findChild<QTabBar*>(QStringLiteral("LunaContentModes"))', library)
+        self.assertIn('preview->trigger()', library)
+        self.assertIn('auto* preview = host.findChild<QAction*>(QStringLiteral("LunaPagePreview"))', tabs)
+        self.assertIn('!host.findChild<QTabBar*>(QStringLiteral("LunaContentModes"))', tabs)
+        self.assertIn('preview->trigger()', tabs)
+        self.assertIn('보기 → 페이지 미리보기', guide)
+
     def test_compact_tabs_and_blue_borderless_selection_contract(self):
         tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')

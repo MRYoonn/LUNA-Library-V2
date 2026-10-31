@@ -75,6 +75,7 @@ APPROVED = {
     "tools/apply_overlay.py", "tools/preflight_public.py",
     "tests/test_public_gate.py",
     "tests/test_citation_contract.py",
+    "tests/test_real_file_management_contract.py",
     "tests/test_updater.py", "tools/prepare_release.py",
     "src/lunaupdater.h", "tools/LUNA-Update.ps1",
     ".github/workflows/draft-release.yml",
@@ -89,6 +90,8 @@ APPROVED = {
 }
 APPROVED_BINARY = {'assets/icons/LUNA-Moon.ico': '5c1dec76af47b7c37e3d41e5fb05d62a02783f4f4af0247503096feb4cd7b51f', 'assets/icons/LUNA-Moon.png': '2d08386badd6d1d3a80f6d53213ccc53296fb46590a6c45b734a83e457aba4c3'}
 APPROVED.update(APPROVED_BINARY)
+# Keep the default cap; allow a tightly scoped larger Qt UI source after review.
+SOURCE_SIZE_CAPS = {"src/lunalibrary.cpp": 240_000}
 FORBIDDEN = [
     ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)),
     ("phone", re.compile(r"(?<!\d)01[016789][-. ]?\d{3,4}[-. ]?\d{4}(?!\d)")),
@@ -117,7 +120,7 @@ def check(root=ROOT):
         if name not in APPROVED:
             errors.append("Unexpected potentially private file: " + name)
             continue
-        if path.stat().st_size > 200_000:
+        if path.stat().st_size > SOURCE_SIZE_CAPS.get(name, 200_000):
             errors.append("Unexpected file size: " + name)
             continue
         if name in APPROVED_BINARY:

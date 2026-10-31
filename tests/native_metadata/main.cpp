@@ -82,12 +82,12 @@ int main(int argc,char** argv){
     if (actualCitation != expectedCitation) {
         const QByteArray actualUtf8 = actualCitation.toUtf8();
         const QByteArray expectedUtf8 = expectedCitation.toUtf8();
-        std::fprintf(stderr, "LUNA_CITATION_ACTUAL: %s\\n", actualUtf8.constData());
-        std::fprintf(stderr, "LUNA_CITATION_EXPECTED: %s\\n", expectedUtf8.constData());
+        std::fprintf(stderr, "LUNA_CITATION_ACTUAL: %s\n", actualUtf8.constData());
+        std::fprintf(stderr, "LUNA_CITATION_EXPECTED: %s\n", expectedUtf8.constData());
         for(const char* key : {"journal", "journal_abbreviation", "year", "volume",
                                "page", "authors", "doi"}) {
             const QByteArray value = online.value(QString::fromLatin1(key)).toString().toUtf8();
-            std::fprintf(stderr, "LUNA_CITATION_FIELD[%s]: %s\\n", key, value.constData());
+            std::fprintf(stderr, "LUNA_CITATION_FIELD[%s]: %s\n", key, value.constData());
         }
         std::fflush(stderr);
     }

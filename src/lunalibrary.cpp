@@ -914,15 +914,23 @@ protected:
     void dragMoveEvent(QDragMoveEvent* event) override {
         if (folderAt(event->position().toPoint()).isEmpty() ||
             pdfPaths(event->mimeData()).isEmpty()) { event->ignore(); return; }
-        event->setDropAction(event->modifiers() & Qt::ControlModifier ?
-                             Qt::CopyAction : Qt::MoveAction);
+        // Files dragged from Windows Explorer are imports: NEVER move their
+        // originals. Only paper cards originating in LUNA default to move.
+        const auto* sourceList = qobject_cast<QListWidget*>(event->source());
+        const bool internal = sourceList &&
+            sourceList->objectName() == QStringLiteral("LunaDocumentList");
+        const bool copy = !internal || bool(event->modifiers() & Qt::ControlModifier);
+        event->setDropAction(copy ? Qt::CopyAction : Qt::MoveAction);
         event->accept();
     }
     void dropEvent(QDropEvent* event) override {
         const auto files = pdfPaths(event->mimeData());
         const QString folder = folderAt(event->position().toPoint());
         if (files.isEmpty() || folder.isEmpty() || !dropped) { event->ignore(); return; }
-        const bool copy = bool(event->modifiers() & Qt::ControlModifier);
+        const auto* sourceList = qobject_cast<QListWidget*>(event->source());
+        const bool internal = sourceList &&
+            sourceList->objectName() == QStringLiteral("LunaDocumentList");
+        const bool copy = !internal || bool(event->modifiers() & Qt::ControlModifier);
         dropped(files, folder, copy);
         event->setDropAction(copy ? Qt::CopyAction : Qt::MoveAction);
         event->accept();
@@ -2727,7 +2735,8 @@ private:
         while (descendants.hasNext()) folders.append(descendants.next());
         for (const QString& folderPath : folders) {
             const QString metadataFile = folderMetadataPath(folderPath);
-            if (!QFileInfo(metadataFile).isFile()) continue;
+            const QFileInfo metaFile(metadataFile);
+            if (!metaFile.isFile() || metaFile.isSymLink()) continue;
             QJsonObject metadata = readFolderMetadata(folderPath);
             if (metadata.isEmpty()) continue;
             metadata.insert(QStringLiteral("relativePath"),

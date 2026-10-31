@@ -180,6 +180,7 @@ public:
     explicit ReadingInteraction(pdfviewer::PDFEditorMainWindow& window) : QObject(&window), window_(window) {
         auto* controller = window_.getProgramController();
         draw_ = controller->getPdfWidget()->getDrawWidget()->getWidget();
+        lastDocumentSource_ = controller->getOriginalFileName();
         draw_->installEventFilter(this);
         // Each color button is a complete text-selection highlighter tool.
         // There is no separate "apply highlight" toolbar action.
@@ -502,7 +503,7 @@ private:
                             QStringLiteral("회전된 기존 형광펜은 선택 영역을 안전하게 분리할 수 없습니다."));
                         return;
                     }
-                    segments = subtractX(segments, band.left(), band.right());
+                    segments = subtractX(segments, band.left() - 0.20, band.right() + 0.20);
                     changed = true;
                 }
                 if (!changed || segments.size() == 1 &&

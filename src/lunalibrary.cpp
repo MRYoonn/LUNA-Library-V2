@@ -285,6 +285,8 @@ public:
         animation_->setPropertyName("value");
         animation_->setDuration(155);
         animation_->setEasingCurve(QEasingCurve::OutCubic);
+        connect(area->verticalScrollBar(), &QScrollBar::sliderPressed,
+                animation_, &QAbstractAnimation::stop);
         area->viewport()->installEventFilter(this);
     }
 protected:
@@ -292,9 +294,11 @@ protected:
         if (!area_ || watched != area_->viewport() || event->type() != QEvent::Wheel)
             return QObject::eventFilter(watched, event);
         auto* wheel = static_cast<QWheelEvent*>(event);
-        if (!wheel->pixelDelta().isNull() || wheel->angleDelta().y() == 0 ||
+        if (!wheel->pixelDelta().isNull() || wheel->phase() != Qt::NoScrollPhase ||
+            wheel->angleDelta().y() == 0 ||
             (wheel->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier))) {
-            if (!wheel->pixelDelta().isNull()) animation_->stop();
+            if (!wheel->pixelDelta().isNull() || wheel->phase() != Qt::NoScrollPhase)
+                animation_->stop();
             return false;
         }
         auto* scrollbar = area_->verticalScrollBar();
@@ -962,6 +966,7 @@ public:
         tree_->setHeaderHidden(true);
         tree_->setAnimated(true);
         tree_->setIndentation(16); tree_->setUniformRowHeights(true); tree_->setIconSize(QSize(20, 20));
+        tree_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
         new SmoothLibraryWheel(tree_, 58);
         tree_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         tree_->setContextMenuPolicy(Qt::CustomContextMenu);

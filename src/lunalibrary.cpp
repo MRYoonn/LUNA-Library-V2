@@ -2409,7 +2409,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     // synthetic library. Nothing here reads or modifies a user's library.
     auto* library = dynamic_cast<LibraryPanel*>(dock->widget());
     if (!library) return fail("Library panel type missing");
-    auto wait = [](const std::function<bool()>& ready) {
+    auto wait = [](const std::function<bool()>& ready, int timeoutMs = 5000) {
         if (ready()) return true;
         QEventLoop loop;
         QTimer poll, timeout;
@@ -2421,7 +2421,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             if (ready()) { success = true; loop.quit(); }
         });
         QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
-        poll.start(20); timeout.setSingleShot(true); timeout.start(5000); loop.exec();
+        poll.start(20); timeout.setSingleShot(true); timeout.start(timeoutMs); loop.exec();
         return success;
     };
     if (!wait([&] { return window.isEnabled() && window.getProgramController()->canClose(); }))
@@ -2591,8 +2591,15 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         });
         heartbeat.start(10);
         library->selectFolder(many.path());
-        if (!wait([&] { return list->count() == 1000 && !library->folderTimer_->isActive(); }))
-            return fail("1000-PDF library did not finish incremental discovery");
+        // CI disk/AV throughput varies. Keep an explicit 15-second full
+        // discovery ceiling while separately enforcing <1s GUI event gaps
+        // and <1s filename search. Never accept a partially filled list.
+        if (!wait([&] { return list->count() == 1000 && !library->folderTimer_->isActive(); }, 15000)) {
+            error = QStringLiteral("1000-PDF library did not finish incremental discovery: count=%1 elapsedMs=%2 timerActive=%3 longestGuiGapMs=%4 beats=%5")
+                .arg(list->count()).arg(loadClock.elapsed())
+                .arg(library->folderTimer_->isActive()).arg(longestGap).arg(beats);
+            return false;
+        }
         const qint64 loadMs = loadClock.elapsed();
         QElapsedTimer searchClock; searchClock.start();
         search->setText(QStringLiteral("합성 논문 0999"));

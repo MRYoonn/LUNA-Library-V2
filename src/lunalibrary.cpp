@@ -2676,7 +2676,7 @@ private:
         if (!accepted || name == folder.fileName()) return;
         static const QRegularExpression invalid(QStringLiteral(R"REGEX([<>:"/\\|?*])REGEX"));
         static const QRegularExpression reserved(
-            QStringLiteral(R"REGEX(^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\..*)?$)REGEX"),
+            QStringLiteral(R"REGEX(^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$)REGEX"),
             QRegularExpression::CaseInsensitiveOption);
         if (name.isEmpty() || name == QStringLiteral(".") || name == QStringLiteral("..") ||
             name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' ')) ||

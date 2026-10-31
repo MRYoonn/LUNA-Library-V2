@@ -12,6 +12,8 @@ APPROVED = {
     "tools/compare_ui_reference.py",
     ".gitattributes",
     "assets/icons/ui-library.svg",
+    "assets/icons/ui-list-mode.svg",
+    "assets/icons/ui-card-mode.svg",
     "tools/capture_ui_reference_windows.mjs",
     'design/REFERENCE.md',
     'design/LUNA_Library_UI_v0.9.1_OneLineMemo.html',

@@ -149,16 +149,27 @@ public:
     void paint(QPainter* painter, const QRect& rect, QIcon::Mode, QIcon::State state) override {
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing);
-        const QRectF square = QRectF(rect).adjusted(3, 3, -3, -3);
+        painter->translate(rect.center());
+        painter->rotate(-32);
+        painter->setPen(QPen(QColor("#57677C"), 0.9));
+        painter->setBrush(QColor("#F8FAFC"));
+        painter->drawRoundedRect(QRectF(-4.4, -9.0, 8.8, 13.0), 1.7, 1.7);
+        painter->setPen(Qt::NoPen);
         painter->setBrush(color_);
-        painter->setPen(QPen(QColor("#8E9AAC"), 0.8));
-        painter->drawRoundedRect(square, 2.5, 2.5);
-        if (state == QIcon::On) {
-            painter->setBrush(Qt::NoBrush);
-            painter->setPen(QPen(QColor("#174C83"), 1.7));
-            painter->drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), 3.5, 3.5);
-        }
+        painter->drawRect(QRectF(-3.3, -2.5, 6.6, 5.4));
+        QPolygonF nib;
+        nib << QPointF(-3.8, 4) << QPointF(3.8, 4)
+            << QPointF(2.4, 8.7) << QPointF(-2.4, 8.7);
+        painter->drawPolygon(nib);
         painter->restore();
+        if (state == QIcon::On) {
+            painter->save();
+            painter->setRenderHint(QPainter::Antialiasing);
+            painter->setPen(QPen(QColor("#174C83"), 1.5));
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRoundedRect(QRectF(rect).adjusted(0.8, 0.8, -0.8, -0.8), 3, 3);
+            painter->restore();
+        }
     }
 private:
     QColor color_;
@@ -170,12 +181,8 @@ public:
         auto* controller = window_.getProgramController();
         draw_ = controller->getPdfWidget()->getDrawWidget()->getWidget();
         draw_->installEventFilter(this);
-        // Selection-first highlight: the native drag-to-highlight action remains
-        // available in Insert, but is not the compact LUNA reading action.
-        highlight_ = new QAction(readerIcon(QStringLiteral("highlight")), QStringLiteral("형광펜"), &window_);
-        highlight_->setObjectName(QStringLiteral("LunaHighlightSelected"));
-        highlight_->setToolTip(QStringLiteral("텍스트를 먼저 드래그 선택한 뒤 클릭해 강조합니다. 이미 강조한 부분은 중복 표시하지 않습니다."));
-        highlight_->setEnabled(false);
+        // Each color button is a complete text-selection highlighter tool.
+        // There is no separate "apply highlight" toolbar action.
         reloadHighlightColor();
         chooseColor_ = new QAction(QStringLiteral("형광펜 색상 변경…"), &window_);
         chooseColor_->setObjectName(QStringLiteral("LunaHighlightColor"));
@@ -186,8 +193,7 @@ public:
                 QStringLiteral("형광펜 색상"));
             if (!next.isValid()) return;
             color_ = next;
-            QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexRgb));
-            syncSwatches();
+            armHighlighter(next);
         });
         // Keep the toolbar compact while exposing reading colors
         // available without repeatedly opening the system QColorDialog.
@@ -204,10 +210,7 @@ public:
                 choice->setCheckable(true);
                 choice->setData(QString::fromLatin1(preset.value));
                 connect(choice, &QAction::triggered, this, [this, choice] {
-                    color_ = QColor(choice->data().toString());
-                    QSettings().setValue(QStringLiteral("annotations/highlightColor"),
-                        color_.name(QColor::HexRgb));
-                    syncSwatches();
+                    armHighlighter(QColor(choice->data().toString()));
                 });
             }
             connect(palette, &QMenu::aboutToShow, this, [this, palette] {
@@ -219,24 +222,20 @@ public:
             palette->addSeparator();
             palette->addAction(chooseColor_);
         }
-        // Six visible swatches, as requested, after Print/eraser/highlighter.
-        // All eight presets (including mint and gray) remain in Tools.
-        for (int i = 0; i < 6; ++i) {
+        // Eight clickable marker icons, each armed independently after Print/eraser.
+        for (int i = 0; i < 8; ++i) {
             const QColor presetColor(QString::fromLatin1(kHighlightPresets[i].value));
             auto* swatch = new QAction(QIcon(new HighlightSwatchIcon(presetColor)),
                 QString::fromUtf8(kHighlightPresets[i].label), &window_);
             swatch->setObjectName(QStringLiteral("LunaHighlightSwatch%1").arg(i + 1));
             swatch->setCheckable(true);
-            swatch->setToolTip(QStringLiteral("%1 형광펜 색상 선택").arg(QString::fromUtf8(kHighlightPresets[i].label)));
+            swatch->setToolTip(QStringLiteral("%1 형광펜 · 누른 뒤 텍스트를 드래그하면 즉시 적용").arg(QString::fromUtf8(kHighlightPresets[i].label)));
             connect(swatch, &QAction::triggered, this, [this, presetColor] {
-                color_ = presetColor;
-                QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexRgb));
-                syncSwatches();
+                armHighlighter(presetColor);
             });
             swatches_.append(swatch);
         }
         syncSwatches();
-        connect(highlight_, &QAction::triggered, this, [this] { applyHighlight(); });
         eraser_ = new QAction(readerIcon(QStringLiteral("erase")), QStringLiteral("형광펜 지우개"), &window_);
         eraser_->setObjectName(QStringLiteral("LunaEraseSelected"));
         eraser_->setToolTip(QStringLiteral("형광펜처럼 텍스트를 먼저 드래그 선택한 뒤 누릅니다. 선택한 영역과 겹치는 형광펜 주석만 삭제합니다. 메모와 본문은 유지합니다."));
@@ -267,7 +266,12 @@ public:
         textBox_->setToolTip(QStringLiteral("PDF 페이지에서 드래그해 투명 메모 상자를 만듭니다. 글꼴·크기 선택 가능. Esc: 취소."));
         rubber_ = new QRubberBand(QRubberBand::Rectangle, draw_);
         rubber_->setAttribute(Qt::WA_TransparentForMouseEvents);
+        if (auto* selectAction = nativeAction(window_, "actionSelectText"))
+            connect(selectAction, &QAction::triggered, this, [this] {
+                if (highlightArmed_) setHighlightArmed(false);
+            });
         connect(textBox_, &QAction::toggled, this, [this](bool enabled) {
+            if (enabled) setHighlightArmed(false);
             if (enabled && !canAnnotate()) { textBox_->setChecked(false); return; }
             if (enabled) { clearPendingSelection(); selectText(); draw_->setCursor(Qt::CrossCursor); }
             else { rubber_->hide(); drawingBox_ = false; draw_->unsetCursor(); }
@@ -282,6 +286,7 @@ public:
             stopVerticalAutoscroll();
             cancelTextBoxDrag();
             clearPendingSelection();
+            setHighlightArmed(false);
             textBox_->setChecked(false);
             QTimer::singleShot(0, this, [this] {
                 auto* c = window_.getProgramController();
@@ -301,7 +306,22 @@ private:
     }
     void syncSwatches() {
         for (int i = 0; i < swatches_.size(); ++i)
-            swatches_[i]->setChecked(color_ == QColor(QString::fromLatin1(kHighlightPresets[i].value)));
+            swatches_[i]->setChecked(highlightArmed_ &&
+                color_ == QColor(QString::fromLatin1(kHighlightPresets[i].value)));
+    }
+    void setHighlightArmed(bool enabled) {
+        highlightArmed_ = enabled;
+        syncSwatches();
+    }
+    void armHighlighter(const QColor& next) {
+        if (!next.isValid() || !canAnnotate()) { setHighlightArmed(false); return; }
+        clearPendingSelection();
+        if (textBox_->isChecked()) textBox_->setChecked(false);
+        selectText();  // Explicitly switch back from any native annotation tool.
+        if (!checked("actionSelectText")) { setHighlightArmed(false); return; }
+        color_ = next;
+        QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexRgb));
+        setHighlightArmed(true);
     }
     bool checked(const char* name) const { auto* a = nativeAction(window_, name); return a && a->isChecked(); }
     // Match the upstream PDF4QT native tool security gate. A custom action
@@ -317,11 +337,10 @@ private:
         selectionPage_ = -1;
         selectionStart_ = {};
         selectionEnd_ = {};
-        highlight_->setEnabled(false);
         eraser_->setEnabled(false);
     }
     void applyHighlight() {
-        if (!highlight_->isEnabled() || selectionPage_ < 0) return;
+        if (!highlightArmed_ || selectionPage_ < 0) return;
         auto* c = window_.getProgramController();
         if (!canAnnotate() || !checked("actionSelectText")) { clearPendingSelection(); return; }
         reloadHighlightColor();
@@ -939,7 +958,8 @@ private:
         }
         if ((event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) &&
             static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
-            target_ = {}; clearPendingSelection(); textBox_->setChecked(false); selectText(); return false;
+            target_ = {}; clearPendingSelection(); textBox_->setChecked(false);
+            setHighlightArmed(false); selectText(); return false;
         }
         if (textBox_->isChecked()) {
             if (event->type() == QEvent::MouseButtonPress) {
@@ -992,8 +1012,8 @@ private:
                     auto* selected = window_.getProgramController()->getToolManager()->getSelectTextTool();
                     const bool ready = canAnnotate() && selected && !selected->getSelectedText().trimmed().isEmpty() &&
                         !textBox_->isChecked() && selectionPage_ >= 0;
-                    highlight_->setEnabled(ready);
                     eraser_->setEnabled(ready);
+                    if (ready && highlightArmed_) applyHighlight();
                 });
             }
             return false; // Native text-selection tool must receive the release.
@@ -1047,7 +1067,7 @@ private:
     QTransform boxPageToDevice_;
     QPoint boxStart_;
     int boxHandle_ = 0;
-    QAction* highlight_ = nullptr;
+    bool highlightArmed_ = false;
     QAction* eraser_ = nullptr;
     QAction* chooseColor_ = nullptr;
     QList<QAction*> swatches_;

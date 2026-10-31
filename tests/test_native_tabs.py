@@ -153,6 +153,24 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('checked("actionCreateTextHighlight")', adapter)
         self.assertIn('checked("actionStickyNoteComment")', adapter)
 
+    def test_saved_annotation_reopen_checks_real_pdf_and_not_ui_action_state(self):
+        smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
+        for token in (
+            'Ctrl+S did not persist the current annotated PDF copy',
+            'Ctrl+S left the original annotated PDF bytes unchanged',
+            'Reader phase: reopened file annotation state independent of selected tool',
+            'Annotated copy failed to fully reopen after Ctrl+S',
+            'controller->canClose() && !controller->getIsBusy()',
+            'sameExistingFile(controller->getOriginalFileName(), saved)',
+            'Deleted annotation returned after save and reopen: highlights=%1 notes=%2',
+            'Text selection mode unavailable after reopening saved annotations',
+        ):
+            self.assertIn(token, smoke)
+        section = smoke.split('checkpoint("Reader phase: reopened file annotation state independent of selected tool")', 1)[1]
+        self.assertLess(section.index('if (annotations(pdf::AnnotationType::Highlight) != 0 ||'),
+                        section.index('if (!select->isChecked()) select->trigger();'))
+        self.assertNotIn('controller->getDocument() && select->isChecked()', section.split('if (!select->isChecked()) select->trigger();', 1)[0])
+
     def test_autoscroll_does_not_register_an_application_wide_mouse_filter(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')

@@ -1057,9 +1057,9 @@ private:
         for (const QString& field : entered.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
             const QString tag = field.simplified();
             if (tag.isEmpty()) continue;
-            if (tag.size() > 40 || tag.contains(QLatin1Char('/'))) {
+            if (tag.size() > 40) {
                 QMessageBox::warning(this, QStringLiteral("태그 입력 오류"),
-                    QStringLiteral("각 태그는 40자 이내이며 / 문자는 사용할 수 없습니다."));
+                    QStringLiteral("각 태그는 40자 이내로 입력하세요."));
                 return;
             }
             bool duplicate = false;

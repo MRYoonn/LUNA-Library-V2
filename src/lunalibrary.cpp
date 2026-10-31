@@ -6,6 +6,7 @@
 #include "lunadocumentclaim.h"
 #include "lunabibliography.h"
 #include "lunafirstpage.h"
+#include "lunaperformance.h"
 #include <QThread>
 #include "pdfdocument.h"
 #include "pdfcompiler.h"
@@ -888,20 +889,36 @@ private:
             (!force && analyzedCitations_.contains(identity))) return;
         analyzedCitations_.insert(identity);
         runningCitations_.insert(identity);
-        // Copy the immutable, implicitly shared PDF snapshot before leaving the UI thread.
-        // The worker owns its caches; it never touches the viewer/compiler or QSettings.
+        // On large SI documents, the first-page metadata worker competes with
+        // PDF4QT's first visible render. Let the renderer/UI get a head start,
+        // without blocking or permanently disabling automatic bibliography.
+        // An explicit user-triggered extraction is never delayed.
+        const auto* catalog = document.getCatalog();
+        const bool deferForLargePdf = !force && catalog && catalog->getPageCount() >= 80;
+        const qint64 queuedAt = performanceNow();
+        // This snapshot owns its document data across tab close/replacement.
+        // QSettings and viewer/compiler state remain on the UI thread.
         auto result = std::make_shared<QVariantMap>();
-        auto* worker = QThread::create([snapshot = document, result]() mutable {
-            try { *result = luna::extractFirstPage(snapshot); }
-            catch (...) { /* Invalid/image-only documents remain unverified. */ }
-        });
-        connect(worker, &QThread::finished, this, [this, identity, result] {
-            runningCitations_.remove(identity);
-            bibliography_.enrichFromFirstPage(identity, *result);
-        });
-        connect(qApp, &QCoreApplication::aboutToQuit, worker, [worker] { worker->wait(); });
-        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-        worker->start(QThread::LowPriority);
+        auto startWorker = [this, identity, result, snapshot = pdf::PDFDocument(document), queuedAt]() mutable {
+            performanceEvent("bibliography-worker-dispatch", queuedAt);
+            auto* worker = QThread::create([snapshot = std::move(snapshot), result]() mutable {
+                const qint64 started = performanceNow();
+                try { *result = luna::extractFirstPage(snapshot); }
+                catch (...) { /* Invalid/image-only documents remain unverified. */ }
+                performanceEvent("bibliography-first-page-worker", started);
+            });
+            connect(worker, &QThread::finished, this, [this, identity, result] {
+                runningCitations_.remove(identity);
+                bibliography_.enrichFromFirstPage(identity, *result);
+            });
+            connect(qApp, &QCoreApplication::aboutToQuit, worker, [worker] { worker->wait(); });
+            connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+            worker->start(QThread::LowPriority);
+        };
+        if (deferForLargePdf)
+            QTimer::singleShot(1200, this, std::move(startWorker));
+        else
+            startWorker();
     }
 
     void editBibliography(const QString& path) {

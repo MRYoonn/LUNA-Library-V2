@@ -219,9 +219,9 @@ public:
             palette->addSeparator();
             palette->addAction(chooseColor_);
         }
-        // Eight small, directly clickable swatches live immediately after the
-        // eraser/highlighter at the right of Print. Also available in Tools.
-        for (int i = 0; i < 8; ++i) {
+        // Six visible swatches, as requested, after Print/eraser/highlighter.
+        // All eight presets (including mint and gray) remain in Tools.
+        for (int i = 0; i < 6; ++i) {
             const QColor presetColor(QString::fromLatin1(kHighlightPresets[i].value));
             auto* swatch = new QAction(QIcon(new HighlightSwatchIcon(presetColor)),
                 QString::fromUtf8(kHighlightPresets[i].label), &window_);
@@ -1139,7 +1139,7 @@ public:
         bar_->addAction(separators_[3]); add("actionFind"); add("actionPrint");
         bar_->addAction(separators_[4]); // Print | Eraser | Highlight | 8 colors
         add("LunaEraseSelected"); add("LunaHighlightSelected");
-        for (int i = 1; i <= 8; ++i) {
+        for (int i = 1; i <= 6; ++i) {
             const QByteArray name = QStringLiteral("LunaHighlightSwatch%1").arg(i).toLatin1();
             add(name.constData());
         }
@@ -1285,7 +1285,7 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
     bar.addSeparator();
     if (auto* erase = window.findChild<QAction*>(QStringLiteral("LunaEraseSelected"))) bar.addAction(erase);
     if (auto* hl = window.findChild<QAction*>(QStringLiteral("LunaHighlightSelected"))) bar.addAction(hl);
-    for (int i = 1; i <= 8; ++i) {
+    for (int i = 1; i <= 6; ++i) {
         if (auto* swatch = window.findChild<QAction*>(QStringLiteral("LunaHighlightSwatch%1").arg(i)))
             bar.addAction(swatch);
     }
@@ -1296,7 +1296,7 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
     auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
     auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
     if (!bar || !bar->isVisible() || bar->orientation() != Qt::Horizontal) return fail("Reading toolbar missing");
-    const QStringList allowed = {"LunaCropThumbnail", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "LunaHighlightSelected", "LunaFreeTextBox", "LunaEraseSelected", "actionFind", "actionPrint", "LunaHighlightSwatch1", "LunaHighlightSwatch2", "LunaHighlightSwatch3", "LunaHighlightSwatch4", "LunaHighlightSwatch5", "LunaHighlightSwatch6", "LunaHighlightSwatch7", "LunaHighlightSwatch8"};
+    const QStringList allowed = {"LunaCropThumbnail", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "LunaHighlightSelected", "LunaFreeTextBox", "LunaEraseSelected", "actionFind", "actionPrint", "LunaHighlightSwatch1", "LunaHighlightSwatch2", "LunaHighlightSwatch3", "LunaHighlightSwatch4", "LunaHighlightSwatch5", "LunaHighlightSwatch6"};
     int controls = 0;
     for (auto* action : bar->actions()) {
         if (action->isSeparator()) continue;

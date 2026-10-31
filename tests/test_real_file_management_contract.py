@@ -64,6 +64,18 @@ class NativeFileManagementContracts(unittest.TestCase):
         self.assertIn("enqueueImportedMetadata(path, restore)", UI)
         self.assertIn("beginMetadataLookup(identity, doi, restore)", UI)
 
+    def test_favorite_smoke_reselects_after_async_folder_reload(self):
+        # selectFolder() clears all QListWidgetItem objects. Its previous
+        # pointers are invalid, so the smoke must reacquire and select a row.
+        nav = UI.index('favoritesButton->click();')
+        reload = UI.index('Folder navigation did not restore the actual PDF row', nav)
+        reselect = UI.index('item = list->item(0);', reload)
+        trigger = UI.index('favorite->trigger();', reselect)
+        self.assertLess(nav, reload)
+        self.assertLess(reload, reselect)
+        self.assertLess(reselect, trigger)
+        self.assertIn('settings.value(QStringLiteral("library/favorites")).toStringList().contains(path)', UI[trigger:trigger + 360])
+
     def test_one_item_per_real_path_and_no_secondary_hover_popup(self):
         self.assertIn("QSet<QString> allSeen_", UI)
         self.assertIn("QSet<QString> folderSeen_", UI)

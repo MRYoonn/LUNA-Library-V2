@@ -5,7 +5,10 @@ Never imports private source or documents. Refuses unexpected upstream changes.
 """
 from __future__ import annotations
 import argparse
+import base64
 import hashlib
+import json
+import zlib
 from pathlib import Path
 import sys
 
@@ -16,7 +19,7 @@ BLOBS = {
 }
 CMAKE_ADDITION = """
 # LUNA_LIBRARY_V2_TARGET_BEGIN
-add_executable(LUNA luna_main.cpp lunalibrary.cpp lunareadertoolbar.cpp lunaeditorsmoke.cpp lunatabs.cpp luna_icon.rc app.qrc luna_resources.qrc)
+add_executable(LUNA luna_main.cpp lunalibrary.cpp lunareadertoolbar.cpp lunaeditorsmoke.cpp lunatabs.cpp luna_icon.rc app.qrc luna_resources.qrc luna_folder_icons.qrc)
 target_link_libraries(LUNA PRIVATE Pdf4QtLibCore Pdf4QtLibWidgets Pdf4QtLibGui
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::PrintSupport Qt6::Network Qt6::Svg)
 if(MSVC)
@@ -284,6 +287,31 @@ def apply(root: Path, dry_run=False) -> None:
         files[folder / icon.name] = icon.read_bytes()
     files[folder / "luna_resources.qrc"] = ('<RCC><qresource prefix="/luna"><file>lunalibrary.qss</file><file>LUNA-Moon.ico</file><file>LUNA-Moon.png</file>' +
         ''.join('<file alias="icons/' + icon.name + '">' + icon.name + '</file>' for icon in icons) + '</qresource></RCC>\n').encode()
+    # Original user-provided folder SVGs embedded losslessly in a small
+    # text-safe resource bundle (rather than GitHub binary API attachments).
+    # No conversion or repainting of the approved 20 icon designs.
+    encoded = (own.parent / "assets/folder_icons/svg_bundle.b85").read_text(encoding="ascii").strip()
+    uncompressed = zlib.decompress(base64.b85decode(encoded))
+    if hashlib.sha256(uncompressed).hexdigest() != "37244af73e35e0925d2347a9dc7657ba3bd3a52d87b2d7dc1d300efe99496c8a":
+        raise ValueError("Approved LUNA SVG icon pack checksum mismatch")
+    artwork = json.loads(uncompressed)
+    ids = ("general important favorite research project review mechanism synthesis "
+           "spectroscopy computational data reference ideas drafting completed shared "
+           "external archive private temporary").split()
+    qrc_entries = []
+    for number, icon_id in enumerate(ids, 1):
+        name = f"{number:02d}_{icon_id}.svg"
+        if name not in artwork or "<svg " not in artwork[name]:
+            raise ValueError("Missing approved folder SVG: " + name)
+        files[folder / name] = artwork[name].encode("utf-8")
+        qrc_entries.append(f'<file alias="{icon_id}.svg">{name}</file>')
+    if "importance_overlay.svg" not in artwork or len(artwork) != len(ids) + 1:
+        raise ValueError("Invalid folder icon pack membership")
+    files[folder / "importance_overlay.svg"] = artwork["importance_overlay.svg"].encode("utf-8")
+    qrc_entries.append('<file alias="importance_overlay.svg">importance_overlay.svg</file>')
+    files[folder / "luna_folder_icons.qrc"] = (
+        '<RCC><qresource prefix="/luna/folders">' + ''.join(qrc_entries) +
+        '</qresource></RCC>\n').encode("utf-8")
     if "LUNA_LIBRARY_V2_TARGET_BEGIN" in cmake.read_text(encoding="utf-8"):
         raise ValueError("LUNA target already applied; stopped")
     for path, data in files.items():

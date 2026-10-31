@@ -26,10 +26,15 @@
 #include <QLineEdit>
 #include <QDir>
 #include <QMouseEvent>
+#include <QPainterPath>
 #include <QTimer>
 #include <QClipboard>
 #include <QColorDialog>
 #include <QMessageBox>
+#include <QMenu>
+#include <QSettings>
+#include <QStringList>
+#include <cmath>
 #include <QAbstractButton>
 #include <QPushButton>
 #include <QSpinBox>
@@ -285,6 +290,17 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         qAbs(proxy->getZoom() - 2.0) < 0.001 && proxy->getPageLayout() == pdf::PageLayout::OneColumn &&
         vertical->isVisible() && vertical->maximum() > vertical->minimum() && vertical->pageStep() > 0; }))
         return fail("Reopened PDF did not settle into enabled continuous 200% reading view");
+    checkpoint("Reader phase: vertical middle-click autoscroll");
+    // Middle-click should use the LUNA up/down marker, not PDF4QT's
+    // four-direction hand-pan. Escape must cancel without altering PDF data.
+    const QPoint middle = widget->rect().center();
+    mouse(widget, QEvent::MouseButtonPress, middle, Qt::MiddleButton, Qt::MiddleButton);
+    auto* autoscrollMarker = window.findChild<QWidget*>(QStringLiteral("LunaVerticalAutoscrollMarker"));
+    if (!autoscrollMarker || !autoscrollMarker->isVisible())
+        return fail("Middle click did not show the vertical up/down autoscroll marker");
+    mouse(widget, QEvent::MouseButtonRelease, middle, Qt::MiddleButton, Qt::NoButton);
+    key(widget, Qt::Key_Escape, Qt::NoModifier);
+    if (autoscrollMarker->isVisible()) return fail("Escape did not cancel vertical autoscroll");
     checkpoint("Reader phase: page navigation, zoom and advanced view menu");
     auto* pageNumber = window.findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"));
     proxy->goToPage(0);
@@ -386,31 +402,287 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     QApplication::clipboard()->clear(); widget->setFocus(); key(widget, Qt::Key_C, Qt::ControlModifier);
     if (!waitFor([&] { return QApplication::clipboard()->text() == selectedText; })) return fail("Ctrl+C did not copy selected PDF text");
 
-    // LUNA's reader tools use selection-first semantics, distinct from PDF4QT's
-    // native Insert > highlight drag tool. Exercise the actual document writer.
-    checkpoint("Reader phase: selection-first highlight and non-overlap");
-    auto* lunaHighlight = action("LunaHighlightSelected");
+    // Required interaction: drag to select text, click the chosen marker,
+    // commit one highlight, and stay in native SelectText mode.
+    checkpoint("Reader phase: eight one-click highlight pens and recolor");
+    auto* lunaErase = action("LunaEraseSelected");
     auto* lunaTextBox = action("LunaFreeTextBox");
-    if (!lunaHighlight || !lunaTextBox || !lunaTextBox->isCheckable())
-        return fail("LUNA selection-first highlight or transparent memo tool is missing");
-    if (!waitFor([&] { return lunaHighlight->isEnabled(); }))
-        return fail("LUNA highlighter did not enable after native text selection");
-    click(lunaHighlight);
-    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1 && !lunaHighlight->isEnabled(); }))
-        return fail("LUNA selected-text highlight was not created");
-    // Repeating exactly the same text range must not darken it by stacking.
+    if (!lunaErase || !lunaTextBox || !lunaTextBox->isCheckable() ||
+        action("LunaHighlightSelected"))
+        return fail("Separate highlight action still present or LUNA reader tools missing");
+    auto* palette = window.findChild<QMenu*>(QStringLiteral("LunaHighlightPalette"));
+    if (!palette) return fail("LUNA highlight palette missing from native Tools menu");
+    const auto choices = palette->actions();
+    const QStringList expectedColors = {
+        QStringLiteral("#FFE049"), QStringLiteral("#A3E6A4"),
+        QStringLiteral("#FFB3CF"), QStringLiteral("#9FCAFF"),
+        QStringLiteral("#FFC58A"), QStringLiteral("#C7B2FF"),
+        QStringLiteral("#A3E8DF"), QStringLiteral("#CED4DE")
+    };
+    if (choices.size() < expectedColors.size() + 2)
+        return fail("Eight highlight colors and custom palette entry missing");
+    auto* readerBar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
+    if (!readerBar) return fail("Native reader toolbar not found");
+    const auto toolbarActions = readerBar->actions();
+    const int printPos = toolbarActions.indexOf(action("actionPrint"));
+    const int erasePos = toolbarActions.indexOf(lunaErase);
+    if (printPos < 0 || erasePos != printPos + 2 ||
+        !toolbarActions[printPos + 1]->isSeparator())
+        return fail("Print / eraser / eight colored marker order regressed");
+    for (int i = 1; i <= 8; ++i) {
+        auto* marker = action(QStringLiteral("LunaHighlightSwatch%1").arg(i).toLatin1().constData());
+        if (!marker || marker->isCheckable() ||
+            toolbarActions.indexOf(marker) != erasePos + i)
+            return fail("Eight one-shot marker icons are missing or out of order");
+    }
+    const QString settingKey = QStringLiteral("annotations/highlightColor");
+    const QVariant previousColor = QSettings().value(settingKey);
+    // Clear the earlier Ctrl+C selection to verify a bare color click cannot
+    // create an annotation or arm the next drag.
+    mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,start,Qt::LeftButton,Qt::NoButton);
+    for (qsizetype i = 0; i < expectedColors.size(); ++i) {
+        choices[i]->trigger();
+        if (!select->isChecked() ||
+            QSettings().value(settingKey).toString().compare(expectedColors[i], Qt::CaseInsensitive))
+            return fail("Color menu did not preserve native text selection and preference");
+        auto* marker = action(QStringLiteral("LunaHighlightSwatch%1").arg(i + 1).toLatin1().constData());
+        if (!marker || marker->isChecked() || annotations(pdf::AnnotationType::Highlight) != 0)
+            return fail("Color click without selection armed a marker or modified PDF");
+    }
+    action("LunaHighlightSwatch5")->trigger();
+    if (!select->isChecked() ||
+        QSettings().value(settingKey).toString().compare(QStringLiteral("#FFC58A"), Qt::CaseInsensitive) ||
+        action("LunaHighlightSwatch5")->isChecked())
+        return fail("Inline marker click without selection changed tool mode");
+
+    // Select -> color click -> annotation -> SelectText, exactly once.
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
-    if (!waitFor([&] { return lunaHighlight->isEnabled(); }))
-        return fail("LUNA highlighter did not re-enable for a fresh selection");
-    click(lunaHighlight);
+    choices[1]->trigger(); // green
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1 && select->isChecked(); }))
+        return fail("Selection-then-color did not write native highlight and return to SelectText");
+    bool greenWritten = false;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+        if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+        const auto components = item.annotation->getColor();
+        greenWritten = components.size() >= 3 &&
+            std::abs(components[0] - 163.0 / 255.0) < 0.02 &&
+            std::abs(components[1] - 230.0 / 255.0) < 0.02 &&
+            std::abs(components[2] - 164.0 / 255.0) < 0.02;
+    }
+    if (!greenWritten) return fail("Drag highlight color not written to native PDF annotation");
+    QRectF initialGreenBounds;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+        if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+        const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+        if (ann) initialGreenBounds = ann->getHiglightArea().getPath().boundingRect().normalized();
+    }
+    if (!initialGreenBounds.isValid()) return fail("Initial native highlight had no saved geometry");
+    auto originalGreenRestored = [&]() {
+        if (annotations(pdf::AnnotationType::Highlight) != 1) return false;
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+            if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+            const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+            if (!ann) return false;
+            const QRectF now = ann->getHiglightArea().getPath().boundingRect().normalized();
+            const auto rgb = ann->getColor();
+            return rgb.size() >= 3 && qAbs(rgb[1] - 230.0/255.0) < 0.02 &&
+                qAbs(now.left() - initialGreenBounds.left()) < 0.12 &&
+                qAbs(now.right() - initialGreenBounds.right()) < 0.12 &&
+                qAbs(now.top() - initialGreenBounds.top()) < 0.12 &&
+                qAbs(now.bottom() - initialGreenBounds.bottom()) < 0.12;
+        }
+        return false;
+    };
+    // Same-color re-application must not stack transparency.
+    mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+    choices[1]->trigger();
+    QCoreApplication::processEvents();
     if (annotations(pdf::AnnotationType::Highlight) != 1)
-        return fail("LUNA highlighter duplicated a pre-existing marked region");
-    if (!action("actionUndo")) return fail("Native undo is missing");
+        return fail("Repeated same-color marker duplicated existing annotation");
+
+    // Partially repaint the center, retaining the first and last green words
+    // from the original note. Then undo once to restore exact old color.
+    checkpoint("Reader phase: recolor only selected overlap, preserve outer segments");
+    if (characters.size() < 13) return fail("Synthetic text too short for recolor regression");
+    const auto snapshot = proxy->getSnapshot();
+    const auto* selectedPage = snapshot.getPageSnapshot(0);
+    if (!selectedPage) return fail("Recolor test page not visible");
+    const QPoint middleStart = selectedPage->pageToDeviceMatrix.map(
+        characters[2].boundingBox.boundingRect().center() - QPointF(1, 0)).toPoint();
+    const QPoint middleEnd = selectedPage->pageToDeviceMatrix.map(
+        characters[5].boundingBox.boundingRect().center() + QPointF(1, -2)).toPoint();
+    if (!widget->rect().contains(middleStart) || !widget->rect().contains(middleEnd))
+        return fail("Recolor regression glyphs outside viewport");
+    mouse(widget,QEvent::MouseButtonPress,middleStart,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,middleEnd,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,middleEnd,Qt::LeftButton,Qt::NoButton);
+    choices[2]->trigger(); // pink
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 2; }))
+        return fail("Partly overlapping recolor failed to retain old and new colors");
+    bool oldColorStillPresent = false, pinkPresent = false;
+    QPainterPath oldPath, newPath;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+        if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+        const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+        if (!ann) return fail("Recolor geometry missing");
+        const auto rgb = ann->getColor();
+        if (rgb.size() < 3) continue;
+        if (qAbs(rgb[1] - 230.0/255.0) < 0.02) {
+            oldColorStillPresent = true; oldPath = ann->getHiglightArea().getPath();
+        }
+        if (qAbs(rgb[0] - 255.0/255.0) < 0.02 && qAbs(rgb[1] - 179.0/255.0) < 0.02) {
+            pinkPresent = true; newPath = ann->getHiglightArea().getPath();
+        }
+    }
+    if (!oldColorStillPresent || !pinkPresent || oldPath.intersects(newPath))
+        return fail("Recolor lost unselected old color or stacked alpha on new color");
+    action("actionUndo")->trigger();
+    if (!waitFor(originalGreenRestored))
+        return fail("Recolor Undo changed original saved highlight color or QuadPoints");
+    // Dragging existing and previously uncolored text must repaint the full
+    // selected range in new color, not silently skip the overlap.
+    const QPoint extendedEnd = selectedPage->pageToDeviceMatrix.map(
+        characters[12].boundingBox.boundingRect().center() + QPointF(1, -2)).toPoint();
+    if (!widget->rect().contains(extendedEnd)) return fail("Expanded recolor endpoint offscreen");
+    mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,extendedEnd,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,extendedEnd,Qt::LeftButton,Qt::NoButton);
+    choices[2]->trigger();
+    // Number of annotations was ONE before the drag and can be ONE after
+    // the asynchronous replacement. Waiting only for count==1 returned
+    // immediately and pressed Undo before the pending event-loop callback
+    // had saved pink, corrupting the subsequent test's state.
+    checkpoint("Reader phase: expanded recolor waits for committed pink geometry");
+    auto expandedPinkCommitted = [&]() {
+        if (annotations(pdf::AnnotationType::Highlight) != 1) return false;
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+            if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+            const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+            if (!ann) return false;
+            const auto rgb = ann->getColor();
+            const QRectF bounds = ann->getHiglightArea().getPath().boundingRect().normalized();
+            return rgb.size() >= 3 &&
+                qAbs(rgb[0] - 1.0) < 0.02 &&
+                qAbs(rgb[1] - 179.0 / 255.0) < 0.02 &&
+                qAbs(rgb[2] - 207.0 / 255.0) < 0.02 &&
+                bounds.isValid() &&
+                bounds.right() > initialGreenBounds.right() + 2.0 &&
+                bounds.left() <= initialGreenBounds.left() + 2.0;
+        }
+        return false;
+    };
+    if (!waitFor(expandedPinkCommitted))
+        return fail("Expanded marker did not commit pink geometry beyond original green coverage");
+    action("actionUndo")->trigger();
+    if (!waitFor(originalGreenRestored))
+        return fail("Expanded recolor Undo changed original highlight geometry");
+
+    // The eraser also acts on an already selected range, once per click.
+    key(widget, Qt::Key_Escape, Qt::NoModifier);
+    if (lunaErase->isCheckable()) return fail("Eraser incorrectly remains a drag mode");
+    checkpoint("Reader phase: eraser removes only chosen glyph range");
+    mouse(widget,QEvent::MouseButtonPress,middleStart,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,middleEnd,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,middleEnd,Qt::LeftButton,Qt::NoButton);
+    click(lunaErase);
+    if (!select->isChecked()) return fail("Eraser click did not return to SelectText");
+    if (!waitFor([&] {
+        if (annotations(pdf::AnnotationType::Highlight) != 1) return false;
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations)
+            if (item.annotation->getType() == pdf::AnnotationType::Highlight) {
+                const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+                return ann && ann->getHiglightArea().getQuadrilaterals().size() >= 2;
+            }
+        return false;
+    })) return fail("Eraser removed nonselected words from same highlight");
+    action("actionUndo")->trigger();
+    if (!waitFor(originalGreenRestored))
+        return fail("Partial eraser Undo did not restore original QuadPoints and color");
+    // Earlier recolor/Undo operations can leave an annotation spanning
+    // MORE glyphs than the first 0..7 test drag. Selecting only those first
+    // glyphs must preserve the uncovered suffix, not delete it. For the
+    // *whole-mark* erase check, derive the drag from the actual saved
+    // QuadPoints rather than assuming an old synthetic click endpoint.
+    QRectF markedBeforeErase;
+    int firstMarkedGlyph = -1, lastMarkedGlyph = -1;
+    bool originalGreen = false;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+        if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+        const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+        if (!ann) continue;
+        markedBeforeErase = ann->getHiglightArea().getPath().boundingRect().normalized();
+        const auto rgb = ann->getColor();
+        originalGreen = rgb.size() >= 3 &&
+            qAbs(rgb[0] - 163.0/255.0) < 0.02 &&
+            qAbs(rgb[1] - 230.0/255.0) < 0.02 &&
+            qAbs(rgb[2] - 164.0/255.0) < 0.02;
+    }
+    if (!originalGreen || !markedBeforeErase.isValid())
+        return fail("Recolor/Undo did not restore original green highlight before erase");
+    for (qsizetype i = 0; i < characters.size(); ++i) {
+        const QRectF glyph = characters[i].boundingBox.boundingRect().normalized();
+        const QRectF hit = glyph.intersected(markedBeforeErase);
+        if (glyph.width() < 1 || glyph.height() < 1 ||
+            hit.width() < glyph.width() * 0.45 ||
+            hit.height() < glyph.height() * 0.40) continue;
+        if (firstMarkedGlyph < 0) firstMarkedGlyph = int(i);
+        lastMarkedGlyph = int(i);
+    }
+    if (firstMarkedGlyph < 0 || lastMarkedGlyph < 0 || firstMarkedGlyph >= lastMarkedGlyph)
+        return fail("Could not find original saved highlight glyph range");
+    const auto freshSnapshot = proxy->getSnapshot();
+    const auto* pageForErase = freshSnapshot.getPageSnapshot(0);
+    if (!pageForErase) return fail("Whole-annotation erase page not visible");
+    const QPoint wholeStart = pageForErase->pageToDeviceMatrix.map(
+        characters[firstMarkedGlyph].boundingBox.boundingRect().center() - QPointF(1, 0)).toPoint();
+    const QPoint wholeEnd = pageForErase->pageToDeviceMatrix.map(
+        characters[lastMarkedGlyph].boundingBox.boundingRect().center() + QPointF(1, -2)).toPoint();
+    if (!widget->rect().contains(wholeStart) || !widget->rect().contains(wholeEnd))
+        return fail("Whole-annotation erase glyph range outside viewport");
+    mouse(widget,QEvent::MouseButtonPress,wholeStart,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,wholeEnd,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,wholeEnd,Qt::LeftButton,Qt::NoButton);
+    click(lunaErase);
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0 && select->isChecked(); })) {
+        // Report real geometry and tool mode in the exact CI failure rather
+        // than repeating an ambiguous error across repeated Windows builds.
+        QStringList residues;
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+            if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+            const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+            if (!ann) continue;
+            for (const auto& quad : ann->getHiglightArea().getQuadrilaterals()) {
+                QPolygonF poly;
+                for (const auto& point : quad) poly << point;
+                const QRectF remaining = poly.boundingRect().normalized();
+                residues << QStringLiteral("[%1,%2 to %3,%4]").arg(remaining.left(), 0, 'f', 2)
+                    .arg(remaining.top(), 0, 'f', 2).arg(remaining.right(), 0, 'f', 2)
+                    .arg(remaining.bottom(), 0, 'f', 2);
+            }
+        }
+        error = QStringLiteral("Selection-then-click eraser did not remove previous highlight: count=%1 active=%2 select=%3 selectedChars=%4 remnants=%5 firstGlyph=%6 lastGlyph=%7 originalBounds=%8,%9..%10,%11")
+            .arg(annotations(pdf::AnnotationType::Highlight))
+            .arg(lunaErase->isChecked()).arg(select->isChecked())
+            .arg(controller->getToolManager()->getSelectTextTool()->getSelectedText().size())
+            .arg(residues.join(QStringLiteral("; ")))
+            .arg(firstMarkedGlyph).arg(lastMarkedGlyph)
+            .arg(markedBeforeErase.left(), 0, 'f', 2).arg(markedBeforeErase.top(), 0, 'f', 2)
+            .arg(markedBeforeErase.right(), 0, 'f', 2).arg(markedBeforeErase.bottom(), 0, 'f', 2);
+        return false;
+    }
+    action("actionUndo")->trigger();
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
+        return fail("Selection-first eraser did not preserve native undo");
     action("actionUndo")->trigger();
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0; }))
-        return fail("Selection-first highlight did not participate in native undo");
+        return fail("Initial colored marker did not preserve native undo");
+    if (previousColor.isValid()) QSettings().setValue(settingKey, previousColor);
+    else QSettings().remove(settingKey);
 
     checkpoint("Reader phase: transparent on-page FreeText note");
     bool freeTextEditor = false;
@@ -652,9 +924,43 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     widget->setFocus(); key(widget, Qt::Key_S, Qt::ControlModifier);
     QObject::disconnect(saveConnection);
     if (saves != 1) return fail("Ctrl+S shortcut did not invoke native save");
+    // PDF4QT saves synchronously. Check the actual save outcome, not just that
+    // the shortcut emitted QAction::triggered. A failed write must never
+    // appear to be a successful annotation round trip.
+    const auto* savedState = controller->findChild<pdfviewer::PDFUndoRedoManager*>();
+    if (!savedState || !savedState->isCurrentSaved() ||
+        !sameExistingFile(controller->getOriginalFileName(), saved) ||
+        readFile(saved).isEmpty())
+        return fail("Ctrl+S did not persist the current annotated PDF copy");
+#ifdef Q_OS_WIN
+    if (readFile(saved) == beforeFailedSave)
+        return fail("Ctrl+S left the original annotated PDF bytes unchanged");
+#endif
+    checkpoint("Reader phase: reopened file annotation state independent of selected tool");
     controller->closeDocument(); controller->openDocument(saved);
-    if (!waitFor([&] { return controller->getDocument() && select->isChecked(); }) || annotations(pdf::AnnotationType::Highlight) != 0 || annotations(pdf::AnnotationType::Text) != 1)
-        return fail("Deleted annotation returned after save and reopen");
+    // The active text-selection QAction is a UI state, not a proof that the
+    // asynchronous PDF open has finished. Await actual file/page load FIRST,
+    // and independently inspect the annotations from the reloaded document.
+    if (!waitFor([&] {
+        const auto* doc = controller->getDocument();
+        return doc && doc->getCatalog() && doc->getCatalog()->getPageCount() == 2 &&
+            controller->canClose() && !controller->getIsBusy() &&
+            window.isEnabled() &&
+            sameExistingFile(controller->getOriginalFileName(), saved);
+    }))
+        return fail("Annotated copy failed to fully reopen after Ctrl+S");
+    if (annotations(pdf::AnnotationType::Highlight) != 0 ||
+        annotations(pdf::AnnotationType::Text) != 1) {
+        error = QStringLiteral("Deleted annotation returned after save and reopen: highlights=%1 notes=%2 saved=%3 path=%4")
+            .arg(annotations(pdf::AnnotationType::Highlight))
+            .arg(annotations(pdf::AnnotationType::Text))
+            .arg(savedState->isCurrentSaved())
+            .arg(controller->getOriginalFileName());
+        return false;
+    }
+    if (!select->isChecked()) select->trigger();
+    if (!waitFor([&] { return select->isChecked(); }))
+        return fail("Text selection mode unavailable after reopening saved annotations");
     // Restore a native highlight for the final reading-layout captures.
     // A document and the checked selection action can precede completion of
     // asynchronous text indexing. The native controller disables the window
@@ -722,6 +1028,55 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!enteredPersistedFreeText || !waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 1; }))
         return fail("LUNA persistent FreeText was not added to the document");
 
+    checkpoint("Reader phase: PowerPoint-style FreeText select and drag");
+    auto freeTextBox = [&] {
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations)
+            if (item.annotation->getType() == pdf::AnnotationType::FreeText)
+                return item.annotation->getRectangle().normalized();
+        return QRectF();
+    };
+    const QRectF beforeMove = freeTextBox();
+    const QPoint moveFrom = annotationPoint(pdf::AnnotationType::FreeText);
+    const QPoint moveTo = moveFrom + QPoint(18, 12);
+    if (!beforeMove.isValid() || !widget->rect().contains(moveFrom) ||
+        !widget->rect().contains(moveTo))
+        return fail("FreeText move test point outside PDF viewport");
+    mouse(widget,QEvent::MouseButtonPress,moveFrom,Qt::LeftButton,Qt::LeftButton);
+    checkpoint("Reader phase: FreeText move pressed");
+    mouse(widget,QEvent::MouseMove,moveTo,Qt::NoButton,Qt::LeftButton);
+    checkpoint("Reader phase: FreeText move previewed");
+    mouse(widget,QEvent::MouseButtonRelease,moveTo,Qt::LeftButton,Qt::NoButton);
+    checkpoint("Reader phase: FreeText move released");
+    if (!waitFor([&] {
+        const QRectF moved = freeTextBox();
+        return moved.isValid() &&
+            (moved.topLeft() - beforeMove.topLeft()).manhattanLength() > 2 &&
+            qAbs(moved.width() - beforeMove.width()) < 0.5 &&
+            qAbs(moved.height() - beforeMove.height()) < 0.5;
+    })) return fail("FreeText could not be dragged using text-selection mode");
+
+    checkpoint("Reader phase: PowerPoint-style FreeText resize handles");
+    const QRectF beforeResize = freeTextBox();
+    const auto gripSnapshot = proxy->getSnapshot();
+    const auto* gripPage = gripSnapshot.getPageSnapshot(0);
+    if (!gripPage) return fail("FreeText resize page is not visible");
+    const QPoint grip = gripPage->pageToDeviceMatrix.mapRect(beforeResize).normalized().bottomRight().toPoint();
+    const QPoint gripEnd = grip + QPoint(12, 9);
+    if (!widget->rect().contains(grip) || !widget->rect().contains(gripEnd))
+        return fail("FreeText native resize handle offscreen");
+    mouse(widget,QEvent::MouseButtonPress,grip,Qt::LeftButton,Qt::LeftButton);
+    checkpoint("Reader phase: FreeText resize pressed");
+    mouse(widget,QEvent::MouseMove,gripEnd,Qt::NoButton,Qt::LeftButton);
+    checkpoint("Reader phase: FreeText resize previewed");
+    mouse(widget,QEvent::MouseButtonRelease,gripEnd,Qt::LeftButton,Qt::NoButton);
+    checkpoint("Reader phase: FreeText resize released");
+    if (!waitFor([&] {
+        const QRectF resized = freeTextBox();
+        return resized.isValid() &&
+            (qAbs(resized.width() - beforeResize.width()) > 1 ||
+             qAbs(resized.height() - beforeResize.height()) > 1);
+    })) return fail("FreeText corner handle did not resize the native PDF text box");
+
     // Editing an existing on-page FreeText must not require raw PDF-object
     // editing, nor should a double-click consume the native resize handles.
     checkpoint("Reader phase: FreeText double-click edit");
@@ -760,11 +1115,39 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
 
     if (!waitFor([&] { return action("actionSave")->isEnabled() && window.isEnabled(); }))
         return fail("Native final save remained busy");
+    const QByteArray preFreeTextSave = readFile(saved);
+    int finalSaveTriggers = 0;
+    const auto finalSaveSignal = QObject::connect(action("actionSave"), &QAction::triggered,
+        &window, [&] { ++finalSaveTriggers; });
     widget->setFocus(); key(widget,Qt::Key_S,Qt::ControlModifier);
+    QObject::disconnect(finalSaveSignal);
+    if (finalSaveTriggers != 1)
+        return fail("Ctrl+S did not invoke native FreeText save");
+    // Saving is synchronous in pinned PDF4QT; prove the updated file actually
+    // landed on disk before closing and asynchronously reopening it.
+    if (!savedState || !savedState->isCurrentSaved() ||
+        !sameExistingFile(controller->getOriginalFileName(), saved) ||
+        readFile(saved).isEmpty() || readFile(saved) == preFreeTextSave)
+        return fail("Native FreeText changes were not persisted by Ctrl+S");
     if (readFile(original) != originalBytes) return fail("Reader regressions modified original PDF");
-    controller->closeDocument(); controller->openDocument(saved);
-    if (!waitFor([&] { return controller->getDocument() && select->isChecked() && window.isEnabled(); }))
-        return fail("LUNA FreeText persisted document did not reopen");
+    checkpoint("Reader phase: FreeText persisted disk bytes, wait for actual reopen");
+    controller->closeDocument();
+    controller->openDocument(saved);
+    // Unlike synchronous Ctrl+S, PDF4QT openDocument() schedules a future
+    // loader. The text-selection QAction is independent of the file's load
+    // status and can legitimately be unchecked during the completed reopen.
+    if (!waitFor([&] {
+        const auto* doc = controller->getDocument();
+        return doc && doc->getCatalog() && doc->getCatalog()->getPageCount() == 2 &&
+            controller->canClose() && !controller->getIsBusy() && window.isEnabled() &&
+            sameExistingFile(controller->getOriginalFileName(), saved);
+    })) {
+        error = QStringLiteral("LUNA FreeText persisted document did not reopen: document=%1 busy=%2 enabled=%3 file=%4")
+            .arg(bool(controller->getDocument())).arg(controller->getIsBusy())
+            .arg(window.isEnabled()).arg(controller->getOriginalFileName());
+        return false;
+    }
+    // Check actual persisted annotations before activating any reading tool.
     if (annotations(pdf::AnnotationType::Highlight) != 1 ||
         annotations(pdf::AnnotationType::Text) != 1 ||
         annotations(pdf::AnnotationType::FreeText) != 1)
@@ -776,6 +1159,11 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     }
     if (!persistedContentsFound || readFile(original) != originalBytes)
         return fail("LUNA FreeText text or original PDF bytes changed on disk");
+    // Tool readiness is a separate UI invariant, not evidence of saved PDF
+    // data. Explicitly activate it after all annotation checks have passed.
+    if (!select->isChecked()) select->trigger();
+    if (!waitFor([&] { return select->isChecked(); }))
+        return fail("Native text-selection tool unavailable after FreeText reopen");
     checkpoint("Reader phase: native print dialog open and cancel");
     if (!QPrinterInfo::availablePrinters().isEmpty()) {
 #ifdef Q_OS_WIN

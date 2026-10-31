@@ -7,6 +7,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "assets/folder_icons/README.md",
+    "assets/folder_icons/svg_bundle.b85",
     "tools/compare_ui_reference.py",
     ".gitattributes",
     "assets/icons/ui-library.svg",

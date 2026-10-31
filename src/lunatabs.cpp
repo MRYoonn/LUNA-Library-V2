@@ -161,7 +161,9 @@ public:
         tabs_->tabBar()->setExpanding(false);
         tabs_->tabBar()->setUsesScrollButtons(true);
         auto* initial = createEditor();
+        performanceEvent("native-shell-before-library", performanceNow());
         installLibraryShell(*this, *initial);
+        performanceEvent("native-shell-after-library", performanceNow());
         auto* frame = centralWidget();
         auto* corner = findChild<QWidget*>(QStringLiteral("LunaTabCorner"));
         if (corner) { frame->layout()->removeWidget(corner); tabs_->setCornerWidget(corner, Qt::TopLeftCorner); }
@@ -193,7 +195,9 @@ public:
         // competing QAction shortcut: embedded PDF4QT windows can also register
         // document/window Close actions, and Qt may choose another shortcut.
         // Our application event filter intercepts ShortcutOverride + KeyPress.
+        performanceEvent("native-shell-before-reader-bind", performanceNow());
         finishEditor(initial);
+        performanceEvent("native-shell-after-reader-bind", performanceNow());
         updater_ = new UpdateController(*this);
         QTimer::singleShot(12000, updater_, [this] {
             if (updater_ && !closing_) updater_->check(false);
@@ -361,7 +365,9 @@ private:
     }
     void finishEditor(Editor* editor) {
         PerformanceSpan span("editor-ui-bind");
+        performanceEvent("native-editor-before-reader-prepare", performanceNow());
         prepareReaderSession(*editor, *this);
+        performanceEvent("native-editor-after-reader-prepare", performanceNow());
         if (auto* bar = editor->findChild<QToolBar*>(QStringLiteral("mainToolBar"))) bar->hide();
         editor->statusBar()->hide();
         auto* controller = editor->getProgramController();
@@ -733,7 +739,7 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
         host.resize(logical); host.show();
         if (!integrationWait([&] { return host.size() == logical; }) || !host.grab().save(report + QStringLiteral(".%1.png").arg(pixels.width()))) { captured = false; break; }
         QJsonObject metrics{{"width", host.width()}, {"height", host.height()}, {"dpr", scale}};
-        for (const auto* name : {"LunaMainMenuBar", "LunaBrandFrame", "LunaCommonReaderToolbar", "LunaNavigation", "LunaDocuments", "LunaContentModes", "LunaPdfTabs", "LunaPdfTabBar"}) {
+        for (const auto* name : {"LunaMainMenuBar", "LunaBrandFrame", "LunaCommonReaderToolbar", "LunaNavigation", "LunaDocuments", "LunaContentStack", "LunaPdfTabs", "LunaPdfTabBar"}) {
             if (auto* widget = host.findChild<QWidget*>(QString::fromLatin1(name))) {
                 const QPoint origin = widget->mapTo(&host, QPoint());
                 metrics[QString::fromLatin1(name)] = QJsonObject{{"x", origin.x()}, {"y", origin.y()}, {"width", widget->width()}, {"height", widget->height()}};
@@ -1011,13 +1017,30 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             result["singleWindowTabsOpenDedupAndZoom"] = true;
             phase("active page previews and actual crop");
             focus->setChecked(false); tabs->setCurrentWidget(b);
-            auto* modes = host.findChild<QTabBar*>(QStringLiteral("LunaContentModes")); auto* grid = host.findChild<QListView*>(QStringLiteral("LunaPageGrid")); modes->setCurrentIndex(1);
-            integrationRequire(integrationWait([&] { return grid->model()->rowCount() == 3 && !grid->model()->index(0, 0).data(Qt::DecorationRole).value<QPixmap>().isNull() && grid->visualRect(grid->model()->index(0, 0)).top() == grid->visualRect(grid->model()->index(1, 0)).top(); }), "B native page grid did not rebind to three pages/two columns");
+            auto* preview = host.findChild<QAction*>(QStringLiteral("LunaPagePreview"));
+            auto* grid = host.findChild<QListView*>(QStringLiteral("LunaPageGrid"));
+            integrationRequire(preview && !preview->isChecked() && grid && !grid->isVisible() &&
+                !host.findChild<QTabBar*>(QStringLiteral("LunaContentModes")),
+                "Page-preview tab row was not removed from the default paper list");
+            auto* nativeView = b->findChild<QMenu*>(QStringLiteral("menuView"));
+            integrationRequire(nativeView && nativeView->actions().contains(preview),
+                "Optional page preview is missing from the native View menu");
+            preview->trigger();
+            integrationRequire(integrationWait([&] { return preview->isChecked() && grid->isVisible() &&
+                grid->model()->rowCount() == 3 &&
+                !grid->model()->index(0, 0).data(Qt::DecorationRole).value<QPixmap>().isNull() &&
+                grid->visualRect(grid->model()->index(0, 0)).top() == grid->visualRect(grid->model()->index(1, 0)).top(); }),
+                "On-demand native page grid did not rebind to three pages/two columns");
             const auto third = grid->model()->index(2, 0); grid->scrollTo(third);
             integrationRequire(integrationWait([&] { return grid->viewport()->rect().contains(grid->visualRect(third).center()); }) &&
                 integrationClick(host, grid->viewport(), grid->visualRect(third).center()), "Real page preview mouse input failed");
             integrationRequire(integrationWait([&] { const auto pages = b->getProgramController()->getPdfWidget()->getDrawWidget()->getCurrentPages(); return std::find(pages.begin(), pages.end(), pdf::PDFInteger(2)) != pages.end(); }), "Page preview did not navigate current B");
-            tabs->setCurrentWidget(a); integrationRequire(grid->model()->rowCount() == 2, "A page model did not return after switch"); modes->setCurrentIndex(0);
+            tabs->setCurrentWidget(a);
+            integrationRequire(grid->model()->rowCount() == 2 && preview->isChecked(),
+                "On-demand page model did not rebind after switching to A");
+            preview->trigger();
+            integrationRequire(!preview->isChecked() && !grid->isVisible(),
+                "Native page grid did not return to the clean paper-list view");
             collapse(); const QString thumbnail = QFileInfo(files[0]).absolutePath() + "/A.luna-thumb.png";
             auto* crop = a->findChild<QAction*>(QStringLiteral("LunaCropThumbnail")); integrationRequire(crop && crop->isEnabled(), "Active thumbnail crop action disabled"); crop->trigger();
             auto* draw = integrationSurface(a); QWidget* overlay = nullptr;
@@ -1146,16 +1169,46 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             }), "Second Ctrl+W closed LUNA or damaged A");
             result["ctrlWClosesOnlyActiveTabAndPreservesWindow"] = true;
             result["rootShortcutsSearchSaveAsAndSurvivor"] = true;
-            phase("inline memo, search and paired move");
+            phase("context-only memo, search and paired move");
             integrationRequire(integrationWait([&] { list = integrationList(host, files[0], &paper); return list && paper; }), "A paper card missing before memo"); list->scrollToItem(paper);
             const QRect card = list->visualItemRect(paper);
-            integrationRequire(card.height() == 96, "Paper card height differs from the compact design");
-            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 160, card.top() + 81}), "Real memo mouse input failed");
-            QLineEdit* edit = nullptr; integrationRequire(integrationWait([&] { edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")); return edit && edit->hasFocus(); }), "Inline memo editor did not focus");
+            integrationRequire(card.height() == 322 && list->viewMode() == QListView::ListMode && !list->isWrapping(), "Stacked full-width thumbnail paper card layout changed");
+            const QPoint memoLocation(card.left() + 160, card.top() + 293);
+            // Regression gate: plain left-click MUST NOT enter memo editing.
+            integrationRequire(integrationClick(host, list->viewport(), memoLocation), "Real memo selection mouse input failed");
+            QElapsedTimer noAccidentalEdit; noAccidentalEdit.start();
+            integrationRequire(integrationWait([&] { return noAccidentalEdit.elapsed() >= 250; }, 1000) &&
+                !list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")),
+                "Accidental left click opened memo editor");
+            QLineEdit* edit = nullptr;
+            auto openContextMemo = [&] {
+                bool chosen = false;
+                QTimer menuPicker;
+                QObject::connect(&menuPicker, &QTimer::timeout, &host, [&] {
+                    if (chosen) return;
+                    auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+                    if (!menu) return;
+                    for (auto* action : menu->actions()) {
+                        if (action->objectName() != QStringLiteral("LunaEditPaperMemo")) continue;
+                        chosen = true;
+                        menu->setActiveAction(action);
+                        integrationKey(VK_RETURN);
+                        break;
+                    }
+                });
+                menuPicker.start(25);
+                const bool clicked = integrationClick(host, list->viewport(), memoLocation, true);
+                const bool focused = clicked && integrationWait([&] {
+                    edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor"));
+                    return chosen && edit && edit->hasFocus();
+                });
+                menuPicker.stop();
+                return focused;
+            };
+            integrationRequire(openContextMemo(), "Right-click paper memo context menu did not focus editor");
             integrationRequire(integrationType(QStringLiteral("초기 메모")) && integrationKey(VK_RETURN), "Real memo typing/Enter failed");
             integrationRequire(integrationWait([&] { return paper->data(Qt::UserRole + 4).toString() == QStringLiteral("초기 메모"); }), "Memo Enter did not persist");
-            integrationRequire(integrationClick(host, list->viewport(), {card.left() + 160, card.top() + 81}), "Memo edit mouse input failed");
-            integrationRequire(integrationWait([&] { edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")); return edit && edit->hasFocus(); }), "Memo edit did not reopen");
+            integrationRequire(openContextMemo(), "Right-click memo edit did not reopen");
             integrationRequire(integrationKey('A', true) && integrationType(memo), "Memo replacement input failed");
             auto* query = host.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch")); integrationRequire(integrationClick(host, query, query->rect().center()), "Memo focus-out click failed");
             integrationRequire(integrationWait([&] { return paper->data(Qt::UserRole + 4).toString() == memo; }) && paper->toolTip().contains(memo), "Memo focus-out did not save with full tooltip");

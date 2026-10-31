@@ -6,6 +6,7 @@
 #include "lunadocumentclaim.h"
 #include "lunabibliography.h"
 #include "lunafirstpage.h"
+#include "lunaperformance.h"
 #include <QThread>
 #include "pdfdocument.h"
 #include "pdfcompiler.h"
@@ -40,9 +41,11 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QPainter>
+#include <QPainterPath>
 #include <QTextLayout>
 #include <QLinearGradient>
 #include <QSet>
+#include <QHash>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QStyledItemDelegate>
@@ -92,6 +95,12 @@
 #include <functional>
 #include <algorithm>
 #include <QImageReader>
+#include <QImage>
+#include <QGridLayout>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#include <QUuid>
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
 #include <QScreen>
@@ -258,13 +267,41 @@ QString openedDateKey(const QString& path) {
     return QString::fromLatin1(QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex());
 }
 
+// The document list stays a SINGLE vertical QListWidget: one horizontally
+// arranged, full-width paper card per row. Never switch it to a two-column grid.
+// Exactly one paper per row. Inside each card, the cropped thumbnail is
+// ABOVE the two-line title, one-line citation and memo (user-approved layout).
+// Do not turn the document pane into a grid or a left-thumbnail list.
 class DocumentCard final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
-    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {300, 96}; }
+    static constexpr int kCardHeight = 322;
+    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override {
+        return {300, kCardHeight};
+    }
     std::function<void(const QString&, const QString&)> saveMemo;
-    static QRect memoRect(const QRect& r) { return QRect(r.left() + 108, r.top() + 73, qMax(20, r.width() - 158), 18); }
-    static QRect favoriteRect(const QRect& r) { return QRect(r.right() - 37, r.top() + (r.height() - 24) / 2, 22, 24); }
+    static QRect contentRect(const QRect& r) {
+        return QRect(r.left() + 16, r.top() + 14, qMax(25, r.width() - 32), kCardHeight - 28);
+    }
+    static QRect thumbnailRect(const QRect& r) {
+        const QRect content = contentRect(r);
+        return QRect(content.left(), r.top() + 14, content.width(), 164);
+    }
+    static QRect titleRect(const QRect& r) {
+        const QRect content = contentRect(r);
+        return QRect(content.left(), r.top() + 190, content.width(), 45);
+    }
+    static QRect citationRect(const QRect& r) {
+        const QRect content = contentRect(r);
+        return QRect(content.left(), r.top() + 241, content.width(), 24);
+    }
+    static QRect memoRect(const QRect& r) {
+        const QRect content = contentRect(r);
+        return QRect(content.left(), r.top() + 280, content.width(), 26);
+    }
+    static QRect favoriteRect(const QRect& r) {
+        return QRect(r.right() - 48, r.top() + 22, 28, 28);
+    }
     QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
         auto* editor = new QLineEdit(parent);
         editor->setObjectName(QStringLiteral("LunaPaperMemoEditor"));
@@ -274,98 +311,142 @@ public:
     }
     void setEditorData(QWidget* editor, const QModelIndex& index) const override {
         auto* input = static_cast<QLineEdit*>(editor);
-        input->setText(index.data(Qt::UserRole + 4).toString()); input->selectAll();
+        input->setText(index.data(Qt::UserRole + 4).toString());
+        input->selectAll();
     }
     void setModelData(QWidget* editor, QAbstractItemModel*, const QModelIndex& index) const override {
         if (saveMemo) saveMemo(index.data(Qt::UserRole).toString(), static_cast<QLineEdit*>(editor)->text());
     }
     void updateEditorGeometry(QWidget* editor, const QStyleOptionViewItem& option, const QModelIndex&) const override {
-        editor->setGeometry(memoRect(option.rect).adjusted(18, 0, 0, 0));
+        editor->setGeometry(memoRect(option.rect).adjusted(21, 0, 0, 0));
     }
-    bool editorEvent(QEvent* event, QAbstractItemModel* model, const QStyleOptionViewItem& option, const QModelIndex& index) override {
-        if (event->type() == QEvent::MouseButtonRelease || event->type() == QEvent::MouseButtonDblClick) {
-            auto* mouse = static_cast<QMouseEvent*>(event);
-            if (mouse->button() == Qt::LeftButton && memoRect(option.rect).contains(mouse->position().toPoint())) {
-                if (auto* view = qobject_cast<QAbstractItemView*>(parent())) view->edit(index);
-                return true;
-            }
-        }
-        return QStyledItemDelegate::editorEvent(event, model, option, index);
-    }
+    // Never open the memo on a single/double left-click; only the right-click
+    // context action invokes list->editItem(item). Double-click opens the PDF.
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
         painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
         const QRect r = option.rect;
+        const QRect card = r.adjusted(5, 4, -6, -5);
         const bool selected = option.state & QStyle::State_Selected;
         const bool activeDocument = index.data(Qt::UserRole + 7).toBool();
-        painter->fillRect(r, QColor(activeDocument ? "#EAF3FF" :
-            selected ? "#E4EDFC" : kPANEL));
-        if (activeDocument) painter->fillRect(QRect(r.left(), r.top(), 3, r.height()), QColor("#79A6DF"));
-        if (!activeDocument && !selected && (option.state & QStyle::State_MouseOver))
-            painter->fillRect(r, QColor("#F6F9FF"));
-        painter->setPen(QColor(kLINE));
-        painter->drawLine(r.bottomLeft(), r.bottomRight());
-        const QRect paper(r.left() + 11, r.top() + 15, 88, 65);
+        const bool hovered = option.state & QStyle::State_MouseOver;
+        painter->setPen(QPen(QColor(activeDocument ? "#92B7EE" : selected ? "#BAD1F2" : kLINE), 1));
+        painter->setBrush(QColor(activeDocument ? "#F1F7FF" : selected ? "#EAF2FF" :
+            hovered ? "#F8FBFF" : kPANEL));
+        painter->drawRoundedRect(card, 10, 10);
+
+        // Top: full-width image reserved even before the asynchronous thumb loads.
+        // Use KeepAspectRatio so neither molecular structures nor article images
+        // are stretched, and never change the original saved crop.
+        const QRect imageArea = thumbnailRect(r);
+        painter->setPen(QPen(QColor(kLINE), 1));
         painter->setBrush(Qt::white);
-        painter->drawRoundedRect(paper, 4, 4);
-        readerIcon(QStringLiteral("documents")).paint(painter, QRect(paper.center() - QPoint(14, 20), QSize(28, 32)));
-        QFont captionFont = option.font;
-        captionFont.setFamily(QStringLiteral("Malgun Gothic")); captionFont.setPixelSize(12);
-        painter->setFont(captionFont); painter->setPen(QColor(kMUTED));
-        painter->drawText(paper.adjusted(0, 39, 0, 0), Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("PDF"));
+        painter->drawRoundedRect(imageArea, 7, 7);
         const QFileInfo pdf(index.data(Qt::UserRole).toString());
-        const QString sidecar = pdf.absolutePath() + QLatin1Char('/') + pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
+        const QString sidecar = pdf.absolutePath() + QLatin1Char('/') +
+            pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
         QPointer<QWidget> view(const_cast<QWidget*>(option.widget));
-        const QImage thumbnail = ThumbnailCache::instance()->request(sidecar, view, [view] {
+        const QImage image = ThumbnailCache::instance()->request(sidecar, view, [view] {
             if (auto* list = qobject_cast<QAbstractItemView*>(view.data())) list->viewport()->update();
             else if (view) view->update();
         });
-        if (!thumbnail.isNull()) {
-            const QSize size = thumbnail.size().scaled(paper.size(), Qt::KeepAspectRatio);
-            painter->fillRect(paper, Qt::white);
-            painter->drawImage(QRect(paper.center() - QPoint(size.width()/2,size.height()/2), size), thumbnail);
+        if (!image.isNull()) {
+            const QRect frame = imageArea.adjusted(3, 3, -3, -3);
+            const QSize fitted = image.size().scaled(frame.size(), Qt::KeepAspectRatio);
+            const QRect target(QPoint(frame.center().x() - fitted.width() / 2,
+                                     frame.center().y() - fitted.height() / 2), fitted);
+            painter->save();
+            QPainterPath clip;
+            clip.addRoundedRect(imageArea.adjusted(1, 1, -1, -1), 6, 6);
+            painter->setClipPath(clip);
+            painter->drawImage(target, image);
+            painter->restore();
+        } else {
+            readerIcon(QStringLiteral("documents")).paint(painter,
+                QRect(imageArea.center().x() - 18, imageArea.center().y() - 30, 36, 42));
+            QFont placeholder = option.font;
+            placeholder.setPixelSize(11);
+            painter->setFont(placeholder);
+            painter->setPen(QColor(kMUTED));
+            painter->drawText(QRect(imageArea.left(), imageArea.center().y() + 16,
+                                    imageArea.width(), 21),
+                Qt::AlignHCenter | Qt::AlignVCenter, QStringLiteral("PDF"));
         }
-        QFont title = option.font;
-        title.setPixelSize(13);
-        title.setWeight(QFont::DemiBold);
-        painter->setFont(title);
+
+        // Middle: bold title, max two lines. The second line explicitly
+        // elides the entire remaining title instead of silently clipping.
+        const QRect heading = titleRect(r);
+        QFont titleFont = option.font;
+        titleFont.setFamily(QStringLiteral("Malgun Gothic"));
+        titleFont.setPixelSize(13);
+        titleFont.setWeight(QFont::Bold);
+        const QFontMetrics titleMetrics(titleFont);
+        painter->setFont(titleFont);
         painter->setPen(QColor(kNAVY));
-        const QRect text(r.left() + 108, r.top() + 6, qMax(20, r.width() - 158), 32);
-        painter->save();
-        painter->setClipRect(text, Qt::IntersectClip);
-        QTextLayout titleLayout(index.data().toString(), title);
-        QTextOption titleOption; titleOption.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere); titleLayout.setTextOption(titleOption);
+        const QString title = index.data(Qt::DisplayRole).toString().simplified();
+        QTextLayout titleLayout(title, titleFont);
+        QTextOption wrap;
+        wrap.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+        titleLayout.setTextOption(wrap);
         titleLayout.beginLayout();
+        const int lineHeight = qMax(20, titleMetrics.height() + 1);
         for (int row = 0; row < 2; ++row) {
-            auto line = titleLayout.createLine(); if (!line.isValid()) break;
-            line.setLineWidth(text.width()); line.setPosition(QPointF(0, row * 16));
+            QTextLine line = titleLayout.createLine();
+            if (!line.isValid()) break;
+            line.setLineWidth(heading.width());
+            const QString visibleText = row == 0 ?
+                title.mid(line.textStart(), line.textLength()).trimmed() :
+                title.mid(line.textStart()).trimmed();
+            const QString elided = titleMetrics.elidedText(visibleText, Qt::ElideRight, heading.width());
+            painter->drawText(QRect(heading.left(), heading.top() + row * lineHeight,
+                                    heading.width(), lineHeight + 1),
+                Qt::AlignLeft | Qt::AlignVCenter, elided);
         }
-        titleLayout.endLayout(); titleLayout.draw(painter, text.topLeft());
-        painter->restore();
+        titleLayout.endLayout();
+
+        // Below the title: LAST listed author + full citation, one line only.
+        QFont captionFont = option.font;
+        captionFont.setFamily(QStringLiteral("Malgun Gothic"));
+        captionFont.setPixelSize(12);
         painter->setFont(captionFont);
         painter->setPen(QColor(kMUTED));
         const QVariantMap bibliography = index.data(Qt::UserRole + 5).toMap();
+        const QString lastAuthor = luna::Bibliography::lastListedAuthor(
+            bibliography.value(QStringLiteral("authors")).toString());
         const QString citation = luna::Bibliography::citation(bibliography);
-        painter->drawText(QRect(text.left(), r.top() + 40, text.width(), 15),
-            Qt::AlignLeft | Qt::AlignVCenter,
-            QFontMetrics(captionFont).elidedText(
-                citation.isEmpty() ? QStringLiteral("저널·연도 미확인") : citation,
-                Qt::ElideRight, text.width()));
-        const QString opened = index.data(Qt::UserRole + 3).toString();
-        const QString authors = luna::Bibliography::lastListedAuthor(bibliography.value("authors").toString());
-        const QString metadata = (authors.isEmpty() ? QStringLiteral("저자 미확인") : authors) +
-            (opened.isEmpty() ? QString() : QStringLiteral(" · ") + opened);
-        painter->drawText(QRect(text.left(), r.top() + 57, text.width(), 15),
-            Qt::AlignLeft | Qt::AlignVCenter,
-            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, text.width()));
+        const QString metadata =
+            (lastAuthor.isEmpty() ? QStringLiteral("저자 미확인") : lastAuthor) +
+            QStringLiteral(", ") +
+            (citation.isEmpty() ? QStringLiteral("저널·연도 미확인") : citation);
+        const QRect citeArea = citationRect(r);
+        painter->drawText(citeArea, Qt::AlignLeft | Qt::AlignVCenter,
+            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, citeArea.width()));
+
+        // Bottom: memo uses the SAME full-width text column, close to citation.
+        const QRect content = contentRect(r);
+        painter->setPen(QColor(kLINE));
+        painter->drawLine(content.left(), r.top() + 272, content.right(), r.top() + 272);
         const QString memo = index.data(Qt::UserRole + 4).toString();
-        painter->setPen(QColor(memo.isEmpty() ? "#A0ACBD" : "#48648A"));
+        painter->setPen(QColor(memo.isEmpty() ? "#829BBE" : "#48648A"));
         const QRect note = memoRect(r);
-        readerIcon(QStringLiteral("memo-inline")).paint(painter, QRect(note.left(), note.center().y() - 7, 14, 14),
+        readerIcon(QStringLiteral("memo-inline")).paint(painter,
+            QRect(note.left(), note.center().y() - 8, 16, 16),
             Qt::AlignCenter, QIcon::Normal, QIcon::Off);
-        painter->drawText(note.adjusted(18, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter,
-            QFontMetrics(captionFont).elidedText(memo.isEmpty() ? QStringLiteral("+ 메모 추가") : memo, Qt::ElideRight, note.width() - 18));
-        readerIcon(QStringLiteral("star")).paint(painter, favoriteRect(r).adjusted(2, 2, -2, -2), Qt::AlignCenter,
-            index.data(Qt::UserRole + 2).toBool() ? QIcon::Selected : QIcon::Disabled);
+        const QRect noteText = note.adjusted(22, 0, 0, 0);
+        painter->drawText(noteText, Qt::AlignLeft | Qt::AlignVCenter,
+            QFontMetrics(captionFont).elidedText(
+                memo.isEmpty() ? QStringLiteral("메모 추가") : memo,
+                Qt::ElideRight, noteText.width()));
+
+        // Favorite control belongs to the image's upper-right corner.
+        const QRect favorite = favoriteRect(r);
+        painter->setPen(QPen(QColor(kLINE), 1));
+        painter->setBrush(QColor(255, 255, 255, 240));
+        painter->drawEllipse(favorite);
+        readerIcon(QStringLiteral("star")).paint(painter, favorite.adjusted(3, 3, -3, -3),
+            Qt::AlignCenter, index.data(Qt::UserRole + 2).toBool() ?
+            QIcon::Selected : QIcon::Disabled);
         painter->restore();
     }
 };
@@ -399,6 +480,13 @@ public:
             return false;
         }
         pending_ = true; pendingIdle_ = 0;
+        // The public research smoke enters through the standalone Editor,
+        // not NativeTabs::open(). Mark its draw widget too, otherwise the
+        // first-page-paint metric is silently absent for 209-page SI probes.
+        if (qEnvironmentVariableIsSet("LUNA_PERF")) {
+            auto* draw = window_.getProgramController()->getPdfWidget()->getDrawWidget()->getWidget();
+            draw->setProperty("LunaOpenStart", performanceNow());
+        }
         window_.getProgramController()->openDocument(path);
         return true;
     }
@@ -497,13 +585,84 @@ IndependentDocuments* independentDocuments(pdfviewer::PDFEditorMainWindow& windo
     return dynamic_cast<IndependentDocuments*>(window.findChild<QObject*>(QStringLiteral("LunaIndependentDocuments")));
 }
 
+// Version 1.0 approved pack: twenty bundled SVG resources, stable ID only.
+// Portable per-folder metadata follows the directory through MYBOX sync or rename.
+constexpr const char* kFolderIconMetadata = "LUNA.folder.json";
+struct LunaFolderIconPreset { const char* id; const char* label; };
+constexpr LunaFolderIconPreset kFolderIconPresets[] = {
+    {"general","일반 폴더"}, {"important","중요 폴더"},
+    {"favorite","즐겨찾기 폴더"}, {"research","연구 주제"},
+    {"project","프로젝트"}, {"review","리뷰"},
+    {"mechanism","메커니즘"}, {"synthesis","합성"},
+    {"spectroscopy","분광·분석"}, {"computational","계산화학"},
+    {"data","데이터"}, {"reference","참고자료"},
+    {"ideas","아이디어"}, {"drafting","작성 중"},
+    {"completed","완료"}, {"shared","공유"},
+    {"external","외부 자료"}, {"archive","보관"},
+    {"private","비공개"}, {"temporary","임시"}
+};
+QString folderMetadataPath(const QString& folder) {
+    return QDir(folder).filePath(QString::fromLatin1(kFolderIconMetadata));
+}
+QString validatedFolderIconId(QString id) {
+    for (const auto& preset : kFolderIconPresets)
+        if (id == QString::fromLatin1(preset.id)) return id;
+    return QStringLiteral("general");
+}
+QIcon embeddedFolderIcon(const QString& id) {
+    const QString validId = validatedFolderIconId(id);
+    // Resource names are from a closed set, never untrusted file paths.
+    static QHash<QString, QIcon> cache;
+    const auto cached = cache.constFind(validId);
+    if (cached != cache.cend()) return cached.value();
+    const QIcon icon(QStringLiteral(":/luna/folders/") + validId + QStringLiteral(".svg"));
+    cache.insert(validId, icon);
+    return icon;
+}
+QJsonObject readFolderMetadata(const QString& folder) {
+    const QFileInfo info(folderMetadataPath(folder));
+    if (!info.isFile() || info.isSymLink() || info.size() > 16 * 1024) return {};
+    QFile input(info.absoluteFilePath());
+    if (!input.open(QIODevice::ReadOnly)) return {};
+    QJsonParseError error;
+    const auto document = QJsonDocument::fromJson(input.readAll(), &error);
+    return error.error == QJsonParseError::NoError && document.isObject()
+        ? document.object() : QJsonObject();
+}
+QString folderIconId(const QString& folder) {
+    return validatedFolderIconId(readFolderMetadata(folder).value(QStringLiteral("iconId")).toString());
+}
 class FolderIcons final : public QObject, public QFileIconProvider {
 public:
-    explicit FolderIcons(QObject* parent) : QObject(parent), folder_(readerIcon(QStringLiteral("folder"))) {}
-    QIcon icon(IconType type) const override { return type == Folder ? folder_ : QFileIconProvider::icon(type); }
-    QIcon icon(const QFileInfo& info) const override { return info.isDir() ? folder_ : QFileIconProvider::icon(info); }
+    explicit FolderIcons(QObject* parent) : QObject(parent) {}
+    QIcon icon(IconType type) const override {
+        return type == Folder ? embeddedFolderIcon(QStringLiteral("general")) : QFileIconProvider::icon(type);
+    }
+    QIcon icon(const QFileInfo& info) const override {
+        return info.isDir() ? embeddedFolderIcon(QStringLiteral("general")) : QFileIconProvider::icon(info);
+    }
+};
+class LunaFolderModel final : public QFileSystemModel {
+public:
+    explicit LunaFolderModel(QObject* parent) : QFileSystemModel(parent) {}
+    QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override {
+        if (role == Qt::DecorationRole && index.isValid() && isDir(index)) {
+            const QString folder = filePath(index);
+            if (!ids_.contains(folder)) {
+                if (ids_.size() > 4096) ids_.clear(); // Bound cache across folder navigation.
+                ids_.insert(folder, folderIconId(folder));
+            }
+            return embeddedFolderIcon(ids_.value(folder));
+        }
+        return QFileSystemModel::data(index, role);
+    }
+    void refreshFolderIcon(const QModelIndex& index) {
+        if (!index.isValid()) return;
+        ids_.remove(filePath(index));
+        Q_EMIT dataChanged(index, index, {Qt::DecorationRole});
+    }
 private:
-    QIcon folder_;
+    mutable QHash<QString, QString> ids_;
 };
 
 class LibraryPanel final : public QWidget {
@@ -522,6 +681,7 @@ public:
         for (const QString& key : dates.childKeys()) openedDates_.insert(key, dates.value(key).toString());
         dates.endGroup(); dates.beginGroup(QStringLiteral("library/memos"));
         for (const QString& key : dates.childKeys()) memos_.insert(key, dates.value(key).toString());
+        dates.endGroup(); // Do not load legacy tags; leave stored preferences intact for rollback.
         // Read existing date keys without migrating memos or changing their keys.
         for (const QString& path : savedPaths(QStringLiteral("library/recent"))) {
             const QString date = openedDates_.value(openedDateKey(path));
@@ -567,7 +727,7 @@ public:
         libraryHeaderLayout->addWidget(shelf);
         auto* section = new QLabel(QStringLiteral("라이브러리"), libraryHeader);
         section->setObjectName(QStringLiteral("LunaLibraryTitle"));
-        QFont headingFont(QStringLiteral("Malgun Gothic")); headingFont.setPixelSize(17); headingFont.setBold(true); headingFont.setLetterSpacing(QFont::AbsoluteSpacing, -.45); section->setFont(headingFont);
+        QFont headingFont(QStringLiteral("Malgun Gothic")); headingFont.setPixelSize(20); headingFont.setBold(true); headingFont.setLetterSpacing(QFont::AbsoluteSpacing, -.45); section->setFont(headingFont);
         libraryHeaderLayout->addWidget(section, 1);
         nav->addWidget(libraryHeader);
         auto* group = new QButtonGroup(this);
@@ -617,17 +777,73 @@ public:
         rootLabel_->setTextFormat(Qt::PlainText);
         rootLabel_->hide();
         nav->addWidget(folderTab_);
-        model_ = new QFileSystemModel(this);
+        model_ = new LunaFolderModel(this);
         model_->setReadOnly(true); model_->setIconProvider(new FolderIcons(model_));
         model_->setFilter(QDir::AllDirs | QDir::NoDotAndDotDot);
         tree_ = new QTreeView(navigation_);
         tree_->setModel(model_);
         tree_->setHeaderHidden(true);
         tree_->setAnimated(true);
-        tree_->setIndentation(16); tree_->setUniformRowHeights(true); tree_->setIconSize(QSize(18, 18));
+        tree_->setIndentation(16); tree_->setUniformRowHeights(true); tree_->setIconSize(QSize(20, 20));
         tree_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        tree_->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(tree_, &QTreeView::customContextMenuRequested, this, [this](const QPoint& point) {
+            const QModelIndex index = tree_->indexAt(point);
+            if (!index.isValid() || !model_->isDir(index)) return;
+            const QString folder = model_->filePath(index);
+            QMenu menu(this);
+            auto* change = menu.addAction(QStringLiteral("폴더 아이콘 변경…"));
+            change->setObjectName(QStringLiteral("LunaChangeFolderIcon"));
+            auto* reset = menu.addAction(QStringLiteral("기본 아이콘으로 복원"));
+            reset->setObjectName(QStringLiteral("LunaResetFolderIcon"));
+            reset->setEnabled(folderIconId(folder) != QStringLiteral("general"));
+            auto* chosen = menu.exec(tree_->viewport()->mapToGlobal(point));
+            if (chosen == change) {
+                QDialog dialog(this);
+                dialog.setObjectName(QStringLiteral("LunaFolderIconPicker"));
+                dialog.setWindowTitle(QStringLiteral("폴더 아이콘 변경"));
+                auto* layout = new QVBoxLayout(&dialog);
+                auto* grid = new QGridLayout;
+                grid->setSpacing(7);
+                QString selected;
+                for (int i = 0; i < 20; ++i) {
+                    const auto& preset = kFolderIconPresets[i];
+                    auto* button = new QToolButton(&dialog);
+                    button->setObjectName(QStringLiteral("LunaFolderIconOption_%1").arg(QString::fromLatin1(preset.id)));
+                    button->setText(QString::fromUtf8(preset.label));
+                    button->setIcon(embeddedFolderIcon(QString::fromLatin1(preset.id)));
+                    button->setIconSize(QSize(44, 44));
+                    button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+                    button->setFixedSize(110, 88);
+                    grid->addWidget(button, i / 4, i % 4);
+                    connect(button, &QToolButton::clicked, &dialog, [&, id = QString::fromLatin1(preset.id)] {
+                        selected = id;
+                        dialog.accept();
+                    });
+                }
+                layout->addLayout(grid);
+                auto* cancel = new QPushButton(QStringLiteral("취소"), &dialog);
+                connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+                layout->addWidget(cancel, 0, Qt::AlignRight);
+                if (dialog.exec() == QDialog::Accepted && !selected.isEmpty()) {
+                    QString error;
+                    if (!saveFolderIcon(folder, selected, &error))
+                        QMessageBox::warning(this, QStringLiteral("폴더 아이콘 변경 실패"), error);
+                }
+            } else if (chosen == reset) {
+                QString error;
+                if (!resetFolderIcon(folder, &error))
+                    QMessageBox::warning(this, QStringLiteral("아이콘 초기화 실패"), error);
+            }
+        });
         for (int i = 1; i < 4; ++i) tree_->hideColumn(i);
         nav->addWidget(tree_, 1);
+        // Poll ONLY visible tree rows: changes delivered by MYBOX on another
+        // PC should appear without rescanning a large local paper library.
+        folderIconPoll_ = new QTimer(this);
+        folderIconPoll_->setInterval(3000);
+        connect(folderIconPoll_, &QTimer::timeout, this, [this] { refreshVisibleFolderIcons(); });
+        folderIconPoll_->start();
         auto* location = new QPushButton(readerIcon(QStringLiteral("open")), QString(), libraryHeader);
         location->setFixedSize(30, 30);
         location->setToolTip(QStringLiteral("라이브러리 위치 선택…"));
@@ -666,20 +882,24 @@ public:
         query_->setClearButtonEnabled(true);
         query_->setMinimumHeight(36);
         nav->addWidget(query_);
-        auto* mode = new QTabBar(heading);
-        mode->setObjectName(QStringLiteral("LunaContentModes"));
-        mode->addTab(QStringLiteral("논문 목록"));
-        mode->addTab(QStringLiteral("페이지 보기"));
-        mode->setExpanding(true);
-        mode->setFixedHeight(45);
+        // Reading-first layout: the rarely used page thumbnails belong in
+        // View, not in a second 45-pixel tab row above every paper list.
         docs->addWidget(heading);
-        docs->addWidget(mode);
         pages_ = new QStackedWidget(documents_);
         pages_->setObjectName(QStringLiteral("LunaDocumentPages"));
         auto* content = new QStackedWidget(documents_);
         content->setObjectName(QStringLiteral("LunaContentStack"));
         content->addWidget(pages_);
         docs->addWidget(content, 1);
+        pagePreviewAction_ = new QAction(QStringLiteral("페이지 미리보기"), this);
+        pagePreviewAction_->setObjectName(QStringLiteral("LunaPagePreview"));
+        pagePreviewAction_->setCheckable(true);
+        pagePreviewAction_->setChecked(false);
+        pagePreviewAction_->setToolTip(QStringLiteral("필요할 때만 페이지 썸네일을 표시합니다"));
+        connect(pagePreviewAction_, &QAction::toggled, content,
+            [content](bool enabled) { content->setCurrentIndex(enabled ? 1 : 0); });
+        if (auto* viewMenu = viewer_->findChild<QMenu*>(QStringLiteral("menuView")))
+            viewMenu->addAction(pagePreviewAction_);
         if (auto* native = viewer_->findChild<QListView*>(QStringLiteral("thumbnailsListView"))) {
             QPointer<pdf::PDFThumbnailsItemModel> thumbnails(qobject_cast<pdf::PDFThumbnailsItemModel*>(native->model()));
             auto* grid = new PageGrid(*native, [this](int size) {
@@ -690,10 +910,9 @@ public:
             connect(grid, &QListView::clicked, this, [this](const QModelIndex& index) {
                 if (index.isValid()) viewer_->getProgramController()->getPdfWidget()->getDrawWidgetProxy()->goToPage(index.row());
             });
-            connect(mode, &QTabBar::currentChanged, content, &QStackedWidget::setCurrentIndex);
         } else {
-            mode->setTabEnabled(1, false);
-            mode->setTabToolTip(1, QStringLiteral("PDF4QT 페이지 미리보기 모델을 사용할 수 없습니다."));
+            pagePreviewAction_->setEnabled(false);
+            pagePreviewAction_->setToolTip(QStringLiteral("PDF4QT 페이지 미리보기 모델을 사용할 수 없습니다."));
         }
         auto page = [this](QListWidget*& list, QLabel*& count) {
             auto* p = new QWidget(pages_);
@@ -784,6 +1003,9 @@ public:
         hideThumbnail();
         disconnect(documentTitleConnection_); disconnect(cropConnection_);
         viewer_ = &editor;
+        if (auto* viewMenu = editor.findChild<QMenu*>(QStringLiteral("menuView")); viewMenu &&
+            pagePreviewAction_ && !viewMenu->actions().contains(pagePreviewAction_))
+            viewMenu->addAction(pagePreviewAction_);
         if (auto* grid = static_cast<PageGrid*>(findChild<QListView*>(QStringLiteral("LunaPageGrid"))))
             if (auto* native = editor.findChild<QListView*>(QStringLiteral("thumbnailsListView"))) grid->bindNative(*native);
         auto* select = editor.findChild<QAction*>(QStringLiteral("actionSelectText"));
@@ -884,24 +1106,57 @@ private:
     }
 
     void queueBibliography(const QString& identity, const pdf::PDFDocument& document, bool force = false) {
-        if (identity.isEmpty() || runningCitations_.contains(identity) ||
-            (!force && analyzedCitations_.contains(identity))) return;
+        if (identity.isEmpty()) return;
+        if (runningCitations_.contains(identity)) {
+            // User-initiated extraction must not wait for the auto-extract
+            // grace period when the document is already in the delayed queue.
+            if (force) if (auto* pending = delayedCitations_.value(identity, nullptr))
+                pending->start(0);
+            return;
+        }
+        if (!force && analyzedCitations_.contains(identity)) return;
         analyzedCitations_.insert(identity);
         runningCitations_.insert(identity);
-        // Copy the immutable, implicitly shared PDF snapshot before leaving the UI thread.
-        // The worker owns its caches; it never touches the viewer/compiler or QSettings.
+        // On large SI documents, the first-page metadata worker competes with
+        // PDF4QT's first visible render. Let the renderer/UI get a head start,
+        // without blocking or permanently disabling automatic bibliography.
+        // An explicit user-triggered extraction is never delayed.
+        const auto* catalog = document.getCatalog();
+        const bool deferForLargePdf = !force && catalog && catalog->getPageCount() >= 80;
+        const qint64 queuedAt = performanceNow();
+        // This snapshot owns its document data across tab close/replacement.
+        // QSettings and viewer/compiler state remain on the UI thread.
         auto result = std::make_shared<QVariantMap>();
-        auto* worker = QThread::create([snapshot = document, result]() mutable {
-            try { *result = luna::extractFirstPage(snapshot); }
-            catch (...) { /* Invalid/image-only documents remain unverified. */ }
-        });
-        connect(worker, &QThread::finished, this, [this, identity, result] {
-            runningCitations_.remove(identity);
-            bibliography_.enrichFromFirstPage(identity, *result);
-        });
-        connect(qApp, &QCoreApplication::aboutToQuit, worker, [worker] { worker->wait(); });
-        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-        worker->start(QThread::LowPriority);
+        auto startWorker = [this, identity, result, snapshot = pdf::PDFDocument(document), queuedAt]() mutable {
+            performanceEvent("bibliography-worker-dispatch", queuedAt);
+            auto* worker = QThread::create([snapshot = std::move(snapshot), result]() mutable {
+                const qint64 started = performanceNow();
+                try { *result = luna::extractFirstPage(snapshot); }
+                catch (...) { /* Invalid/image-only documents remain unverified. */ }
+                performanceEvent("bibliography-first-page-worker", started);
+            });
+            connect(worker, &QThread::finished, this, [this, identity, result] {
+                runningCitations_.remove(identity);
+                bibliography_.enrichFromFirstPage(identity, *result);
+            });
+            connect(qApp, &QCoreApplication::aboutToQuit, worker, [worker] { worker->wait(); });
+            connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+            worker->start(QThread::LowPriority);
+        };
+        if (deferForLargePdf) {
+            auto* delay = new QTimer(this);
+            delay->setSingleShot(true);
+            delayedCitations_.insert(identity, delay);
+            connect(delay, &QTimer::timeout, this,
+                [this, delay, identity, startWorker = std::move(startWorker)]() mutable {
+                    delayedCitations_.remove(identity);
+                    delay->deleteLater();
+                    startWorker();
+                });
+            delay->start(1200);
+        } else {
+            startWorker();
+        }
     }
 
     void editBibliography(const QString& path) {
@@ -976,7 +1231,9 @@ private:
         item->setText(title.isEmpty() ? QFileInfo(path).completeBaseName() : title);
         item->setFlags(item->flags() | Qt::ItemIsEditable);
         const QString citation = luna::Bibliography::citation(bibliography);
+        const QString lastAuthor = luna::Bibliography::lastListedAuthor(bibliography.value("authors").toString());
         item->setToolTip((memo.isEmpty() ? QString() : memo + QLatin1Char('\n')) +
+            (lastAuthor.isEmpty() ? QString() : lastAuthor + QLatin1Char('\n')) +
             (citation.isEmpty() ? QString() : citation + QLatin1Char('\n')) + path);
     }
     void savePaperMemo(const QString& path, QString text) {
@@ -1336,6 +1593,12 @@ private:
         auto* list = new QListWidget(parent);
         list->setMouseTracking(true);
         list->viewport()->installEventFilter(this);
+        // Preserve the existing one-card-per-row vertical list.
+        // Never switch this widget to IconMode / wrapping / a multi-column grid.
+        list->setViewMode(QListView::ListMode);
+        list->setFlow(QListView::TopToBottom);
+        list->setWrapping(false);
+        list->setSpacing(0);
         list->setUniformItemSizes(true);
         list->setSelectionMode(QAbstractItemView::SingleSelection);
         list->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -1365,6 +1628,8 @@ private:
             auto* favorite = menu.addAction(item->data(Qt::UserRole + 2).toBool() ? QStringLiteral("즐겨찾기 해제") : QStringLiteral("즐겨찾기 추가"));
             auto* crop = menu.addAction(QStringLiteral("현재 PDF의 썸네일 지정…"));
             crop->setEnabled(QFileInfo(path).canonicalFilePath() == QFileInfo(viewer_->getProgramController()->getOriginalFileName()).canonicalFilePath());
+            auto* memo = menu.addAction(QStringLiteral("메모 편집…"));
+            memo->setObjectName(QStringLiteral("LunaEditPaperMemo"));
             auto* citation = menu.addAction(QStringLiteral("서지정보 수정…"));
             auto* extractCitation = menu.addAction(QStringLiteral("첫 페이지 서지정보 추출…"));
             extractCitation->setObjectName(QStringLiteral("LunaExtractCitationContextMenu"));
@@ -1372,12 +1637,19 @@ private:
             auto* chosen = menu.exec(list->viewport()->mapToGlobal(point));
             if (chosen == favorite) toggleFavorite(path);
             else if (chosen == crop) startThumbnailCrop();
+            else if (chosen == memo) {
+                // Explicit edit only. QListWidget has NoEditTriggers so
+                // ordinary row clicks cannot accidentally open a text editor.
+                list->editItem(item);
+            }
             else if (chosen == citation) editBibliography(path);
             else if (chosen == extractCitation) extractBibliography(path);
             else if (chosen == move) moveDocument(path);
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
-            if (DocumentCard::favoriteRect(list->visualItemRect(item)).contains(list->viewport()->mapFromGlobal(QCursor::pos())))
+            const QPoint cursor = list->viewport()->mapFromGlobal(QCursor::pos());
+            const QRect rect = list->visualItemRect(item);
+            if (DocumentCard::favoriteRect(rect).contains(cursor))
                 toggleFavorite(item->data(Qt::UserRole).toString());
         });
         return list;
@@ -1554,16 +1826,23 @@ private:
         QListWidget* list = all ? allPdfs_ : folderPdfs_;
         QLabel* count = all ? allCount_ : folderCount_;
         if (!iterator) { timer->stop(); return; }
+        // Limit each 0-ms timer turn by BOTH item count and wall time.
+        // Expensive Windows file metadata must not freeze the GUI; avoid
+        // repainting all full-width paper cards after each individual insertion.
+        QElapsedTimer batchClock;
+        batchClock.start();
+        const QIcon fileIcon = style()->standardIcon(QStyle::SP_FileIcon);
+        const bool wasUpdating = list->updatesEnabled();
+        if (wasUpdating) list->setUpdatesEnabled(false);
         int checked = 0;
-        while (checked < kScanBatch &&
+        while (checked < kScanBatch && batchClock.elapsed() < 25 &&
                list->count() < kMaximumEntries && iterator->hasNext()) {
             const QString path = iterator->next();
             ++checked;
             QFileInfo info(path);
             if (!info.isFile() || info.suffix().compare(
                     QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
-            auto* item = new QListWidgetItem(
-                style()->standardIcon(QStyle::SP_FileIcon), info.completeBaseName(), list);
+            auto* item = new QListWidgetItem(fileIcon, info.completeBaseName(), list);
             decorate(item, path);
             const QString word = query_->text();
             const QVariantMap meta = item->data(Qt::UserRole + 5).toMap();
@@ -1575,7 +1854,8 @@ private:
                 !meta.value("journal").toString().contains(word, Qt::CaseInsensitive) &&
                 !luna::Bibliography::citation(meta).contains(word, Qt::CaseInsensitive));
         }
-        if (list->count() >= kMaximumEntries || !iterator->hasNext()) {
+        const bool complete = list->count() >= kMaximumEntries || !iterator->hasNext();
+        if (complete) {
             timer->stop();
             iterator.reset();
             // Sort once after scanning, but keep auto-sorting disabled.
@@ -1588,8 +1868,11 @@ private:
         } else {
             count->setText(QStringLiteral("PDF 검색 중… %1개").arg(list->count()));
         }
+        if (wasUpdating) list->setUpdatesEnabled(true);
         queueNavigationCounts();
-        selectActiveCard();
+        // Mark the active card once after discovery, not by walking every
+        // existing item on every batch (quadratic work across 1000+ PDFs).
+        if (complete) selectActiveCard();
     }
     void openItem(QListWidgetItem* item) {
         if (item) openPdf(item->data(Qt::UserRole).toString());
@@ -1609,6 +1892,82 @@ private:
         }
         if (!controller->askForSaveDocumentBeforeClose()) return;
         controller->openDocument(info.absoluteFilePath());
+    }
+    bool allowedIconFolder(const QString& folder, QString* error) const {
+        const QFileInfo info(folder);
+        if (!info.isDir() || info.isSymLink()) {
+            if (error) *error = QStringLiteral("일반 로컬 폴더만 변경할 수 있습니다.");
+            return false;
+        }
+        const QString canonical = info.canonicalFilePath();
+        const QString relative = QDir(root_).relativeFilePath(canonical);
+        if (root_.isEmpty() || canonical.isEmpty() ||
+            relative == QStringLiteral("..") ||
+            relative.startsWith(QStringLiteral("../")) || QDir::isAbsolutePath(relative)) {
+            if (error) *error = QStringLiteral("현재 LUNA 라이브러리 밖의 폴더는 변경하지 않습니다.");
+            return false;
+        }
+        return true;
+    }
+    bool saveFolderIcon(const QString& folder, const QString& iconId, QString* error) {
+        if (!allowedIconFolder(folder, error)) return false;
+        if (validatedFolderIconId(iconId) != iconId) {
+            if (error) *error = QStringLiteral("지원하지 않는 폴더 아이콘 ID입니다.");
+            return false;
+        }
+        const QString path = folderMetadataPath(folder);
+        const QFileInfo file(path);
+        if (file.isSymLink() || (file.exists() && (file.size() > 16 * 1024 || !file.isFile()))) {
+            if (error) *error = QStringLiteral("연결 파일이나 비정상 폴더 메타데이터는 수정하지 않습니다.");
+            return false;
+        }
+        QJsonObject metadata = readFolderMetadata(folder); // Preserve other future fields.
+        if (!metadata.value(QStringLiteral("folderId")).isString() ||
+            QUuid(metadata.value(QStringLiteral("folderId")).toString()).isNull())
+            metadata.insert(QStringLiteral("folderId"), QUuid::createUuid().toString(QUuid::WithoutBraces));
+        metadata.insert(QStringLiteral("schemaVersion"), 1);
+        metadata.insert(QStringLiteral("iconId"), iconId);
+        if (!metadata.contains(QStringLiteral("isImportant")))
+            metadata.insert(QStringLiteral("isImportant"), false);
+        metadata.insert(QStringLiteral("relativePath"),
+            QDir(root_).relativeFilePath(QFileInfo(folder).canonicalFilePath()));
+        metadata.insert(QStringLiteral("updatedAt"),
+            QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+        const QByteArray contents = QJsonDocument(metadata).toJson(QJsonDocument::Indented);
+        QSaveFile output(path);
+        output.setDirectWriteFallback(false);
+        if (!output.open(QIODevice::WriteOnly) ||
+            output.write(contents) != contents.size() || !output.commit()) {
+            if (error) *error = QStringLiteral("폴더 내부 LUNA.folder.json 저장에 실패했습니다.");
+            return false;
+        }
+        folderIconStamps_.remove(QFileInfo(folder).canonicalFilePath());
+        model_->refreshFolderIcon(model_->index(folder));
+        tree_->viewport()->update();
+        return true;
+    }
+    bool resetFolderIcon(const QString& folder, QString* error) {
+        // Keep folderId and independent isImportant, only restore icon type.
+        return saveFolderIcon(folder, QStringLiteral("general"), error);
+    }
+    void refreshVisibleFolderIcons() {
+        if (!tree_ || !tree_->isVisible() || tree_->viewport()->width() < 1) return;
+        const int x = tree_->viewport()->width() / 2;
+        const int stride = qMax(12, tree_->iconSize().height());
+        for (int y = 1; y < tree_->viewport()->height(); y += stride) {
+            const QModelIndex index = tree_->indexAt(QPoint(x, y));
+            if (!index.isValid() || !model_->isDir(index)) continue;
+            const QString folder = QFileInfo(model_->filePath(index)).canonicalFilePath();
+            if (folder.isEmpty()) continue;
+            const QFileInfo file(folderMetadataPath(folder));
+            const QString stamp = file.isFile() ?
+                QStringLiteral("%1:%2").arg(file.size()).arg(file.lastModified().toMSecsSinceEpoch()) :
+                QStringLiteral("-");
+            auto found = folderIconStamps_.constFind(folder);
+            if (found != folderIconStamps_.cend() && found.value() != stamp)
+                model_->refreshFolderIcon(index);
+            folderIconStamps_.insert(folder, stamp);
+        }
     }
     void createFolder() {
         if (!QFileInfo(current_).isDir()) return;
@@ -1646,8 +2005,10 @@ private:
     luna::Bibliography bibliography_;
     QSet<QString> analyzedCitations_;
     QSet<QString> runningCitations_;
+    QHash<QString, QTimer*> delayedCitations_;
     QSet<QString> pendingCitationExtracts_;
     QAction* cropAction_ = nullptr;
+    QAction* pagePreviewAction_ = nullptr;
     QMetaObject::Connection documentTitleConnection_, cropConnection_;
     QSplitter* split_ = nullptr;
     QWidget* navigation_ = nullptr;
@@ -1665,8 +2026,10 @@ private:
     QSet<QString> datedNames_;
     QHash<QString, QString> memos_;
     QSet<QString> favorites_;
-    QFileSystemModel* model_ = nullptr;
+    LunaFolderModel* model_ = nullptr;
     QTreeView* tree_ = nullptr;
+    QTimer* folderIconPoll_ = nullptr;
+    QHash<QString, QString> folderIconStamps_;
     QStackedWidget* pages_ = nullptr;
     QListWidget* folderPdfs_ = nullptr;
     QListWidget* allPdfs_ = nullptr;
@@ -2142,6 +2505,34 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     auto* favorite = list->findChild<QAction*>(QStringLiteral("LunaToggleFavorite"));
     if (!favorite) return fail("Favorite action missing");
     const QString path = item->data(Qt::UserRole).toString();
+    // Tags are removed from the card and popup, but old QSettings entries
+    // are deliberately left untouched for a safe rollback.
+    auto* manualPanel = dynamic_cast<LibraryPanel*>(dock->widget());
+    if (!manualPanel || item->data(Qt::UserRole + 8).isValid() ||
+        list->editTriggers() != QAbstractItemView::NoEditTriggers)
+        return fail("Removed tags or accidental paper memo edit triggers returned");
+    // Explicit editing is allowed only through the context action, never by
+    // the old delegate's left-click/double-click editorEvent.
+    if (!list->itemDelegate() || !DocumentCard::memoRect(list->visualItemRect(item)).isValid())
+        return fail("Paper memo row geometry missing");
+    const QRect paperCard = list->visualItemRect(item);
+    const QRect cardImage = DocumentCard::thumbnailRect(paperCard);
+    const QRect cardTitle = DocumentCard::titleRect(paperCard);
+    const QRect cardCitation = DocumentCard::citationRect(paperCard);
+    const QRect cardMemo = DocumentCard::memoRect(paperCard);
+    // Native UI contract: IMAGE at the top, then full-width TITLE, CITATION,
+    // MEMO below it. NOT a small thumbnail to the left of text.
+    if (paperCard.height() != DocumentCard::kCardHeight ||
+        cardImage.bottom() >= cardTitle.top() ||
+        cardTitle.bottom() >= cardCitation.top() ||
+        cardCitation.bottom() >= cardMemo.top() ||
+        cardImage.left() != cardTitle.left() ||
+        cardTitle.left() != cardCitation.left() ||
+        cardCitation.left() != cardMemo.left() ||
+        cardImage.width() != cardTitle.width() ||
+        cardTitle.width() != cardCitation.width() ||
+        cardCitation.width() != cardMemo.width())
+        return fail("Stacked card image/title/citation/memo geometry regressed");
     // Confirm the actual Qt card model reacts to a local citation change.
     // Synthetic fixture only; no PDF/DOI is uploaded.
     auto* citationPanel = dynamic_cast<LibraryPanel*>(dock->widget());
@@ -2233,7 +2624,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     // synthetic library. Nothing here reads or modifies a user's library.
     auto* library = dynamic_cast<LibraryPanel*>(dock->widget());
     if (!library) return fail("Library panel type missing");
-    auto wait = [](const std::function<bool()>& ready) {
+    auto wait = [](const std::function<bool()>& ready, int timeoutMs = 5000) {
         if (ready()) return true;
         QEventLoop loop;
         QTimer poll, timeout;
@@ -2245,16 +2636,19 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             if (ready()) { success = true; loop.quit(); }
         });
         QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
-        poll.start(20); timeout.setSingleShot(true); timeout.start(5000); loop.exec();
+        poll.start(20); timeout.setSingleShot(true); timeout.start(timeoutMs); loop.exec();
         return success;
     };
     if (!wait([&] { return window.isEnabled() && window.getProgramController()->canClose(); }))
         return fail("Reader busy before crop verification");
-    auto* modes = window.findChild<QTabBar*>(QStringLiteral("LunaContentModes"));
+    auto* preview = window.findChild<QAction*>(QStringLiteral("LunaPagePreview"));
     auto* grid = window.findChild<QListView*>(QStringLiteral("LunaPageGrid"));
-    if (!modes || modes->count() != 2 || !grid || grid->model()->rowCount() != 2)
-        return fail("Native two-page preview model missing");
-    modes->setCurrentIndex(1);
+    auto* view = window.findChild<QMenu*>(QStringLiteral("menuView"));
+    if (!preview || !view || !view->actions().contains(preview) ||
+        preview->isChecked() || !grid || grid->isVisible() || grid->model()->rowCount() != 2 ||
+        window.findChild<QTabBar*>(QStringLiteral("LunaContentModes")))
+        return fail("Clean paper-list view or native two-page preview model missing");
+    preview->trigger();
     if (!wait([&] { return grid->isVisible() && !grid->visualRect(grid->model()->index(1, 0)).isEmpty(); }))
         return fail("Page grid did not become visible");
     const auto firstPage = grid->model()->index(0, 0);
@@ -2274,7 +2668,9 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (!wait([&] { const auto visible = window.getProgramController()->getPdfWidget()->getDrawWidget()->getCurrentPages();
         return std::find(visible.begin(), visible.end(), 1) != visible.end(); }))
         return fail("Page preview click did not navigate the native document");
-    modes->setCurrentIndex(0);
+    preview->trigger();
+    if (preview->isChecked() || grid->isVisible())
+        return fail("Optional page preview did not return to the paper list");
     window.getProgramController()->getPdfWidget()->getDrawWidgetProxy()->goToPage(0);
     const QFileInfo pdf(path);
     const QString thumbnail = pdf.absolutePath() + QLatin1Char('/') + pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
@@ -2310,6 +2706,52 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     const QImage captured(thumbnail);
     const QSize expected = QRect(from, to).size() * draw->devicePixelRatioF();
     if (captured.isNull() || captured.size() != expected) return fail("Native crop PNG has wrong dimensions");
+    // Verify all twenty approved SVG resources and portable metadata.
+    // A selection stores only iconId, and never writes into the PDF.
+    QString iconError;
+    const QString iconFolder = pdf.absolutePath();
+    const QString metadataPath = folderMetadataPath(iconFolder);
+    if (QFileInfo::exists(metadataPath)) return fail("Synthetic folder metadata pre-existed");
+    const QModelIndex iconIndex = library->model_->index(iconFolder);
+    if (!iconIndex.isValid()) return fail("Synthetic folder icon index missing");
+    QString stableId;
+    for (const auto& preset : kFolderIconPresets) {
+        const QString expected = QString::fromLatin1(preset.id);
+        if (!library->saveFolderIcon(iconFolder, expected, &iconError)) {
+            error = QStringLiteral("Folder icon save failed: ") + iconError; return false;
+        }
+        const QJsonObject saved = readFolderMetadata(iconFolder);
+        if (saved.value(QStringLiteral("iconId")).toString() != expected ||
+            saved.value(QStringLiteral("schemaVersion")).toInt() != 1 ||
+            !saved.contains(QStringLiteral("isImportant")) ||
+            !saved.contains(QStringLiteral("updatedAt")) ||
+            !saved.contains(QStringLiteral("relativePath")) ||
+            QUuid(saved.value(QStringLiteral("folderId")).toString()).isNull())
+            return fail("Selected folder icon metadata corrupt or incomplete");
+        if (!stableId.isEmpty() && stableId != saved.value(QStringLiteral("folderId")).toString())
+            return fail("Folder UUID changed while switching icon preset");
+        stableId = saved.value(QStringLiteral("folderId")).toString();
+        const QIcon rendered = qvariant_cast<QIcon>(
+            library->model_->data(iconIndex, Qt::DecorationRole));
+        if (rendered.isNull() || rendered.pixmap(QSize(20,20)).isNull())
+            return fail("Approved SVG folder icon did not render at 20px");
+    }
+    // Simulate MYBOX delivering the same JSON to a differently rooted folder.
+    // No absolute icon path should be needed on the second machine.
+    const QString secondFolder = QDir(iconFolder).filePath(QStringLiteral("Synthetic examples"));
+    const QString secondMetadata = folderMetadataPath(secondFolder);
+    if (QFileInfo::exists(secondMetadata) || !QFile::copy(metadataPath, secondMetadata) ||
+        folderIconId(secondFolder) != QStringLiteral("temporary"))
+        return fail("Synced folder metadata did not resolve iconId on another path");
+    if (!QFile::remove(secondMetadata)) return fail("Could not clean synthetic MYBOX fixture");
+    if (!library->resetFolderIcon(iconFolder, &iconError) ||
+        folderIconId(iconFolder) != QStringLiteral("general") ||
+        readFolderMetadata(iconFolder).value(QStringLiteral("folderId")).toString() != stableId) {
+        error = QStringLiteral("Folder icon reset corrupted metadata: ") + iconError;
+        return false;
+    }
+    if (!QFileInfo::exists(thumbnail) || !QFileInfo::exists(path))
+        return fail("Folder icon reset altered PDF or thumbnail files");
     const QPoint card = list->visualItemRect(item).center();
     mouse(list->viewport(), QEvent::MouseMove, card, Qt::NoButton, Qt::NoButton);
     if (!wait([&] { return library->thumbnailPopup_ && library->thumbnailPopup_->isVisible() && library->fade_->state() == QAbstractAnimation::Stopped; }))
@@ -2330,9 +2772,15 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     QCoreApplication::processEvents();
     if (library->thumbnailPopup_->isVisible() || !library->hoverRequest_.isEmpty())
         return fail("Cancelled hover request resurfaced");
-    // Edit through the real native delegate; Enter and focus-out must persist
-    // without changing the PDF title or bytes. Search includes the local memo.
-    list->edit(list->model()->index(list->row(item), 0));
+    // No click-to-edit: an incidental click on the '+ 메모' line must
+    // never open a QLineEdit. Explicit editItem is the same method invoked
+    // by the right-click "메모 편집…" action.
+    const QPoint memoPoint = DocumentCard::memoRect(list->visualItemRect(item)).center();
+    mouse(list->viewport(), QEvent::MouseButtonPress, memoPoint, Qt::LeftButton, Qt::LeftButton);
+    mouse(list->viewport(), QEvent::MouseButtonRelease, memoPoint, Qt::LeftButton, Qt::NoButton);
+    if (list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")))
+        return fail("Accidental left click opened paper memo editor");
+    list->editItem(item);
     auto* memoInput = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor"));
     if (!memoInput) return fail("Inline paper memo editor did not open");
     memoInput->setText(QStringLiteral("합성 메모 검색 742"));
@@ -2410,8 +2858,15 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         });
         heartbeat.start(10);
         library->selectFolder(many.path());
-        if (!wait([&] { return list->count() == 1000 && !library->folderTimer_->isActive(); }))
-            return fail("1000-PDF library did not finish incremental discovery");
+        // CI disk/AV throughput varies. Keep an explicit 15-second full
+        // discovery ceiling while separately enforcing <1s GUI event gaps
+        // and <1s filename search. Never accept a partially filled list.
+        if (!wait([&] { return list->count() == 1000 && !library->folderTimer_->isActive(); }, 15000)) {
+            error = QStringLiteral("1000-PDF library did not finish incremental discovery: count=%1 elapsedMs=%2 timerActive=%3 longestGuiGapMs=%4 beats=%5")
+                .arg(list->count()).arg(loadClock.elapsed())
+                .arg(library->folderTimer_->isActive()).arg(longestGap).arg(beats);
+            return false;
+        }
         const qint64 loadMs = loadClock.elapsed();
         QElapsedTimer searchClock; searchClock.start();
         search->setText(QStringLiteral("합성 논문 0999"));

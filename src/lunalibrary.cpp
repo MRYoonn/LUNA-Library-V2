@@ -1564,6 +1564,12 @@ private:
         auto* list = new QListWidget(parent);
         list->setMouseTracking(true);
         list->viewport()->installEventFilter(this);
+        // Preserve the existing one-card-per-row vertical list.
+        // Never switch this widget to IconMode / wrapping / a multi-column grid.
+        list->setViewMode(QListView::ListMode);
+        list->setFlow(QListView::TopToBottom);
+        list->setWrapping(false);
+        list->setSpacing(0);
         list->setUniformItemSizes(true);
         list->setSelectionMode(QAbstractItemView::SingleSelection);
         list->setEditTriggers(QAbstractItemView::NoEditTriggers);

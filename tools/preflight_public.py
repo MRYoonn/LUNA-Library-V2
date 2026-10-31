@@ -56,6 +56,7 @@ APPROVED = {
     "experiments/native_tabs/run_windows.py", "experiments/native_tabs/README.md",
     "experiments/native_tabs/HANDOFF_KO.md",
     "tests/test_native_tabs.py",
+    "tests/test_library_view_modes.py",
     "tests/native_dialog/windows_job.py",
     "src/lunapagegrid.h", "tests/native_dialog/pagegrid.cpp",
     "experiments/tab_host/main.cpp", "experiments/tab_host/CMakeLists.txt",

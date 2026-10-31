@@ -350,7 +350,7 @@ public:
         const QRect authorArea(text.left(), r.top() + 57, text.width(),
             qMax(20, QFontMetrics(captionFont).height() + 3));
         painter->setPen(QColor(kMUTED));
-        painter->drawText(authorArea, Qt::AlignLeft | Qt::AlignVCenter,
+        painter->drawText(authorArea, Qt::AlignRight | Qt::AlignVCenter,
             QFontMetrics(captionFont).elidedText(
                 authors.isEmpty() ? QStringLiteral("저자 미확인") : authors,
                 Qt::ElideRight, authorArea.width()));

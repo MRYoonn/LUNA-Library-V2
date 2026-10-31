@@ -19,8 +19,11 @@ class NativeTabsContract(unittest.TestCase):
         for path in ('prepare.py', 'run_windows.py'):
             ast.parse((ROOT / 'experiments/native_tabs' / path).read_text(encoding='utf-8'))
 
-    def test_workflow_remains_manual_and_proof_not_released(self):
+    def test_workflow_limits_automatic_validation_to_trusted_feature_branch(self):
         text = (ROOT / '.github/workflows/build-windows.yml').read_text(encoding='utf-8')
+        self.assertIn('workflow_dispatch:', text)
+        self.assertIn("push:\n    branches: ['feature/annotation-palette-qa']", text)
+        self.assertNotIn('pull_request:', text)
         self.assertIn('native_tabs_proof:', text)
         self.assertIn("if: ${{ !inputs.native_tabs_proof && steps.engine-cache.outputs.cache-hit != 'true' }}", text)
         self.assertIn('Upload LUNA Windows portable artifact\n        if: ${{ !inputs.native_tabs_proof }}', text)

@@ -245,7 +245,7 @@ private:
         if (auto* action = nativeAction(window_, "actionSelectText"))
             if (action->isEnabled() && !action->isChecked()) action->trigger();
     }
-    pdf::PDFObjectReference hit(QPoint point, bool deleting, bool* editable, bool* freeText) {
+    pdf::PDFObjectReference hit(QPoint point, bool deleting, bool* editable) {
         auto* c = window_.getProgramController();
         if (!c->getDocument()) return {};
         auto* widget = c->getPdfWidget(); auto* manager = widget->getAnnotationManager();
@@ -262,7 +262,6 @@ private:
                     item.annotation->getEffectiveFlags(), c->getDocument()->getCatalog()->getPage(page.pageIndex), rectangle);
                 if (matrix.mapRect(rectangle).contains(point)) {
                     *editable = manager->canModifyAnnotation(item);
-                    *freeText = false; // FreeText retains PDF4QT's native drag/resize/edit controls.
                     return item.annotation->getSelfReference();
                 }
             }
@@ -301,7 +300,7 @@ private:
             clearPendingSelection();
             deleting_ = checked("actionDeleteAnnotation");
             if (!checked("actionSelectText") && !deleting_) return false;
-            target_ = hit(mouse->pos(), deleting_, &editable_, &freeText_);
+            target_ = hit(mouse->pos(), deleting_, &editable_);
             press_ = mouse->pos();
             if (target_.isValid()) return true;
             if (!deleting_ && checked("actionSelectText")) {
@@ -369,7 +368,7 @@ private:
     QWidget* draw_ = nullptr;
     pdf::PDFObjectReference target_;
     QPoint press_;
-    bool deleting_ = false, editable_ = false, freeText_ = false, drawingBox_ = false;
+    bool deleting_ = false, editable_ = false, drawingBox_ = false;
     QAction* highlight_ = nullptr;
     QAction* textBox_ = nullptr;
     QRubberBand* rubber_ = nullptr;

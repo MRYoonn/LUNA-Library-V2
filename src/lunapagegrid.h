@@ -61,6 +61,9 @@ private:
         scheduled_ = true;
         QTimer::singleShot(0, this, [this] {
             scheduled_ = false;
+            // Hidden page grids do not need an item layout or PDF thumbnails.
+            // showEvent will schedule the pending work when the user opens it.
+            if (!isVisible()) return;
             // QAbstractScrollArea may resize its viewport AFTER resizeEvent,
             // especially when a hidden stacked page becomes visible. Measure
             // the settled viewport, and leave rounding room at the row edge.

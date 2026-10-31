@@ -2411,9 +2411,15 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     QCoreApplication::processEvents();
     if (library->thumbnailPopup_->isVisible() || !library->hoverRequest_.isEmpty())
         return fail("Cancelled hover request resurfaced");
-    // Edit through the real native delegate; Enter and focus-out must persist
-    // without changing the PDF title or bytes. Search includes the local memo.
-    list->edit(list->model()->index(list->row(item), 0));
+    // No click-to-edit: an incidental click on the '+ 메모' line must
+    // never open a QLineEdit. Explicit editItem is the same method invoked
+    // by the right-click "메모 편집…" action.
+    const QPoint memoPoint = DocumentCard::memoRect(list->visualItemRect(item)).center();
+    mouse(list->viewport(), QEvent::MouseButtonPress, memoPoint, Qt::LeftButton, Qt::LeftButton);
+    mouse(list->viewport(), QEvent::MouseButtonRelease, memoPoint, Qt::LeftButton, Qt::NoButton);
+    if (list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")))
+        return fail("Accidental left click opened paper memo editor");
+    list->editItem(item);
     auto* memoInput = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor"));
     if (!memoInput) return fail("Inline paper memo editor did not open");
     memoInput->setText(QStringLiteral("합성 메모 검색 742"));

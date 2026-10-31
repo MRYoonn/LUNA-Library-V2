@@ -115,6 +115,21 @@ class NativeTabsContract(unittest.TestCase):
         ):
             self.assertIn(token, page_grid, token)
 
+    def test_public_si_performance_probe_keeps_only_numeric_timings(self):
+        probe = (ROOT / 'tools/probe_research_windows.py').read_text(encoding='utf-8')
+        ast.parse(probe)
+        for token in (
+            'LUNA_PERF="1"',
+            'capture_output=True, text=True, errors="replace"',
+            'PUBLIC_SI_TIMINGS.json',
+            '"request-to-first-page-paint"',
+            '"bibliography-first-page-worker"',
+            '"elapsedMs": elapsed_ms',
+            'completed.stderr.splitlines()',
+        ):
+            self.assertIn(token, probe, token)
+        self.assertNotIn('write_text(completed.stderr', probe)
+
     def test_compact_tabs_and_blue_borderless_selection_contract(self):
         tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')

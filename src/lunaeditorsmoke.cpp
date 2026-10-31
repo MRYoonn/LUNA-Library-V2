@@ -534,14 +534,15 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     // Escape returns to plain selection without auto-highlighting, so the
     // existing select-then-erase button remains available.
     key(widget, Qt::Key_Escape, Qt::NoModifier);
+    if (!lunaErase->isCheckable()) return fail("Eraser is not an armed drag tool");
+    click(lunaErase);
+    if (!lunaErase->isChecked() || !select->isChecked())
+        return fail("Eraser did not arm native text selection");
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
-    if (!waitFor([&] { return lunaErase->isEnabled(); }))
-        return fail("Eraser not enabled after unarmed text drag");
-    click(lunaErase);
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0; }))
-        return fail("Selection-first eraser did not remove previous highlight");
+        return fail("Click-then-drag eraser did not remove previous highlight");
     action("actionUndo")->trigger();
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
         return fail("Selection-first eraser did not preserve native undo");

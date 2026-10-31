@@ -27,7 +27,7 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
     QStringList pages;
     for (int i=0; i<std::min<int>(3, int(catalog->getPageCount())); ++i) {
         const auto* page=catalog->getPage(i);
-        if(!page) {pages.append({});continue;}
+        if(!page) {pages.append(QString());continue;}
         pdf::PDFTextLayoutGenerator generator(pdf::PDFRenderer::getDefaultFeatures(),page,
             &document,&fonts,&profiles,cms.data(),&activity,QTransform(),
             pdf::PDFMeshQualitySettings());

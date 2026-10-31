@@ -77,9 +77,14 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('add("LunaFreeTextBox")', adapter)
         self.assertIn('add("LunaEraseSelected")', adapter)
         self.assertIn('bool beginTextBoxDrag(QMouseEvent* event)', adapter)
-        self.assertIn('manager->mousePressEvent(draw_, event)', adapter)
-        self.assertIn('manager->mouseMoveEvent(draw_, static_cast<QMouseEvent*>(event))', adapter)
-        self.assertIn('manager->mouseReleaseEvent(draw_, static_cast<QMouseEvent*>(event))', adapter)
+        self.assertIn('void finishTextBoxDrag(const QPoint& to)', adapter)
+        self.assertIn('manager->setAnnotationRectangle(annotation, pageRect)', adapter)
+        self.assertIn('manager->selectAnnotation(boxReference_, true)', adapter)
+        self.assertIn('pageRect = pageRect.intersected(crop)', adapter)
+        self.assertIn('boxPreview_->setGeometry(next.toAlignedRect())', adapter)
+        self.assertNotIn('manager->mousePressEvent(draw_, event)', adapter)
+        self.assertNotIn('manager->mouseMoveEvent(draw_, static_cast<QMouseEvent*>(event))', adapter)
+        self.assertNotIn('manager->mouseReleaseEvent(draw_, static_cast<QMouseEvent*>(event))', adapter)
         self.assertIn('manager->isAnnotationSelected(item.annotation->getSelfReference())', adapter)
         # Removing one quad from a multi-line highlight must keep the
         # annotation and its untouched lines. Only remove the PDF annotation

@@ -352,8 +352,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Metadata Qt test CMake configuration failed" }
           cmake --build $probe --config Release --parallel 2
           if ($LASTEXITCODE -ne 0) { throw "Metadata Qt native compilation failed" }
-          ctest --test-dir $probe -C Release --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw "Metadata Qt native contract test failed" }
+          # Native Qt fatal assertions on Windows can exit 0xC0000409;
+          # send Qt diagnostics to stderr and print the exact named failing
+          # assertion/checkpoint rather than suppressing the test output.
+          $env:QT_FORCE_STDERR_LOGGING = '1'
+          ctest --test-dir $probe -C Release --output-on-failure --verbose
+          if ($LASTEXITCODE -ne 0) {
+            $report = Join-Path $probe 'Testing/Temporary/LastTest.log'
+            if (Test-Path $report) { Get-Content $report -Tail 120 }
+            throw "Metadata Qt native contract test failed; inspect LUNA_METADATA_TEST_FAILED above"
+          }
 
       - name: Test native Save As dialog before compiling the PDF engine
         shell: pwsh

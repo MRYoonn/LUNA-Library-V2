@@ -76,6 +76,9 @@ void PDFDrawWidget::resizeEvent'''),
     if blob != 'a50aeb3ca241f41bd54c4d9d49bd5682f1bed2b8':
         raise ValueError('Unrecognized pinned PDFTextLayout source; refuse selection display patch')
     source = normalized.decode('utf-8')
+    if source.count('#include <limits>') != 1:
+        raise ValueError('PDFTextLayout standard-header anchor mismatch')
+    source = source.replace('#include <limits>', '#include <algorithm>\n#include <limits>', 1)
     begin = source.index('void PDFTextSelectionPainter::draw(')
     finish = source.index('QPainterPath PDFTextSelectionPainter::prepareGeometry(', begin)
     old = source[begin:finish]

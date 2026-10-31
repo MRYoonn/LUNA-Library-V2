@@ -1777,6 +1777,149 @@ private:
         // Opening a paper must not rebuild or reorder the visible Recent list.
         // Refresh it only when the user explicitly reopens that navigation view.
     }
+    void refreshFileLists() {
+        allTimer_->stop();
+        allIterator_.reset();
+        allPdfs_->clear();
+        allSeen_.clear();
+        allScanned_ = false;
+        selectFolder(QFileInfo(current_).isDir() ? current_ : root_);
+        if (pages_->currentIndex() == 1) scanAll();
+        else if (pages_->currentIndex() == 2) showHistory(showingFavorites_);
+        ThumbnailCache::instance()->invalidate();
+    }
+
+    // Persist per-document user data alongside the physical copy, without
+    // making the copied record an alias of the source's future edits.
+    void cloneCopiedSettings(const QString& source, const QString& destination) {
+        const QString from = DocumentClaim::identity(source);
+        const QString to = DocumentClaim::identity(destination);
+        if (!bibliography_.cloneTo(from, to))
+            QMessageBox::warning(this, QStringLiteral("서지정보 복사 실패"),
+                QStringLiteral("PDF는 복사했지만 서지정보를 복제하지 못했습니다. 원본 설정은 보존됩니다."));
+        QSettings settings(QSettings::defaultFormat(), QSettings::UserScope,
+                           QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        const QString a = openedDateKey(source), b = openedDateKey(destination);
+        for (const QString& prefix : {QStringLiteral("library/memos/"),
+                                     QStringLiteral("library/openedDates/")}) {
+            const QVariant value = settings.value(prefix + a);
+            if (value.isValid() && !settings.contains(prefix + b)) {
+                settings.setValue(prefix + b, value);
+                if (prefix == QStringLiteral("library/memos/"))
+                    memos_.insert(b, value.toString());
+                else openedDates_.insert(b, value.toString());
+            }
+        }
+        QStringList favorites = settings.value(QStringLiteral("library/favorites")).toStringList();
+        if (favorites.contains(source) && !favorites.contains(destination)) {
+            favorites.append(destination);
+            settings.setValue(QStringLiteral("library/favorites"), favorites);
+            favorites_.insert(destination);
+        }
+        settings.sync();
+        if (settings.status() != QSettings::NoError)
+            QMessageBox::warning(this, QStringLiteral("복사 데이터 저장 실패"),
+                QStringLiteral("PDF는 복사됐지만 일부 메모·즐겨찾기 저장에 실패했습니다. 원본 데이터는 유지됩니다."));
+    }
+    void copyDocumentTo(const QString& source, const QString& destination) {
+        const auto result = copyPdfWithThumbnails(source, destination);
+        if (!result.success) {
+            QMessageBox::warning(this, QStringLiteral("PDF 복사 실패"), result.error);
+            return;
+        }
+        cloneCopiedSettings(source, result.documentPath);
+        refreshFileLists();
+    }
+    void transferPdfs(const QStringList& paths, const QString& destination, bool copy) {
+        if (!QFileInfo(destination).isDir()) return;
+        for (const QString& path : paths) {
+            if (copy) copyDocumentTo(path, destination);
+            else moveDocumentTo(path, destination);
+        }
+    }
+    void copySelectedPdfs(QListWidget* list) {
+        if (!list) return;
+        QList<QUrl> urls;
+        QSet<QString> seen;
+        for (auto* item : list->selectedItems()) {
+            const QString path = item->data(Qt::UserRole).toString();
+            const QFileInfo info(path);
+            if (info.isFile() && !seen.contains(info.canonicalFilePath())) {
+                seen.insert(info.canonicalFilePath());
+                urls.append(QUrl::fromLocalFile(info.canonicalFilePath()));
+            }
+        }
+        if (urls.isEmpty() && list->currentItem()) {
+            const QFileInfo file(list->currentItem()->data(Qt::UserRole).toString());
+            if (file.isFile()) urls.append(QUrl::fromLocalFile(file.canonicalFilePath()));
+        }
+        if (urls.isEmpty()) return;
+        auto* data = new QMimeData;
+        data->setUrls(urls);
+        QGuiApplication::clipboard()->setMimeData(data);
+    }
+    void pastePdfs(const QString& destination) {
+        const QMimeData* data = QGuiApplication::clipboard()->mimeData();
+        if (!data || !data->hasUrls() || !QFileInfo(destination).isDir()) return;
+        QStringList paths;
+        for (const auto& url : data->urls()) {
+            if (!url.isLocalFile()) return;
+            const QFileInfo info(url.toLocalFile());
+            if (!info.isFile() || info.isSymLink() ||
+                info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive)) return;
+            if (!paths.contains(info.canonicalFilePath())) paths.append(info.canonicalFilePath());
+        }
+        transferPdfs(paths, destination, true);
+    }
+    void trashDocument(const QString& path) {
+        const QFileInfo source(path);
+        if (!source.isFile() || source.isSymLink()) {
+            QMessageBox::warning(this, QStringLiteral("삭제 불가"), QStringLiteral("실제 PDF 파일을 찾을 수 없습니다."));
+            return;
+        }
+        if (QMessageBox::question(this, QStringLiteral("Windows 휴지통으로 이동"),
+            QStringLiteral("PDF와 썸네일을 Windows 휴지통으로 보낼까요?\\n%1").arg(source.fileName()),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes) return;
+        const QString identity = DocumentClaim::identity(path);
+        if ((activateElsewhere && activateElsewhere(path)) ||
+            (independentDocuments(*viewer_) && independentDocuments(*viewer_)->openElsewhere(path)) ||
+            (viewer_->getProgramController()->getDocument() &&
+             DocumentClaim::identity(viewer_->getProgramController()->getOriginalFileName()) == identity)) {
+            QMessageBox::information(this, QStringLiteral("열린 PDF"),
+                QStringLiteral("이동 중 데이터 손상을 막기 위해 PDF를 닫은 다음 삭제해 주세요."));
+            return;
+        }
+        if (!QFile::moveToTrash(source.canonicalFilePath())) {
+            QMessageBox::warning(this, QStringLiteral("휴지통 이동 실패"),
+                QStringLiteral("Windows 휴지통으로 이동하지 못했습니다. 원본 파일은 유지됩니다."));
+            return;
+        }
+        QStringList leftover;
+        for (const QString& ext : {QStringLiteral(".png"), QStringLiteral(".jpg"),
+                                   QStringLiteral(".jpeg")}) {
+            const QString name = QDir(source.absolutePath()).filePath(
+                source.completeBaseName() + QStringLiteral(".luna-thumb") + ext);
+            if (QFileInfo::exists(name) && !QFile::moveToTrash(name)) leftover.append(name);
+        }
+        // Keep bibliography/memo settings for recovery if the user restores
+        // the PDF to the original location through Windows Recycle Bin.
+        QSettings settings(QSettings::defaultFormat(), QSettings::UserScope,
+                           QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        for (const QString& key : {QStringLiteral("library/favorites"),
+                                   QStringLiteral("library/recent")}) {
+            QStringList paths = settings.value(key).toStringList();
+            paths.removeAll(path);
+            settings.setValue(key, paths);
+        }
+        settings.sync();
+        const QStringList paths = settings.value(QStringLiteral("library/favorites")).toStringList();
+        favorites_ = QSet<QString>(paths.cbegin(), paths.cend());
+        refreshFileLists();
+        if (!leftover.isEmpty())
+            QMessageBox::warning(this, QStringLiteral("일부 썸네일 삭제 실패"),
+                QStringLiteral("PDF는 휴지통으로 이동했지만 다음 이미지들은 남아 있습니다:\\n") +
+                leftover.join(QLatin1Char('\\n')));
+    }
     void importPdfs() {
         const QStringList files = QFileDialog::getOpenFileNames(this,
             QStringLiteral("PDF 추가 · 원본을 유지하고 현재 폴더에 복사"), current_, QStringLiteral("PDF (*.pdf *.PDF)"));

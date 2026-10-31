@@ -63,10 +63,11 @@ class LibraryModes(unittest.TestCase):
             "class SmoothLibraryWheel final : public QObject",
             "animation_->setDuration(155)",
             "animation_->setEasingCurve(QEasingCurve::OutCubic)",
-            "if (!wheel->pixelDelta().isNull()) animation_->stop()",
+            "wheel->phase() != Qt::NoScrollPhase",
             "qBound(scrollbar->minimum(), baseline - delta, scrollbar->maximum())",
             "new SmoothLibraryWheel(navigationScroll, 58)",
             "new SmoothLibraryWheel(tree_, 58)",
+            "tree_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel)",
             "new SmoothLibraryWheel(list, 96)",
             "list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel)",
         ):

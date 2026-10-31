@@ -38,7 +38,7 @@ class NativeTabsContract(unittest.TestCase):
             'LunaHighlightSelected', 'LunaEraseSelected', 'LunaFreeTextBox',
             'selected->getSelectedText().trimmed().isEmpty()',
             'PDFTextSelectionPainter painter(&selection)',
-            'marked.intersects(part)', 'createAnnotationHighlight(',
+            'getHiglightArea().getQuadrilaterals()', 'createAnnotationHighlight(',
             'createAnnotationFreeText(', 'QRubberBand::Rectangle',
             'LunaFreeTextFont', 'LunaFreeTextSize',
             'textBox_->setChecked(false)', 'PDFDocumentModifier modifier',
@@ -50,6 +50,10 @@ class NativeTabsContract(unittest.TestCase):
             self.assertIn(token, adapter, token)
         for token in (
             'Reader phase: selection-first highlight and non-overlap',
+            'Reader phase: partly overlapping highlight retains unmarked words',
+            'Partly overlapping highlight ignored previously unmarked text',
+            'New highlight duplicated old highlight instead of clipping overlap',
+            'Reader toolbar inline swatches are missing or out of order',
             'Reader phase: selection-first eraser matches highlight geometry',
             'Selection-first eraser did not preserve native undo',
             'Reader phase: vertical middle-click autoscroll',
@@ -76,6 +80,14 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('add("LunaHighlightSelected")', adapter)
         self.assertIn('add("LunaFreeTextBox")', adapter)
         self.assertIn('add("LunaEraseSelected")', adapter)
+        for i in range(1, 7):
+            self.assertIn('LunaHighlightSwatch%1', adapter)
+        self.assertIn('for (int i = 1; i <= 6; ++i)', adapter)
+        self.assertIn('for (int i = 0; i < 6; ++i)', adapter)
+        self.assertIn('setAnnotationOpacity(ref, 0.36)', adapter)
+        self.assertIn('QList<QPair<qreal, qreal>> uncovered', adapter)
+        self.assertIn('interval.second - hi > 0.8', adapter)
+        self.assertNotIn('marked.intersects(part)', adapter)
         self.assertIn('bool beginTextBoxDrag(QMouseEvent* event)', adapter)
         self.assertIn('void finishTextBoxDrag(const QPoint& to)', adapter)
         self.assertIn('manager->setAnnotationRectangle(annotation, pageRect)', adapter)
@@ -115,7 +127,7 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('native-shell-before-reader-bind', tabs)
         self.assertIn('native-editor-after-reader-prepare', tabs)
 
-    def test_highlight_palette_has_eight_persistent_presets_without_extra_toolbar_action(self):
+    def test_highlight_palette_retains_eight_presets_and_six_inline_swatches(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         self.assertIn('LunaHighlightPalette', adapter)
         for label, hex_color in (
@@ -138,6 +150,22 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('reloadHighlightColor(); // Other native tabs may have changed', adapter)
         self.assertIn('reloadHighlightColor();\n        auto* proxy', adapter)
         self.assertNotIn('add("LunaHighlightColor")', adapter)
+        self.assertIn('class HighlightSwatchIcon final', adapter)
+        self.assertIn('LunaHighlightSwatch%1', adapter)
+        self.assertIn('syncSwatches();', adapter)
+        self.assertIn('add("actionPrint");', adapter)
+
+    def test_selection_overlay_keeps_native_text_and_bridges_visual_word_gaps(self):
+        source = (ROOT / 'tools/apply_performance.py').read_text(encoding='utf-8')
+        # Pinned PDF4QT painter only: do not change PDF text extraction.
+        self.assertIn('a50aeb3ca241f41bd54c4d9d49bd5682f1bed2b8', source)
+        self.assertIn('LunaSelectionBand', source)
+        self.assertIn('const qreal gap = qMax(0.0', source)
+        self.assertIn('gap <= qMin(48.0, 2.1 * h)', source)
+        self.assertIn('block.getCharacterRangeBoundingPath', source)
+        self.assertIn('qAbs(block.getAngle()) > 0.5', source)
+        self.assertNotIn('getTextFromSelection(', source)
+        ast.parse(source)
 
     def test_large_si_open_defers_nonessential_work_until_after_first_render(self):
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')

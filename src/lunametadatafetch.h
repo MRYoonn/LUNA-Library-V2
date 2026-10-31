@@ -15,6 +15,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QUrl>
+#include <functional>
 
 namespace luna {
 class MetadataFetcher final : public QObject {
@@ -51,8 +52,7 @@ public:
             if(!missing) {finish(cr,{});return;}
             // OpenAlex is a fallback: never let an unverified result replace a
             // DOI-matched Crossref value. No broad title/author search.
-            const QUrl alex(QStringLiteral("https://api.openalex.org/works/https://doi.org/")+
-                QString::fromLatin1(QUrl::toPercentEncoding(doi)));
+            const QUrl alex(QStringLiteral("https://api.openalex.org/works/https://doi.org/")+doi);
             fetch(alex,QStringLiteral("OpenAlex"),[cr,doi,finish,failure](QJsonObject obj, QString error) mutable {
                 QVariantMap secondary=Metadata::fromOpenAlex(obj,doi);
                 if(secondary.isEmpty()) {

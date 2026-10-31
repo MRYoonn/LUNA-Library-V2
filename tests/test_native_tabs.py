@@ -81,7 +81,14 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('manager->mouseMoveEvent(draw_, static_cast<QMouseEvent*>(event))', adapter)
         self.assertIn('manager->mouseReleaseEvent(draw_, static_cast<QMouseEvent*>(event))', adapter)
         self.assertIn('manager->isAnnotationSelected(item.annotation->getSelfReference())', adapter)
-        self.assertIn('removeAnnotation(page->getPageReference(), item.annotation->getSelfReference())', adapter)
+        # Removing one quad from a multi-line highlight must keep the
+        # annotation and its untouched lines. Only remove the PDF annotation
+        # entirely when no quadrilaterals remain.
+        self.assertIn('getHiglightArea().getQuadrilaterals()', adapter)
+        self.assertIn('setAnnotationQuadPoints(ref, remaining)', adapter)
+        self.assertIn('updateAnnotationAppearanceStreams(ref)', adapter)
+        self.assertIn('if (remaining.isEmpty()) {', adapter)
+        self.assertIn('removeAnnotation(page->getPageReference(), ref)', adapter)
         self.assertIn('manager->canDeleteAnnotation(item)', adapter)
         self.assertIn('item.annotation->getType() != pdf::AnnotationType::Highlight', adapter)
         self.assertIn('LunaVerticalAutoscrollMarker', adapter)

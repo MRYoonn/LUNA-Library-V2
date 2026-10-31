@@ -110,18 +110,17 @@ void PDFDrawWidget::resizeEvent'''),
         const PDFTextBlock& block = blocks[start.blockIndex];
         const QPainterPath path =
             block.getCharacterRangeBoundingPath(start, end, matrix, HEIGHT_INCREASE_FACTOR);
-        // Rotated/scaled PDF page matrices and rotated text keep their exact
-        // upstream shape, avoiding false bands through tables and figures.
+        // Always draw the pinned PDF4QT character-shaped selection path.
+        // Replacing glyph paths with broad rectangles was the visual
+        // regression: it made unrelated page furniture look selected.
+        QColor brush = item.color;
+        brush.setAlphaF(SELECTION_ALPHA);
+        painter->setPen(convertor.convert(QPen(item.color.darker())));
+        painter->setBrush(convertor.convert(QBrush(brush, Qt::SolidPattern)));
+        painter->drawPath(path);
+        // Only the tiny gaps between horizontal runs may be bridged.
         if (qAbs(block.getAngle()) > 0.5 || qAbs(matrix.m12()) > 0.001 ||
-            qAbs(matrix.m21()) > 0.001)
-        {
-            QColor brush = item.color;
-            brush.setAlphaF(SELECTION_ALPHA);
-            painter->setPen(convertor.convert(QPen(item.color.darker())));
-            painter->setBrush(convertor.convert(QBrush(brush, Qt::SolidPattern)));
-            painter->drawPath(path);
-            continue;
-        }
+            qAbs(matrix.m21()) > 0.001) continue;
         for (const QPolygonF& polygon : path.toSubpathPolygons())
         {
             const QRectF rect = polygon.boundingRect().normalized();
@@ -136,6 +135,7 @@ void PDFDrawWidget::resizeEvent'''),
         return a.rect.left() < b.rect.left();
     });
     QList<LunaSelectionBand> bands;
+    QList<LunaSelectionBand> gapBridges;
     for (const auto& fragment : fragments)
     {
         bool joined = false;
@@ -151,6 +151,16 @@ void PDFDrawWidget::resizeEvent'''),
                 qAbs(previous.rect.height() - fragment.rect.height()) <= h * 0.4 &&
                 gap <= qMin(48.0, 2.1 * h))
             {
+                // Fill the missing inter-word strip ONLY. Do not repaint
+                // the entire union rectangle over glyphs, whitespace,
+                // footers, figures or unrelated embedded PDF text.
+                const qreal y1 = qMax(previous.rect.top(), fragment.rect.top());
+                const qreal y2 = qMin(previous.rect.bottom(), fragment.rect.bottom());
+                if (gap > 0.25 && y2 > y1 + 0.25) {
+                    const qreal x1 = qMin(previous.rect.right(), fragment.rect.right());
+                    const qreal x2 = qMax(previous.rect.left(), fragment.rect.left());
+                    if (x2 > x1) gapBridges.append({QRectF(QPointF(x1, y1), QPointF(x2, y2)), fragment.color});
+                }
                 previous.rect = previous.rect.united(fragment.rect);
                 joined = true;
                 break;
@@ -159,12 +169,12 @@ void PDFDrawWidget::resizeEvent'''),
         if (!joined) bands.append(fragment);
     }
     painter->setPen(Qt::NoPen);
-    for (const auto& band : bands)
+    for (const auto& bridge : gapBridges)
     {
-        QColor brush = band.color;
+        QColor brush = bridge.color;
         brush.setAlphaF(SELECTION_ALPHA);
         painter->setBrush(convertor.convert(QBrush(brush, Qt::SolidPattern)));
-        painter->drawRect(band.rect);
+        painter->drawRect(bridge.rect);
     }
     painter->restore();
 }

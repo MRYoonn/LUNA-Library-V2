@@ -566,8 +566,30 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
-    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0; }))
-        return fail("Click-then-drag eraser did not remove previous highlight");
+    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 0; })) {
+        // Report real geometry and tool mode in the exact CI failure rather
+        // than repeating an ambiguous error across repeated Windows builds.
+        QStringList residues;
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+            if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+            const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+            if (!ann) continue;
+            for (const auto& quad : ann->getHiglightArea().getQuadrilaterals()) {
+                QPolygonF poly;
+                for (const auto& point : quad) poly << point;
+                const QRectF remaining = poly.boundingRect().normalized();
+                residues << QStringLiteral("[%1,%2 to %3,%4]").arg(remaining.left(), 0, 'f', 2)
+                    .arg(remaining.top(), 0, 'f', 2).arg(remaining.right(), 0, 'f', 2)
+                    .arg(remaining.bottom(), 0, 'f', 2);
+            }
+        }
+        error = QStringLiteral("Click-then-drag eraser did not remove previous highlight: count=%1 armed=%2 select=%3 selectedChars=%4 remnants=%5")
+            .arg(annotations(pdf::AnnotationType::Highlight))
+            .arg(lunaErase->isChecked()).arg(select->isChecked())
+            .arg(controller->getToolManager()->getSelectTextTool()->getSelectedText().size())
+            .arg(residues.join(QStringLiteral("; ")));
+        return false;
+    }
     action("actionUndo")->trigger();
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
         return fail("Selection-first eraser did not preserve native undo");

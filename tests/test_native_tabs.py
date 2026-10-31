@@ -98,7 +98,10 @@ class NativeTabsContract(unittest.TestCase):
         page_grid = (ROOT / 'src/lunapagegrid.h').read_text(encoding='utf-8')
         for token in (
             'const bool deferForLargePdf = !force && catalog && catalog->getPageCount() >= 80;',
-            'QTimer::singleShot(1200, this, std::move(startWorker));',
+            'delay->start(1200);',
+            'if (force) if (auto* pending = delayedCitations_.value(identity, nullptr))',
+            'pending->start(0);',
+            'delayedCitations_.remove(identity);',
             'bibliography-first-page-worker',
             'bibliography-worker-dispatch',
             'worker->start(QThread::LowPriority)',

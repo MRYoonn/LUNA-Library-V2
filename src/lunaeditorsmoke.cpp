@@ -548,8 +548,31 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseMove,extendedEnd,Qt::NoButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,extendedEnd,Qt::LeftButton,Qt::NoButton);
-    if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1; }))
-        return fail("Old plus new text was not recolored to the selected marker");
+    // Number of annotations was ONE before the drag and can be ONE after
+    // the asynchronous replacement. Waiting only for count==1 returned
+    // immediately and pressed Undo before the pending event-loop callback
+    // had saved pink, corrupting the subsequent test's state.
+    checkpoint("Reader phase: expanded recolor waits for committed pink geometry");
+    auto expandedPinkCommitted = [&]() {
+        if (annotations(pdf::AnnotationType::Highlight) != 1) return false;
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+            if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
+            const auto* ann = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+            if (!ann) return false;
+            const auto rgb = ann->getColor();
+            const QRectF bounds = ann->getHiglightArea().getPath().boundingRect().normalized();
+            return rgb.size() >= 3 &&
+                qAbs(rgb[0] - 1.0) < 0.02 &&
+                qAbs(rgb[1] - 179.0 / 255.0) < 0.02 &&
+                qAbs(rgb[2] - 207.0 / 255.0) < 0.02 &&
+                bounds.isValid() &&
+                bounds.right() > initialGreenBounds.right() + 2.0 &&
+                bounds.left() <= initialGreenBounds.left() + 2.0;
+        }
+        return false;
+    };
+    if (!waitFor(expandedPinkCommitted))
+        return fail("Expanded marker did not commit pink geometry beyond original green coverage");
     action("actionUndo")->trigger();
     if (!waitFor(originalGreenRestored))
         return fail("Expanded recolor Undo changed original highlight geometry");

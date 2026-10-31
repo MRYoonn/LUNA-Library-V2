@@ -3,6 +3,8 @@
 import argparse
 import hashlib
 import io
+import json
+import time
 import zipfile
 import os
 from pathlib import Path
@@ -117,7 +119,17 @@ def bibliography_probe(package: Path, output: Path):
     system = Path(os.environ["SystemRoot"])
     environment.update(PATH=os.pathsep.join(map(str, (package, system / "System32", system))),
         QT_PLUGIN_PATH=str(package), QT_QPA_PLATFORM_PLUGIN_PATH=str(package / "platforms"),
-        QT_QPA_PLATFORM="windows", QT_SCALE_FACTOR="1", LUNA_PUBLIC_BIBLIOGRAPHY_PROBE="1")
+        QT_QPA_PLATFORM="windows", QT_SCALE_FACTOR="1", LUNA_PUBLIC_BIBLIOGRAPHY_PROBE="1",
+        QT_FORCE_STDERR_LOGGING="1", LUNA_PERF="1")
+    # Only stage names and millisecond durations from the pinned public
+    # fixtures are retained. Never save raw Qt logs or PDF text/paths.
+    timings = []
+    measured_stages = {
+        "pdf-file-read", "pdf-parse", "reader-worker-queue",
+        "worker-to-gui-delivery", "document-layout-and-install",
+        "request-to-first-page-paint", "open-dispatch",
+        "bibliography-worker-dispatch", "bibliography-first-page-worker",
+    }
     with tempfile.TemporaryDirectory(prefix="luna-public-bibliography-") as temporary:
         root = Path(temporary)
         for label, payload, is_si in (("rsc", data, False), ("si2", si_data, True)):
@@ -130,8 +142,12 @@ def bibliography_probe(package: Path, output: Path):
             for restart in range(3):
                 report = root / f"bibliography-{label}-{restart}.txt"
                 try:
-                    subprocess.run([str(package / "LUNA.exe"), "--luna-research-report", str(report), str(pdf)],
-                        cwd=root, env=child_environment, check=True, timeout=90)
+                    started = time.perf_counter()
+                    completed = subprocess.run(
+                        [str(package / "LUNA.exe"), "--luna-research-report", str(report), str(pdf)],
+                        cwd=root, env=child_environment, check=True, timeout=90,
+                        capture_output=True, text=True, errors="replace")
+                    elapsed_ms = round((time.perf_counter() - started) * 1000)
                 except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
                     failure = Path(str(report) + ".failure.png")
                     if failure.is_file():
@@ -140,7 +156,32 @@ def bibliography_probe(package: Path, output: Path):
                     raise RuntimeError(detail) from error
                 if report.read_bytes() != b"LUNA_RESEARCH_ROUNDTRIP_OK\n" or pdf.read_bytes() != payload:
                     raise RuntimeError("Bibliography marker or original bytes changed")
+                stages = {}
+                for line in completed.stderr.splitlines():
+                    _, separator, encoded = line.partition("LUNA_PERF ")
+                    if not separator:
+                        continue
+                    try:
+                        entry = json.loads(encoded.strip())
+                        stage = entry.get("stage")
+                        duration = entry.get("durationMs")
+                        if stage in measured_stages and isinstance(duration, (int, float)):
+                            stages.setdefault(stage, []).append(round(duration, 1))
+                    except (ValueError, TypeError):
+                        continue  # Other Qt messages are never retained.
+                timings.append({"fixture": label, "restart": restart,
+                                "elapsedMs": elapsed_ms, "stagesMs": stages})
                 shutil.copyfile(Path(str(report) + ".png"), output / f"bibliography-{label}-{restart}.png")
+    (output / "PUBLIC_SI_TIMINGS.json").write_text(
+        json.dumps({"scope": "pinned-public-main-and-SI-only",
+                    "measurements": timings}, indent=2), encoding="utf-8")
+    for item in timings:
+        if item["fixture"] == "si2":
+            print("[SI PERF]", "restart", item["restart"],
+                  "totalMs", item["elapsedMs"],
+                  "firstPaintMs", item["stagesMs"].get("request-to-first-page-paint", []),
+                  "parseMs", item["stagesMs"].get("pdf-parse", []),
+                  "metadataMs", item["stagesMs"].get("bibliography-first-page-worker", []))
     print("[PASS] Real RSC main/SI2 PDFs: automatic John J. Molloy card, legacy Hao Fang repair, SI metadata abstention, no dialog/jump, two fresh-process restarts each, original bytes preserved")
 
 

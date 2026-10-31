@@ -3582,6 +3582,16 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (copyPdfWithThumbnails(path, copied.path()).success ||
         !QFileInfo::exists(path) || !QFileInfo::exists(thumbnail))
         return fail("Copy overwrote a target or damaged its original");
+    const QString before = QDir(copied.path()).filePath(QStringLiteral("before-rename"));
+    const QString after = QDir(copied.path()).filePath(QStringLiteral("after-rename"));
+    if (!QDir().mkdir(before) || !copyPdfWithThumbnails(path, before).success ||
+        !renameWithoutReplacement(before, after) || QFileInfo::exists(before) ||
+        !QFileInfo::exists(QDir(after).filePath(pdf.fileName())) ||
+        !QFileInfo::exists(QDir(after).filePath(pdf.completeBaseName() +
+                                                QStringLiteral(".luna-thumb.png"))))
+        return fail("Windows physical folder rename did not preserve PDF and thumbnail");
+    if (renameWithoutReplacement(copied.path(), after))
+        return fail("Folder rename overwrote an existing destination");
     auto* folderDrop = window.findChild<QTreeView*>(QStringLiteral("LunaFolderDropTree"));
     if (!folderDrop || !folderDrop->acceptDrops())
         return fail("Native directory drop target missing");

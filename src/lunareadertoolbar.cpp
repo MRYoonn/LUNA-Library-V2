@@ -1317,7 +1317,7 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
     for (const auto& name : allowed) if (!bar->actions().contains(window.findChild<QAction*>(name))) return fail("Essential reading action missing");
     const auto toolbarOrder = bar->actions();
     const int printIndex = toolbarOrder.indexOf(nativeAction(window, "actionPrint"));
-    if (printIndex < 0 || printIndex + 8 >= toolbarOrder.size() ||
+    if (printIndex < 0 || printIndex + 9 >= toolbarOrder.size() ||
         !toolbarOrder[printIndex + 1]->isSeparator() ||
         toolbarOrder[printIndex + 2] != nativeAction(window, "LunaEraseSelected") ||
         toolbarOrder[printIndex + 3] != nativeAction(window, "LunaHighlightSelected"))

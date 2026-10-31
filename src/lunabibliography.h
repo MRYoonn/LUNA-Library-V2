@@ -406,6 +406,13 @@ public:
         const QString returned=Metadata::normalizeDoi(incoming.value("doi").toString());
         if(identity.isEmpty() || expected.isEmpty() || returned != expected) return false;
         QVariantMap entry=record(identity);
+        // A disagreement between independent DOI-matched providers is NOT
+        // permission to silently write whichever provider returned first.
+        if(incoming.value("metadata_status").toString()==QStringLiteral("needs_review")) {
+            entry["metadata_status"]=QStringLiteral("needs_review");
+            entry["metadata_diagnostic"]=incoming.value("metadata_diagnostic").toString();
+            save(identity,entry,false);return false;
+        }
         const QString oldDoi=Metadata::normalizeDoi(entry.value("doi").toString());
         if(!oldDoi.isEmpty() && oldDoi!=expected) {
             entry["metadata_status"]=QStringLiteral("needs_review");
@@ -473,6 +480,15 @@ public:
         entry["metadata_source"]=incoming.value("metadata_source").toString();
         Q_UNUSED(modified);
         return save(identity,entry,false);
+    }
+    bool markLookupStarted(const QString& identity) {
+        if(identity.isEmpty())return false;
+        QVariantMap entry=record(identity);
+        if(entry.value("metadata_status").toString().isEmpty()) {
+            entry["metadata_status"]=QStringLiteral("loading");
+            return save(identity,entry,false);
+        }
+        return true;
     }
     bool recordLookupFailure(const QString& identity, const QString& status) {
         if(identity.isEmpty())return false;

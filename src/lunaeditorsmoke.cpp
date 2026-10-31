@@ -476,6 +476,18 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!freeTextEditor || !waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 1; }) ||
         lunaTextBox->isChecked() || !select->isChecked())
         return fail("LUNA transparent FreeText note missing or did not restore selection");
+    // A single click near the edge of a 300x220 PDF used to create the
+    // default 180x68 box partially beyond the sheet. Check actual PDF geometry,
+    // not just an in-memory annotation count.
+    const QRectF pageCrop = controller->getDocument()->getCatalog()->getPage(0)->getCropBox().normalized();
+    bool defaultBoxWithinPage = false;
+    for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
+        if (item.annotation->getType() == pdf::AnnotationType::FreeText) {
+            const QRectF box = item.annotation->getRectangle().normalized();
+            defaultBoxWithinPage = box.width() >= 8 && box.height() >= 8 && pageCrop.contains(box);
+        }
+    }
+    if (!defaultBoxWithinPage) return fail("LUNA default FreeText escaped PDF crop bounds");
     action("actionUndo")->trigger();
     if (!waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 0; }))
         return fail("LUNA FreeText note did not participate in native undo");

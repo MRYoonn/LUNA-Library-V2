@@ -590,6 +590,102 @@ public:
         }
     }
 
+    // Explicit user-requested reset. Only verified DOI-matched provider data
+    // may replace manually edited fields; a failed lookup preserves all data.
+    bool restoreVerifiedOnline(const QString& identity, const QString& expectedDoi,
+                               const QVariantMap& incoming) {
+        const QString expected = Metadata::normalizeDoi(expectedDoi);
+        if (identity.isEmpty() || expected.isEmpty() ||
+            Metadata::normalizeDoi(incoming.value("doi").toString()) != expected ||
+            incoming.value("metadata_status").toString() == QStringLiteral("needs_review") ||
+            !credibleTitle(incoming.value("title").toString())) return false;
+        QVariantMap entry = record(identity);
+        const QString existingDoi = Metadata::normalizeDoi(entry.value("doi").toString());
+        if (!existingDoi.isEmpty() && existingDoi != expected) return false;
+        const QString provider = incoming.value("metadata_source").toString();
+        for (const char* name : {"title", "journal", "journal_abbreviation", "year",
+                                 "volume", "issue", "page", "article_number",
+                                 "authors", "authors_structured"}) {
+            const QString field = QString::fromLatin1(name);
+            const QVariant replacement = incoming.value(field);
+            if (replacement.toString().simplified().isEmpty() &&
+                !(field == QStringLiteral("authors_structured") &&
+                  !replacement.toStringList().isEmpty())) continue;
+            entry[field] = replacement;
+            entry[field + QStringLiteral("Source")] = provider;
+        }
+        // Otherwise a previously pasted citation still masks all restored fields.
+        entry.remove("citation");
+        entry.remove("citationSource");
+        entry.remove("senior_author_override");
+        entry.remove("senior_author_overrideSource");
+        entry["doi"] = expected;
+        entry["doiSource"] = provider;
+        entry["manual"] = false;
+        entry["source"] = QStringLiteral("Verified DOI refresh");
+        entry["metadata_source"] = provider;
+        entry["field_sources"] = incoming.value("field_sources");
+        entry["metadata_status"] = Metadata::publicationStatus(entry);
+        entry["metadata_diagnostic"] = QString();
+        entry["metadata_checked_at"] =
+            QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+        return save(identity, entry, false);
+    }
+
+    // The local first-page path is used when no DOI is available. Do not
+    // erase a user field unless credible printed evidence replaces it.
+    bool restoreFromFirstPage(const QString& identity, const QVariantMap& proposal) {
+        if (identity.isEmpty() || proposal.isEmpty() ||
+            proposal.value("documentKind").toString() == QStringLiteral("supporting_information"))
+            return false;
+        QVariantMap entry = record(identity);
+        bool changed = false;
+        const auto replace = [&entry, &proposal, &changed](const char* name, bool valid) {
+            const QString field = QString::fromLatin1(name);
+            const QString next = proposal.value(field).toString().simplified();
+            if (!valid || next.isEmpty()) return;
+            entry[field] = next;
+            entry[field + QStringLiteral("Source")] = QStringLiteral("first_page_verified");
+            changed = true;
+        };
+        replace("title", credibleTitle(proposal.value("title").toString()));
+        replace("authors", proposal.value("authorEvidence").toString() ==
+                           QStringLiteral("first-page-terminal-and") &&
+                           credibleAuthor(proposal.value("authors").toString()));
+        replace("journal", !proposal.value("journal").toString().isEmpty());
+        static const QRegularExpression year(QStringLiteral(R"(^[12]\\d{3}$)"));
+        replace("year", year.match(proposal.value("year").toString()).hasMatch());
+        static const QRegularExpression volume(QStringLiteral(R"(^\\d{1,4}$)"));
+        replace("volume", volume.match(proposal.value("volume").toString()).hasMatch());
+        static const QRegularExpression pages(QStringLiteral(R"(^(?:e\\d{5,9}|\\d{1,7})(?:[-–]\\d{1,7})?$)"),
+                                               QRegularExpression::CaseInsensitiveOption);
+        replace("page", pages.match(proposal.value("page").toString()).hasMatch());
+        if (!changed) return false;
+        entry.remove("citation");
+        entry.remove("citationSource");
+        entry.remove("senior_author_override");
+        entry.remove("senior_author_overrideSource");
+        entry["manual"] = false;
+        entry["source"] = QStringLiteral("PDF first-page refresh");
+        return save(identity, entry, false);
+    }
+
+    // Copy bibliography without changing either source or field provenance.
+    // Never overwrite an existing destination record.
+    bool cloneTo(const QString& sourceIdentity, const QString& destinationIdentity) {
+        if (sourceIdentity.isEmpty() || destinationIdentity.isEmpty() ||
+            resolve(sourceIdentity) == resolve(destinationIdentity)) return false;
+        const QVariantMap value = record(sourceIdentity);
+        if (value.isEmpty()) return true;
+        auto store = settings();
+        if (!store.value(key(destinationIdentity)).toMap().isEmpty()) return false;
+        store.setValue(key(destinationIdentity), value);
+        store.sync();
+        if (store.status() != QSettings::NoError) return false;
+        if (changed) changed(destinationIdentity);
+        return true;
+    }
+
     bool relocate(const QString& oldIdentity, const QString& newIdentity) {
         if (oldIdentity.isEmpty() || newIdentity.isEmpty()) return false;
         const QString old = resolve(oldIdentity);

@@ -310,7 +310,7 @@ class NativeTabsContract(unittest.TestCase):
             'painter->drawLine(content.left(), r.top() + 272, content.right(), r.top() + 272)',
             'readerIcon(QStringLiteral("memo-inline"))',
             'const QRect favorite = favoriteRect(r);',
-            'QSize fitted = image.size().scaled(',  # source must preserve aspect
+            'const QSize fitted = image.size().scaled(frame.size(), Qt::KeepAspectRatio)',
             'QPainterPath clip;',
         ):
             self.assertIn(token, source, token)

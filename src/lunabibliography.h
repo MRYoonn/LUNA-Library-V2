@@ -269,7 +269,7 @@ public:
             // Preserve all previous data for recovery; suppress only machine-owned
             // paper fields after the page explicitly identifies itself as SI.
             QVariantMap archived = value.value("unverifiedSiMetadata").toMap();
-            for (const char* key : {"title", "authors", "journal", "year", "volume", "page", "citation"}) {
+            for (const char* key : {"title", "authors", "journal", "year", "volume", "page", "citation", "doi", "authors_structured", "journal_abbreviation", "issue", "article_number"}) {
                 const QString field = QString::fromLatin1(key);
                 if (value.value(field + QStringLiteral("Source")).toString() != QStringLiteral("manual") &&
                     value.contains(field)) {
@@ -359,14 +359,18 @@ public:
             (!manual && value.value("titleSource").toString() != QStringLiteral("manual") &&
              value.value("titleSource").toString() != QStringLiteral("legacy_preserved") &&
              !title.isEmpty() && !credibleTitle(title));
-        const bool brokenAuthor = value.value("authorsSource").toString() != QStringLiteral("manual") &&
+        const QString authorSource=value.value("authorsSource").toString();
+        const bool verifiedProviderAuthor = authorSource == QStringLiteral("Crossref") ||
+            authorSource == QStringLiteral("OpenAlex") ||
+            authorSource == QStringLiteral("Crossref + OpenAlex");
+        const bool brokenAuthor = authorSource != QStringLiteral("manual") &&
             (author.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("the energetics"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("validation as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("lactamase inhibitors"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("towards"), Qt::CaseInsensitive) ||
-            (value.value("authorsSource").toString() != QStringLiteral("manual") &&
-             value.value("authorsSource").toString() != QStringLiteral("first_page_verified")) ||
+            (authorSource != QStringLiteral("manual") &&
+             authorSource != QStringLiteral("first_page_verified") && !verifiedProviderAuthor) ||
             (!author.isEmpty() && !credibleAuthor(author)));
         if (brokenTitle) {
             if (!title.isEmpty()) value["legacyTitle"] = value.value("title");

@@ -192,6 +192,42 @@ int main(int argc,char** argv){
            "record offline error without data loss");
     expect(!Bibliography::citation(store.record(identity)).isEmpty(),"offline cached citation");
 
+    checkpoint("explicit-original-refresh");
+    auto edited = store.record(identity);
+    edited["title"] = QStringLiteral("User modified title");
+    edited["titleSource"] = QStringLiteral("manual");
+    edited["citation"] = QStringLiteral("User pasted reference");
+    edited["citationSource"] = QStringLiteral("manual");
+    expect(store.save(identity, edited, false), "save manually edited title and citation");
+    expect(!store.restoreVerifiedOnline(identity, QStringLiteral("10.1000/mismatch"), online),
+           "reject non-matching DOI refresh");
+    expect(store.record(identity).value("title").toString() == QStringLiteral("User modified title"),
+           "mismatched DOI must never erase user title");
+    expect(store.restoreVerifiedOnline(identity, doi, online), "explicit DOI refresh persisted");
+    const auto restored = store.record(identity);
+    expect(restored.value("title") == online.value("title"),
+           "explicit refresh restores verified original title");
+    expect(restored.value("journal") == online.value("journal"),
+           "explicit refresh restores provider journal");
+    expect(restored.value("citation").toString().isEmpty(),
+           "pasted citation cannot shadow refreshed fields");
+    expect(restored.value("senior_author_override").toString().isEmpty(),
+           "explicit refresh clears manually chosen citation override");
+    const QString copiedIdentity = QStringLiteral("synthetic:test:copied");
+    expect(store.cloneTo(identity, copiedIdentity), "clone bibliography for physical PDF copy");
+    expect(store.record(copiedIdentity).value("title") == online.value("title"),
+           "cloned bibliography retains verified title");
+    expect(!store.cloneTo(identity, copiedIdentity), "cloning cannot overwrite destination");
+    const QString localIdentity = QStringLiteral("synthetic:test:firstpage");
+    expect(store.saveEdits(localIdentity, {}, {
+               {"title", QStringLiteral("Manually typed title")}}), "local edit prior to recovery");
+    expect(store.restoreFromFirstPage(localIdentity,
+               {{"title", QStringLiteral("Recovered from printed first page of the paper")}}),
+           "local first-page recovery without DOI");
+    expect(store.record(localIdentity).value("title").toString() ==
+           QStringLiteral("Recovered from printed first page of the paper"),
+           "manual title is restored from trusted first-page title");
+
     checkpoint("offline-fallback");
     MetadataFetcher offline;
     qputenv("LUNA_METADATA_OFFLINE","1");

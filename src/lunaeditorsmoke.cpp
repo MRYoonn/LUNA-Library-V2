@@ -1113,11 +1113,39 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
 
     if (!waitFor([&] { return action("actionSave")->isEnabled() && window.isEnabled(); }))
         return fail("Native final save remained busy");
+    const QByteArray preFreeTextSave = readFile(saved);
+    int finalSaveTriggers = 0;
+    const auto finalSaveSignal = QObject::connect(action("actionSave"), &QAction::triggered,
+        &window, [&] { ++finalSaveTriggers; });
     widget->setFocus(); key(widget,Qt::Key_S,Qt::ControlModifier);
+    QObject::disconnect(finalSaveSignal);
+    if (finalSaveTriggers != 1)
+        return fail("Ctrl+S did not invoke native FreeText save");
+    // Saving is synchronous in pinned PDF4QT; prove the updated file actually
+    // landed on disk before closing and asynchronously reopening it.
+    if (!savedState || !savedState->isCurrentSaved() ||
+        !sameExistingFile(controller->getOriginalFileName(), saved) ||
+        readFile(saved).isEmpty() || readFile(saved) == preFreeTextSave)
+        return fail("Native FreeText changes were not persisted by Ctrl+S");
     if (readFile(original) != originalBytes) return fail("Reader regressions modified original PDF");
-    controller->closeDocument(); controller->openDocument(saved);
-    if (!waitFor([&] { return controller->getDocument() && select->isChecked() && window.isEnabled(); }))
-        return fail("LUNA FreeText persisted document did not reopen");
+    checkpoint("Reader phase: FreeText persisted disk bytes, wait for actual reopen");
+    controller->closeDocument();
+    controller->openDocument(saved);
+    // Unlike synchronous Ctrl+S, PDF4QT openDocument() schedules a future
+    // loader. The text-selection QAction is independent of the file's load
+    // status and can legitimately be unchecked during the completed reopen.
+    if (!waitFor([&] {
+        const auto* doc = controller->getDocument();
+        return doc && doc->getCatalog() && doc->getCatalog()->getPageCount() == 2 &&
+            controller->canClose() && !controller->getIsBusy() && window.isEnabled() &&
+            sameExistingFile(controller->getOriginalFileName(), saved);
+    })) {
+        error = QStringLiteral("LUNA FreeText persisted document did not reopen: document=%1 busy=%2 enabled=%3 file=%4")
+            .arg(bool(controller->getDocument())).arg(controller->getIsBusy())
+            .arg(window.isEnabled()).arg(controller->getOriginalFileName());
+        return false;
+    }
+    // Check actual persisted annotations before activating any reading tool.
     if (annotations(pdf::AnnotationType::Highlight) != 1 ||
         annotations(pdf::AnnotationType::Text) != 1 ||
         annotations(pdf::AnnotationType::FreeText) != 1)
@@ -1129,6 +1157,11 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     }
     if (!persistedContentsFound || readFile(original) != originalBytes)
         return fail("LUNA FreeText text or original PDF bytes changed on disk");
+    // Tool readiness is a separate UI invariant, not evidence of saved PDF
+    // data. Explicitly activate it after all annotation checks have passed.
+    if (!select->isChecked()) select->trigger();
+    if (!waitFor([&] { return select->isChecked(); }))
+        return fail("Native text-selection tool unavailable after FreeText reopen");
     checkpoint("Reader phase: native print dialog open and cancel");
     if (!QPrinterInfo::availablePrinters().isEmpty()) {
 #ifdef Q_OS_WIN

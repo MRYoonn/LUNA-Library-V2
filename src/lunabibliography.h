@@ -387,7 +387,7 @@ public:
         value["manual"] = manual;
         if (manual) {
             const QVariantMap previous = record(identity);
-            for (const char* field : {"title", "authors", "citation", "journal", "year", "volume", "page"}) {
+            for (const char* field : {"title", "authors", "citation", "journal", "year", "volume", "page", "doi", "journal_abbreviation", "issue", "article_number", "senior_author_override"}) {
                 const QString name = QString::fromLatin1(field);
                 if (!value.contains(name + QStringLiteral("Source")) || value.value(name) != previous.value(name))
                     value[name + QStringLiteral("Source")] = QStringLiteral("manual");
@@ -511,7 +511,7 @@ public:
         if (identity.isEmpty()) return false;
         QVariantMap current = record(identity);
         bool modified = false;
-        for (const char* key : {"title", "authors", "citation", "journal", "year", "volume", "page"}) {
+        for (const char* key : {"title", "authors", "citation", "journal", "year", "volume", "page", "doi", "journal_abbreviation", "issue", "article_number", "senior_author_override"}) {
             const QString field = QString::fromLatin1(key);
             if (edited.value(field).toString().simplified() == before.value(field).toString().simplified()) continue;
             current[field] = edited.value(field);
@@ -519,6 +519,14 @@ public:
             modified = true;
         }
         if (!modified) return true;
+        if(edited.value("doi").toString().simplified()!=before.value("doi").toString().simplified()) {
+            const QString chosen=Metadata::normalizeDoi(edited.value("doi").toString());
+            if(!edited.value("doi").toString().trimmed().isEmpty() && chosen.isEmpty())return false;
+            current["doi"]=chosen;
+            current["doiSource"]=QStringLiteral("manual");
+            current["metadata_status"]=QStringLiteral("needs_review");
+            current["metadata_diagnostic"]=QStringLiteral("manual_doi_changed");
+        }
         current["source"] = QStringLiteral("Manual field edits");
         return save(identity, current, false);
     }

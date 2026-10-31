@@ -295,30 +295,57 @@ class NativeTabsContract(unittest.TestCase):
             self.assertIn(token, script)
         ast.parse(script)
 
-    def test_portable_folder_icons_use_files_inside_sync_folders(self):
+    def test_approved_folder_icon_pack_and_portable_id_metadata(self):
+        import base64
+        import hashlib
+        import json
+        import zlib
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
         guide = (ROOT / 'USER_GUIDE_KO.md').read_text(encoding='utf-8')
+        overlay = (ROOT / 'tools/apply_overlay.py').read_text(encoding='utf-8')
+        encoded = (ROOT / 'assets/folder_icons/svg_bundle.b85').read_text().strip()
+        payload = zlib.decompress(base64.b85decode(encoded))
+        self.assertEqual(hashlib.sha256(payload).hexdigest(),
+                         '37244af73e35e0925d2347a9dc7657ba3bd3a52d87b2d7dc1d300efe99496c8a')
+        artworks = json.loads(payload)
+        self.assertEqual(len(artworks), 21)  # 20 independent SVGs plus importance overlay
+        self.assertIn('importance_overlay.svg', artworks)
+        for i, icon_id in enumerate((
+            'general', 'important', 'favorite', 'research', 'project',
+            'review', 'mechanism', 'synthesis', 'spectroscopy', 'computational',
+            'data', 'reference', 'ideas', 'drafting', 'completed', 'shared',
+            'external', 'archive', 'private', 'temporary'
+        ), 1):
+            svg = artworks[f'{i:02d}_{icon_id}.svg']
+            self.assertIn('<svg xmlns="http://www.w3.org/2000/svg"', svg)
+            self.assertIn('id="' + icon_id + '"', library)
+            self.assertIn(':/luna/folders/', library)
         for token in (
-            'LUNA.folder-icon.png', 'class LunaFolderModel final',
-            'QFileSystemModel::data(index, role)',
+            'LUNA.folder.json', 'class LunaFolderModel final',
+            'LunaFolderIconPicker', 'LunaFolderIconOption_%1',
+            'QGridLayout', 'QSize(44, 44)', 'QSize(20, 20)',
             'LunaChangeFolderIcon', 'LunaResetFolderIcon',
             'void refreshVisibleFolderIcons()', 'folderIconPoll_->setInterval(3000)',
-            'bool saveFolderIcon(const QString& folder, const QString& imagePath, QString* error)',
+            'bool saveFolderIcon(const QString& folder, const QString& iconId, QString* error)',
             'bool resetFolderIcon(const QString& folder, QString* error)',
             'QSaveFile output(path)', 'output.setDirectWriteFallback(false)',
-            'image.save(&output, "PNG")', 'output.commit()',
+            'output.write(contents) != contents.size() || !output.commit()',
             'if (!allowedIconFolder(folder, error)) return false;',
             'const QString relative = QDir(root_).relativeFilePath(canonical);',
-            'if (QFileInfo(path).isSymLink())',
-            'model_->refreshFolderIcon(model_->index(folder));',
-            'Folder icon sidecar was not displayed from its folder',
+            'file.isSymLink()', 'model_->refreshFolderIcon(model_->index(folder));',
+            'Folder UUID changed while switching icon preset',
+            'Synced folder metadata did not resolve iconId on another path',
             'Folder icon reset altered PDF or thumbnail files',
         ):
-            self.assertIn(token, library, token)
+            self.assertIn(token, library)
+        self.assertIn('luna_folder_icons.qrc)', overlay)
+        self.assertIn('b85decode(encoded)', overlay)
         self.assertIn('MYBOX', guide)
-        self.assertIn('LUNA.folder-icon.png', guide)
+        self.assertIn('LUNA.folder.json', guide)
+        self.assertNotIn('LUNA.folder-icon.png', library)
         self.assertNotIn('IconResource=', library)
         self.assertNotIn('MYBOX_TOKEN', library)
+        ast.parse(overlay)
 
     def test_1000_pdf_incremental_scanner_is_bounded_and_diagnostic(self):
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')

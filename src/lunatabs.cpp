@@ -733,7 +733,7 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
         host.resize(logical); host.show();
         if (!integrationWait([&] { return host.size() == logical; }) || !host.grab().save(report + QStringLiteral(".%1.png").arg(pixels.width()))) { captured = false; break; }
         QJsonObject metrics{{"width", host.width()}, {"height", host.height()}, {"dpr", scale}};
-        for (const auto* name : {"LunaMainMenuBar", "LunaBrandFrame", "LunaCommonReaderToolbar", "LunaNavigation", "LunaDocuments", "LunaContentModes", "LunaPdfTabs", "LunaPdfTabBar"}) {
+        for (const auto* name : {"LunaMainMenuBar", "LunaBrandFrame", "LunaCommonReaderToolbar", "LunaNavigation", "LunaDocuments", "LunaContentStack", "LunaPdfTabs", "LunaPdfTabBar"}) {
             if (auto* widget = host.findChild<QWidget*>(QString::fromLatin1(name))) {
                 const QPoint origin = widget->mapTo(&host, QPoint());
                 metrics[QString::fromLatin1(name)] = QJsonObject{{"x", origin.x()}, {"y", origin.y()}, {"width", widget->width()}, {"height", widget->height()}};

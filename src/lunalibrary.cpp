@@ -713,6 +713,11 @@ protected:
         if (event->type() != QEvent::DragEnter && event->type() != QEvent::Drop) return false;
         auto* widget = qobject_cast<QWidget*>(object);
         if (!widget || widget->window() != &window_) return false;
+        // Library folder tree handles URL drops as real file moves/copies;
+        // the global editor drop-to-open handler must not intercept them.
+        if (widget->objectName() == QStringLiteral("LunaFolderDropTree") ||
+            (widget->parentWidget() && widget->parentWidget()->objectName() ==
+             QStringLiteral("LunaFolderDropTree"))) return false;
         auto* drop = static_cast<QDropEvent*>(event);
         const auto urls = drop->mimeData()->urls();
         if (urls.isEmpty()) return false;
@@ -3227,26 +3232,12 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     }
     if (!QFileInfo::exists(thumbnail) || !QFileInfo::exists(path))
         return fail("Folder icon reset altered PDF or thumbnail files");
+    // Paper-card thumbnails are sufficient: no secondary hover popup.
     const QPoint card = list->visualItemRect(item).center();
     mouse(list->viewport(), QEvent::MouseMove, card, Qt::NoButton, Qt::NoButton);
-    if (!wait([&] { return library->thumbnailPopup_ && library->thumbnailPopup_->isVisible() && library->fade_->state() == QAbstractAnimation::Stopped; }))
-        return fail("Asynchronous thumbnail hover did not finish fading in");
-    if (library->fade_->duration() != 165 || library->thumbnailImage_->pixmap().isNull())
-        return fail("Thumbnail hover image or fade duration is incorrect");
-    auto* screen = library->thumbnailPopup_->screen();
-    if (!screen || !screen->availableGeometry().contains(library->thumbnailPopup_->frameGeometry()))
-        return fail("Thumbnail hover extends outside the available screen");
-    if (!capturePath.isEmpty() && !library->thumbnailPopup_->grab().save(capturePath + QStringLiteral(".hover.png")))
-        return fail("Could not capture native hover widget");
-    QEvent leave(QEvent::Leave);
-    QApplication::sendEvent(list->viewport(), &leave);
-    if (library->thumbnailPopup_->isVisible()) return fail("Hover remained visible after leaving list");
-    ThumbnailCache::instance()->invalidate();
-    mouse(list->viewport(), QEvent::MouseMove, card, Qt::NoButton, Qt::NoButton);
-    library->hideThumbnail(); // Same cancellation used by folder switching.
     QCoreApplication::processEvents();
-    if (library->thumbnailPopup_->isVisible() || !library->hoverRequest_.isEmpty())
-        return fail("Cancelled hover request resurfaced");
+    if (library->thumbnailPopup_ && library->thumbnailPopup_->isVisible())
+        return fail("Removed paper hover preview unexpectedly appeared");
     // No click-to-edit: an incidental click on the '+ 메모' line must
     // never open a QLineEdit. Explicit editItem is the same method invoked
     // by the right-click "메모 편집…" action.

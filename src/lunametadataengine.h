@@ -204,12 +204,31 @@ inline QString labCitation(const QVariantMap& paper) {
     return result.isEmpty() ? result : result + QLatin1Char('.');
 }
 inline QString yearFromCrossref(const QJsonObject& obj) {
-    for (const auto& key : {"published","issued","published-print","published-online"}) {
-        const auto parts = obj.value(QLatin1String(key)).toObject()
-            .value(QStringLiteral("date-parts")).toArray();
+    // Crossref dates can be "date-parts": [[2024, 7, 1]], a year-only
+    // date-parts array, or sometimes a date-time string. Avoid silently
+    // dropping the publication year if Qt decodes a numeric JSON value
+    // with a different metatype. Never fall back to "created"/"deposited":
+    // those are not publication dates.
+    const auto validYear=[](const QJsonValue& value) -> QString {
+        const QString raw = value.isString() ? value.toString().trimmed() :
+            value.toVariant().toString().trimmed();
+        static const QRegularExpression yearPattern(QStringLiteral(R"(^((?:1[6-9]|20|21)\d{2})(?:$|[-T]) )").trimmed());
+        const auto match = yearPattern.match(raw);
+        return match.hasMatch() ? match.captured(1) : QString();
+    };
+    for (const char* key : {"published","issued","published-print","published-online"}) {
+        const QJsonObject date = obj.value(QString::fromLatin1(key)).toObject();
+        if (date.isEmpty()) continue;
+        const QJsonArray parts = date.value(QStringLiteral("date-parts")).toArray();
         if (!parts.isEmpty()) {
-            const int y=parts.first().toArray().at(0).toInt();
-            if (y>=1600 && y<=2200) return QString::number(y);
+            const QJsonValue first = parts.first();
+            const QJsonArray row = first.toArray();
+            const QString year=validYear(row.isEmpty() ? first : row.first());
+            if (!year.isEmpty()) return year;
+        }
+        for (const char* field : {"date-time","date"}) {
+            const QString year=validYear(date.value(QString::fromLatin1(field)));
+            if (!year.isEmpty()) return year;
         }
     }
     return {};

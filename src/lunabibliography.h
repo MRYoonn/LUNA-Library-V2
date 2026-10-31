@@ -653,11 +653,11 @@ public:
                            QStringLiteral("first-page-terminal-and") &&
                            credibleAuthor(proposal.value("authors").toString()));
         replace("journal", !proposal.value("journal").toString().isEmpty());
-        static const QRegularExpression year(QStringLiteral(R"(^[12]\\d{3}$)"));
+        static const QRegularExpression year(QStringLiteral(R"(^[12]\d{3}$)"));
         replace("year", year.match(proposal.value("year").toString()).hasMatch());
-        static const QRegularExpression volume(QStringLiteral(R"(^\\d{1,4}$)"));
+        static const QRegularExpression volume(QStringLiteral(R"(^\d{1,4}$)"));
         replace("volume", volume.match(proposal.value("volume").toString()).hasMatch());
-        static const QRegularExpression pages(QStringLiteral(R"(^(?:e\\d{5,9}|\\d{1,7})(?:[-–]\\d{1,7})?$)"),
+        static const QRegularExpression pages(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,7})(?:[-–]\d{1,7})?$)"),
                                                QRegularExpression::CaseInsensitiveOption);
         replace("page", pages.match(proposal.value("page").toString()).hasMatch());
         if (!changed) return false;

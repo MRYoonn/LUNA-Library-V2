@@ -115,6 +115,7 @@ public:
         rubber_ = new QRubberBand(QRubberBand::Rectangle, draw_);
         rubber_->setAttribute(Qt::WA_TransparentForMouseEvents);
         connect(textBox_, &QAction::toggled, this, [this](bool enabled) {
+            if (enabled && !canAnnotate()) { textBox_->setChecked(false); return; }
             if (enabled) { clearPendingSelection(); selectText(); draw_->setCursor(Qt::CrossCursor); }
             else { rubber_->hide(); drawingBox_ = false; draw_->unsetCursor(); }
         });
@@ -135,6 +136,14 @@ public:
     }
 private:
     bool checked(const char* name) const { auto* a = nativeAction(window_, name); return a && a->isChecked(); }
+    // Match the upstream PDF4QT native tool security gate. A custom action
+    // must never bypass PDF permission flags even if text selection works.
+    bool canAnnotate() const {
+        auto* c = window_.getProgramController();
+        return c && c->getDocument() && c->getPdfWidget() &&
+            c->getPdfWidget()->getAnnotationManager() &&
+            c->getPdfWidget()->getAnnotationManager()->isModificationAllowed();
+    }
     bool annotationMode() const { return checked("actionCreateTextHighlight") || checked("actionStickyNoteComment") || checked("actionDeleteAnnotation") || textBox_->isChecked(); }
     void clearPendingSelection() {
         selectionPage_ = -1;
@@ -145,7 +154,7 @@ private:
     void applyHighlight() {
         if (!highlight_->isEnabled() || selectionPage_ < 0) return;
         auto* c = window_.getProgramController();
-        if (!c->getDocument() || !checked("actionSelectText")) { clearPendingSelection(); return; }
+        if (!canAnnotate() || !checked("actionSelectText")) { clearPendingSelection(); return; }
         auto* proxy = c->getPdfWidget()->getDrawWidgetProxy();
         auto* selected = c->getToolManager()->getSelectTextTool();
         if (!selected || selected->getSelectedText().trimmed().isEmpty()) { clearPendingSelection(); return; }
@@ -189,7 +198,9 @@ private:
             Q_EMIT c->getToolManager()->documentModified(pdf::PDFModifiedDocument(modifier.getDocument(), nullptr, modifier.getFlags()));
     }
     void createTextBox(const QPoint& from, const QPoint& to) {
+        if (!canAnnotate()) return;
         auto* c = window_.getProgramController();
+        const auto* originalDocument = c->getDocument();
         auto* proxy = c->getPdfWidget()->getDrawWidgetProxy();
         QPointF start, end;
         const auto pageIndex = proxy->getPageUnderPoint(from, &start);
@@ -227,7 +238,8 @@ private:
         if (dialog.exec() != QDialog::Accepted || input.toPlainText().trimmed().isEmpty()) return;
         // A document/tab could have closed during a modal edit. Never write to
         // an unrelated PDF when the editor session has changed.
-        if (!c->getDocument() || pageIndex >= c->getDocument()->getCatalog()->getPageCount()) return;
+        if (!canAnnotate() || c->getDocument() != originalDocument ||
+            pageIndex >= c->getDocument()->getCatalog()->getPageCount()) return;
         pdf::PDFFreeTextStyle style;
         style.fontFamily = family.currentFont().family();
         style.fontSize = size.value();
@@ -322,7 +334,7 @@ private:
                 selectionEnd_ = end;
                 QTimer::singleShot(0, this, [this] {
                     auto* selected = window_.getProgramController()->getToolManager()->getSelectTextTool();
-                    highlight_->setEnabled(selected && !selected->getSelectedText().trimmed().isEmpty() &&
+                    highlight_->setEnabled(canAnnotate() && selected && !selected->getSelectedText().trimmed().isEmpty() &&
                         !textBox_->isChecked() && selectionPage_ >= 0);
                 });
             }

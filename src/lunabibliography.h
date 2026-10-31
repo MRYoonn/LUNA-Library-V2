@@ -433,6 +433,22 @@ public:
             entry["metadata_diagnostic"]=QStringLiteral("pdf_api_title_conflict");
             save(identity,entry,false);return false;
         }
+        // A clear conflict with printed PDF evidence or a manually corrected
+        // year/volume/page is a review issue, not an opportunity to replace
+        // or combine data belonging to different publication stages.
+        for(const char* candidate : {"year","volume","page"}) {
+            const QString field=QString::fromLatin1(candidate);
+            const QString previous=entry.value(field).toString().simplified();
+            const QString received=incoming.value(field).toString().simplified();
+            const QString provenance=entry.value(field+QStringLiteral("Source")).toString();
+            if(!previous.isEmpty() && !received.isEmpty() && previous!=received &&
+               (provenance==QStringLiteral("manual") ||
+                provenance==QStringLiteral("first_page_verified"))) {
+                entry["metadata_status"]=QStringLiteral("needs_review");
+                entry["metadata_diagnostic"]=QStringLiteral("pdf_field_conflict:")+field;
+                save(identity,entry,false);return false;
+            }
+        }
         bool modified=false, conflict=false;
         if(oldDoi.isEmpty()){entry["doi"]=expected; entry["doiSource"]=QStringLiteral("pdf_front_matter");modified=true;}
         QVariantMap sources=entry.value("field_sources").toMap();

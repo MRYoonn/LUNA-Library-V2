@@ -2300,11 +2300,14 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     };
     if (!wait([&] { return window.isEnabled() && window.getProgramController()->canClose(); }))
         return fail("Reader busy before crop verification");
-    auto* modes = window.findChild<QTabBar*>(QStringLiteral("LunaContentModes"));
+    auto* preview = window.findChild<QAction*>(QStringLiteral("LunaPagePreview"));
     auto* grid = window.findChild<QListView*>(QStringLiteral("LunaPageGrid"));
-    if (!modes || modes->count() != 2 || !grid || grid->model()->rowCount() != 2)
-        return fail("Native two-page preview model missing");
-    modes->setCurrentIndex(1);
+    auto* view = window.findChild<QMenu*>(QStringLiteral("menuView"));
+    if (!preview || !view || !view->actions().contains(preview) ||
+        preview->isChecked() || !grid || grid->isVisible() || grid->model()->rowCount() != 2 ||
+        window.findChild<QTabBar*>(QStringLiteral("LunaContentModes")))
+        return fail("Clean paper-list view or native two-page preview model missing");
+    preview->trigger();
     if (!wait([&] { return grid->isVisible() && !grid->visualRect(grid->model()->index(1, 0)).isEmpty(); }))
         return fail("Page grid did not become visible");
     const auto firstPage = grid->model()->index(0, 0);
@@ -2324,7 +2327,9 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (!wait([&] { const auto visible = window.getProgramController()->getPdfWidget()->getDrawWidget()->getCurrentPages();
         return std::find(visible.begin(), visible.end(), 1) != visible.end(); }))
         return fail("Page preview click did not navigate the native document");
-    modes->setCurrentIndex(0);
+    preview->trigger();
+    if (preview->isChecked() || grid->isVisible())
+        return fail("Optional page preview did not return to the paper list");
     window.getProgramController()->getPdfWidget()->getDrawWidgetProxy()->goToPage(0);
     const QFileInfo pdf(path);
     const QString thumbnail = pdf.absolutePath() + QLatin1Char('/') + pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");

@@ -791,6 +791,30 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!enteredPersistedFreeText || !waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 1; }))
         return fail("LUNA persistent FreeText was not added to the document");
 
+    checkpoint("Reader phase: PowerPoint-style FreeText select and drag");
+    auto freeTextBox = [&] {
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations)
+            if (item.annotation->getType() == pdf::AnnotationType::FreeText)
+                return item.annotation->getRectangle().normalized();
+        return QRectF();
+    };
+    const QRectF beforeMove = freeTextBox();
+    const QPoint moveFrom = annotationPoint(pdf::AnnotationType::FreeText);
+    const QPoint moveTo = moveFrom + QPoint(18, 12);
+    if (!beforeMove.isValid() || !widget->rect().contains(moveFrom) ||
+        !widget->rect().contains(moveTo))
+        return fail("FreeText move test point outside PDF viewport");
+    mouse(widget,QEvent::MouseButtonPress,moveFrom,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,moveTo,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,moveTo,Qt::LeftButton,Qt::NoButton);
+    if (!waitFor([&] {
+        const QRectF moved = freeTextBox();
+        return moved.isValid() &&
+            (moved.topLeft() - beforeMove.topLeft()).manhattanLength() > 2 &&
+            qAbs(moved.width() - beforeMove.width()) < 0.5 &&
+            qAbs(moved.height() - beforeMove.height()) < 0.5;
+    })) return fail("FreeText could not be dragged using text-selection mode");
+
     // Editing an existing on-page FreeText must not require raw PDF-object
     // editing, nor should a double-click consume the native resize handles.
     checkpoint("Reader phase: FreeText double-click edit");

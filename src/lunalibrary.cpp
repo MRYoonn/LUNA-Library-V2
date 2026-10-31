@@ -2863,6 +2863,17 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     // the old delegate's left-click/double-click editorEvent.
     if (!list->itemDelegate() || !DocumentCard::memoRect(list->visualItemRect(item)).isValid())
         return fail("Paper memo row geometry missing");
+    auto* listMode = window.findChild<QToolButton*>(QStringLiteral("LunaListViewMode"));
+    auto* cardMode = window.findChild<QToolButton*>(QStringLiteral("LunaCardViewMode"));
+    if (!listMode || !cardMode || !listMode->isCheckable() ||
+        !cardMode->isCheckable() || listMode->isChecked() == cardMode->isChecked())
+        return fail("Exclusive paper list/card view buttons are missing or ambiguous");
+    const bool originalCompact = listMode->isChecked();
+    if (originalCompact) cardMode->click();
+    QCoreApplication::processEvents();
+    const QVariant originalMemo = item->data(Qt::UserRole + 4);
+    const QVariant originalCitation = item->data(Qt::UserRole + 5);
+    const QVariant originalFavorite = item->data(Qt::UserRole + 2);
     const QRect paperCard = list->visualItemRect(item);
     const QRect cardImage = DocumentCard::thumbnailRect(paperCard);
     const QRect cardTitle = DocumentCard::titleRect(paperCard);
@@ -2881,6 +2892,25 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         cardTitle.width() != cardCitation.width() ||
         cardCitation.width() != cardMemo.width())
         return fail("Stacked card image/title/citation/memo geometry regressed");
+    listMode->click();
+    QCoreApplication::processEvents();
+    const QRect compactRow = list->visualItemRect(item);
+    if (!listMode->isChecked() || cardMode->isChecked() ||
+        compactRow.height() != DocumentCard::kCompactHeight ||
+        !DocumentCard::compactMemoRect(compactRow).isValid())
+        return fail("List view toggle did not activate 112px compact rows");
+    cardMode->click();
+    QCoreApplication::processEvents();
+    if (!cardMode->isChecked() || listMode->isChecked() ||
+        list->visualItemRect(item).height() != DocumentCard::kCardHeight ||
+        item->data(Qt::UserRole + 4) != originalMemo ||
+        item->data(Qt::UserRole + 5) != originalCitation ||
+        item->data(Qt::UserRole + 2) != originalFavorite)
+        return fail("List/card switching lost memo, bibliography or favorite data");
+    if (originalCompact) {
+        listMode->click();
+        QCoreApplication::processEvents();
+    }
     // Confirm the actual Qt card model reacts to a local citation change.
     // Synthetic fixture only; no PDF/DOI is uploaded.
     auto* citationPanel = dynamic_cast<LibraryPanel*>(dock->widget());

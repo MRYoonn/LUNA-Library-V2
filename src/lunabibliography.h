@@ -8,10 +8,12 @@
 #include <QSet>
 #include <QVariantMap>
 #include <QString>
+#include "lunametadataengine.h"
 #include <functional>
 
 namespace luna {
-// Local-only paper bibliography. No DOI extraction, network lookup or PDF uploads.
+// Local QSettings bibliography. Remote provider requests (in a separate Qt worker)
+// contain only validated DOI identifiers. PDFs and annotations never leave disk.
 class Bibliography final : public QObject {
 public:
     explicit Bibliography(QObject* parent = nullptr) : QObject(parent) {}
@@ -21,6 +23,8 @@ public:
     static QString citation(const QVariantMap& entry) {
         const QString pasted = entry.value("citation").toString().simplified();
         if (!pasted.isEmpty()) return pasted;
+        if (!entry.value("doi").toString().isEmpty())
+            return Metadata::labCitation(entry);
         const QString journal = entry.value("journal").toString().simplified();
         const QString year = entry.value("year").toString().simplified();
         const QString volume = entry.value("volume").toString().simplified();
@@ -266,7 +270,7 @@ public:
             // Preserve all previous data for recovery; suppress only machine-owned
             // paper fields after the page explicitly identifies itself as SI.
             QVariantMap archived = value.value("unverifiedSiMetadata").toMap();
-            for (const char* key : {"title", "authors", "journal", "year", "volume", "page", "citation"}) {
+            for (const char* key : {"title", "authors", "journal", "year", "volume", "page", "citation", "doi", "authors_structured", "journal_abbreviation", "issue", "article_number"}) {
                 const QString field = QString::fromLatin1(key);
                 if (value.value(field + QStringLiteral("Source")).toString() != QStringLiteral("manual") &&
                     value.contains(field)) {
@@ -300,6 +304,9 @@ public:
         if (proposal.value("authorEvidence").toString() == QStringLiteral("first-page-terminal-and") &&
             credibleAuthor(proposedAuthor) &&
             value.value("authorsSource").toString() != QStringLiteral("manual") &&
+            value.value("authorsSource").toString() != QStringLiteral("Crossref") &&
+            value.value("authorsSource").toString() != QStringLiteral("OpenAlex") &&
+            value.value("authorsSource").toString() != QStringLiteral("Crossref + OpenAlex") &&
             value.value("authors").toString().simplified() != proposedAuthor) {
             value["authors"] = proposedAuthor;
             value["authorsSource"] = QStringLiteral("first_page_verified");
@@ -356,14 +363,18 @@ public:
             (!manual && value.value("titleSource").toString() != QStringLiteral("manual") &&
              value.value("titleSource").toString() != QStringLiteral("legacy_preserved") &&
              !title.isEmpty() && !credibleTitle(title));
-        const bool brokenAuthor = value.value("authorsSource").toString() != QStringLiteral("manual") &&
+        const QString authorSource=value.value("authorsSource").toString();
+        const bool verifiedProviderAuthor = authorSource == QStringLiteral("Crossref") ||
+            authorSource == QStringLiteral("OpenAlex") ||
+            authorSource == QStringLiteral("Crossref + OpenAlex");
+        const bool brokenAuthor = authorSource != QStringLiteral("manual") &&
             (author.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("the energetics"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("validation as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("lactamase inhibitors"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("towards"), Qt::CaseInsensitive) ||
-            (value.value("authorsSource").toString() != QStringLiteral("manual") &&
-             value.value("authorsSource").toString() != QStringLiteral("first_page_verified")) ||
+            (authorSource != QStringLiteral("manual") &&
+             authorSource != QStringLiteral("first_page_verified") && !verifiedProviderAuthor) ||
             (!author.isEmpty() && !credibleAuthor(author)));
         if (brokenTitle) {
             if (!title.isEmpty()) value["legacyTitle"] = value.value("title");
@@ -376,11 +387,11 @@ public:
     bool save(const QString& identity, QVariantMap value, bool manual = true) {
         if (identity.isEmpty()) return false;
         const QString target = resolve(identity);
-        value.remove("doi"); // Keep old users' local citation records DOI-free, too.
+        // Additive DOI field support. Legacy bibliography values stay intact.
         value["manual"] = manual;
         if (manual) {
             const QVariantMap previous = record(identity);
-            for (const char* field : {"title", "authors", "citation", "journal", "year", "volume", "page"}) {
+            for (const char* field : {"title", "authors", "citation", "journal", "year", "volume", "page", "doi", "journal_abbreviation", "issue", "article_number", "senior_author_override"}) {
                 const QString name = QString::fromLatin1(field);
                 if (!value.contains(name + QStringLiteral("Source")) || value.value(name) != previous.value(name))
                     value[name + QStringLiteral("Source")] = QStringLiteral("manual");
@@ -394,13 +405,133 @@ public:
         return true;
     }
 
+    // Additive field-level merge. Existing manual edits, citation pastes and
+    // paper identity take priority; neither metadata lookup nor an error may
+    // overwrite them. DOI is ALWAYS checked against the PDF evidence first.
+    bool mergeVerifiedOnline(const QString& identity, const QString& expectedDoi,
+                             const QVariantMap& incoming, const QString& diagnostic = {}) {
+        const QString expected=Metadata::normalizeDoi(expectedDoi);
+        const QString returned=Metadata::normalizeDoi(incoming.value("doi").toString());
+        if(identity.isEmpty() || expected.isEmpty() || returned != expected) return false;
+        QVariantMap entry=record(identity);
+        // A disagreement between independent DOI-matched providers is NOT
+        // permission to silently write whichever provider returned first.
+        if(incoming.value("metadata_status").toString()==QStringLiteral("needs_review")) {
+            entry["metadata_status"]=QStringLiteral("needs_review");
+            entry["metadata_diagnostic"]=incoming.value("metadata_diagnostic").toString();
+            save(identity,entry,false);return false;
+        }
+        const QString oldDoi=Metadata::normalizeDoi(entry.value("doi").toString());
+        if(!oldDoi.isEmpty() && oldDoi!=expected) {
+            entry["metadata_status"]=QStringLiteral("needs_review");
+            entry["metadata_diagnostic"]=QStringLiteral("stored_doi_conflict");
+            save(identity,entry,false);return false;
+        }
+        const QString localTitle=entry.value("title").toString();
+        const QString externalTitle=incoming.value("title").toString();
+        if(!localTitle.isEmpty() && !externalTitle.isEmpty() &&
+           !Metadata::compatibleTitle(localTitle,externalTitle) &&
+           (entry.value("titleSource").toString()==QStringLiteral("manual") ||
+            entry.value("titleSource").toString()==QStringLiteral("pdf_metadata"))) {
+            entry["metadata_status"]=QStringLiteral("needs_review");
+            entry["metadata_diagnostic"]=QStringLiteral("pdf_api_title_conflict");
+            save(identity,entry,false);return false;
+        }
+        // A clear conflict with printed PDF evidence or a manually corrected
+        // year/volume/page is a review issue, not an opportunity to replace
+        // or combine data belonging to different publication stages.
+        for(const char* candidate : {"year","volume","page"}) {
+            const QString field=QString::fromLatin1(candidate);
+            const QString previous=entry.value(field).toString().simplified();
+            const QString received=incoming.value(field).toString().simplified();
+            const QString provenance=entry.value(field+QStringLiteral("Source")).toString();
+            if(!previous.isEmpty() && !received.isEmpty() && previous!=received &&
+               (provenance==QStringLiteral("manual") ||
+                provenance==QStringLiteral("first_page_verified"))) {
+                entry["metadata_status"]=QStringLiteral("needs_review");
+                entry["metadata_diagnostic"]=QStringLiteral("pdf_field_conflict:")+field;
+                save(identity,entry,false);return false;
+            }
+        }
+        bool modified=false, conflict=false;
+        if(oldDoi.isEmpty()){entry["doi"]=expected; entry["doiSource"]=QStringLiteral("pdf_front_matter");modified=true;}
+        QVariantMap sources=entry.value("field_sources").toMap();
+        for (const char* k : {"title","journal","journal_abbreviation","year","volume",
+                               "issue","page","article_number","authors","authors_structured"}) {
+            const QString key=QString::fromLatin1(k);
+            const QVariant value=incoming.value(key);
+            if(value.toString().simplified().isEmpty() &&
+               !(key==QStringLiteral("authors_structured") && !value.toStringList().isEmpty()))
+                continue;
+            if(entry.value(key+"Source").toString()==QStringLiteral("manual") ||
+               sources.value(key).toString()==QStringLiteral("manual"))continue;
+            if(!entry.value(key).toString().isEmpty() ||
+               (key==QStringLiteral("authors_structured") &&
+                !entry.value(key).toStringList().isEmpty())) {
+                // The first-page author extractor stores only the LAST author.
+                // The full verified author list is more useful, but does not
+                // override a manual-author field.
+                if(key==QStringLiteral("authors") &&
+                   entry.value("authorsSource").toString()==QStringLiteral("first_page_verified")) {
+                    entry[key]=value; modified=true;
+                    sources[key]=incoming.value("metadata_source").toString();
+                } else if(key==QStringLiteral("title") &&
+                          Metadata::compatibleTitle(entry.value(key).toString(),value.toString())) {
+                    continue;
+                } else if(key!=QStringLiteral("authors") &&
+                          key!=QStringLiteral("authors_structured") &&
+                          entry.value(key).toString().simplified()!=value.toString().simplified()) {
+                    // Preserve both data values until user review.
+                    conflict=true;
+                }
+                continue;
+            }
+            entry[key]=value;
+            entry[key+"Source"]=incoming.value("metadata_source").toString();
+            sources[key]=incoming.value("field_sources").toMap()
+                .value(key,incoming.value("metadata_source")).toString();
+            modified=true;
+        }
+        if(entry.value("field_sources").toMap()!=sources){entry["field_sources"]=sources;modified=true;}
+        if(conflict || incoming.value("metadata_status").toString()==QStringLiteral("needs_review")){
+            entry["metadata_status"]=QStringLiteral("needs_review");
+            entry["metadata_diagnostic"]=QStringLiteral("source_field_conflict");
+        } else {
+            entry["metadata_status"]=Metadata::publicationStatus(entry);
+            if(!diagnostic.isEmpty())entry["metadata_last_error"]=diagnostic;
+        }
+        entry["metadata_checked_at"]=QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+        entry["metadata_source"]=incoming.value("metadata_source").toString();
+        Q_UNUSED(modified);
+        return save(identity,entry,false);
+    }
+    bool markLookupStarted(const QString& identity) {
+        if(identity.isEmpty())return false;
+        QVariantMap entry=record(identity);
+        if(entry.value("metadata_status").toString().isEmpty()) {
+            entry["metadata_status"]=QStringLiteral("loading");
+            return save(identity,entry,false);
+        }
+        return true;
+    }
+    bool recordLookupFailure(const QString& identity, const QString& status) {
+        if(identity.isEmpty())return false;
+        QVariantMap entry=record(identity);
+        entry["metadata_last_error"]=status;
+        if(entry.value("metadata_status").toString().isEmpty() ||
+           entry.value("metadata_status").toString()==QStringLiteral("loading"))
+            entry["metadata_status"]=status==QStringLiteral("offline")?
+                QStringLiteral("offline"):QStringLiteral("partial");
+        return save(identity,entry,false);
+    }
+
     // Merge only fields actually changed in the dialog against its opening
     // snapshot. Background extraction may have updated other fields meanwhile.
     bool saveEdits(const QString& identity, const QVariantMap& before, const QVariantMap& edited) {
         if (identity.isEmpty()) return false;
         QVariantMap current = record(identity);
         bool modified = false;
-        for (const char* key : {"title", "authors", "citation", "journal", "year", "volume", "page"}) {
+        for (const char* key : {"title", "authors", "citation", "journal", "year", "volume", "page", "doi", "journal_abbreviation", "issue", "article_number", "senior_author_override"}) {
             const QString field = QString::fromLatin1(key);
             if (edited.value(field).toString().simplified() == before.value(field).toString().simplified()) continue;
             current[field] = edited.value(field);
@@ -408,6 +539,14 @@ public:
             modified = true;
         }
         if (!modified) return true;
+        if(edited.value("doi").toString().simplified()!=before.value("doi").toString().simplified()) {
+            const QString chosen=Metadata::normalizeDoi(edited.value("doi").toString());
+            if(!edited.value("doi").toString().trimmed().isEmpty() && chosen.isEmpty())return false;
+            current["doi"]=chosen;
+            current["doiSource"]=QStringLiteral("manual");
+            current["metadata_status"]=QStringLiteral("needs_review");
+            current["metadata_diagnostic"]=QStringLiteral("manual_doi_changed");
+        }
         current["source"] = QStringLiteral("Manual field edits");
         return save(identity, current, false);
     }

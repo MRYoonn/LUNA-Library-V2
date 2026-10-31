@@ -1,4 +1,4 @@
-"""Citation-only beta contract: no DOI extraction or network metadata lookup."""
+"""Citation engine contracts: explicit DOI-only network with manual protection."""
 from pathlib import Path
 import unittest
 
@@ -13,12 +13,22 @@ class CitationContractTests(unittest.TestCase):
         cls.extractor = (ROOT / "src/lunafirstpage.h").read_text(encoding="utf-8")
         cls.native = (ROOT / "tests/native_dialog/bibliography.cpp").read_text(encoding="utf-8")
 
-    def test_no_network_or_doi_extractor(self):
-        for forbidden in (
-            "QNetworkAccessManager", "QNetworkRequest", "crossref(",
-            "api.crossref.org", "static QString doi(", "Bibliography::doi(", "doiText",
-        ):
-            self.assertNotIn(forbidden, self.model + self.ui)
+    def test_verified_doi_only_lookups_and_manual_protection(self):
+        engine = (ROOT / "src/lunametadataengine.h").read_text(encoding="utf-8")
+        fetcher = (ROOT / "src/lunametadatafetch.h").read_text(encoding="utf-8")
+        for token in ("acceptableIdentity(", "normalizeDoi(", "fromCrossref(",
+                      "fromOpenAlex(", "labCitation(", "officialAbbreviation("):
+            self.assertIn(token, engine)
+        for token in ("QNetworkAccessManager", "api.crossref.org",
+                      "api.openalex.org", "LUNA_METADATA_OFFLINE",
+                      "setTransferTimeout(8500)", "response_too_large", "rate_limited"):
+            self.assertIn(token, fetcher)
+        self.assertIn('mergeVerifiedOnline(', self.model)
+        self.assertNotIn('value.remove("doi")', self.model)
+        self.assertIn('entry.value("titleSource").toString()==QStringLiteral("manual")', self.model)
+        self.assertIn('QThread::create', self.ui)
+        self.assertIn('enqueueImportedMetadata(path)', self.ui)
+        self.assertIn('beginMetadataLookup(identity, doi)', self.ui)
 
     def test_full_citation_can_be_pasted_into_native_editor(self):
         self.assertIn("LunaBibliographyCitation", self.ui)
@@ -40,15 +50,18 @@ class CitationContractTests(unittest.TestCase):
         self.assertIn('key == QStringLiteral("publicationyear")', self.ui)
         self.assertNotIn("PDFTextLayoutGenerator", self.ui)
 
-    def test_first_page_extractor_is_opt_in_and_offline(self):
+    def test_local_first_three_pages_doi_and_online_async(self):
         self.assertIn("firstPageCitation(QString text)", self.model)
         self.assertIn("firstPageIdentity(const QString& text)", self.model)
         self.assertIn("void extractBibliography(const QString& path)", self.ui)
         self.assertIn("generator.createTextLayout()", self.extractor)
         self.assertIn("QThread::create", self.ui)
         self.assertIn("analyzedCitations_.contains(identity)", self.ui)
-        self.assertIn("firstPageCitation(text)", self.extractor)
+        self.assertIn("firstPageCitation(first)", self.extractor)
         self.assertIn("document.getInfo()", self.extractor)
+        self.assertIn('Metadata::collectCandidates(pages,infoText)', self.extractor)
+        self.assertIn('Metadata::acceptableIdentity(candidates)', self.extractor)
+        self.assertIn('std::min<int>(3, int(catalog->getPageCount()))', self.extractor)
         self.assertNotIn("firstPageIdentity(text)", self.extractor)
         self.assertIn("bibliography_.enrichFromFirstPage(identity, *result)", self.ui)
         self.assertNotIn("LunaExtractFirstPageCitation", self.ui)
@@ -89,7 +102,7 @@ class CitationContractTests(unittest.TestCase):
         self.assertIn("firstPageLastAuthor(const QString& firstPageText)", self.model)
         self.assertIn("first-page-terminal-and", self.model)
         self.assertIn('Q_UNUSED(authors);', self.model)
-        self.assertIn('firstPageLastAuthor(text)', self.extractor)
+        self.assertIn('firstPageLastAuthor(first)', self.extractor)
         self.assertIn('evidence["authorEvidence"]', self.extractor)
         self.assertIn('Hannah M. Kortman,ab Hao Fang', self.native)
         self.assertIn('and John J. Molloy\\n*a', self.native)

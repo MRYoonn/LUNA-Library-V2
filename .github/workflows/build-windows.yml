@@ -344,6 +344,25 @@ jobs:
           cache: 'false'
           aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
 
+      - name: Test LUNA metadata Qt native contracts (no network)
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'luna-metadata-build'
+          cmake -S tests/native_metadata -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw "Metadata Qt test CMake configuration failed" }
+          cmake --build $probe --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Metadata Qt native compilation failed" }
+          # Native Qt fatal assertions on Windows can exit 0xC0000409;
+          # send Qt diagnostics to stderr and print the exact named failing
+          # assertion/checkpoint rather than suppressing the test output.
+          $env:QT_FORCE_STDERR_LOGGING = '1'
+          ctest --test-dir $probe -C Release --output-on-failure --verbose
+          if ($LASTEXITCODE -ne 0) {
+            $report = Join-Path $probe 'Testing/Temporary/LastTest.log'
+            if (Test-Path $report) { Get-Content $report -Tail 120 }
+            throw "Metadata Qt native contract test failed; inspect LUNA_METADATA_TEST_FAILED above"
+          }
+
       - name: Test native Save As dialog before compiling the PDF engine
         shell: pwsh
         run: |

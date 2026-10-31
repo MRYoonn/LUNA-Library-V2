@@ -226,8 +226,19 @@ private:
         const auto pageIndex = proxy->getPageUnderPoint(from, &start);
         if (!c->getDocument() || pageIndex < 0 || proxy->getPageUnderPoint(to, &end) != pageIndex) return;
         QRectF rect(start, end); rect = rect.normalized();
-        if (rect.width() < 8 || rect.height() < 8)
-            rect = QRectF(start, QSizeF(180.0, 68.0)); // Single-click default.
+        if (rect.width() < 8 || rect.height() < 8) {
+            // Single-click creates a readable default-sized FreeText, but the
+            // click may be close to the PDF page edge. Keep the entire box
+            // inside the page's crop bounds instead of leaving its edit target
+            // outside the visible sheet (e.g. a 300x220 synthetic page).
+            const auto page = c->getDocument()->getCatalog()->getPage(pageIndex);
+            if (!page) return;
+            const QRectF crop = page->getCropBox().normalized();
+            if (crop.width() < 8 || crop.height() < 8) return;
+            rect = QRectF(start, QSizeF(qMin(180.0, crop.width()), qMin(68.0, crop.height())));
+            rect.moveLeft(qBound(crop.left(), rect.left(), crop.right() - rect.width()));
+            rect.moveTop(qBound(crop.top(), rect.top(), crop.bottom() - rect.height()));
+        }
         QDialog dialog(draw_);
         dialog.setObjectName(QStringLiteral("LunaFreeTextEditor"));
         dialog.setWindowTitle(QStringLiteral("페이지 메모 상자"));

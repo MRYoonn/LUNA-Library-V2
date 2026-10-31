@@ -689,6 +689,37 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!enteredPersistedFreeText || !waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 1; }))
         return fail("LUNA persistent FreeText was not added to the document");
 
+    // Editing an existing on-page FreeText must not require raw PDF-object
+    // editing, nor should a double-click consume the native resize handles.
+    checkpoint("Reader phase: FreeText double-click edit");
+    const QString updatedFreeText = QStringLiteral("LUNA edited transparent text box");
+    bool editedFreeText = false;
+    QTimer reviseFreeText;
+    QObject::connect(&reviseFreeText, &QTimer::timeout, &window, [&] {
+        if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+            if (dialog->objectName() == QStringLiteral("LunaFreeTextEditDialog")) {
+                if (auto* input = dialog->findChild<QPlainTextEdit*>(QStringLiteral("LunaFreeTextEditContents"))) {
+                    if (input->toPlainText() == persistedFreeText) {
+                        editedFreeText = true;
+                        input->setPlainText(updatedFreeText);
+                        dialog->accept();
+                    }
+                }
+            }
+        }
+    });
+    const QPoint editPosition = annotationPoint(pdf::AnnotationType::FreeText);
+    if (!widget->rect().contains(editPosition)) return fail("LUNA FreeText edit target offscreen");
+    reviseFreeText.start(30);
+    mouse(widget, QEvent::MouseButtonDblClick, editPosition, Qt::LeftButton, Qt::LeftButton);
+    reviseFreeText.stop();
+    if (!editedFreeText || !waitFor([&] {
+        for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations)
+            if (item.annotation->getType() == pdf::AnnotationType::FreeText)
+                return item.annotation->getContents() == updatedFreeText;
+        return false;
+    })) return fail("LUNA FreeText double-click edit did not update the annotation");
+
     if (!waitFor([&] { return action("actionSave")->isEnabled() && window.isEnabled(); }))
         return fail("Native final save remained busy");
     widget->setFocus(); key(widget,Qt::Key_S,Qt::ControlModifier);
@@ -703,7 +734,7 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     bool persistedContentsFound = false;
     for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
         if (item.annotation->getType() == pdf::AnnotationType::FreeText)
-            persistedContentsFound = item.annotation->getContents() == persistedFreeText;
+            persistedContentsFound = item.annotation->getContents() == updatedFreeText;
     }
     if (!persistedContentsFound || readFile(original) != originalBytes)
         return fail("LUNA FreeText text or original PDF bytes changed on disk");

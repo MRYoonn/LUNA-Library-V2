@@ -355,7 +355,7 @@ private:
             bands.append(r);
         }
         std::sort(bands.begin(), bands.end(), [](const QRectF& a, const QRectF& b) {
-            if (qAbs(a.center().y() - b.center().y()) > 1.0)
+            if (a.center().y() != b.center().y())
                 return a.center().y() < b.center().y();
             return a.left() < b.left();
         });

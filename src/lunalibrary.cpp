@@ -401,6 +401,13 @@ public:
             return false;
         }
         pending_ = true; pendingIdle_ = 0;
+        // The public research smoke enters through the standalone Editor,
+        // not NativeTabs::open(). Mark its draw widget too, otherwise the
+        // first-page-paint metric is silently absent for 209-page SI probes.
+        if (qEnvironmentVariableIsSet("LUNA_PERF")) {
+            auto* draw = window_.getProgramController()->getPdfWidget()->getDrawWidget()->getWidget();
+            draw->setProperty("LunaOpenStart", performanceNow());
+        }
         window_.getProgramController()->openDocument(path);
         return true;
     }

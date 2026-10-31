@@ -24,6 +24,7 @@
 #include <QPlainTextEdit>
 #include <QFontComboBox>
 #include <QColorDialog>
+#include <QCheckBox>
 #include <QRubberBand>
 #include <QMessageBox>
 #include <QDoubleSpinBox>
@@ -253,6 +254,89 @@ private:
         if (modifier.finalize())
             Q_EMIT c->getToolManager()->documentModified(pdf::PDFModifiedDocument(modifier.getDocument(), nullptr, modifier.getFlags()));
     }
+    // Double-click edits only LUNA's on-page FreeText content. Native single
+    // click and drag stay untouched so handles, resize and move still work.
+    bool editTextBoxAt(const QPoint& position) {
+        if (!canAnnotate()) return false;
+        auto* c = window_.getProgramController();
+        auto* widget = c->getPdfWidget();
+        auto* manager = widget->getAnnotationManager();
+        const auto snapshot = widget->getDrawWidgetProxy()->getSnapshot();
+        for (const auto& page : snapshot.items) {
+            const auto& items = manager->getPageAnnotations(page.pageIndex).annotations;
+            for (auto it = items.rbegin(); it != items.rend(); ++it) {
+                const auto& item = *it;
+                if (item.annotation->getType() != pdf::AnnotationType::FreeText ||
+                    !manager->isAnnotationSelectable(item)) continue;
+                QRectF rect = item.annotation->getRectangle();
+                const auto matrix = manager->prepareTransformations(page.pageToDeviceMatrix,
+                    widget, item.annotation->getEffectiveFlags(),
+                    c->getDocument()->getCatalog()->getPage(page.pageIndex), rect);
+                if (!matrix.mapRect(rect).contains(position)) continue;
+                if (!manager->canModifyAnnotation(item)) return false;
+                const auto annotationRef = item.annotation->getSelfReference();
+                const QString existing = item.annotation->getContents();
+                const auto* originalDocument = c->getDocument();
+                QDialog dialog(draw_);
+                dialog.setObjectName(QStringLiteral("LunaFreeTextEditDialog"));
+                dialog.setWindowTitle(QStringLiteral("메모 상자 수정"));
+                dialog.setMinimumWidth(420);
+                QVBoxLayout root(&dialog);
+                QPlainTextEdit input(&dialog);
+                input.setObjectName(QStringLiteral("LunaFreeTextEditContents"));
+                input.setPlainText(existing);
+                input.setMinimumHeight(125);
+                root.addWidget(&input);
+                QCheckBox changeFont(QStringLiteral("글꼴·크기도 변경"), &dialog);
+                root.addWidget(&changeFont);
+                QFormLayout settings;
+                QFontComboBox family(&dialog);
+                family.setObjectName(QStringLiteral("LunaFreeTextEditFont"));
+                family.setCurrentFont(QFont(QStringLiteral("Helvetica")));
+                QDoubleSpinBox size(&dialog);
+                size.setObjectName(QStringLiteral("LunaFreeTextEditSize"));
+                size.setRange(6.0, 72.0); size.setValue(11.0);
+                family.setEnabled(false); size.setEnabled(false);
+                connect(&changeFont, &QCheckBox::toggled, &family, &QWidget::setEnabled);
+                connect(&changeFont, &QCheckBox::toggled, &size, &QWidget::setEnabled);
+                settings.addRow(QStringLiteral("글꼴"), &family);
+                settings.addRow(QStringLiteral("크기 (pt)"), &size);
+                root.addLayout(&settings);
+                QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+                root.addWidget(&buttons);
+                connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+                connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+                input.setFocus();
+                if (dialog.exec() != QDialog::Accepted) return true;
+                if (!canAnnotate() || c->getDocument() != originalDocument) return true;
+                const QString nextText = input.toPlainText();
+                if (nextText == existing && !changeFont.isChecked()) return true;
+                // Validate the annotation still belongs to this live PDF.
+                bool found = false;
+                for (const auto& candidate : manager->getPageAnnotations(page.pageIndex).annotations)
+                    if (candidate.annotation->getSelfReference() == annotationRef &&
+                        candidate.annotation->getType() == pdf::AnnotationType::FreeText &&
+                        manager->canModifyAnnotation(candidate)) { found = true; break; }
+                if (!found) return true;
+                pdf::PDFDocumentModifier modifier(c->getDocument());
+                modifier.getBuilder()->setAnnotationContents(annotationRef, nextText);
+                if (changeFont.isChecked()) {
+                    pdf::PDFFreeTextStyle style;
+                    style.fontFamily = family.currentFont().family();
+                    style.fontSize = size.value();
+                    style.textAlignment = Qt::AlignLeft | Qt::AlignTop;
+                    modifier.getBuilder()->setFreeTextAnnotationStyle(annotationRef, style);
+                }
+                modifier.getBuilder()->updateAnnotationAppearanceStreams(annotationRef);
+                modifier.markAnnotationsChanged();
+                if (modifier.finalize())
+                    Q_EMIT c->getToolManager()->documentModified(
+                        pdf::PDFModifiedDocument(modifier.getDocument(), nullptr, modifier.getFlags()));
+                return true;
+            }
+        }
+        return false;
+    }
     void selectText() {
         if (auto* action = nativeAction(window_, "actionSelectText"))
             if (action->isEnabled() && !action->isChecked()) action->trigger();
@@ -282,6 +366,12 @@ private:
     }
     bool eventFilter(QObject* object, QEvent* event) override {
         if (object != draw_) return false;
+        if (event->type() == QEvent::MouseButtonDblClick && checked("actionSelectText") &&
+            !textBox_->isChecked()) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+            if (mouse->button() == Qt::LeftButton && editTextBoxAt(mouse->pos()))
+                return true;
+        }
         if ((event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) &&
             static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
             target_ = {}; clearPendingSelection(); textBox_->setChecked(false); selectText(); return false;

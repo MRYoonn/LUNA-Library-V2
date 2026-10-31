@@ -363,6 +363,33 @@ private:
         selectionStart_ = {};
         selectionEnd_ = {};
     }
+    // Apply the same within-line text-run union to both marker and eraser.
+    // PDF4QT can split ordinary words/spaces into multiple quadrilaterals;
+    // different run geometry on the two tools used to leave invisible slivers.
+    static QList<QRectF> coalesceTextBands(QList<QRectF> fragments) {
+        std::sort(fragments.begin(), fragments.end(), [](const QRectF& a, const QRectF& b) {
+            if (a.center().y() != b.center().y()) return a.center().y() < b.center().y();
+            return a.left() < b.left();
+        });
+        QList<QRectF> bands;
+        for (const QRectF& fragment : fragments) {
+            bool merged = false;
+            for (QRectF& previous : bands) {
+                const qreal h = qMin(previous.height(), fragment.height());
+                const qreal gap = qMax(0.0, qMax(previous.left(), fragment.left()) -
+                    qMin(previous.right(), fragment.right()));
+                if (qAbs(previous.center().y() - fragment.center().y()) <= h * 0.30 &&
+                    qAbs(previous.height() - fragment.height()) <= h * 0.40 &&
+                    gap <= qMin(28.0, 2.2 * h)) {
+                    previous = previous.united(fragment);
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) bands.append(fragment);
+        }
+        return bands;
+    }
     void applyHighlight() {
         if (!highlightArmed_ || selectionPage_ < 0) return;
         auto* c = window_.getProgramController();
@@ -397,28 +424,7 @@ private:
             }
             bands.append(r);
         }
-        std::sort(bands.begin(), bands.end(), [](const QRectF& a, const QRectF& b) {
-            if (a.center().y() != b.center().y())
-                return a.center().y() < b.center().y();
-            return a.left() < b.left();
-        });
-        QList<QRectF> joined;
-        for (const QRectF& band : bands) {
-            bool merged = false;
-            for (QRectF& prev : joined) {
-                const qreal h = qMin(prev.height(), band.height());
-                const qreal gap = qMax(0.0, qMax(prev.left(), band.left()) -
-                    qMin(prev.right(), band.right()));
-                if (qAbs(prev.center().y() - band.center().y()) <= h * 0.30 &&
-                    qAbs(prev.height() - band.height()) <= h * 0.40 &&
-                    gap <= qMin(28.0, 2.2 * h)) {
-                    prev = prev.united(band);
-                    merged = true;
-                    break;
-                }
-            }
-            if (!merged) joined.append(band);
-        }
+        const QList<QRectF> joined = coalesceTextBands(std::move(bands));
 
         // Recolor only the selected region. PDF Highlight annotations may
         // cover an entire paragraph in a single /QuadPoints array. Keep the
@@ -605,6 +611,10 @@ private:
                 qAbs(quad[2].y() - quad[3].y()) > 0.7)
                 rotatedSelection = true;
         }
+        // The highlighter already merged the same text run boundaries before
+        // writing QuadPoints. Erasing must use the same union; otherwise a
+        // complete drag can leave highlighted inter-word gaps behind.
+        erasedBands = coalesceTextBands(std::move(erasedBands));
         const auto pageIndex = selectionPage_;
         clearPendingSelection();
         if (area.isEmpty()) return;

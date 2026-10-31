@@ -683,8 +683,29 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!lunaTextBox->isChecked()) return fail("LUNA persistent FreeText entry did not start");
     if (!waitFor([&] { return points(start,end,notePoint); }))
         return fail("LUNA persistent FreeText coordinates outside viewport");
-    mouse(widget,QEvent::MouseButtonPress,notePoint,Qt::LeftButton,Qt::LeftButton);
-    mouse(widget,QEvent::MouseButtonRelease,notePoint,Qt::LeftButton,Qt::NoButton);
+    // Test an explicitly dragged, fully visible FreeText box. The earlier
+    // single-click/Undo case already covers the default 180x68 PDF-point size;
+    // a click near the edge can place that box's *center* outside the viewport,
+    // making a subsequent double-click impossible without scrolling.
+    const auto visibleSnapshot = proxy->getSnapshot();
+    const auto* visiblePage = visibleSnapshot.getPageSnapshot(0);
+    if (!visiblePage) return fail("FreeText drag has no visible page snapshot");
+    const QRectF visiblePageRect = visiblePage->rect.intersected(QRectF(widget->rect()));
+    if (visiblePageRect.width() < 90 || visiblePageRect.height() < 64)
+        return fail("FreeText drag has insufficient visible page area");
+    const QPoint boxCenter = visiblePageRect.center().toPoint();
+    const QPoint boxStart = boxCenter - QPoint(34, 20);
+    const QPoint boxEnd = boxCenter + QPoint(34, 20);
+    QPointF localBoxStart, localBoxEnd;
+    if (!widget->rect().contains(boxStart) || !widget->rect().contains(boxEnd) ||
+        proxy->getPageUnderPoint(boxStart, &localBoxStart) != 0 ||
+        proxy->getPageUnderPoint(boxEnd, &localBoxEnd) != 0 ||
+        QRectF(localBoxStart, localBoxEnd).normalized().width() < 8 ||
+        QRectF(localBoxStart, localBoxEnd).normalized().height() < 8)
+        return fail("FreeText drag rectangle is not fully inside the visible PDF page");
+    mouse(widget,QEvent::MouseButtonPress,boxStart,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,boxEnd,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,boxEnd,Qt::LeftButton,Qt::NoButton);
     persistedTextInput.stop();
     if (!enteredPersistedFreeText || !waitFor([&] { return annotations(pdf::AnnotationType::FreeText) == 1; }))
         return fail("LUNA persistent FreeText was not added to the document");
@@ -709,7 +730,12 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         }
     });
     const QPoint editPosition = annotationPoint(pdf::AnnotationType::FreeText);
-    if (!widget->rect().contains(editPosition)) return fail("LUNA FreeText edit target offscreen");
+    if (!widget->rect().contains(editPosition)) {
+        error = QStringLiteral("LUNA FreeText edit target offscreen: actual=(%1,%2), expected drag center=(%3,%4), viewport=%5x%6")
+            .arg(editPosition.x()).arg(editPosition.y()).arg(boxCenter.x()).arg(boxCenter.y())
+            .arg(widget->width()).arg(widget->height());
+        return false;
+    }
     reviseFreeText.start(30);
     mouse(widget, QEvent::MouseButtonDblClick, editPosition, Qt::LeftButton, Qt::LeftButton);
     reviseFreeText.stop();

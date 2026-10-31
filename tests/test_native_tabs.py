@@ -49,16 +49,16 @@ class NativeTabsContract(unittest.TestCase):
         ):
             self.assertIn(token, adapter, token)
         for token in (
-            'Reader phase: selection-first highlight and non-overlap',
-            'Reader phase: partly overlapping highlight retains unmarked words',
-            'Partly overlapping highlight ignored previously unmarked text',
-            'New highlight duplicated old highlight instead of clipping overlap',
-            'Reader toolbar inline swatches are missing or out of order',
-            'Reader phase: selection-first eraser matches highlight geometry',
+            'Reader phase: eight one-click highlight pens and recolor',
+            'Colored marker did not auto-highlight dragged text',
+            'Reader phase: recolor only selected overlap, preserve outer segments',
+            'Partly overlapping recolor failed to retain old and new colors',
+            'Recolor lost unselected old color or stacked alpha on new color',
+            'Recolor did not undo atomically',
+            'Old plus new text was not recolored to the selected marker',
             'Selection-first eraser did not preserve native undo',
             'Reader phase: vertical middle-click autoscroll',
             'Escape did not cancel vertical autoscroll',
-            'highlighter duplicated a pre-existing marked region',
             'Reader phase: transparent on-page FreeText note',
             'LUNA default FreeText escaped PDF crop bounds',
             'FreeText note did not participate in native undo',
@@ -77,17 +77,19 @@ class NativeTabsContract(unittest.TestCase):
             'LUNA FreeText edit target offscreen: actual=',
         ):
             self.assertIn(token, smoke, token)
-        self.assertIn('add("LunaHighlightSelected")', adapter)
+        self.assertNotIn('new QAction(readerIcon(QStringLiteral("highlight"))', adapter)
+        self.assertNotIn('add("LunaHighlightSelected")', adapter)
         self.assertIn('add("LunaFreeTextBox")', adapter)
         self.assertIn('add("LunaEraseSelected")', adapter)
-        for i in range(1, 7):
-            self.assertIn('LunaHighlightSwatch%1', adapter)
-        self.assertIn('for (int i = 1; i <= 6; ++i)', adapter)
-        self.assertIn('for (int i = 0; i < 6; ++i)', adapter)
+        self.assertIn('for (int i = 1; i <= 8; ++i)', adapter)
+        self.assertIn('for (int i = 0; i < 8; ++i)', adapter)
+        self.assertIn('void armHighlighter(const QColor& next)', adapter)
+        self.assertIn('if (ready && highlightArmed_) applyHighlight();', adapter)
         self.assertIn('setAnnotationOpacity(ref, 0.36)', adapter)
-        self.assertIn('QList<QPair<qreal, qreal>> uncovered', adapter)
-        self.assertIn('interval.second - hi > 0.8', adapter)
-        self.assertNotIn('marked.intersects(part)', adapter)
+        self.assertIn('setAnnotationQuadPoints(edit.ref, edit.remainder)', adapter)
+        self.assertIn('const bool sameColor', adapter)
+        self.assertIn('const auto& quads = old->getHiglightArea().getQuadrilaterals()', adapter)
+        self.assertIn('modifier.getBuilder()->removeAnnotation(page->getPageReference(), edit.ref)', adapter)
         self.assertIn('bool beginTextBoxDrag(QMouseEvent* event)', adapter)
         self.assertIn('void finishTextBoxDrag(const QPoint& to)', adapter)
         self.assertIn('manager->setAnnotationRectangle(annotation, pageRect)', adapter)
@@ -127,7 +129,7 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('native-shell-before-reader-bind', tabs)
         self.assertIn('native-editor-after-reader-prepare', tabs)
 
-    def test_highlight_palette_retains_eight_presets_and_six_inline_swatches(self):
+    def test_highlight_palette_uses_eight_one_click_marker_tools(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         self.assertIn('LunaHighlightPalette', adapter)
         for label, hex_color in (
@@ -140,9 +142,9 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('connect(palette, &QMenu::aboutToShow', adapter)
         self.assertIn('palette->addAction(chooseColor_)', adapter)
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
-        self.assertIn('Reader phase: persistent eight-color highlight palette', smoke)
-        self.assertIn('LUNA highlight palette failed to persist chosen colors', smoke)
-        self.assertIn('LUNA highlight palette color not written to PDF annotation', smoke)
+        self.assertIn('Reader phase: eight one-click highlight pens and recolor', smoke)
+        self.assertIn('Color menu did not arm native text selection and persist', smoke)
+        self.assertIn('Drag highlight color not written to native PDF annotation', smoke)
         self.assertIn('std::abs(components[0] - 163.0 / 255.0)', smoke)
         self.assertIn('for (qsizetype i = 0; i < expectedColors.size(); ++i)', smoke)
         self.assertIn('annotations/highlightColor', adapter)
@@ -154,6 +156,8 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('LunaHighlightSwatch%1', adapter)
         self.assertIn('syncSwatches();', adapter)
         self.assertIn('add("actionPrint");', adapter)
+        self.assertIn('QPolygonF nib;', adapter)
+        self.assertIn('setHighlightArmed(false); selectText(); return false;', adapter)
 
     def test_selection_overlay_keeps_native_text_and_bridges_visual_word_gaps(self):
         source = (ROOT / 'tools/apply_performance.py').read_text(encoding='utf-8')
@@ -166,6 +170,20 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('qAbs(block.getAngle()) > 0.5', source)
         self.assertNotIn('getTextFromSelection(', source)
         ast.parse(source)
+
+    def test_manual_card_tags_not_extracted_from_pdf(self):
+        source = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        for token in (
+            'library/manualTags', 'void editManualTags(const QString& path)',
+            'LunaEditManualTags', 'DocumentCard::tagsRect(rect)',
+            'index.data(Qt::UserRole + 8).toStringList()',
+            'tags.mid(0, 2)', 'QInputDialog::getText',
+            'tags_.insert(newDateKey, movedTags)', 'tags_.remove(oldDateKey)',
+            '저자 미확인',
+        ):
+            self.assertIn(token, source)
+        self.assertNotIn('tags = extractKeywords', source)
+        self.assertNotIn('recentOpened + authors', source)
 
     def test_large_si_open_defers_nonessential_work_until_after_first_render(self):
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')

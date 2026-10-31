@@ -266,6 +266,9 @@ public:
     QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override { return {300, 96}; }
     std::function<void(const QString&, const QString&)> saveMemo;
     static QRect memoRect(const QRect& r) { return QRect(r.left() + 108, r.top() + 73, qMax(20, r.width() - 158), 18); }
+    static QRect tagsRect(const QRect& r) {
+        return QRect(r.left() + 108, r.top() + 57, qMax(20, (r.width() - 158) * 51 / 100), 15);
+    }
     static QRect favoriteRect(const QRect& r) { return QRect(r.right() - 37, r.top() + (r.height() - 24) / 2, 22, 24); }
     QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
         auto* editor = new QLineEdit(parent);
@@ -352,13 +355,23 @@ public:
             QFontMetrics(captionFont).elidedText(
                 citation.isEmpty() ? QStringLiteral("저널·연도 미확인") : citation,
                 Qt::ElideRight, text.width()));
-        const QString opened = index.data(Qt::UserRole + 3).toString();
+        // Row 3 is user-entered tags followed by the last listed author;
+        // last-opened dates remain internal navigation data, never card text.
+        const QStringList tags = index.data(Qt::UserRole + 8).toStringList();
+        const QRect tagArea = tagsRect(r);
+        const QString tagLabel = tags.isEmpty() ? QStringLiteral("+ 태그") :
+            tags.mid(0, 2).join(QStringLiteral("  ·  "));
+        painter->setPen(QColor(tags.isEmpty() ? "#A0ACBD" : kMUTED));
+        painter->drawText(tagArea, Qt::AlignLeft | Qt::AlignVCenter,
+            QFontMetrics(captionFont).elidedText(tagLabel, Qt::ElideRight, tagArea.width()));
         const QString authors = luna::Bibliography::lastListedAuthor(bibliography.value("authors").toString());
-        const QString metadata = (authors.isEmpty() ? QStringLiteral("저자 미확인") : authors) +
-            (opened.isEmpty() ? QString() : QStringLiteral(" · ") + opened);
-        painter->drawText(QRect(text.left(), r.top() + 57, text.width(), 15),
-            Qt::AlignLeft | Qt::AlignVCenter,
-            QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, text.width()));
+        const QRect authorArea(tagArea.right() + 8, r.top() + 57,
+            qMax(20, text.right() - tagArea.right() - 8), 15);
+        painter->setPen(QColor(kMUTED));
+        painter->drawText(authorArea, Qt::AlignRight | Qt::AlignVCenter,
+            QFontMetrics(captionFont).elidedText(
+                authors.isEmpty() ? QStringLiteral("저자 미확인") : authors,
+                Qt::ElideRight, authorArea.width()));
         const QString memo = index.data(Qt::UserRole + 4).toString();
         painter->setPen(QColor(memo.isEmpty() ? "#A0ACBD" : "#48648A"));
         const QRect note = memoRect(r);
@@ -531,6 +544,8 @@ public:
         for (const QString& key : dates.childKeys()) openedDates_.insert(key, dates.value(key).toString());
         dates.endGroup(); dates.beginGroup(QStringLiteral("library/memos"));
         for (const QString& key : dates.childKeys()) memos_.insert(key, dates.value(key).toString());
+        dates.endGroup(); dates.beginGroup(QStringLiteral("library/manualTags"));
+        for (const QString& key : dates.childKeys()) tags_.insert(key, dates.value(key).toStringList());
         // Read existing date keys without migrating memos or changing their keys.
         for (const QString& path : savedPaths(QStringLiteral("library/recent"))) {
             const QString date = openedDates_.value(openedDateKey(path));
@@ -1018,14 +1033,65 @@ private:
         item->setData(Qt::UserRole + 3, opened.isValid() ? opened.toLocalTime().date().toString(QStringLiteral("yy.MM.dd.")) : QString());
         const QString memo = memos_.value(openedDateKey(path));
         item->setData(Qt::UserRole + 4, memo);
+        const QStringList tags = tags_.value(openedDateKey(path));
+        item->setData(Qt::UserRole + 8, tags);
         const QVariantMap bibliography = bibliography_.record(fileIdentity);
         item->setData(Qt::UserRole + 5, bibliography);
         const QString title = bibliography.value("title").toString().simplified();
         item->setText(title.isEmpty() ? QFileInfo(path).completeBaseName() : title);
         item->setFlags(item->flags() | Qt::ItemIsEditable);
         const QString citation = luna::Bibliography::citation(bibliography);
-        item->setToolTip((memo.isEmpty() ? QString() : memo + QLatin1Char('\n')) +
+        item->setToolTip((tags.isEmpty() ? QString() : QStringLiteral("태그: ") + tags.join(QStringLiteral(", ")) + QLatin1Char('\n')) +
+            (memo.isEmpty() ? QString() : memo + QLatin1Char('\n')) +
             (citation.isEmpty() ? QString() : citation + QLatin1Char('\n')) + path);
+    }
+    void editManualTags(const QString& path) {
+        const QString key = openedDateKey(path);
+        bool confirmed = false;
+        const QString initial = tags_.value(key).join(QStringLiteral(", "));
+        const QString entered = QInputDialog::getText(this, QStringLiteral("논문 태그 직접 입력"),
+            QStringLiteral("태그를 쉼표로 구분해 입력하세요. 목록에는 앞의 두 개를 표시합니다."),
+            QLineEdit::Normal, initial, &confirmed);
+        if (!confirmed) return;
+        QStringList tags;
+        for (const QString& field : entered.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+            const QString tag = field.simplified();
+            if (tag.isEmpty()) continue;
+            if (tag.size() > 40 || tag.contains(QLatin1Char('/'))) {
+                QMessageBox::warning(this, QStringLiteral("태그 입력 오류"),
+                    QStringLiteral("각 태그는 40자 이내이며 / 문자는 사용할 수 없습니다."));
+                return;
+            }
+            bool duplicate = false;
+            for (const QString& existing : tags)
+                if (existing.compare(tag, Qt::CaseInsensitive) == 0) { duplicate = true; break; }
+            if (!duplicate) tags.append(tag);
+            if (tags.size() > 12) {
+                QMessageBox::warning(this, QStringLiteral("태그 입력 오류"),
+                    QStringLiteral("논문 한 편당 태그는 12개까지 입력할 수 있습니다."));
+                return;
+            }
+        }
+        QSettings settings(QSettings::defaultFormat(), QSettings::UserScope,
+            QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        const QString pref = QStringLiteral("library/manualTags/") + key;
+        if (tags.isEmpty()) settings.remove(pref);
+        else settings.setValue(pref, tags);
+        settings.sync();
+        if (settings.status() != QSettings::NoError) {
+            QMessageBox::warning(this, QStringLiteral("태그 저장 실패"),
+                QStringLiteral("로컬 설정에 태그를 저장하지 못했습니다. 기존 태그는 유지됩니다."));
+            return;
+        }
+        if (tags.isEmpty()) tags_.remove(key);
+        else tags_.insert(key, tags);
+        for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) if (list) {
+            for (int row = 0; row < list->count(); ++row)
+                if (auto* item = list->item(row);
+                    item && item->data(Qt::UserRole).toString() == path)
+                    decorate(item, path);
+            filter(list, query_->text());
+        }
     }
     void savePaperMemo(const QString& path, QString text) {
         text.replace(QLatin1Char('\n'), QLatin1Char(' ')); text.replace(QLatin1Char('\r'), QLatin1Char(' '));
@@ -1413,6 +1479,8 @@ private:
             auto* favorite = menu.addAction(item->data(Qt::UserRole + 2).toBool() ? QStringLiteral("즐겨찾기 해제") : QStringLiteral("즐겨찾기 추가"));
             auto* crop = menu.addAction(QStringLiteral("현재 PDF의 썸네일 지정…"));
             crop->setEnabled(QFileInfo(path).canonicalFilePath() == QFileInfo(viewer_->getProgramController()->getOriginalFileName()).canonicalFilePath());
+            auto* tags = menu.addAction(QStringLiteral("태그·키워드 직접 입력…"));
+            tags->setObjectName(QStringLiteral("LunaEditManualTags"));
             auto* citation = menu.addAction(QStringLiteral("서지정보 수정…"));
             auto* extractCitation = menu.addAction(QStringLiteral("첫 페이지 서지정보 추출…"));
             extractCitation->setObjectName(QStringLiteral("LunaExtractCitationContextMenu"));
@@ -1420,13 +1488,18 @@ private:
             auto* chosen = menu.exec(list->viewport()->mapToGlobal(point));
             if (chosen == favorite) toggleFavorite(path);
             else if (chosen == crop) startThumbnailCrop();
+            else if (chosen == tags) editManualTags(path);
             else if (chosen == citation) editBibliography(path);
             else if (chosen == extractCitation) extractBibliography(path);
             else if (chosen == move) moveDocument(path);
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
-            if (DocumentCard::favoriteRect(list->visualItemRect(item)).contains(list->viewport()->mapFromGlobal(QCursor::pos())))
+            const QPoint cursor = list->viewport()->mapFromGlobal(QCursor::pos());
+            const QRect rect = list->visualItemRect(item);
+            if (DocumentCard::favoriteRect(rect).contains(cursor))
                 toggleFavorite(item->data(Qt::UserRole).toString());
+            else if (DocumentCard::tagsRect(rect).contains(cursor))
+                editManualTags(item->data(Qt::UserRole).toString());
         });
         return list;
     }
@@ -1503,6 +1576,17 @@ private:
                         QStringLiteral("파일은 이동했지만 메모 설정을 저장하지 못했습니다. 기존 메모는 보존됩니다: ") + memo);
                 }
             }
+            if (oldDateKey != newDateKey && tags_.contains(oldDateKey)) {
+                const QStringList movedTags = tags_.value(oldDateKey);
+                settings.setValue(QStringLiteral("library/manualTags/") + newDateKey, movedTags);
+                settings.sync();
+                if (settings.status() == QSettings::NoError) {
+                    tags_.insert(newDateKey, movedTags);
+                    tags_.remove(oldDateKey);
+                    settings.remove(QStringLiteral("library/manualTags/") + oldDateKey);
+                } else QMessageBox::warning(this, QStringLiteral("태그 이동 저장 실패"),
+                    QStringLiteral("PDF는 이동했지만 태그 설정 이전에 실패했습니다. 원래 태그는 보존됩니다."));
+            }
             if (!bibliography_.relocate(sourceIdentity, DocumentClaim::identity(result.documentPath)))
                 QMessageBox::warning(this, QStringLiteral("서지정보 이동 실패"),
                     QStringLiteral("PDF는 이동했지만 서지정보를 이전하지 못했습니다. 기존 설정을 확인해 주세요."));
@@ -1544,6 +1628,7 @@ private:
                             !item->text().contains(word, Qt::CaseInsensitive) &&
                             !QFileInfo(item->data(Qt::UserRole).toString()).completeBaseName().contains(word, Qt::CaseInsensitive) &&
                             !item->data(Qt::UserRole + 4).toString().contains(word, Qt::CaseInsensitive) &&
+                            !item->data(Qt::UserRole + 8).toStringList().join(QStringLiteral(" ")).contains(word, Qt::CaseInsensitive) &&
                             !item->data(Qt::UserRole + 5).toMap().value("authors").toString().contains(word, Qt::CaseInsensitive) &&
                             !item->data(Qt::UserRole + 5).toMap().value("journal").toString().contains(word, Qt::CaseInsensitive) &&
                             !luna::Bibliography::citation(item->data(Qt::UserRole + 5).toMap()).contains(word, Qt::CaseInsensitive));
@@ -1619,6 +1704,7 @@ private:
                 !item->text().contains(word, Qt::CaseInsensitive) &&
                 !info.completeBaseName().contains(word, Qt::CaseInsensitive) &&
                 !item->data(Qt::UserRole + 4).toString().contains(word, Qt::CaseInsensitive) &&
+                !item->data(Qt::UserRole + 8).toStringList().join(QStringLiteral(" ")).contains(word, Qt::CaseInsensitive) &&
                 !meta.value("authors").toString().contains(word, Qt::CaseInsensitive) &&
                 !meta.value("journal").toString().contains(word, Qt::CaseInsensitive) &&
                 !luna::Bibliography::citation(meta).contains(word, Qt::CaseInsensitive));
@@ -1714,6 +1800,7 @@ private:
     QHash<QString, QString> displayedDates_;
     QSet<QString> datedNames_;
     QHash<QString, QString> memos_;
+    QHash<QString, QStringList> tags_;  // Explicitly user-entered; never inferred from PDFs.
     QSet<QString> favorites_;
     QFileSystemModel* model_ = nullptr;
     QTreeView* tree_ = nullptr;

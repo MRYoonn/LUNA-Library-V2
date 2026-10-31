@@ -884,6 +884,7 @@ public:
         auto* navigationContents = new QWidget(navigationScroll);
         navigationContents->setObjectName(QStringLiteral("LunaNavigationContents"));
         navigationScroll->setWidget(navigationContents);
+        new SmoothLibraryWheel(navigationScroll, 58);
         navigationContents->setAutoFillBackground(false);
         navigationScroll->viewport()->setAutoFillBackground(false);
         navigationScroll->viewport()->setObjectName(QStringLiteral("LunaNavigationViewport"));
@@ -903,7 +904,7 @@ public:
         libraryHeaderLayout->addWidget(shelf);
         auto* section = new QLabel(QStringLiteral("라이브러리"), libraryHeader);
         section->setObjectName(QStringLiteral("LunaLibraryTitle"));
-        QFont headingFont(QStringLiteral("Malgun Gothic")); headingFont.setPixelSize(20); headingFont.setBold(true); headingFont.setLetterSpacing(QFont::AbsoluteSpacing, -.45); section->setFont(headingFont);
+        QFont headingFont(QStringLiteral("Malgun Gothic")); headingFont.setPixelSize(18); headingFont.setBold(true); headingFont.setLetterSpacing(QFont::AbsoluteSpacing, -.45); section->setFont(headingFont);
         libraryHeaderLayout->addWidget(section, 1);
         nav->addWidget(libraryHeader);
         auto* group = new QButtonGroup(this);
@@ -961,6 +962,7 @@ public:
         tree_->setHeaderHidden(true);
         tree_->setAnimated(true);
         tree_->setIndentation(16); tree_->setUniformRowHeights(true); tree_->setIconSize(QSize(20, 20));
+        new SmoothLibraryWheel(tree_, 58);
         tree_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         tree_->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(tree_, &QTreeView::customContextMenuRequested, this, [this](const QPoint& point) {
@@ -1045,6 +1047,37 @@ public:
         titleRow->setObjectName(QStringLiteral("LunaPaperHeadingLayout"));
         titleRow->addWidget(title, 1);
         headingLayout->addLayout(titleRow);
+        // Both paper views keep the same vertical QListWidget and model.
+        compactPaperMode_ = QSettings(QSettings::defaultFormat(), QSettings::UserScope,
+            QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+            .value(QStringLiteral("library/paperViewMode"), QStringLiteral("card"))
+            .toString() == QStringLiteral("list");
+        auto* paperViewGroup = new QButtonGroup(this);
+        paperViewGroup->setExclusive(true);
+        auto* listMode = new QToolButton(heading);
+        listMode->setObjectName(QStringLiteral("LunaListViewMode"));
+        listMode->setAccessibleName(QStringLiteral("논문 목록형 보기"));
+        listMode->setToolTip(QStringLiteral("목록형 보기 · 작은 썸네일과 서지정보"));
+        listMode->setIcon(readerIcon(QStringLiteral("list-mode")));
+        listMode->setIconSize(QSize(19, 19));
+        listMode->setFixedSize(29, 30);
+        listMode->setCheckable(true);
+        paperViewGroup->addButton(listMode);
+        titleRow->addWidget(listMode);
+        auto* cardMode = new QToolButton(heading);
+        cardMode->setObjectName(QStringLiteral("LunaCardViewMode"));
+        cardMode->setAccessibleName(QStringLiteral("논문 카드형 보기"));
+        cardMode->setToolTip(QStringLiteral("카드형 보기 · 큰 썸네일과 제목"));
+        cardMode->setIcon(readerIcon(QStringLiteral("card-mode")));
+        cardMode->setIconSize(QSize(19, 19));
+        cardMode->setFixedSize(29, 30);
+        cardMode->setCheckable(true);
+        paperViewGroup->addButton(cardMode);
+        titleRow->addWidget(cardMode);
+        listMode->setChecked(compactPaperMode_);
+        cardMode->setChecked(!compactPaperMode_);
+        connect(listMode, &QToolButton::clicked, this, [this] { setPaperViewMode(true); });
+        connect(cardMode, &QToolButton::clicked, this, [this] { setPaperViewMode(false); });
         auto* addFile = new QPushButton(readerIcon(QStringLiteral("file-add")), QString(), heading);
         addFile->setFixedSize(30, 30);
         addFile->setObjectName(QStringLiteral("LunaPrimary"));
@@ -1865,6 +1898,26 @@ private:
 
     }
 
+    void setPaperViewMode(bool compact) {
+        if (compactPaperMode_ == compact) return;
+        compactPaperMode_ = compact;
+        QSettings(QSettings::defaultFormat(), QSettings::UserScope,
+            QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+            .setValue(QStringLiteral("library/paperViewMode"),
+                      compact ? QStringLiteral("list") : QStringLiteral("card"));
+        for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) {
+            if (!list) continue;
+            auto* delegate = static_cast<DocumentCard*>(list->itemDelegate());
+            if (!delegate) continue;
+            QListWidgetItem* anchor = list->itemAt(QPoint(10, 5));
+            delegate->setCompact(compact);
+            list->setUniformItemSizes(false);
+            list->setUniformItemSizes(true);
+            list->doItemsLayout();
+            if (anchor) list->scrollToItem(anchor, QAbstractItemView::PositionAtTop);
+            list->viewport()->update();
+        }
+    }
     QListWidget* makePdfList(QWidget* parent) {
         auto* list = new QListWidget(parent);
         list->setMouseTracking(true);
@@ -1881,11 +1934,13 @@ private:
         list->setSortingEnabled(false);
         list->setObjectName(QStringLiteral("LunaDocumentList"));
         auto* delegate = new DocumentCard(list);
+        delegate->setCompact(compactPaperMode_);
         delegate->saveMemo = [this](const QString& path, const QString& text) { savePaperMemo(path, text); };
         list->setItemDelegate(delegate);
         list->setWordWrap(true);
         list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
         list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        new SmoothLibraryWheel(list, 96);
         list->setContextMenuPolicy(Qt::CustomContextMenu);
         auto* favoriteAction = new QAction(QStringLiteral("즐겨찾기 전환"), list);
         favoriteAction->setObjectName(QStringLiteral("LunaToggleFavorite"));
@@ -1933,7 +1988,10 @@ private:
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
             const QPoint cursor = list->viewport()->mapFromGlobal(QCursor::pos());
             const QRect rect = list->visualItemRect(item);
-            if (DocumentCard::favoriteRect(rect).contains(cursor))
+            const auto* delegate = static_cast<DocumentCard*>(list->itemDelegate());
+            const QRect hit = delegate && delegate->compact() ?
+                DocumentCard::compactFavoriteRect(rect) : DocumentCard::favoriteRect(rect);
+            if (hit.contains(cursor))
                 toggleFavorite(item->data(Qt::UserRole).toString());
         });
         return list;
@@ -2287,6 +2345,7 @@ private:
     QPointer<ThumbnailCropOverlay> cropOverlay_;
     pdfviewer::PDFEditorMainWindow* viewer_;
     luna::Bibliography bibliography_;
+    bool compactPaperMode_ = false;
     luna::MetadataFetcher* metadataFetcher_ = nullptr;
     QQueue<QString> pendingImportedMetadata_;
     bool importMetadataRunning_ = false;

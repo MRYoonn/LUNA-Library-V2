@@ -805,8 +805,11 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         !widget->rect().contains(moveTo))
         return fail("FreeText move test point outside PDF viewport");
     mouse(widget,QEvent::MouseButtonPress,moveFrom,Qt::LeftButton,Qt::LeftButton);
+    checkpoint("Reader phase: FreeText move pressed");
     mouse(widget,QEvent::MouseMove,moveTo,Qt::NoButton,Qt::LeftButton);
+    checkpoint("Reader phase: FreeText move previewed");
     mouse(widget,QEvent::MouseButtonRelease,moveTo,Qt::LeftButton,Qt::NoButton);
+    checkpoint("Reader phase: FreeText move released");
     if (!waitFor([&] {
         const QRectF moved = freeTextBox();
         return moved.isValid() &&
@@ -825,8 +828,11 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!widget->rect().contains(grip) || !widget->rect().contains(gripEnd))
         return fail("FreeText native resize handle offscreen");
     mouse(widget,QEvent::MouseButtonPress,grip,Qt::LeftButton,Qt::LeftButton);
+    checkpoint("Reader phase: FreeText resize pressed");
     mouse(widget,QEvent::MouseMove,gripEnd,Qt::NoButton,Qt::LeftButton);
+    checkpoint("Reader phase: FreeText resize previewed");
     mouse(widget,QEvent::MouseButtonRelease,gripEnd,Qt::LeftButton,Qt::NoButton);
+    checkpoint("Reader phase: FreeText resize released");
     if (!waitFor([&] {
         const QRectF resized = freeTextBox();
         return resized.isValid() &&

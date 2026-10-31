@@ -145,17 +145,23 @@ int main(int argc,char** argv){
     online.remove("senior_author_index");
 
     checkpoint("openalex-parser");
-    QJsonObject alex {
-        {"doi",QStringLiteral("https://doi.org/")+doi},
-        {"title",QStringLiteral("Synthetic N–H Activation Study")},
-        {"publication_year",2024},
-        {"biblio",QJsonObject{{"volume",QStringLiteral("146")},
-            {"first_page",QStringLiteral("20349")},{"last_page",QStringLiteral("20356")}}},
-        {"primary_location",QJsonObject{{"source",
-            QJsonObject{{"display_name",QStringLiteral("Journal of the American Chemical Society")}}}}},
-        {"authorships",QJsonArray{QJsonObject{{"author",
-            QJsonObject{{"display_name",QStringLiteral("Abigail G. Doyle")}}}}}}
-    };
+    // OpenAlex is received over HTTP as ordinary JSON, so test the real
+    // nested source/authorships/biblio shape rather than Qt brace coercions.
+    const QJsonObject alex = readFixture(R"json({
+        "doi": "https://doi.org/10.1021/jacs.4c05881",
+        "title": "Synthetic N-H Activation Study",
+        "publication_year": 2024,
+        "biblio": {"volume": "146", "first_page": "20349", "last_page": "20356"},
+        "primary_location": {"source": {
+            "display_name": "Journal of the American Chemical Society"
+        }},
+        "authorships": [{"author": {"display_name": "Abigail G. Doyle"}}]
+    })json");
+    expect(alex.value(QStringLiteral("biblio")).toObject()
+               .value(QStringLiteral("first_page")).toString()==QStringLiteral("20349"),
+           "OpenAlex HTTP fixture biblio hierarchy");
+    expect(alex.value(QStringLiteral("authorships")).toArray().size()==1,
+           "OpenAlex HTTP fixture authorships hierarchy");
     expect(fromOpenAlex(alex,doi).value("page").toString()==(QStringLiteral("20349") + QChar(0x2013) + QStringLiteral("20356")),
            "OpenAlex verified fallback page range");
     expect(fromOpenAlex(alex,QStringLiteral("10.1000/else")).isEmpty(),

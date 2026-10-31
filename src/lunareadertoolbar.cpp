@@ -115,7 +115,7 @@ public:
         chooseColor_->setToolTip(QStringLiteral("선택형 형광펜의 색상을 설정합니다. 툴바 버튼은 추가하지 않습니다."));
         connect(chooseColor_, &QAction::triggered, this, [this] {
             const QColor next = QColorDialog::getColor(color_, draw_,
-                QStringLiteral("형광펜 색상"), QColorDialog::ShowAlphaChannel);
+                QStringLiteral("형광펜 색상"));
             if (!next.isValid()) return;
             color_ = next;
             QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexArgb));

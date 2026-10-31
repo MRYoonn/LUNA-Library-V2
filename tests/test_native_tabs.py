@@ -61,6 +61,10 @@ class NativeTabsContract(unittest.TestCase):
             'Reader phase: FreeText save and reopen',
             'persistedContentsFound',
             'LUNA FreeText save/reopen changed native annotation counts',
+            'Reader phase: PowerPoint-style FreeText select and drag',
+            'FreeText could not be dragged using text-selection mode',
+            'Reader phase: PowerPoint-style FreeText resize handles',
+            'FreeText corner handle did not resize the native PDF text box',
             'Reader phase: FreeText double-click edit',
             'LUNA FreeText double-click edit did not update the annotation',
             'visiblePageRect = visiblePage->rect.intersected(QRectF(widget->rect()))',
@@ -72,6 +76,11 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('add("LunaHighlightSelected")', adapter)
         self.assertIn('add("LunaFreeTextBox")', adapter)
         self.assertIn('add("LunaEraseSelected")', adapter)
+        self.assertIn('bool beginTextBoxDrag(QMouseEvent* event)', adapter)
+        self.assertIn('manager->mousePressEvent(draw_, event)', adapter)
+        self.assertIn('manager->mouseMoveEvent(draw_, static_cast<QMouseEvent*>(event))', adapter)
+        self.assertIn('manager->mouseReleaseEvent(draw_, static_cast<QMouseEvent*>(event))', adapter)
+        self.assertIn('manager->isAnnotationSelected(item.annotation->getSelfReference())', adapter)
         self.assertIn('removeAnnotation(page->getPageReference(), item.annotation->getSelfReference())', adapter)
         self.assertIn('manager->canDeleteAnnotation(item)', adapter)
         self.assertIn('item.annotation->getType() != pdf::AnnotationType::Highlight', adapter)

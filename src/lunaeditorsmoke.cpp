@@ -34,6 +34,7 @@
 #include <QPushButton>
 #include <QSpinBox>
 #include <QTextBrowser>
+#include <QPlainTextEdit>
 #include <QToolBar>
 #include <QToolButton>
 #include <QPointer>

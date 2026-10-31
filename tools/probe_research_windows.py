@@ -169,6 +169,12 @@ def bibliography_probe(package: Path, output: Path):
                             stages.setdefault(stage, []).append(round(duration, 1))
                     except (ValueError, TypeError):
                         continue  # Other Qt messages are never retained.
+                if is_si and not stages.get("request-to-first-page-paint"):
+                    raise RuntimeError(
+                        "SI first-page-paint metric missing; cannot claim measured performance")
+                if is_si and not stages.get("pdf-parse"):
+                    raise RuntimeError(
+                        "SI PDF parse metric missing; cannot identify load bottleneck")
                 timings.append({"fixture": label, "restart": restart,
                                 "elapsedMs": elapsed_ms, "stagesMs": stages})
                 shutil.copyfile(Path(str(report) + ".png"), output / f"bibliography-{label}-{restart}.png")

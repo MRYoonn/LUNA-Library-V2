@@ -180,7 +180,7 @@ inline QString yearFromCrossref(const QJsonObject& obj) {
         const auto parts = obj.value(QLatin1String(key)).toObject()
             .value(QStringLiteral("date-parts")).toArray();
         if (!parts.isEmpty()) {
-            const int y=parts.first().toArray().value(0).toInt();
+            const int y=parts.first().toArray().at(0).toInt();
             if (y>=1600 && y<=2200) return QString::number(y);
         }
     }

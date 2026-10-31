@@ -2530,7 +2530,7 @@ private:
             const QString path = iterator->next();
             ++checked;
             QFileInfo info(path);
-            if (!info.isFile() || info.suffix().compare(
+            if (!info.isFile() || info.isSymLink() || info.suffix().compare(
                     QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
             const QString identity = DocumentClaim::identity(path);
             auto& seen = all ? allSeen_ : folderSeen_;

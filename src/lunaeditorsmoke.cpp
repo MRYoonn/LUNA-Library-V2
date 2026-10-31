@@ -815,6 +815,25 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
             qAbs(moved.height() - beforeMove.height()) < 0.5;
     })) return fail("FreeText could not be dragged using text-selection mode");
 
+    checkpoint("Reader phase: PowerPoint-style FreeText resize handles");
+    const QRectF beforeResize = freeTextBox();
+    const auto gripSnapshot = proxy->getSnapshot();
+    const auto* gripPage = gripSnapshot.getPageSnapshot(0);
+    if (!gripPage) return fail("FreeText resize page is not visible");
+    const QPoint grip = gripPage->pageToDeviceMatrix.mapRect(beforeResize).normalized().bottomRight().toPoint();
+    const QPoint gripEnd = grip + QPoint(12, 9);
+    if (!widget->rect().contains(grip) || !widget->rect().contains(gripEnd))
+        return fail("FreeText native resize handle offscreen");
+    mouse(widget,QEvent::MouseButtonPress,grip,Qt::LeftButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseMove,gripEnd,Qt::NoButton,Qt::LeftButton);
+    mouse(widget,QEvent::MouseButtonRelease,gripEnd,Qt::LeftButton,Qt::NoButton);
+    if (!waitFor([&] {
+        const QRectF resized = freeTextBox();
+        return resized.isValid() &&
+            (qAbs(resized.width() - beforeResize.width()) > 1 ||
+             qAbs(resized.height() - beforeResize.height()) > 1);
+    })) return fail("FreeText corner handle did not resize the native PDF text box");
+
     // Editing an existing on-page FreeText must not require raw PDF-object
     // editing, nor should a double-click consume the native resize handles.
     checkpoint("Reader phase: FreeText double-click edit");

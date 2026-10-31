@@ -53,15 +53,15 @@ class NativeTabsContract(unittest.TestCase):
             self.assertIn(token, adapter, token)
         for token in (
             'Reader phase: eight one-click highlight pens and recolor',
-            'Colored marker did not auto-highlight dragged text',
+            'Selection-then-color did not write native highlight and return to SelectText',
             'Reader phase: recolor only selected overlap, preserve outer segments',
             'Partly overlapping recolor failed to retain old and new colors',
             'Recolor lost unselected old color or stacked alpha on new color',
             'Recolor Undo changed original saved highlight color or QuadPoints',
             'Expanded marker did not commit pink geometry beyond original green coverage',
             'Selection-first eraser did not preserve native undo',
-            'Eraser did not arm native text selection',
-            'Click-then-drag eraser did not remove previous highlight',
+            'Eraser click did not return to SelectText',
+            'Selection-then-click eraser did not remove previous highlight',
             'Reader phase: eraser removes only chosen glyph range',
             'Eraser removed nonselected words from same highlight',
             'Partial eraser Undo did not restore original QuadPoints and color',
@@ -92,7 +92,10 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('for (int i = 1; i <= 8; ++i)', adapter)
         self.assertIn('for (int i = 0; i < 8; ++i)', adapter)
         self.assertIn('void armHighlighter(const QColor& next)', adapter)
-        self.assertIn('if (ready && highlightArmed_) applyHighlight();', adapter)
+        self.assertIn('if (highlightArmed_) applyHighlight();', adapter)
+        self.assertIn('setHighlightArmed(false);\n        selectText(); // Remain in ordinary native text selection after the click.', adapter)
+        self.assertIn('selectionEnd_ = end;', adapter)
+        self.assertNotIn('if (ready && highlightArmed_) applyHighlight();', adapter)
         self.assertIn('setAnnotationOpacity(ref, 0.36)', adapter)
         self.assertIn('setAnnotationQuadPoints(edit.ref, edit.remainder)', adapter)
         self.assertIn('const bool sameColor', adapter)
@@ -217,7 +220,7 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('palette->addAction(chooseColor_)', adapter)
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
         self.assertIn('Reader phase: eight one-click highlight pens and recolor', smoke)
-        self.assertIn('Color menu did not arm native text selection and persist', smoke)
+        self.assertIn('Color click without selection armed a marker or modified PDF', smoke)
         self.assertIn('Drag highlight color not written to native PDF annotation', smoke)
         self.assertIn('std::abs(components[0] - 163.0 / 255.0)', smoke)
         self.assertIn('for (qsizetype i = 0; i < expectedColors.size(); ++i)', smoke)
@@ -232,8 +235,10 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('add("actionPrint");', adapter)
         self.assertIn('QPolygonF nib;', adapter)
         self.assertIn('void armEraser()', adapter)
-        self.assertIn('eraser_->setCheckable(true);', adapter)
-        self.assertIn('if (ready && eraserArmed_) eraseSelectedHighlights();', adapter)
+        self.assertIn('eraser_->setCheckable(false);', adapter)
+        self.assertIn('swatch->setCheckable(false);', adapter)
+        self.assertIn('if (eraserArmed_) eraseSelectedHighlights();', adapter)
+        self.assertNotIn('if (ready && eraserArmed_) eraseSelectedHighlights();', adapter)
         self.assertIn('auto* controller = window_.getProgramController();', adapter)
         self.assertIn('if (source == lastDocumentSource_) return;', adapter)
         self.assertIn('eraserArmed_ = false; eraser_->setChecked(false);', adapter)

@@ -35,7 +35,7 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('rect.moveLeft(qBound(crop.left()', adapter)
         self.assertIn('rect.moveTop(qBound(crop.top()', adapter)
         for token in (
-            'LunaHighlightSelected', 'LunaFreeTextBox',
+            'LunaHighlightSelected', 'LunaEraseSelected', 'LunaFreeTextBox',
             'selected->getSelectedText().trimmed().isEmpty()',
             'PDFTextSelectionPainter painter(&selection)',
             'marked.intersects(part)', 'createAnnotationHighlight(',
@@ -50,6 +50,10 @@ class NativeTabsContract(unittest.TestCase):
             self.assertIn(token, adapter, token)
         for token in (
             'Reader phase: selection-first highlight and non-overlap',
+            'Reader phase: selection-first eraser matches highlight geometry',
+            'Selection-first eraser did not preserve native undo',
+            'Reader phase: vertical middle-click autoscroll',
+            'Escape did not cancel vertical autoscroll',
             'highlighter duplicated a pre-existing marked region',
             'Reader phase: transparent on-page FreeText note',
             'LUNA default FreeText escaped PDF crop bounds',
@@ -67,22 +71,33 @@ class NativeTabsContract(unittest.TestCase):
             self.assertIn(token, smoke, token)
         self.assertIn('add("LunaHighlightSelected")', adapter)
         self.assertIn('add("LunaFreeTextBox")', adapter)
+        self.assertIn('add("LunaEraseSelected")', adapter)
+        self.assertIn('removeAnnotation(page->getPageReference(), item.annotation->getSelfReference())', adapter)
+        self.assertIn('manager->canDeleteAnnotation(item)', adapter)
+        self.assertIn('item.annotation->getType() != pdf::AnnotationType::Highlight', adapter)
+        self.assertIn('LunaVerticalAutoscrollMarker', adapter)
+        self.assertIn('if (mouse->button() == Qt::MiddleButton)', adapter)
+        self.assertIn('scroll->setValue(qBound(scroll->minimum()', adapter)
+        self.assertIn('autoscrollTimer_.setInterval(16)', adapter)
+        self.assertIn('QPolygon down;', adapter)
         # The PDF4QT native tools stay intact for backwards-compatible Insert menus.
         self.assertIn('checked("actionCreateTextHighlight")', adapter)
         self.assertIn('checked("actionStickyNoteComment")', adapter)
 
-    def test_highlight_palette_has_four_persistent_presets_without_extra_toolbar_action(self):
+    def test_highlight_palette_has_eight_persistent_presets_without_extra_toolbar_action(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         self.assertIn('LunaHighlightPalette', adapter)
         for label, hex_color in (
             ('노란색', '#FFE049'), ('초록색', '#A3E6A4'),
             ('분홍색', '#FFB3CF'), ('파란색', '#9FCAFF'),
+            ('주황색', '#FFC58A'), ('보라색', '#C7B2FF'),
+            ('민트색', '#A3E8DF'), ('회색', '#CED4DE'),
         ):
             self.assertIn('{"' + label + '", "' + hex_color + '"}', adapter)
         self.assertIn('connect(palette, &QMenu::aboutToShow', adapter)
         self.assertIn('palette->addAction(chooseColor_)', adapter)
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
-        self.assertIn('Reader phase: persistent four-color highlight palette', smoke)
+        self.assertIn('Reader phase: persistent eight-color highlight palette', smoke)
         self.assertIn('LUNA highlight palette failed to persist chosen colors', smoke)
         self.assertIn('LUNA highlight palette color not written to PDF annotation', smoke)
         self.assertIn('std::abs(components[0] - 163.0 / 255.0)', smoke)

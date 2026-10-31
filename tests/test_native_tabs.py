@@ -100,6 +100,16 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('checked("actionCreateTextHighlight")', adapter)
         self.assertIn('checked("actionStickyNoteComment")', adapter)
 
+    def test_autoscroll_does_not_register_an_application_wide_mouse_filter(self):
+        adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        self.assertIn('draw_->installEventFilter(this);', adapter)
+        self.assertNotIn('qApp->installEventFilter(this);', adapter)
+        self.assertIn('if (!autoscrollMarker_) autoscrollMarker_ = new VerticalAutoscrollMarker(draw_);', adapter)
+        self.assertIn('if (object != draw_) return false;', adapter)
+        self.assertIn('native-shell-before-reader-bind', tabs)
+        self.assertIn('native-editor-after-reader-prepare', tabs)
+
     def test_highlight_palette_has_eight_persistent_presets_without_extra_toolbar_action(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         self.assertIn('LunaHighlightPalette', adapter)

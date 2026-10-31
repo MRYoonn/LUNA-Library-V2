@@ -149,7 +149,7 @@ private:
         auto* proxy = c->getPdfWidget()->getDrawWidgetProxy();
         auto* selected = c->getToolManager()->getSelectTextTool();
         if (!selected || selected->getSelectedText().trimmed().isEmpty()) { clearPendingSelection(); return; }
-        const auto layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(selectionPage_);
+        pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(selectionPage_);
         pdf::PDFTextSelection selection = layout.createTextSelection(selectionPage_, selectionStart_, selectionEnd_, QColor(255, 224, 73));
         if (selection.isEmpty()) { clearPendingSelection(); return; }
         pdf::PDFTextLayoutGetter getter = proxy->getTextLayoutCompiler()->getTextLayoutLazy(selectionPage_);

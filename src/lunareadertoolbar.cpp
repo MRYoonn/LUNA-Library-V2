@@ -40,6 +40,9 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QSettings>
+#include <QScrollBar>
+#include <QCursor>
+#include <QtMath>
 #include <QPointer>
 #include <QPushButton>
 #include <QSpinBox>
@@ -120,7 +123,7 @@ public:
             color_ = next;
             QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexRgb));
         });
-        // Keep the toolbar compact while making the four reading colors
+        // Keep the toolbar compact while exposing reading colors
         // available without repeatedly opening the system QColorDialog.
         auto* toolsMenu = window_.findChild<QMenu*>(QStringLiteral("menuTools"));
         if (!toolsMenu && window_.menuBar()) {
@@ -133,7 +136,9 @@ public:
             struct Preset { const char* label; const char* color; };
             constexpr Preset presets[] = {
                 {"노란색", "#FFE049"}, {"초록색", "#A3E6A4"},
-                {"분홍색", "#FFB3CF"}, {"파란색", "#9FCAFF"}
+                {"분홍색", "#FFB3CF"}, {"파란색", "#9FCAFF"},
+                {"주황색", "#FFC58A"}, {"보라색", "#C7B2FF"},
+                {"민트색", "#A3E8DF"}, {"회색", "#CED4DE"}
             };
             for (const auto& preset : presets) {
                 auto* choice = palette->addAction(QString::fromUtf8(preset.label));
@@ -155,6 +160,27 @@ public:
             palette->addAction(chooseColor_);
         }
         connect(highlight_, &QAction::triggered, this, [this] { applyHighlight(); });
+        eraser_ = new QAction(readerIcon(QStringLiteral("erase")), QStringLiteral("형광펜 지우개"), &window_);
+        eraser_->setObjectName(QStringLiteral("LunaEraseSelected"));
+        eraser_->setToolTip(QStringLiteral("형광펜처럼 텍스트를 먼저 드래그 선택한 뒤 누릅니다. 선택한 영역과 겹치는 형광펜 주석만 삭제합니다. 메모와 본문은 유지합니다."));
+        eraser_->setEnabled(false);
+        connect(eraser_, &QAction::triggered, this, [this] { eraseSelectedHighlights(); });
+        // Keep the native click-to-delete action accessible in Tools for other
+        // annotation types. The compact reader eraser is selection-first.
+        if (toolsMenu) {
+            auto* nativeDelete = nativeAction(window_, "actionDeleteAnnotation");
+            if (nativeDelete && !toolsMenu->actions().contains(nativeDelete))
+                toolsMenu->addAction(nativeDelete);
+        }
+        autoscrollMarker_ = new QWidget(draw_);
+        autoscrollMarker_->setObjectName(QStringLiteral("LunaVerticalAutoscrollMarker"));
+        autoscrollMarker_->setFixedSize(36, 48);
+        autoscrollMarker_->setAttribute(Qt::WA_TransparentForMouseEvents);
+        autoscrollMarker_->hide();
+        autoscrollMarker_->installEventFilter(this);
+        autoscrollTimer_.setInterval(16);
+        connect(&autoscrollTimer_, &QTimer::timeout, this, [this] { tickVerticalAutoscroll(); });
+        qApp->installEventFilter(this);
         // A PDF FreeText annotation is a true on-page text box rather than a
         // sticky-note icon. PDF4QT's modifier owns its save/undo machinery.
         textBox_ = new QAction(readerIcon(QStringLiteral("note")), QStringLiteral("메모 상자"), &window_);
@@ -175,6 +201,7 @@ public:
         connect(controller->getPdfWidget()->getAnnotationManager(), &pdf::PDFWidgetAnnotationManager::documentModified, this, afterAnnotation);
         connect(&window_, &QWidget::windowTitleChanged, this, [this] {
             target_ = {}; // A document/title transition cancels an unfinished click.
+            stopVerticalAutoscroll();
             clearPendingSelection();
             textBox_->setChecked(false);
             QTimer::singleShot(0, this, [this] {
@@ -207,6 +234,7 @@ private:
         selectionStart_ = {};
         selectionEnd_ = {};
         highlight_->setEnabled(false);
+        eraser_->setEnabled(false);
     }
     void applyHighlight() {
         if (!highlight_->isEnabled() || selectionPage_ < 0) return;
@@ -256,6 +284,93 @@ private:
         modifier.markAnnotationsChanged();
         if (modifier.finalize())
             Q_EMIT c->getToolManager()->documentModified(pdf::PDFModifiedDocument(modifier.getDocument(), nullptr, modifier.getFlags()));
+    }
+    void eraseSelectedHighlights() {
+        if (!eraser_->isEnabled() || selectionPage_ < 0) return;
+        auto* c = window_.getProgramController();
+        if (!canAnnotate() || !checked("actionSelectText")) { clearPendingSelection(); return; }
+        auto* proxy = c->getPdfWidget()->getDrawWidgetProxy();
+        auto* manager = c->getPdfWidget()->getAnnotationManager();
+        auto* selected = c->getToolManager()->getSelectTextTool();
+        if (!selected || selected->getSelectedText().trimmed().isEmpty()) { clearPendingSelection(); return; }
+        pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(selectionPage_);
+        const pdf::PDFTextSelection selection = layout.createTextSelection(
+            selectionPage_, selectionStart_, selectionEnd_, color_);
+        if (selection.isEmpty()) { clearPendingSelection(); return; }
+        pdf::PDFTextLayoutGetter getter = proxy->getTextLayoutCompiler()->getTextLayoutLazy(selectionPage_);
+        QPolygonF quads;
+        pdf::PDFTextSelectionPainter painter(&selection);
+        if (painter.prepareGeometry(selectionPage_, getter, QTransform(), &quads).isEmpty()) {
+            clearPendingSelection(); return;
+        }
+        QPainterPath area;
+        for (qsizetype i = 0; i + 3 < quads.size(); i += 4) {
+            QPolygonF quad;
+            for (qsizetype j = 0; j < 4; ++j) quad << quads[i + j];
+            area.addPolygon(quad); area.closeSubpath();
+        }
+        const auto pageIndex = selectionPage_;
+        clearPendingSelection();
+        if (area.isEmpty()) return;
+        const auto* page = c->getDocument()->getCatalog()->getPage(pageIndex);
+        if (!page) return;
+        const auto existing = manager->getPageAnnotations(pageIndex).annotations;
+        pdf::PDFDocumentModifier modifier(c->getDocument());
+        int removed = 0;
+        for (const auto& item : existing) {
+            if (item.annotation->getType() != pdf::AnnotationType::Highlight ||
+                !manager->canDeleteAnnotation(item)) continue;
+            const auto* marked = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+            if (!marked) continue;
+            const auto& path = marked->getHiglightArea().getPath();
+            if (!area.intersects(path) && !area.contains(path) && !path.contains(area)) continue;
+            modifier.getBuilder()->removeAnnotation(page->getPageReference(), item.annotation->getSelfReference());
+            ++removed;
+        }
+        if (!removed) return;
+        modifier.markAnnotationsChanged();
+        if (modifier.finalize())
+            Q_EMIT c->getToolManager()->documentModified(
+                pdf::PDFModifiedDocument(modifier.getDocument(), nullptr, modifier.getFlags()));
+    }
+    void startVerticalAutoscroll(const QPoint& point) {
+        auto* c = window_.getProgramController();
+        if (!c || !c->getDocument() || !draw_->isVisible() || !c->getPdfWidget()) return;
+        auto* scroll = c->getPdfWidget()->getVerticalScrollbar();
+        if (!scroll || scroll->maximum() <= scroll->minimum()) return;
+        scrollOrigin_ = draw_->mapToGlobal(point);
+        autoscrollMarker_->move(point - QPoint(18, 24));
+        autoscrollMarker_->show();
+        autoscrollMarker_->raise();
+        scrollRemainder_ = 0.0;
+        autoscrollActive_ = true;
+        draw_->setCursor(Qt::SizeVerCursor);
+        autoscrollTimer_.start();
+    }
+    void stopVerticalAutoscroll() {
+        if (!autoscrollActive_) return;
+        autoscrollActive_ = false;
+        autoscrollTimer_.stop();
+        autoscrollMarker_->hide();
+        draw_->unsetCursor();
+    }
+    void tickVerticalAutoscroll() {
+        auto* c = window_.getProgramController();
+        if (!autoscrollActive_ || !draw_->isVisible() || !c || !c->getDocument()) {
+            stopVerticalAutoscroll(); return;
+        }
+        auto* scroll = c->getPdfWidget()->getVerticalScrollbar();
+        if (!scroll) { stopVerticalAutoscroll(); return; }
+        const int displacement = QCursor::pos().y() - scrollOrigin_.y();
+        const int distance = qMax(0, qAbs(displacement) - 13);
+        if (!distance) return;
+        // Continuous up/down auto-scroll, with a dead zone and smooth
+        // acceleration. Bound per-tick work so expensive SI pages stay usable.
+        const double pixels = qMin(100.0, 1.0 + double(distance * distance) / 190.0);
+        scrollRemainder_ += displacement > 0 ? pixels : -pixels;
+        const int move = int(scrollRemainder_);
+        scrollRemainder_ -= move;
+        if (move) scroll->setValue(qBound(scroll->minimum(), scroll->value() + move, scroll->maximum()));
     }
     void createTextBox(const QPoint& from, const QPoint& to) {
         if (!canAnnotate()) return;
@@ -435,7 +550,31 @@ private:
         return {};
     }
     bool eventFilter(QObject* object, QEvent* event) override {
+        // Install on qApp as well as the draw surface: a click elsewhere or
+        // Escape must cancel autoscroll, including in embedded native tabs.
+        if (autoscrollActive_) {
+            if (event->type() == QEvent::KeyPress &&
+                static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape)
+                stopVerticalAutoscroll();
+            if (event->type() == QEvent::MouseButtonPress ||
+                event->type() == QEvent::MouseButtonDblClick) {
+                if (object != draw_) { stopVerticalAutoscroll(); return false; }
+                const auto* mouse = static_cast<QMouseEvent*>(event);
+                stopVerticalAutoscroll();
+                if (mouse->button() == Qt::MiddleButton) return true;
+            }
+        }
         if (object != draw_) return false;
+        if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonDblClick) {
+            const auto* mouse = static_cast<QMouseEvent*>(event);
+            if (mouse->button() == Qt::MiddleButton) {
+                startVerticalAutoscroll(mouse->pos());
+                return true; // Prevent PDF4QT's native four-way hand-panning.
+            }
+        }
+        if (event->type() == QEvent::MouseButtonRelease &&
+            static_cast<QMouseEvent*>(event)->button() == Qt::MiddleButton)
+            return true;
         if (event->type() == QEvent::MouseButtonDblClick && checked("actionSelectText") &&
             !textBox_->isChecked()) {
             auto* mouse = static_cast<QMouseEvent*>(event);
@@ -494,8 +633,10 @@ private:
                 selectionEnd_ = end;
                 QTimer::singleShot(0, this, [this] {
                     auto* selected = window_.getProgramController()->getToolManager()->getSelectTextTool();
-                    highlight_->setEnabled(canAnnotate() && selected && !selected->getSelectedText().trimmed().isEmpty() &&
-                        !textBox_->isChecked() && selectionPage_ >= 0);
+                    const bool ready = canAnnotate() && selected && !selected->getSelectedText().trimmed().isEmpty() &&
+                        !textBox_->isChecked() && selectionPage_ >= 0;
+                    highlight_->setEnabled(ready);
+                    eraser_->setEnabled(ready);
                 });
             }
             return false; // Native text-selection tool must receive the release.
@@ -542,7 +683,13 @@ private:
     QPoint press_;
     bool deleting_ = false, editable_ = false, drawingBox_ = false;
     QAction* highlight_ = nullptr;
+    QAction* eraser_ = nullptr;
     QAction* chooseColor_ = nullptr;
+    QWidget* autoscrollMarker_ = nullptr;
+    QTimer autoscrollTimer_;
+    QPoint scrollOrigin_;
+    bool autoscrollActive_ = false;
+    double scrollRemainder_ = 0.0;
     QColor color_ = QColor(255, 224, 73);
     QAction* textBox_ = nullptr;
     QRubberBand* rubber_ = nullptr;
@@ -628,7 +775,7 @@ public:
         add("actionSave"); bar_->addAction(separators_[0]);
         add("actionGoToPreviousPage"); bar_->addAction(pageAction_); add("actionGoToNextPage"); bar_->addAction(separators_[1]);
         add("actionZoom_Out"); bar_->addAction(zoomAction_); add("actionZoom_In"); bar_->addAction(separators_[2]);
-        add("actionSelectText"); add("LunaHighlightSelected"); add("LunaFreeTextBox"); add("actionDeleteAnnotation"); add("LunaCropThumbnail");
+        add("actionSelectText"); add("LunaHighlightSelected"); add("LunaFreeTextBox"); add("LunaEraseSelected"); add("LunaCropThumbnail");
         bar_->addAction(separators_[3]); add("actionFind"); add("actionPrint");
         bar_->show();
         synchronize();
@@ -739,7 +886,9 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
     add("actionSelectText", "select", QStringLiteral("텍스트 선택"), QStringLiteral("텍스트 드래그 선택 / 복사 (Ctrl+C)"));
     // New reading actions are installed by ReadingInteraction below. Native
     // highlight/sticky-note actions remain reachable from Insert menus.
-    add("actionDeleteAnnotation", "erase", QStringLiteral("주석 삭제"), QStringLiteral("클릭한 주석만 삭제합니다. PDF 본문·원본 객체는 삭제하지 않습니다. Esc: 텍스트 선택."));
+    // Native click-to-delete is kept in Tools, not in the compact toolbar.
+    if (auto* nativeDelete = nativeAction(window, "actionDeleteAnnotation"))
+        nativeDelete->setToolTip(QStringLiteral("기타 주석을 직접 클릭해 삭제합니다. 형광펜은 선택형 지우개를 사용하세요."));
     bar.addSeparator();
     add("actionFind", "search", QStringLiteral("본문 검색"), QStringLiteral("PDF 본문 검색 (Ctrl+F)"));
     add("actionPrint", "print", QStringLiteral("인쇄"), QStringLiteral("PDF 인쇄 (Ctrl+P)"));
@@ -766,9 +915,11 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
     // The actions are created after the adapter to preserve QObject ownership;
     // both the embedded toolbar and the shell's common toolbar bind by name.
     if (auto* hl = window.findChild<QAction*>(QStringLiteral("LunaHighlightSelected"))) bar.insertAction(
-        nativeAction(window, "actionDeleteAnnotation"), hl);
+        nativeAction(window, "actionFind"), hl);
     if (auto* note = window.findChild<QAction*>(QStringLiteral("LunaFreeTextBox"))) bar.insertAction(
-        nativeAction(window, "actionDeleteAnnotation"), note);
+        nativeAction(window, "actionFind"), note);
+    if (auto* erase = window.findChild<QAction*>(QStringLiteral("LunaEraseSelected"))) bar.insertAction(
+        nativeAction(window, "actionFind"), erase);
     Q_UNUSED(interaction);
 }
 
@@ -776,7 +927,7 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
     auto fail = [&](const char* message) { error = QString::fromLatin1(message); return false; };
     auto* bar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
     if (!bar || !bar->isVisible() || bar->orientation() != Qt::Horizontal) return fail("Reading toolbar missing");
-    const QStringList allowed = {"LunaCropThumbnail", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "LunaHighlightSelected", "LunaFreeTextBox", "actionDeleteAnnotation", "actionFind", "actionPrint"};
+    const QStringList allowed = {"LunaCropThumbnail", "LunaOpenDocuments", "actionSave", "actionGoToPreviousPage", "actionGoToNextPage", "actionZoom_Out", "actionZoom_In", "actionSelectText", "LunaHighlightSelected", "LunaFreeTextBox", "LunaEraseSelected", "actionFind", "actionPrint"};
     int controls = 0;
     for (auto* action : bar->actions()) {
         if (action->isSeparator()) continue;

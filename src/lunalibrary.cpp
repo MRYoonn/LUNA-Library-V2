@@ -3524,6 +3524,26 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     const QImage captured(thumbnail);
     const QSize expected = QRect(from, to).size() * draw->devicePixelRatioF();
     if (captured.isNull() || captured.size() != expected) return fail("Native crop PNG has wrong dimensions");
+    // Real Windows filesystem contract: copying must create BOTH physical
+    // files, refuse a second same-name copy and never delete the source.
+    QTemporaryDir copied(QDir(pdf.absolutePath()).filePath(QStringLiteral("luna-file-copy-XXXXXX")));
+    if (!copied.isValid()) return fail("Cannot create physical PDF copy test directory");
+    const auto copiedFiles = copyPdfWithThumbnails(path, copied.path());
+    const QString copiedThumb = QDir(copied.path()).filePath(pdf.completeBaseName() +
+        QStringLiteral(".luna-thumb.png"));
+    if (!copiedFiles.success || !QFileInfo::exists(copiedFiles.documentPath) ||
+        !QFileInfo::exists(copiedThumb) ||
+        QFileInfo(copiedFiles.documentPath).size() != pdf.size() ||
+        QFileInfo(copiedThumb).size() != QFileInfo(thumbnail).size())
+        return fail("Physical PDF/thumbnail copy failed");
+    if (copyPdfWithThumbnails(path, copied.path()).success ||
+        !QFileInfo::exists(path) || !QFileInfo::exists(thumbnail))
+        return fail("Copy overwrote a target or damaged its original");
+    auto* folderDrop = window.findChild<QTreeView*>(QStringLiteral("LunaFolderDropTree"));
+    if (!folderDrop || !folderDrop->acceptDrops())
+        return fail("Native directory drop target missing");
+    if (!list->dragEnabled() || list->dragDropMode() != QAbstractItemView::DragOnly)
+        return fail("Paper-list file drag source missing");
     // Verify all twenty approved SVG resources and portable metadata.
     // A selection stores only iconId, and never writes into the PDF.
     QString iconError;

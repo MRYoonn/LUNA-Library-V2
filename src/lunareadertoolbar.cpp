@@ -179,7 +179,9 @@ private:
         }
         QPolygonF clean;
         for (qsizetype i = 0; i + 3 < quads.size(); i += 4) {
-            QPolygonF quad{quads[i], quads[i + 1], quads[i + 2], quads[i + 3]};
+            QPolygonF quad;
+            quad.reserve(4);
+            for (qsizetype j = 0; j < 4; ++j) quad << quads[i + j];
             QPainterPath part; part.addPolygon(quad); part.closeSubpath();
             if (!marked.intersects(part) && !marked.contains(part))
                 for (const QPointF& point : quad) clean << point;
@@ -541,6 +543,8 @@ public:
         connect(&poll_, &QTimer::timeout, this, [this] { synchronize(); }); poll_.start(100);
     }
     void bind(pdfviewer::PDFEditorMainWindow& editor) {
+        // Unbinding stops polling; re-enabling it is necessary on tab reopen.
+        if (!poll_.isActive()) poll_.start(100);
         if (editor_ == &editor) { bar_->show(); synchronize(); return; }
         // Finish an old tab's view edit before changing its recipient. A late
         // focus-out must never apply one document's page/zoom text to another.

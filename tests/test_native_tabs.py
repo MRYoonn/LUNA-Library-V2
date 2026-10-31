@@ -271,6 +271,7 @@ class NativeTabsContract(unittest.TestCase):
             'list->setEditTriggers(QAbstractItemView::NoEditTriggers)',
             'qMax(20, QFontMetrics(captionFont).height() + 3)',
             'const QRect authorArea(text.left(), r.top() + 57, text.width(),',
+            'painter->drawText(authorArea, Qt::AlignRight | Qt::AlignVCenter,',
             '저자 미확인',
         ):
             self.assertIn(token, source)

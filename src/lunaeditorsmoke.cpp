@@ -922,9 +922,43 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     widget->setFocus(); key(widget, Qt::Key_S, Qt::ControlModifier);
     QObject::disconnect(saveConnection);
     if (saves != 1) return fail("Ctrl+S shortcut did not invoke native save");
+    // PDF4QT saves synchronously. Check the actual save outcome, not just that
+    // the shortcut emitted QAction::triggered. A failed write must never
+    // appear to be a successful annotation round trip.
+    const auto* savedState = controller->findChild<pdfviewer::PDFUndoRedoManager*>();
+    if (!savedState || !savedState->isCurrentSaved() ||
+        !sameExistingFile(controller->getOriginalFileName(), saved) ||
+        readFile(saved).isEmpty())
+        return fail("Ctrl+S did not persist the current annotated PDF copy");
+#ifdef Q_OS_WIN
+    if (readFile(saved) == beforeFailedSave)
+        return fail("Ctrl+S left the original annotated PDF bytes unchanged");
+#endif
+    checkpoint("Reader phase: reopened file annotation state independent of selected tool");
     controller->closeDocument(); controller->openDocument(saved);
-    if (!waitFor([&] { return controller->getDocument() && select->isChecked(); }) || annotations(pdf::AnnotationType::Highlight) != 0 || annotations(pdf::AnnotationType::Text) != 1)
-        return fail("Deleted annotation returned after save and reopen");
+    // The active text-selection QAction is a UI state, not a proof that the
+    // asynchronous PDF open has finished. Await actual file/page load FIRST,
+    // and independently inspect the annotations from the reloaded document.
+    if (!waitFor([&] {
+        const auto* doc = controller->getDocument();
+        return doc && doc->getCatalog() && doc->getCatalog()->getPageCount() == 2 &&
+            controller->canClose() && !controller->getIsBusy() &&
+            window.isEnabled() &&
+            sameExistingFile(controller->getOriginalFileName(), saved);
+    }))
+        return fail("Annotated copy failed to fully reopen after Ctrl+S");
+    if (annotations(pdf::AnnotationType::Highlight) != 0 ||
+        annotations(pdf::AnnotationType::Text) != 1) {
+        error = QStringLiteral("Deleted annotation returned after save and reopen: highlights=%1 notes=%2 saved=%3 path=%4")
+            .arg(annotations(pdf::AnnotationType::Highlight))
+            .arg(annotations(pdf::AnnotationType::Text))
+            .arg(savedState->isCurrentSaved())
+            .arg(controller->getOriginalFileName());
+        return false;
+    }
+    if (!select->isChecked()) select->trigger();
+    if (!waitFor([&] { return select->isChecked(); }))
+        return fail("Text selection mode unavailable after reopening saved annotations");
     // Restore a native highlight for the final reading-layout captures.
     // A document and the checked selection action can precede completion of
     // asynchronous text indexing. The native controller disables the window

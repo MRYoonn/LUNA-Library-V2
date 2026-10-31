@@ -30,6 +30,8 @@
 #include <QClipboard>
 #include <QColorDialog>
 #include <QMessageBox>
+#include <QMenu>
+#include <QSettings>
 #include <QAbstractButton>
 #include <QPushButton>
 #include <QSpinBox>
@@ -393,6 +395,33 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     auto* lunaTextBox = action("LunaFreeTextBox");
     if (!lunaHighlight || !lunaTextBox || !lunaTextBox->isCheckable())
         return fail("LUNA selection-first highlight or transparent memo tool is missing");
+    checkpoint("Reader phase: persistent four-color highlight palette");
+    auto* palette = window.findChild<QMenu*>(QStringLiteral("LunaHighlightPalette"));
+    if (!palette) return fail("LUNA highlight palette missing from native Tools menu");
+    const auto choices = palette->actions();
+    const QStringList expectedColors = {
+        QStringLiteral("#FFE049"), QStringLiteral("#A3E6A4"),
+        QStringLiteral("#FFB3CF"), QStringLiteral("#9FCAFF")
+    };
+    if (choices.size() < expectedColors.size() + 2)
+        return fail("LUNA highlight palette lost a preset or custom color action");
+    for (qsizetype i = 0; i < expectedColors.size(); ++i) {
+        if (!choices[i]->isCheckable() ||
+            choices[i]->data().toString().compare(expectedColors[i], Qt::CaseInsensitive))
+            return fail("LUNA highlight palette preset mismatch");
+    }
+    const QString settingKey = QStringLiteral("annotations/highlightColor");
+    const QVariant previousColor = QSettings().value(settingKey);
+    choices[1]->trigger();
+    const bool greenPersisted = !QSettings().value(settingKey).toString().compare(
+        expectedColors[1], Qt::CaseInsensitive);
+    choices[0]->trigger();
+    const bool yellowPersisted = !QSettings().value(settingKey).toString().compare(
+        expectedColors[0], Qt::CaseInsensitive);
+    if (previousColor.isValid()) QSettings().setValue(settingKey, previousColor);
+    else QSettings().remove(settingKey);
+    if (!greenPersisted || !yellowPersisted)
+        return fail("LUNA highlight palette failed to persist chosen colors");
     if (!waitFor([&] { return lunaHighlight->isEnabled(); }))
         return fail("LUNA highlighter did not enable after native text selection");
     click(lunaHighlight);

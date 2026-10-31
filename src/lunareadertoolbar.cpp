@@ -38,6 +38,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QSettings>
 #include <QPointer>
 #include <QPushButton>
 #include <QSpinBox>
@@ -106,6 +107,21 @@ public:
         highlight_->setObjectName(QStringLiteral("LunaHighlightSelected"));
         highlight_->setToolTip(QStringLiteral("텍스트를 먼저 드래그 선택한 뒤 클릭해 강조합니다. 이미 강조한 부분은 중복 표시하지 않습니다."));
         highlight_->setEnabled(false);
+        QColor stored(QSettings().value(QStringLiteral("annotations/highlightColor"),
+            QStringLiteral("#FFE049")).toString());
+        if (stored.isValid()) color_ = stored;
+        chooseColor_ = new QAction(QStringLiteral("형광펜 색상 변경…"), &window_);
+        chooseColor_->setObjectName(QStringLiteral("LunaHighlightColor"));
+        chooseColor_->setToolTip(QStringLiteral("선택형 형광펜의 색상을 설정합니다. 툴바 버튼은 추가하지 않습니다."));
+        connect(chooseColor_, &QAction::triggered, this, [this] {
+            const QColor next = QColorDialog::getColor(color_, draw_,
+                QStringLiteral("형광펜 색상"), QColorDialog::ShowAlphaChannel);
+            if (!next.isValid()) return;
+            color_ = next;
+            QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexArgb));
+        });
+        if (auto* menu = window_.findChild<QMenu*>(QStringLiteral("menuTools")))
+            menu->addAction(chooseColor_);
         connect(highlight_, &QAction::triggered, this, [this] { applyHighlight(); });
         // A PDF FreeText annotation is a true on-page text box rather than a
         // sticky-note icon. PDF4QT's modifier owns its save/undo machinery.
@@ -160,7 +176,7 @@ private:
         auto* selected = c->getToolManager()->getSelectTextTool();
         if (!selected || selected->getSelectedText().trimmed().isEmpty()) { clearPendingSelection(); return; }
         pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(selectionPage_);
-        pdf::PDFTextSelection selection = layout.createTextSelection(selectionPage_, selectionStart_, selectionEnd_, QColor(255, 224, 73));
+        pdf::PDFTextSelection selection = layout.createTextSelection(selectionPage_, selectionStart_, selectionEnd_, color_);
         if (selection.isEmpty()) { clearPendingSelection(); return; }
         pdf::PDFTextLayoutGetter getter = proxy->getTextLayoutCompiler()->getTextLayoutLazy(selectionPage_);
         QPolygonF quads;
@@ -193,7 +209,7 @@ private:
         const auto page = c->getDocument()->getCatalog()->getPage(pageIndex);
         if (!page) return;
         const pdf::PDFObjectReference ref = modifier.getBuilder()->createAnnotationHighlight(
-            page->getPageReference(), clean, QColor(255, 224, 73));
+            page->getPageReference(), clean, color_);
         modifier.getBuilder()->setAnnotationOpacity(ref, 0.2);
         modifier.getBuilder()->updateAnnotationAppearanceStreams(ref);
         modifier.markAnnotationsChanged();
@@ -474,6 +490,8 @@ private:
     QPoint press_;
     bool deleting_ = false, editable_ = false, drawingBox_ = false;
     QAction* highlight_ = nullptr;
+    QAction* chooseColor_ = nullptr;
+    QColor color_ = QColor(255, 224, 73);
     QAction* textBox_ = nullptr;
     QRubberBand* rubber_ = nullptr;
     pdf::PDFInteger selectionPage_ = -1;

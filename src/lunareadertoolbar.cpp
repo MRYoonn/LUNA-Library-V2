@@ -238,9 +238,12 @@ public:
         syncSwatches();
         eraser_ = new QAction(readerIcon(QStringLiteral("erase")), QStringLiteral("형광펜 지우개"), &window_);
         eraser_->setObjectName(QStringLiteral("LunaEraseSelected"));
-        eraser_->setToolTip(QStringLiteral("형광펜처럼 텍스트를 먼저 드래그 선택한 뒤 누릅니다. 선택한 영역과 겹치는 형광펜 주석만 삭제합니다. 메모와 본문은 유지합니다."));
-        eraser_->setEnabled(false);
-        connect(eraser_, &QAction::triggered, this, [this] { eraseSelectedHighlights(); });
+        eraser_->setToolTip(QStringLiteral("지우개를 누른 뒤 텍스트를 드래그하면 해당 범위의 형광펜을 삭제합니다. 메모와 본문은 유지합니다."));
+        eraser_->setCheckable(true);
+        connect(eraser_, &QAction::triggered, this, [this](bool checked) {
+            if (checked) armEraser();
+            else { eraserArmed_ = false; selectText(); }
+        });
         // Keep the native click-to-delete action accessible in Tools for other
         // annotation types. The compact reader eraser is selection-first.
         if (toolsMenu) {
@@ -269,9 +272,13 @@ public:
         if (auto* selectAction = nativeAction(window_, "actionSelectText"))
             connect(selectAction, &QAction::triggered, this, [this] {
                 if (highlightArmed_) setHighlightArmed(false);
+                if (eraserArmed_) { eraserArmed_ = false; eraser_->setChecked(false); }
             });
         connect(textBox_, &QAction::toggled, this, [this](bool enabled) {
-            if (enabled) setHighlightArmed(false);
+            if (enabled) {
+                setHighlightArmed(false);
+                eraserArmed_ = false; eraser_->setChecked(false);
+            }
             if (enabled && !canAnnotate()) { textBox_->setChecked(false); return; }
             if (enabled) { clearPendingSelection(); selectText(); draw_->setCursor(Qt::CrossCursor); }
             else { rubber_->hide(); drawingBox_ = false; draw_->unsetCursor(); }
@@ -282,11 +289,18 @@ public:
         connect(controller->getToolManager(), &pdf::PDFToolManager::documentModified, this, afterAnnotation);
         connect(controller->getPdfWidget()->getAnnotationManager(), &pdf::PDFWidgetAnnotationManager::documentModified, this, afterAnnotation);
         connect(&window_, &QWidget::windowTitleChanged, this, [this] {
-            target_ = {}; // A document/title transition cancels an unfinished click.
+            // A dirty-marker title change is NOT a document transition.
+            // Preserve the armed pen/eraser across multiple annotation drags.
+            auto* controller = window_.getProgramController();
+            const QString source = controller ? controller->getOriginalFileName() : QString();
+            if (source == lastDocumentSource_) return;
+            lastDocumentSource_ = source;
+            target_ = {}; // Real document transition cancels an unfinished click.
             stopVerticalAutoscroll();
             cancelTextBoxDrag();
             clearPendingSelection();
             setHighlightArmed(false);
+            eraserArmed_ = false; eraser_->setChecked(false);
             textBox_->setChecked(false);
             QTimer::singleShot(0, this, [this] {
                 auto* c = window_.getProgramController();
@@ -319,9 +333,19 @@ private:
         if (textBox_->isChecked()) textBox_->setChecked(false);
         selectText();  // Explicitly switch back from any native annotation tool.
         if (!checked("actionSelectText")) { setHighlightArmed(false); return; }
+        eraserArmed_ = false; eraser_->setChecked(false);
         color_ = next;
         QSettings().setValue(QStringLiteral("annotations/highlightColor"), color_.name(QColor::HexRgb));
         setHighlightArmed(true);
+    }
+    void armEraser() {
+        if (!canAnnotate()) { eraserArmed_ = false; eraser_->setChecked(false); return; }
+        clearPendingSelection();
+        if (textBox_->isChecked()) textBox_->setChecked(false);
+        selectText();
+        if (!checked("actionSelectText")) { eraser_->setChecked(false); return; }
+        setHighlightArmed(false);
+        eraserArmed_ = true; eraser_->setChecked(true);
     }
     bool checked(const char* name) const { auto* a = nativeAction(window_, name); return a && a->isChecked(); }
     // Match the upstream PDF4QT native tool security gate. A custom action
@@ -337,7 +361,6 @@ private:
         selectionPage_ = -1;
         selectionStart_ = {};
         selectionEnd_ = {};
-        eraser_->setEnabled(false);
     }
     void applyHighlight() {
         if (!highlightArmed_ || selectionPage_ < 0) return;
@@ -551,7 +574,7 @@ private:
                 pdf::PDFModifiedDocument(modifier.getDocument(), nullptr, modifier.getFlags()));
     }
     void eraseSelectedHighlights() {
-        if (!eraser_->isEnabled() || selectionPage_ < 0) return;
+        if (!eraserArmed_ || selectionPage_ < 0) return;
         auto* c = window_.getProgramController();
         if (!canAnnotate() || !checked("actionSelectText")) { clearPendingSelection(); return; }
         auto* proxy = c->getPdfWidget()->getDrawWidgetProxy();
@@ -1032,7 +1055,9 @@ private:
         if ((event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) &&
             static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
             target_ = {}; clearPendingSelection(); textBox_->setChecked(false);
-            setHighlightArmed(false); selectText(); return false;
+            setHighlightArmed(false);
+            eraserArmed_ = false; eraser_->setChecked(false);
+            selectText(); return false;
         }
         if (textBox_->isChecked()) {
             if (event->type() == QEvent::MouseButtonPress) {
@@ -1085,8 +1110,8 @@ private:
                     auto* selected = window_.getProgramController()->getToolManager()->getSelectTextTool();
                     const bool ready = canAnnotate() && selected && !selected->getSelectedText().trimmed().isEmpty() &&
                         !textBox_->isChecked() && selectionPage_ >= 0;
-                    eraser_->setEnabled(ready);
-                    if (ready && highlightArmed_) applyHighlight();
+                    if (ready && eraserArmed_) eraseSelectedHighlights();
+                    else if (ready && highlightArmed_) applyHighlight();
                 });
             }
             return false; // Native text-selection tool must receive the release.
@@ -1141,6 +1166,8 @@ private:
     QPoint boxStart_;
     int boxHandle_ = 0;
     bool highlightArmed_ = false;
+    bool eraserArmed_ = false;
+    QString lastDocumentSource_;
     QAction* eraser_ = nullptr;
     QAction* chooseColor_ = nullptr;
     QList<QAction*> swatches_;

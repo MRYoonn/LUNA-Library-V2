@@ -1186,6 +1186,7 @@ private:
             old.value(QStringLiteral("metadata_checked_at")).toString(),Qt::ISODateWithMs);
         if(!refresh && last.isValid() && last.secsTo(QDateTime::currentDateTimeUtc())<3600 &&
            old.value(QStringLiteral("doi")).toString()==safe)return;
+        bibliography_.markLookupStarted(identity);
         metadataFetcher_->lookup(safe,[this,identity,safe](QVariantMap data, QString reason) {
             if(!data.isEmpty()) {
                 bibliography_.mergeVerifiedOnline(identity,safe,data,reason);

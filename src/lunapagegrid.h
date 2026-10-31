@@ -31,11 +31,16 @@ public:
         viewport()->installEventFilter(this);
     }
     void bindNative(QListView& native) {
+        // A long SI may have hundreds of pages. Do not request thumbnail
+        // regeneration for a hidden page grid whenever its PDF tab activates.
+        // The visible page view will size the new native model on demand.
+        if (model() == native.model() && selectionModel() == native.selectionModel()) return;
         setModel(native.model());
         auto* temporarySelection = selectionModel();
         setSelectionModel(native.selectionModel());
         if (temporarySelection && temporarySelection != selectionModel() && temporarySelection->parent() == this) temporarySelection->deleteLater();
-        thumbnailSize_(qMax(24, qMax(iconSize().width(), iconSize().height()))); doItemsLayout(); scheduleLayout();
+        pendingModelSize_ = true;
+        if (isVisible()) scheduleLayout();
     }
 protected:
     void resizeEvent(QResizeEvent* event) override {
@@ -66,14 +71,21 @@ private:
             const int previewWidth = qMin(112, cell - 16);
             const int previewHeight = qRound(previewWidth / .72);
             const QSize grid(cell, previewHeight + 38);
-            if (gridSize() == grid) return;
+            if (gridSize() == grid && !pendingModelSize_) return;
             setGridSize(grid);
             setIconSize(QSize(previewWidth, previewHeight));
-            thumbnailSize_(previewHeight);
+            // Only resize thumbnails while the page view is actually shown.
+            // A model switch while hidden must not spend CPU rendering a
+            // 200+ page SI before the reader displays its first page.
+            if (isVisible()) {
+                thumbnailSize_(previewHeight);
+                pendingModelSize_ = false;
+            }
             doItemsLayout();
         });
     }
     std::function<void(int)> thumbnailSize_;
     bool scheduled_ = false;
+    bool pendingModelSize_ = true;
 };
 }

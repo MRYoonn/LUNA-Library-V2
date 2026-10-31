@@ -18,17 +18,17 @@ using namespace luna::Metadata;
 // become reproducible without guessing about code or disabling assertions.
 static void diagnosticMessage(QtMsgType type, const QMessageLogContext&, const QString& text) {
     const QByteArray bytes=text.toUtf8();
-    std::fprintf(stderr, "LUNA_QT[%d]: %s\\n",int(type),bytes.constData());
+    std::fprintf(stderr, "LUNA_QT[%d]: %s\n",int(type),bytes.constData());
     std::fflush(stderr);
 }
 static void expect(bool yes,const char* what) {
     if (yes) return;
-    std::fprintf(stderr,"LUNA_METADATA_TEST_FAILED: %s\\n",what);
+    std::fprintf(stderr,"LUNA_METADATA_TEST_FAILED: %s\n",what);
     std::fflush(stderr);
     std::abort();
 }
 static void checkpoint(const char* name) {
-    std::fprintf(stderr,"LUNA_METADATA_CHECKPOINT: %s\\n",name);
+    std::fprintf(stderr,"LUNA_METADATA_CHECKPOINT: %s\n",name);
     std::fflush(stderr);
 }
 int main(int argc,char** argv){

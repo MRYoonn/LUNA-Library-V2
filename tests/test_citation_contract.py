@@ -62,6 +62,10 @@ class CitationContractTests(unittest.TestCase):
         self.assertIn('Metadata::collectCandidates(pages,infoText)', self.extractor)
         self.assertIn('Metadata::acceptableIdentity(candidates)', self.extractor)
         self.assertIn('std::min<int>(3, int(catalog->getPageCount()))', self.extractor)
+        # Qt6/MSVC cannot choose between QList<QString>::append(QString)
+        # and append(QList<QString>) for a bare empty initializer-list.
+        self.assertIn('pages.append(QString())', self.extractor)
+        self.assertNotIn('pages.append({})', self.extractor)
         self.assertNotIn("firstPageIdentity(text)", self.extractor)
         self.assertIn("bibliography_.enrichFromFirstPage(identity, *result)", self.ui)
         self.assertNotIn("LunaExtractFirstPageCitation", self.ui)

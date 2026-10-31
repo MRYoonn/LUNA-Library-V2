@@ -340,7 +340,7 @@ private:
         if (!page) return;
         const auto existing = manager->getPageAnnotations(pageIndex).annotations;
         pdf::PDFDocumentModifier modifier(c->getDocument());
-        int removed = 0;
+        int affected = 0;
         for (const auto& item : existing) {
             if (item.annotation->getType() != pdf::AnnotationType::Highlight ||
                 !manager->canDeleteAnnotation(item)) continue;
@@ -348,10 +348,33 @@ private:
             if (!marked) continue;
             const auto& path = marked->getHiglightArea().getPath();
             if (!area.intersects(path) && !area.contains(path) && !path.contains(area)) continue;
-            modifier.getBuilder()->removeAnnotation(page->getPageReference(), item.annotation->getSelfReference());
-            ++removed;
+            // Preserve the other lines of a multi-line highlight. Editing
+            // QuadPoints in place keeps the annotation's author, color,
+            // opacity and comments, unlike deleting/recreating the mark.
+            QPolygonF remaining;
+            bool erasedQuadrilateral = false;
+            const auto& quadrilaterals = marked->getHiglightArea().getQuadrilaterals();
+            for (const auto& quad : quadrilaterals) {
+                QPolygonF geometry;
+                for (const auto& point : quad) geometry << point;
+                QPainterPath region; region.addPolygon(geometry); region.closeSubpath();
+                if (area.intersects(region) || area.contains(region) || region.contains(area)) {
+                    erasedQuadrilateral = true;
+                } else {
+                    for (const auto& point : quad) remaining << point;
+                }
+            }
+            if (!erasedQuadrilateral && !quadrilaterals.empty()) continue;
+            const auto ref = item.annotation->getSelfReference();
+            if (remaining.isEmpty()) {
+                modifier.getBuilder()->removeAnnotation(page->getPageReference(), ref);
+            } else {
+                modifier.getBuilder()->setAnnotationQuadPoints(ref, remaining);
+                modifier.getBuilder()->updateAnnotationAppearanceStreams(ref);
+            }
+            ++affected;
         }
-        if (!removed) return;
+        if (!affected) return;
         modifier.markAnnotationsChanged();
         if (modifier.finalize())
             Q_EMIT c->getToolManager()->documentModified(

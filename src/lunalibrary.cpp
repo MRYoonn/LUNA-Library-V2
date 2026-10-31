@@ -1913,7 +1913,9 @@ private:
             delegate->setCompact(compact);
             list->setUniformItemSizes(false);
             list->setUniformItemSizes(true);
-            list->doItemsLayout();
+            // doItemsLayout is a Qt virtual slot, not a public C++ method.
+            // Invoke through the meta-object after changing uniform size.
+            QMetaObject::invokeMethod(list, "doItemsLayout", Qt::DirectConnection);
             if (anchor) list->scrollToItem(anchor, QAbstractItemView::PositionAtTop);
             list->viewport()->update();
         }

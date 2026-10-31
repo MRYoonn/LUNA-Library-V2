@@ -24,6 +24,21 @@ class PublicGate(unittest.TestCase):
         with (self.root / "assets/icons/LUNA-Moon.ico").open("ab") as stream:
             stream.write(b"unexpected")
         self.assertTrue(any("Unapproved icon" in e for e in check(self.root)))
+    def test_scoped_lunalibrary_size_limit(self):
+        source = self.root / "src/lunalibrary.cpp"
+        self.assertLessEqual(source.stat().st_size, 240_000)
+        with source.open("ab") as stream:
+            stream.write(b" " * 40_000)
+        self.assertTrue(any("Unexpected file size: src/lunalibrary.cpp" in e
+                            for e in check(self.root)))
+
+    def test_default_size_limit_still_blocks_other_files(self):
+        source = self.root / "README.md"
+        with source.open("ab") as stream:
+            stream.write(b" " * 210_000)
+        self.assertTrue(any("Unexpected file size: README.md" in e
+                            for e in check(self.root)))
+
     def test_pdf_file_blocked(self):
         (self.root / "private.pdf").write_bytes(b"%PDF-1.7 synthetic test")
         self.assertTrue(any("Unexpected" in e for e in check(self.root)))

@@ -84,6 +84,16 @@ inline bool acceptableIdentity(const QList<Candidate>& candidates) {
             return false;
     return true;
 }
+inline QString plainMetadataText(QString text) {
+    // Crossref titles can contain inline XML/JATS tags. Keep the text without
+    // treating remote content as Qt rich text or allowing arbitrary markup.
+    text.remove(QRegularExpression(QStringLiteral(R"(<[^>]*>)")));
+    text.replace(QStringLiteral("&amp;"),QStringLiteral("&"));
+    text.replace(QStringLiteral("&lt;"),QStringLiteral("<"));
+    text.replace(QStringLiteral("&gt;"),QStringLiteral(">"));
+    text.replace(QStringLiteral("&nbsp;"),QStringLiteral(" "));
+    return text.simplified().left(4096);
+}
 inline QString normalizedTitle(QString title) {
     title.remove(QRegularExpression(QStringLiteral(R"(<[^>]*>)")));
     title = title.normalized(QString::NormalizationForm_KC).toCaseFolded();
@@ -197,7 +207,7 @@ inline QVariantMap fromCrossref(const QJsonObject& obj, const QString& expectedD
     if (normalizeDoi(obj.value(QStringLiteral("DOI")).toString())!=normalizeDoi(expectedDoi)) return {};
     QVariantMap m; m["doi"]=normalizeDoi(expectedDoi);m["metadata_source"]="Crossref";
     const auto first=[](const QJsonValue& v) {return v.toArray().isEmpty()?QString():v.toArray().first().toString().simplified();};
-    m["title"]=first(obj.value(QStringLiteral("title")));
+    m["title"]=plainMetadataText(first(obj.value(QStringLiteral("title"))));
     m["journal"]=first(obj.value(QStringLiteral("container-title")));
     m["journal_abbreviation"]=first(obj.value(QStringLiteral("short-container-title")));
     m["year"]=yearFromCrossref(obj);
@@ -220,7 +230,7 @@ inline QVariantMap fromCrossref(const QJsonObject& obj, const QString& expectedD
 inline QVariantMap fromOpenAlex(const QJsonObject& obj, const QString& expectedDoi) {
     if (normalizeDoi(obj.value(QStringLiteral("doi")).toString())!=normalizeDoi(expectedDoi)) return {};
     QVariantMap m; m["doi"]=normalizeDoi(expectedDoi);m["metadata_source"]="OpenAlex";
-    m["title"]=obj.value(QStringLiteral("title")).toString().simplified();
+    m["title"]=plainMetadataText(obj.value(QStringLiteral("title")).toString());
     m["journal"]=obj.value(QStringLiteral("primary_location")).toObject()
         .value(QStringLiteral("source")).toObject().value(QStringLiteral("display_name")).toString();
     const int year=obj.value(QStringLiteral("publication_year")).toInt();

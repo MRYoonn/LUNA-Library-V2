@@ -1172,8 +1172,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             phase("context-only memo, search and paired move");
             integrationRequire(integrationWait([&] { list = integrationList(host, files[0], &paper); return list && paper; }), "A paper card missing before memo"); list->scrollToItem(paper);
             const QRect card = list->visualItemRect(paper);
-            integrationRequire(card.height() == 140 && list->viewMode() == QListView::ListMode && !list->isWrapping(), "One-column horizontal paper card layout changed");
-            const QPoint memoLocation(card.left() + 160, card.top() + 113);
+            integrationRequire(card.height() == 322 && list->viewMode() == QListView::ListMode && !list->isWrapping(), "Stacked full-width thumbnail paper card layout changed");
+            const QPoint memoLocation(card.left() + 160, card.top() + 293);
             // Regression gate: plain left-click MUST NOT enter memo editing.
             integrationRequire(integrationClick(host, list->viewport(), memoLocation), "Real memo selection mouse input failed");
             QElapsedTimer noAccidentalEdit; noAccidentalEdit.start();

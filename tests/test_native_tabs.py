@@ -57,6 +57,8 @@ class NativeTabsContract(unittest.TestCase):
             'Recolor did not undo atomically',
             'Old plus new text was not recolored to the selected marker',
             'Selection-first eraser did not preserve native undo',
+            'Eraser did not arm native text selection',
+            'Click-then-drag eraser did not remove previous highlight',
             'Reader phase: vertical middle-click autoscroll',
             'Escape did not cancel vertical autoscroll',
             'Reader phase: transparent on-page FreeText note',
@@ -157,7 +159,13 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('syncSwatches();', adapter)
         self.assertIn('add("actionPrint");', adapter)
         self.assertIn('QPolygonF nib;', adapter)
-        self.assertIn('setHighlightArmed(false); selectText(); return false;', adapter)
+        self.assertIn('void armEraser()', adapter)
+        self.assertIn('eraser_->setCheckable(true);', adapter)
+        self.assertIn('if (ready && eraserArmed_) eraseSelectedHighlights();', adapter)
+        self.assertIn('auto* controller = window_.getProgramController();', adapter)
+        self.assertIn('if (source == lastDocumentSource_) return;', adapter)
+        self.assertIn('eraserArmed_ = false; eraser_->setChecked(false);', adapter)
+        self.assertNotIn('eraser_->setEnabled(false);', adapter)
 
     def test_selection_overlay_keeps_native_text_and_bridges_visual_word_gaps(self):
         source = (ROOT / 'tools/apply_performance.py').read_text(encoding='utf-8')

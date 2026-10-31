@@ -75,9 +75,23 @@ int main(int argc,char** argv){
     expect(fromCrossref(cr,QStringLiteral("10.1000/wrong")).isEmpty(),"Crossref DOI mismatch rejected");
     auto online=fromCrossref(cr,doi);
     expect(online.value("authors_structured").toStringList().size()==2,"author list preserved");
-    expect(labCitation(online)==QStringLiteral(
-        "Abigail G. Doyle, J. Am. Chem. Soc. 2024, 146, 20349–20356."),
-        "required lab citation string");
+    const QString expectedCitation = QStringLiteral(
+        "Abigail G. Doyle, J. Am. Chem. Soc. 2024, 146, 20349") +
+        QChar(0x2013) + QStringLiteral("20356.");
+    const QString actualCitation = labCitation(online);
+    if (actualCitation != expectedCitation) {
+        const QByteArray actualUtf8 = actualCitation.toUtf8();
+        const QByteArray expectedUtf8 = expectedCitation.toUtf8();
+        std::fprintf(stderr, "LUNA_CITATION_ACTUAL: %s\\n", actualUtf8.constData());
+        std::fprintf(stderr, "LUNA_CITATION_EXPECTED: %s\\n", expectedUtf8.constData());
+        for(const char* key : {"journal", "journal_abbreviation", "year", "volume",
+                               "page", "authors", "doi"}) {
+            const QByteArray value = online.value(QString::fromLatin1(key)).toString().toUtf8();
+            std::fprintf(stderr, "LUNA_CITATION_FIELD[%s]: %s\\n", key, value.constData());
+        }
+        std::fflush(stderr);
+    }
+    expect(actualCitation == expectedCitation, "required lab citation string");
     expect(officialAbbreviation(QStringLiteral("Unknown Chemistry Review"))==
            QStringLiteral("Unknown Chemistry Review"),"unknown journal never invented");
     online["senior_author_override"]=QStringLiteral("Robert R. Knowles");

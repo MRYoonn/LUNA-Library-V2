@@ -232,7 +232,7 @@ public:
         connect(&window_, &QWidget::windowTitleChanged, this, [this] {
             target_ = {}; // A document/title transition cancels an unfinished click.
             stopVerticalAutoscroll();
-            draggingTextBox_ = false;
+            cancelTextBoxDrag();
             clearPendingSelection();
             textBox_->setChecked(false);
             QTimer::singleShot(0, this, [this] {
@@ -605,42 +605,139 @@ private:
         }
         return {};
     }
+    // Text-selection mode owns regular glyph drags. A FreeText rectangle
+    // uses a LUNA-local preview and PDF4QT's *document* mutation API instead
+    // of forwarding synthetic mouse gestures into the native drag-and-drop
+    // event loop (which can block on Windows).
+    void cancelTextBoxDrag() {
+        draggingTextBox_ = false;
+        boxReference_ = {};
+        boxDocument_ = nullptr;
+        if (boxPreview_) boxPreview_->hide();
+        draw_->unsetCursor();
+    }
+    QRectF previewTextBox(const QPoint& to) const {
+        QRectF device = boxDeviceRect_;
+        if (boxHandle_ == 0) {
+            device.translate(to - boxStart_);
+        } else {
+            if (boxHandle_ & 1) device.setLeft(to.x());
+            if (boxHandle_ & 2) device.setRight(to.x());
+            if (boxHandle_ & 4) device.setTop(to.y());
+            if (boxHandle_ & 8) device.setBottom(to.y());
+            if (device.width() < 12 || device.height() < 12) return {};
+        }
+        return device.normalized();
+    }
     bool beginTextBoxDrag(QMouseEvent* event) {
-        if (event->button() != Qt::LeftButton || !checked("actionSelectText") || !canAnnotate()) return false;
+        if (event->button() != Qt::LeftButton || !checked("actionSelectText") ||
+            !canAnnotate() || textBox_->isChecked()) return false;
         auto* c = window_.getProgramController();
         auto* widget = c->getPdfWidget();
         auto* manager = widget->getAnnotationManager();
         const auto snapshot = widget->getDrawWidgetProxy()->getSnapshot();
-        // PDF4QT already implements FreeText movement and resize handles.
-        // The text selection tool normally consumes mouse events first, so
-        // explicitly hand over only FreeText gestures to its native manager.
         for (const auto& page : snapshot.items) {
+            const auto* pdfPage = c->getDocument()->getCatalog()->getPage(page.pageIndex);
+            if (!pdfPage) continue;
             const auto& items = manager->getPageAnnotations(page.pageIndex).annotations;
             for (auto it = items.rbegin(); it != items.rend(); ++it) {
                 const auto& item = *it;
                 if (item.annotation->getType() != pdf::AnnotationType::FreeText ||
                     !manager->isAnnotationSelectable(item) ||
                     !manager->canModifyAnnotation(item)) continue;
-                QRectF rect = item.annotation->getRectangle();
+                QRectF rect = item.annotation->getRectangle().normalized();
                 const auto matrix = manager->prepareTransformations(
                     page.pageToDeviceMatrix, widget, item.annotation->getEffectiveFlags(),
-                    c->getDocument()->getCatalog()->getPage(page.pageIndex), rect);
-                QRectF visible = matrix.mapRect(rect).normalized();
-                // A selected box may be resized from its handles just outside
-                // the displayed rectangle. Do not hijack empty-page text drags.
+                    pdfPage, rect);
+                const QRectF device = matrix.mapRect(rect).normalized();
                 const bool selected = manager->isAnnotationSelected(item.annotation->getSelfReference());
-                if (!visible.adjusted(selected ? -10 : 0, selected ? -10 : 0,
-                                      selected ? 10 : 0, selected ? 10 : 0)
-                                      .contains(event->pos())) continue;
+                if (!device.adjusted(selected ? -10 : 0, selected ? -10 : 0,
+                                     selected ? 10 : 0, selected ? 10 : 0).contains(event->pos()))
+                    continue;
+                // A new click moves the note. Only an already-selected box
+                // exposes resizing from its corners (PPT-like behavior).
+                int handle = 0;
+                if (selected) {
+                    const QPointF p = event->position();
+                    const qreal edge = 10.0;
+                    if (qAbs(p.x() - device.left()) <= edge) handle |= 1;
+                    else if (qAbs(p.x() - device.right()) <= edge) handle |= 2;
+                    if (qAbs(p.y() - device.top()) <= edge) handle |= 4;
+                    else if (qAbs(p.y() - device.bottom()) <= edge) handle |= 8;
+                    if ((handle & 3) == 0 || (handle & 12) == 0) handle = 0;
+                }
                 clearPendingSelection();
                 target_ = {};
-                manager->mousePressEvent(draw_, event);
+                boxDocument_ = c->getDocument();
+                boxReference_ = item.annotation->getSelfReference();
+                boxPage_ = page.pageIndex;
+                boxStart_ = event->pos();
+                boxDeviceRect_ = device;
+                boxPageToDevice_ = matrix;
+                boxHandle_ = handle;
+                manager->selectAnnotation(boxReference_, true);
+                if (!boxPreview_) {
+                    boxPreview_ = new QRubberBand(QRubberBand::Rectangle, draw_);
+                    boxPreview_->setAttribute(Qt::WA_TransparentForMouseEvents);
+                }
+                boxPreview_->setGeometry(device.toAlignedRect());
+                boxPreview_->hide();
+                draw_->setCursor(handle ? Qt::SizeFDiagCursor : Qt::SizeAllCursor);
                 draggingTextBox_ = true;
                 return true;
             }
         }
         if (manager->hasSelection()) manager->clearSelection();
         return false;
+    }
+    void finishTextBoxDrag(const QPoint& to) {
+        if (!draggingTextBox_) return;
+        const bool moved = (to - boxStart_).manhattanLength() >= QApplication::startDragDistance();
+        const auto document = boxDocument_;
+        const auto annotation = boxReference_;
+        const auto matrix = boxPageToDevice_;
+        const QRectF original = boxDeviceRect_;
+        const int handle = boxHandle_;
+        const QPoint start = boxStart_;
+        const pdf::PDFInteger pageIndex = boxPage_;
+        cancelTextBoxDrag();
+        if (!moved) return; // Click only selects the FreeText rectangle.
+        auto* c = window_.getProgramController();
+        if (!canAnnotate() || c->getDocument() != document) return;
+        const auto* pdfPage = c->getDocument()->getCatalog()->getPage(pageIndex);
+        if (!pdfPage) return;
+        bool invertible = false;
+        const auto inverse = matrix.inverted(&invertible);
+        if (!invertible) return;
+        QRectF device = original;
+        if (handle == 0) {
+            device.translate(to - start);
+        } else {
+            if (handle & 1) device.setLeft(to.x());
+            if (handle & 2) device.setRight(to.x());
+            if (handle & 4) device.setTop(to.y());
+            if (handle & 8) device.setBottom(to.y());
+            if (device.width() < 12 || device.height() < 12) return;
+        }
+        QRectF pageRect = inverse.mapRect(device).normalized();
+        const QRectF crop = pdfPage->getCropBox().normalized();
+        if (pageRect.width() < 8 || pageRect.height() < 8 ||
+            pageRect.width() > crop.width() || pageRect.height() > crop.height()) return;
+        if (handle == 0) {
+            pageRect.moveLeft(qBound(crop.left(), pageRect.left(), crop.right() - pageRect.width()));
+            pageRect.moveTop(qBound(crop.top(), pageRect.top(), crop.bottom() - pageRect.height()));
+        } else {
+            pageRect = pageRect.intersected(crop);
+            if (pageRect.width() < 8 || pageRect.height() < 8) return;
+        }
+        // Validate the annotation reference still exists on the active page.
+        auto* manager = c->getPdfWidget()->getAnnotationManager();
+        bool found = false;
+        for (const auto& item : manager->getPageAnnotations(pageIndex).annotations)
+            if (item.annotation->getSelfReference() == annotation &&
+                item.annotation->getType() == pdf::AnnotationType::FreeText &&
+                manager->canModifyAnnotation(item)) { found = true; break; }
+        if (found) manager->setAnnotationRectangle(annotation, pageRect);
     }
     bool eventFilter(QObject* object, QEvent* event) override {
         // Handle only the PDF draw widget; never steal mouse/key events
@@ -658,22 +755,26 @@ private:
             }
         }
         if (draggingTextBox_) {
-            auto* c = window_.getProgramController();
-            auto* manager = c->getPdfWidget()->getAnnotationManager();
             if (event->type() == QEvent::MouseMove) {
-                manager->mouseMoveEvent(draw_, static_cast<QMouseEvent*>(event));
+                const QPoint to = static_cast<QMouseEvent*>(event)->pos();
+                const QRectF next = previewTextBox(to);
+                if (boxPreview_) {
+                    if (next.isValid() &&
+                        (to - boxStart_).manhattanLength() >= QApplication::startDragDistance()) {
+                        boxPreview_->setGeometry(next.toAlignedRect());
+                        boxPreview_->show();
+                    } else boxPreview_->hide();
+                }
                 return true;
             }
             if (event->type() == QEvent::MouseButtonRelease &&
                 static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton) {
-                draggingTextBox_ = false;
-                manager->mouseReleaseEvent(draw_, static_cast<QMouseEvent*>(event));
+                finishTextBoxDrag(static_cast<QMouseEvent*>(event)->pos());
                 return true;
             }
             if (event->type() == QEvent::KeyPress &&
                 static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
-                draggingTextBox_ = false;
-                manager->keyPressEvent(draw_, static_cast<QKeyEvent*>(event));
+                cancelTextBoxDrag();
                 return true;
             }
         }
@@ -795,6 +896,14 @@ private:
     pdf::PDFObjectReference target_;
     QPoint press_;
     bool deleting_ = false, editable_ = false, drawingBox_ = false, draggingTextBox_ = false;
+    QRubberBand* boxPreview_ = nullptr;
+    const pdf::PDFDocument* boxDocument_ = nullptr;
+    pdf::PDFObjectReference boxReference_;
+    pdf::PDFInteger boxPage_ = -1;
+    QRectF boxDeviceRect_;
+    QTransform boxPageToDevice_;
+    QPoint boxStart_;
+    int boxHandle_ = 0;
     QAction* highlight_ = nullptr;
     QAction* eraser_ = nullptr;
     QAction* chooseColor_ = nullptr;

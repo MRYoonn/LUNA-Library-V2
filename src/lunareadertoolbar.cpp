@@ -414,17 +414,16 @@ private:
         // clipping, so visible word spaces also receive a continuous highlight.
         // This does NOT alter the selected text or bridge across columns.
         QList<QRectF> bands;
-        QPolygonF rotated;
         for (qsizetype i = 0; i + 3 < quads.size(); i += 4) {
             QPolygonF quad;
             for (qsizetype j = 0; j < 4; ++j) quad << quads[i + j];
             const QRectF r = quad.boundingRect().normalized();
             if (!r.isValid() || r.width() < 0.5 || r.height() < 0.5) continue;
+            // Journal watermarks/stamps are often rotated native PDF text.
+            // Never create a full-page annotation on these unrelated glyphs
+            // when the user drags across regular horizontal prose.
             if (qAbs(quad[0].y() - quad[1].y()) > 0.6 ||
-                qAbs(quad[2].y() - quad[3].y()) > 0.6) {
-                for (const auto& p : quad) rotated << p;
-                continue;
-            }
+                qAbs(quad[2].y() - quad[3].y()) > 0.6) continue;
             bands.append(r);
         }
         const QList<QRectF> joined = coalesceTextBands(std::move(bands));
@@ -440,7 +439,6 @@ private:
         struct RecolorEdit { pdf::PDFObjectReference ref; QPolygonF remainder; };
         QList<RecolorEdit> edits;
         QList<QRectF> alreadyTargetColor;
-        QPainterPath alreadyHighlighted;
         auto isSameRow = [](const QRectF& a, const QRectF& b) {
             const QRectF overlap = a.intersected(b);
             return a.isValid() && b.isValid() &&
@@ -472,7 +470,6 @@ private:
                 qAbs(components[0] - color_.redF()) < 0.012 &&
                 qAbs(components[1] - color_.greenF()) < 0.012 &&
                 qAbs(components[2] - color_.blueF()) < 0.012;
-            alreadyHighlighted.addPath(old->getHiglightArea().getPath());
             if (quads.empty()) {
                 const QRectF oldRect = old->getHiglightArea().getPath().boundingRect();
                 bool overlaps = false;
@@ -547,20 +544,8 @@ private:
                 appendRect(clean, QRectF(QPointF(seg.first, band.top()),
                                         QPointF(seg.second, band.bottom())));
         }
-        // For rotated selected glyphs, avoid losing the original geometry;
-        // reject overlaps rather than recoloring unsupported affine quads.
-        for (qsizetype i = 0; i + 3 < rotated.size(); i += 4) {
-            QPolygonF quad;
-            for (int j = 0; j < 4; ++j) quad << rotated[i + j];
-            QPainterPath part; part.addPolygon(quad); part.closeSubpath();
-            if (alreadyHighlighted.intersects(part) || alreadyHighlighted.contains(part)) {
-                clearPendingSelection();
-                QMessageBox::warning(draw_, QStringLiteral("형광펜 색상 교체 제한"),
-                    QStringLiteral("회전된 선택 글자는 기존 형광펜과 안전하게 분리할 수 없습니다."));
-                return;
-            }
-            for (const auto& point : quad) clean << point;
-        }
+        // Decorative rotated PDF text (e.g. diagonal ARTICLE IN PRESS)
+        // must not be treated as part of horizontal prose annotation.
         clearPendingSelection();
         if (clean.isEmpty() && edits.isEmpty()) return;
         pdf::PDFDocumentModifier modifier(c->getDocument());
@@ -603,16 +588,16 @@ private:
         }
         QPainterPath area;
         QList<QRectF> erasedBands;
-        bool rotatedSelection = false;
         for (qsizetype i = 0; i + 3 < quads.size(); i += 4) {
             QPolygonF quad;
             for (qsizetype j = 0; j < 4; ++j) quad << quads[i + j];
+            // Same horizontal-only selection rule as the colored marker.
+            // The eraser must not touch rotated watermark annotations.
+            if (qAbs(quad[0].y() - quad[1].y()) > 0.7 ||
+                qAbs(quad[2].y() - quad[3].y()) > 0.7) continue;
             area.addPolygon(quad); area.closeSubpath();
             const QRectF rect = quad.boundingRect().normalized();
             if (rect.isValid()) erasedBands.append(rect);
-            if (qAbs(quad[0].y() - quad[1].y()) > 0.7 ||
-                qAbs(quad[2].y() - quad[3].y()) > 0.7)
-                rotatedSelection = true;
         }
         // The highlighter already merged the same text run boundaries before
         // writing QuadPoints. Erasing must use the same union; otherwise a
@@ -656,7 +641,7 @@ private:
                     const QRectF overlap = original.intersected(erased);
                     if (overlap.height() < qMin(original.height(), erased.height()) * 0.45 ||
                         overlap.width() < 0.3) continue;
-                    if (rotatedOld || rotatedSelection) {
+                    if (rotatedOld) {
                         QMessageBox::warning(draw_, QStringLiteral("형광펜 지우개 제한"),
                             QStringLiteral("회전된 글자 영역은 현재 안전하게 부분 삭제할 수 없습니다."));
                         return;

@@ -396,86 +396,159 @@ private:
             if (!merged) joined.append(band);
         }
 
-        // Old behavior skipped *all* of a quad when even one word overlapped
-        // an existing highlight. Subtract covered X-ranges instead: marking
-        // "old + new" leaves old untouched and creates a real PDF Highlight
-        // annotation for the unmarked words. No invisible/duplicate layers.
-        const auto existing = c->getPdfWidget()->getAnnotationManager()->
-            getPageAnnotations(selectionPage_).annotations;
-        QList<QRectF> painted;
-        QPainterPath marked;
+        // Recolor only the selected region. PDF Highlight annotations may
+        // cover an entire paragraph in a single /QuadPoints array. Keep the
+        // segments outside the new drag in their original annotation/color.
+        const auto pageIndex = selectionPage_;
+        const auto* page = c->getDocument()->getCatalog()->getPage(pageIndex);
+        if (!page) { clearPendingSelection(); return; }
+        auto* manager = c->getPdfWidget()->getAnnotationManager();
+        const auto existing = manager->getPageAnnotations(pageIndex).annotations;
+        struct RecolorEdit { pdf::PDFObjectReference ref; QPolygonF remainder; };
+        QList<RecolorEdit> edits;
+        QList<QRectF> alreadyTargetColor;
+        QPainterPath alreadyHighlighted;
+        auto isSameRow = [](const QRectF& a, const QRectF& b) {
+            const QRectF overlap = a.intersected(b);
+            return a.isValid() && b.isValid() &&
+                overlap.height() >= qMin(a.height(), b.height()) * 0.45 &&
+                overlap.width() > 0.3;
+        };
+        auto subtractX = [](const QList<QPair<qreal, qreal>>& segments, qreal lo, qreal hi) {
+            QList<QPair<qreal, qreal>> next;
+            for (const auto& seg : segments) {
+                if (hi <= seg.first || lo >= seg.second) { next.append(seg); continue; }
+                if (lo - seg.first >= 0.7) next.append({seg.first, lo});
+                if (seg.second - hi >= 0.7) next.append({hi, seg.second});
+            }
+            return next;
+        };
+        auto appendRect = [](QPolygonF& output, const QRectF& rect) {
+            if (rect.isValid() && rect.width() > 0.7 && rect.height() > 0.7)
+                output << rect.topLeft() << rect.topRight()
+                       << rect.bottomLeft() << rect.bottomRight();
+        };
+
         for (const auto& item : existing) {
             if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
-            const auto* annotation = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
-            if (!annotation) continue;
-            marked.addPath(annotation->getHiglightArea().getPath());
-            // Older PDFs may store only /Rect without /QuadPoints.
-            // Such highlights must still block a duplicate transparent layer.
-            if (annotation->getHiglightArea().getQuadrilaterals().empty()) {
-                const QRectF fallback = annotation->getHiglightArea().getPath().boundingRect();
-                if (fallback.isValid()) painted.append(fallback);
+            const auto* old = dynamic_cast<const pdf::PDFHighlightAnnotation*>(item.annotation.data());
+            if (!old) continue;
+            const auto& quads = old->getHiglightArea().getQuadrilaterals();
+            const auto components = old->getColor();
+            const bool sameColor = components.size() >= 3 &&
+                qAbs(components[0] - color_.redF()) < 0.012 &&
+                qAbs(components[1] - color_.greenF()) < 0.012 &&
+                qAbs(components[2] - color_.blueF()) < 0.012;
+            alreadyHighlighted.addPath(old->getHiglightArea().getPath());
+            if (quads.empty()) {
+                const QRectF oldRect = old->getHiglightArea().getPath().boundingRect();
+                bool overlaps = false;
+                for (const auto& band : joined)
+                    if (isSameRow(oldRect, band)) { overlaps = true; break; }
+                if (sameColor && oldRect.isValid()) alreadyTargetColor.append(oldRect);
+                // Legacy annotations without QuadPoints cannot safely be split
+                // by text position. Never silently stack transparent colors.
+                if (overlaps && !sameColor) {
+                    clearPendingSelection();
+                    QMessageBox::warning(draw_, QStringLiteral("형광펜 색상 교체 제한"),
+                        QStringLiteral("기존 PDF 형광펜에 글자 범위 정보(QuadPoints)가 없어 선택한 부분만 교체할 수 없습니다."));
+                    return;
+                }
+                continue;
             }
-            for (const auto& quad : annotation->getHiglightArea().getQuadrilaterals()) {
-                QPolygonF polygon;
-                for (const auto& point : quad) polygon << point;
-                const QRectF rect = polygon.boundingRect().normalized();
-                if (rect.isValid()) painted.append(rect);
+            QPolygonF retained;
+            bool changed = false;
+            for (const auto& quad : quads) {
+                QPolygonF geometry;
+                for (const auto& point : quad) geometry << point;
+                if (geometry.size() != 4) continue;
+                const QRectF original = geometry.boundingRect().normalized();
+                if (sameColor) {
+                    alreadyTargetColor.append(original);
+                    for (const auto& point : geometry) retained << point;
+                    continue;
+                }
+                QList<QPair<qreal, qreal>> segments{{original.left(), original.right()}};
+                const bool rotatedOld = qAbs(geometry[0].y() - geometry[1].y()) > 0.7 ||
+                    qAbs(geometry[2].y() - geometry[3].y()) > 0.7;
+                for (const QRectF& band : joined) {
+                    if (!isSameRow(original, band)) continue;
+                    if (rotatedOld) {
+                        clearPendingSelection();
+                        QMessageBox::warning(draw_, QStringLiteral("형광펜 색상 교체 제한"),
+                            QStringLiteral("회전된 기존 형광펜은 선택 영역을 안전하게 분리할 수 없습니다."));
+                        return;
+                    }
+                    segments = subtractX(segments, band.left(), band.right());
+                    changed = true;
+                }
+                if (!changed || segments.size() == 1 &&
+                    qAbs(segments.front().first - original.left()) < 0.01 &&
+                    qAbs(segments.front().second - original.right()) < 0.01) {
+                    for (const auto& point : geometry) retained << point;
+                } else {
+                    for (const auto& segment : segments)
+                        appendRect(retained, QRectF(QPointF(segment.first, original.top()),
+                            QPointF(segment.second, original.bottom())));
+                }
+            }
+            if (changed) {
+                if (!manager->canDeleteAnnotation(item) || !manager->canModifyAnnotation(item)) {
+                    clearPendingSelection();
+                    QMessageBox::warning(draw_, QStringLiteral("형광펜 수정 불가"),
+                        QStringLiteral("수정 권한이 없는 기존 형광펜이 선택 영역에 포함되어 있습니다."));
+                    return;
+                }
+                edits.append({item.annotation->getSelfReference(), retained});
             }
         }
         QPolygonF clean;
-        for (const QRectF& band : joined) {
-            QList<QPair<qreal, qreal>> uncovered{{band.left(), band.right()}};
-            for (const QRectF& old : painted) {
-                const QRectF intersection = band.intersected(old);
-                const qreal minHeight = qMin(band.height(), old.height());
-                if (intersection.height() < 0.45 * minHeight ||
-                    intersection.width() < 0.25) continue;
-                QList<QPair<qreal, qreal>> next;
-                // A tiny amount of tolerance prevents 1-pixel double-tint
-                // at the boundary between an old and a new highlight.
-                const qreal lo = old.left() - 0.35, hi = old.right() + 0.35;
-                for (const auto& interval : uncovered) {
-                    if (lo >= interval.second || hi <= interval.first) {
-                        next.append(interval); continue;
-                    }
-                    if (lo - interval.first > 0.8)
-                        next.append({interval.first, lo});
-                    if (interval.second - hi > 0.8)
-                        next.append({hi, interval.second});
-                }
-                uncovered = std::move(next);
-                if (uncovered.isEmpty()) break;
+        for (const auto& band : joined) {
+            QList<QPair<qreal, qreal>> unpainted{{band.left(), band.right()}};
+            for (const QRectF& already : alreadyTargetColor) {
+                if (!isSameRow(band, already)) continue;
+                unpainted = subtractX(unpainted, already.left(), already.right());
+                if (unpainted.isEmpty()) break;
             }
-            for (const auto& interval : uncovered) {
-                const qreal left = qMax(band.left(), interval.first);
-                const qreal right = qMin(band.right(), interval.second);
-                if (right - left < 0.8) continue;
-                clean << QPointF(left, band.top()) << QPointF(right, band.top())
-                      << QPointF(left, band.bottom()) << QPointF(right, band.bottom());
-            }
+            for (const auto& seg : unpainted)
+                appendRect(clean, QRectF(QPointF(seg.first, band.top()),
+                                        QPointF(seg.second, band.bottom())));
         }
-        // Preserve original geometry for unusual rotated glyphs. Do not
-        // overpaint an existing mark when a rotated quad intersects it.
+        // For rotated selected glyphs, avoid losing the original geometry;
+        // reject overlaps rather than recoloring unsupported affine quads.
         for (qsizetype i = 0; i + 3 < rotated.size(); i += 4) {
             QPolygonF quad;
             for (int j = 0; j < 4; ++j) quad << rotated[i + j];
-            QPainterPath area; area.addPolygon(quad); area.closeSubpath();
-            if (marked.intersects(area) || marked.contains(area)) continue;
-            for (const auto& p : quad) clean << p;
+            QPainterPath part; part.addPolygon(quad); part.closeSubpath();
+            if (alreadyHighlighted.intersects(part) || alreadyHighlighted.contains(part)) {
+                clearPendingSelection();
+                QMessageBox::warning(draw_, QStringLiteral("형광펜 색상 교체 제한"),
+                    QStringLiteral("회전된 선택 글자는 기존 형광펜과 안전하게 분리할 수 없습니다."));
+                return;
+            }
+            for (const auto& point : quad) clean << point;
         }
-        const auto pageIndex = selectionPage_;
         clearPendingSelection();
-        if (clean.isEmpty()) return;
+        if (clean.isEmpty() && edits.isEmpty()) return;
         pdf::PDFDocumentModifier modifier(c->getDocument());
-        const auto page = c->getDocument()->getCatalog()->getPage(pageIndex);
-        if (!page) return;
-        const pdf::PDFObjectReference ref = modifier.getBuilder()->createAnnotationHighlight(
-            page->getPageReference(), clean, color_);
-        modifier.getBuilder()->setAnnotationOpacity(ref, 0.36);
-        modifier.getBuilder()->updateAnnotationAppearanceStreams(ref);
+        for (const auto& edit : edits) {
+            if (edit.remainder.isEmpty())
+                modifier.getBuilder()->removeAnnotation(page->getPageReference(), edit.ref);
+            else {
+                modifier.getBuilder()->setAnnotationQuadPoints(edit.ref, edit.remainder);
+                modifier.getBuilder()->updateAnnotationAppearanceStreams(edit.ref);
+            }
+        }
+        if (!clean.isEmpty()) {
+            const pdf::PDFObjectReference ref = modifier.getBuilder()->createAnnotationHighlight(
+                page->getPageReference(), clean, color_);
+            modifier.getBuilder()->setAnnotationOpacity(ref, 0.36);
+            modifier.getBuilder()->updateAnnotationAppearanceStreams(ref);
+        }
         modifier.markAnnotationsChanged();
         if (modifier.finalize())
-            Q_EMIT c->getToolManager()->documentModified(pdf::PDFModifiedDocument(modifier.getDocument(), nullptr, modifier.getFlags()));
+            Q_EMIT c->getToolManager()->documentModified(
+                pdf::PDFModifiedDocument(modifier.getDocument(), nullptr, modifier.getFlags()));
     }
     void eraseSelectedHighlights() {
         if (!eraser_->isEnabled() || selectionPage_ < 0) return;

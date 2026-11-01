@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 UI = (ROOT / "src/lunalibrary.cpp").read_text(encoding="utf-8")
 FILES = (ROOT / "src/lunafilemove.h").read_text(encoding="utf-8")
 BIB = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
+UNDO = (ROOT / "src/lunatrashundo.h").read_text(encoding="utf-8")
+SYNC = (ROOT / "src/lunalocalsync.h").read_text(encoding="utf-8")
 
 
 class NativeFileManagementContracts(unittest.TestCase):
@@ -42,8 +44,6 @@ class NativeFileManagementContracts(unittest.TestCase):
 
     def test_safe_windows_recycle_bin_and_folder_rename(self):
         for token in (
-            "QFile::moveToTrash(source.canonicalFilePath())",
-            "QFile::moveToTrash(name)",
             "renameWithoutReplacement(original, destination)",
             "renameFolder(model_->filePath(index))",
             "QKeySequence(Qt::Key_F2)",
@@ -54,6 +54,55 @@ class NativeFileManagementContracts(unittest.TestCase):
             "QStringLiteral(\"relativePath\")",
         ):
             self.assertIn(token, UI)
+
+    def test_ctrl_z_recycles_first_then_restores_without_overwrite(self):
+        for token in (
+            "luna::RecentTrashUndo recentUndo_",
+            'undoTrash->setShortcut(QKeySequence::Undo)',
+            "undoTrash->setShortcutContext(Qt::WidgetWithChildrenShortcut)",
+            "recentUndo_.trash(path, &error)",
+            "recentUndo_.undo(&error)",
+            "store.setValue(QStringLiteral(\"library/favorites\"), undoFavorites_)",
+        ):
+            self.assertIn(token, UI, token)
+        for token in (
+            "const std::function<bool(const QString&)>& recycler = QFile::moveToTrash",
+            "if (!recycler(item.first))",
+            "const QString portable=",
+            "QFileInfo::exists(item.first)",
+            "if (!QFile::copy(item.second, item.first))",
+            "void clear()",
+        ):
+            self.assertIn(token, UNDO, token)
+
+    def test_external_rename_and_opt_in_mybox_sidecar(self):
+        for token in (
+            "QString fileObjectId(const QString& path)",
+            "GetFileInformationByHandle(h, &info)",
+            "reconcileExplorerRename(",
+            "renameWithoutReplacement(item.first,item.second)",
+            "bibliography.relocate(DocumentClaim::identity(oldPath),DocumentClaim::identity(newPath))",
+            "QJsonObject capturePortableRecord(",
+            "QSaveFile file(output)",
+            "void configure(const QString& root, bool myboxEnabled)",
+            "QDirIterator::Subdirectories",
+            "fileObjectId(path)",
+        ):
+            self.assertIn(token, SYNC, token)
+        for token in (
+            'QStringLiteral("LunaMyboxConnect")',
+            "luna::LocalFolderSync* localSync_",
+            "localSync_->remoteChanged",
+            "localSync_->renamed",
+            "localSync_->publish(path)",
+            'QStringLiteral("library/mybox/enabled")',
+        ):
+            self.assertIn(token, UI, token)
+        self.assertNotIn("MYBOX_TOKEN", SYNC)
+        self.assertNotIn("https://", SYNC)
+        overlay = (ROOT / "tools/apply_overlay.py").read_text(encoding="utf-8")
+        self.assertIn('folder / "lunatrashundo.h"', overlay)
+        self.assertIn('folder / "lunalocalsync.h"', overlay)
 
     def test_reset_requires_verified_provider_or_local_page_evidence(self):
         self.assertIn("restoreVerifiedOnline(", BIB)

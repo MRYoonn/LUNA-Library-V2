@@ -127,6 +127,24 @@ class LibraryModes(unittest.TestCase):
         self.assertIn("refreshFileLists();", self.cpp)
         self.assertIn("list->count() == 1000 && !library->folderTimer_->isActive()", self.cpp)
 
+    def test_native_toolbar_geometry_uses_independent_reader_header_buttons(self):
+        # Build #204: Qt packed/loaded correctly; the geometry smoke still
+        # looked for the removed single "LunaCombinedPanelToggle" and failed.
+        reader = (ROOT/"src/lunareadertoolbar.cpp").read_text(encoding="utf-8")
+        self.assertNotIn('QStringLiteral("LunaCombinedPanelToggle")', reader)
+        for term in (
+            'QStringLiteral("LunaNavigationCollapseButton")',
+            'QStringLiteral("LunaDocumentsCollapseButton")',
+            '"LunaDocumentHeader", "LunaTabCorner"',
+            'header->rect().contains(navigationToggle->geometry())',
+            'header->rect().contains(documentsToggle->geometry())',
+            'navigationToggle->geometry().intersects(documentsToggle->geometry())',
+            'Toolbar overflow button overlaps a control',
+        ):
+            self.assertIn(term, reader, term)
+        self.assertIn('addIndependentPanelButtons(documentHeader, documentRow);', self.cpp)
+        self.assertIn('addIndependentPanelButtons(corner, row);', self.cpp)
+
     def test_wheel_uses_short_animation_but_not_for_touchpad(self):
         for term in (
             "class SmoothLibraryWheel final : public QObject",

@@ -157,7 +157,12 @@ public:
         sidecarTimer_.setSingleShot(true);
         connect(&sidecarTimer_, &QTimer::timeout, this, [this] { processSidecarBatch(); });
         connect(&watcher_, &QFileSystemWatcher::directoryChanged,
-                this, [this](const QString&){renameDebounce_.start();});
+                this, [this](const QString& path) {
+                    // Temporary/Explorer-deleted directories must not remain
+                    // watched while Windows tears down their change handles.
+                    if (!QFileInfo(path).isDir()) watcher_.removePath(path);
+                    renameDebounce_.start();
+                });
         timer_.setInterval(30000);
         connect(&timer_,&QTimer::timeout,this,[this]{scan();});
         timer_.start();
@@ -283,9 +288,11 @@ public:
             const QStringList watchedDirs = watcher_.directories();
             const QSet<QString> watching(watchedDirs.cbegin(), watchedDirs.cend());
             for (const QString& dir : result->directories)
-                if (!watching.contains(dir)) watcher_.addPath(dir);
+                if (QFileInfo(dir).isDir() && !watching.contains(dir))
+                    watcher_.addPath(dir);
             for (const QString& dir : watcher_.directories())
-                if (!result->directories.contains(dir)) watcher_.removePath(dir);
+                if (!QFileInfo(dir).isDir() || !result->directories.contains(dir))
+                    watcher_.removePath(dir);
             bool changed=false;
             QSet<QString> matched;
             for(auto it=result->ids.cbegin();it!=result->ids.cend();++it) {

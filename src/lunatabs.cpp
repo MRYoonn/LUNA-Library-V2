@@ -467,10 +467,52 @@ private:
                 if (popup->isVisible() && popup->windowFlags().testFlag(Qt::Popup)) popup->reject();
         bindLibraryEditor(*this, *editor);
         menuBar()->clear(); for (auto* action : editor->menuBar()->actions()) menuBar()->addAction(action);
-        if (updater_) {
-            if (auto* help = editor->findChild<QMenu*>(QStringLiteral("menuHelp"))) {
-                if (!help->actions().contains(updater_->action())) help->addAction(updater_->action());
+        if (auto* help = editor->findChild<QMenu*>(QStringLiteral("menuHelp"))) {
+            // The LUNA shell owns the user-facing identity. Keep third-party
+            // licenses accessible, but do not open the PDF engine's About,
+            // sponsorship or upstream source screens as the app's own brand.
+            for (const char* name : {"actionGetSource", "actionBecomeASponsor", "actionAbout"})
+                if (auto* upstream = editor->findChild<QAction*>(QString::fromLatin1(name)))
+                    help->removeAction(upstream);
+            auto* about = findChild<QAction*>(QStringLiteral("LunaAboutApp"));
+            if (!about) {
+                about = new QAction(QStringLiteral("LUNA Library 정보…"), this);
+                about->setObjectName(QStringLiteral("LunaAboutApp"));
+                connect(about, &QAction::triggered, this, [this] {
+                    QMessageBox::information(this, QStringLiteral("LUNA Library"),
+                        QStringLiteral("LUNA Library\\n\\n"
+                            "독립 실행형 Windows PDF 라이브러리 및 논문 관리 프로그램입니다.\\n"
+                            "LUNA 자체 인터페이스와 문서 관리 기능을 제공합니다.\\n"
+                            "PDF 처리에는 제3자 오픈소스 구성요소가 포함되어 있으며, "
+                            "도움말의 오픈소스 라이선스에서 확인할 수 있습니다."));
+                });
             }
+            auto* notices = findChild<QAction*>(QStringLiteral("LunaOpenSourceLicenses"));
+            if (!notices) {
+                notices = new QAction(QStringLiteral("오픈소스 라이선스…"), this);
+                notices->setObjectName(QStringLiteral("LunaOpenSourceLicenses"));
+                connect(notices, &QAction::triggered, this, [this] {
+                    const QDir app(QCoreApplication::applicationDirPath());
+                    QFile notice(app.filePath(QStringLiteral("LUNA_LICENSE_NOTICE.md")));
+                    QFile license(app.filePath(QStringLiteral("PDF4QT_LICENSE.txt")));
+                    if (!notice.open(QIODevice::ReadOnly) || !license.open(QIODevice::ReadOnly)) {
+                        QMessageBox::warning(this, QStringLiteral("오픈소스 라이선스"),
+                            QStringLiteral("라이선스 고지 파일이 누락됐습니다. LUNA 전체 패키지를 다시 확인해 주세요."));
+                        return;
+                    }
+                    QMessageBox dialog(QMessageBox::Information, QStringLiteral("오픈소스 라이선스"),
+                        QStringLiteral("LUNA에서 사용한 제3자 구성요소의 저작권 및 라이선스 고지입니다."),
+                        QMessageBox::Ok, this);
+                    dialog.setDetailedText(QString::fromUtf8(notice.readAll()) +
+                        QStringLiteral("\\n\\n----- Original license -----\\n") +
+                        QString::fromUtf8(license.readAll()));
+                    dialog.exec();
+                });
+            }
+            if (!help->actions().contains(about)) help->addAction(about);
+            if (!help->actions().contains(notices)) help->addAction(notices);
+            if (updater_ && !help->actions().contains(updater_->action()))
+                help->addAction(updater_->action());
         }
         bindCommonReaderToolbar(*this, *editor);
         editor->getProgramController()->getPdfWidget()->setFocus(); updateTitle(editor);

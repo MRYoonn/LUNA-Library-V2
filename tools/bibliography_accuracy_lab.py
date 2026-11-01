@@ -279,8 +279,22 @@ def score_regressions(regressions: object) -> dict:
         empty = case.get("must_remain_empty", [])
         if not isinstance(before, dict) or not isinstance(after, dict):
             raise DatasetError(f"regression/{ident}: before/after objects required")
-        if not isinstance(preserve, list) or not isinstance(empty, list) or not all(isinstance(x, str) for x in preserve + empty):
+        if not isinstance(preserve, list) or not isinstance(empty, list) or not all(
+            isinstance(x, str) and x.strip() for x in preserve + empty
+        ):
             raise DatasetError(f"regression/{ident}: invalid field lists")
+        if len(set(preserve)) != len(preserve) or len(set(empty)) != len(empty):
+            raise DatasetError(f"regression/{ident}: duplicate field assertion")
+        if set(preserve) & set(empty):
+            raise DatasetError(f"regression/{ident}: contradictory field assertions")
+        if "actual_status" in case and "expected_status" not in case:
+            raise DatasetError(f"regression/{ident}: actual_status without expected_status")
+        if "expected_status" in case and (
+            not isinstance(case["expected_status"], str) or not case["expected_status"].strip()
+        ):
+            raise DatasetError(f"regression/{ident}: invalid expected_status")
+        if not preserve and not empty and "expected_status" not in case:
+            raise DatasetError(f"regression/{ident}: no assertions to verify")
         for field in preserve:
             if field not in before or before[field] != after.get(field):
                 failures.append({"case_id": ident, "field": field, "reason": "changed_protected_value"})

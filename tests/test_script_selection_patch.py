@@ -2,6 +2,8 @@
 import hashlib
 import importlib.util
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -112,6 +114,27 @@ class ScriptSelectionPatchContracts(unittest.TestCase):
         finally:
             patch.PINNED_BLOB_SHA1 = first
             workflow_patch.PINNED_BLOB_SHA1 = second
+
+    def test_direct_script_import_mode_matches_windows_workflow(self):
+        # GitHub Actions invokes 'python tools/apply_performance.py ...':
+        # Python places tools/ (not the repository root) on sys.path.
+        # The package-mode unit tests alone cannot catch this regression.
+        probe = (
+            "import sys\n"
+            "sys.path.insert(0, 'tools')\n"
+            "from apply_performance import verify_pinned_text_layout\n"
+            "try:\n"
+            "    verify_pinned_text_layout(b'not pinned')\n"
+            "except ValueError as error:\n"
+            "    assert 'Unrecognized pinned' in str(error), str(error)\n"
+            "else:\n"
+            "    raise AssertionError('Unpinned text unexpectedly accepted')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", probe], cwd=ROOT, capture_output=True,
+            text=True, timeout=10, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_windows_build_applies_verified_patch_not_on_main_branch(self):
         workflow = (ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")

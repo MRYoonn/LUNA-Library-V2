@@ -94,6 +94,43 @@ def validate_cases(doc: dict, kind: str) -> dict[str, dict]:
     return indexed
 
 
+
+def validate_real_run(gold: dict, predictions: dict) -> None:
+    """Structural evidence gate; cannot independently authenticate PDF evidence.
+
+    A --require-real report is NOT an audited extraction accuracy claim. It
+    requires a native snapshot identity and evidence for known-negative labels
+    as well as positive values, preventing an unrun synthetic prediction file
+    from accidentally being accepted as a real Windows measurement.
+    """
+    commit = predictions.get("engine_commit")
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", commit) or commit.lower() == "0" * 40:
+        raise DatasetError("real run requires an exact non-placeholder 40-hex engine_commit")
+    if predictions.get("capture_kind") != "qt_record_snapshot_read_only":
+        raise DatasetError("real run requires qt_record_snapshot_read_only capture_kind")
+    for case in gold["cases"]:
+        ident = case["id"]
+        source = case["source"]
+        if source["kind"] not in ("public", "permissioned"):
+            raise DatasetError(f"real run/{ident}: only public or permissioned PDFs accepted")
+        if source["sha256"].lower() == "0" * 64:
+            raise DatasetError(f"real run/{ident}: placeholder PDF SHA256")
+        evidence = case["evidence"]
+        for field in case["expected"]:
+            # Explicit null means independently verified ABSENCE, not unknown.
+            # It needs evidence too (e.g. SI cover and no own DOI).
+            value = evidence.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise DatasetError(f"real run/{ident}: missing nonblank evidence for {field}")
+    for case in predictions["cases"]:
+        audit = case.get("audit")
+        if not isinstance(audit, dict) or any(
+            type(audit.get(key)) is not bool
+            for key in ("manual_citation_active", "senior_author_override_active")
+        ):
+            raise DatasetError(f"real run/{case['id']}: native snapshot audit flags required")
+
+
 def metric(tp: int, other: int) -> float | None:
     return round(tp / (tp + other), 6) if tp + other else None
 
@@ -105,6 +142,8 @@ def score(gold: dict, predictions: dict, *, require_real: bool = False) -> dict:
         raise DatasetError("dataset_id mismatch")
     if require_real and any(c["source"]["kind"] == "synthetic" for c in expected.values()):
         raise DatasetError("--require-real rejects synthetic fixtures")
+    if require_real:
+        validate_real_run(gold, predictions)
     unknown = sorted(set(observed) - set(expected))
     missing = sorted(set(expected) - set(observed))
     if unknown or missing:

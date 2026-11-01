@@ -32,6 +32,15 @@ class PublicGate(unittest.TestCase):
         self.assertTrue(any("Unexpected file size: src/lunalibrary.cpp" in e
                             for e in check(self.root)))
 
+    def test_large_ui_source_keeps_lf_on_windows(self):
+        # Git for Windows defaults to CRLF on some runners. That adds one byte
+        # per source line and previously pushed lunalibrary.cpp past 240 KB.
+        attributes = (self.root / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn("src/lunalibrary.cpp text eol=lf", attributes)
+        source = (self.root / "src/lunalibrary.cpp").read_bytes()
+        self.assertNotIn(b"\r\n", source)
+        self.assertLessEqual(len(source), 240_000)
+
     def test_default_size_limit_still_blocks_other_files(self):
         source = self.root / "README.md"
         with source.open("ab") as stream:

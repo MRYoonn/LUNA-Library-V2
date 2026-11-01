@@ -11,6 +11,7 @@ import struct
 import sys
 import tempfile
 import json
+import time
 
 
 def synthetic_pdf(page_count: int = 1, *, bibliography_author: str | None = None) -> bytes:
@@ -98,12 +99,27 @@ def run(package: Path, screenshots_directory: Path | None = None,
         pdf.write_bytes(synthetic_pdf(2))
         subprocess.run([str(executable), "--version"], cwd=folder, env=child_env,
                        check=True, timeout=20)
+        # Capture stderr/stdout from the very first GUI instruction, even
+        # if the native smoke hangs before creating its own result marker.
+        native_stdout = folder / "native-stdout.log"
+        native_stderr = folder / "native-stderr.log"
+        started = time.monotonic()
+        if screenshots_directory is not None:
+            screenshots_directory.mkdir(parents=True, exist_ok=True)
+            (screenshots_directory / "luna-smoke-start.json").write_text(
+                json.dumps({"schema": 1, "event": "started", "mode":
+                            "layout" if layout_only else "full", "scale": scale,
+                            "source_sha": os.getenv("GITHUB_SHA", "local"),
+                            "run_id": os.getenv("GITHUB_RUN_ID", "local")},
+                           indent=2), encoding="utf-8")
         try:
-            subprocess.run([str(executable), "--luna-smoke-report", str(report),
-                            *(["--luna-layout-only"] if layout_only else []), str(pdf)],
-                           cwd=folder, env=child_env, check=True, timeout=45)
+            with native_stdout.open("wb") as out, native_stderr.open("wb") as err:
+                subprocess.run([str(executable), "--luna-smoke-report", str(report),
+                                *(["--luna-layout-only"] if layout_only else []), str(pdf)],
+                               cwd=folder, env=child_env, check=True, timeout=45,
+                               stdout=out, stderr=err)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-            detail = report.read_text(encoding="utf-8")[:512] if report.is_file() else "No native diagnostic"
+            detail = report.read_text(encoding="utf-8", errors="replace")[:512] if report.is_file() else "No native diagnostic"
             # Keep the last C++ checkpoint when the Windows GUI times out
             # before it can write its final success or failure marker.
             stage_file = Path(str(report) + ".stage.txt")
@@ -134,7 +150,35 @@ def run(package: Path, screenshots_directory: Path | None = None,
                     if capture.is_file():
                         shutil.copyfile(capture, screenshots_directory / name)
             status = f"exit {error.returncode}" if isinstance(error, subprocess.CalledProcessError) else "timed out"
+            stage = (Path(str(report) + ".stage.txt").read_text(
+                encoding="utf-8", errors="replace")[:220]
+                if Path(str(report) + ".stage.txt").is_file() else "not-created")
+            stderr_tail = native_stderr.read_bytes()[-16000:].decode("utf-8", errors="replace")
+            detail += (" | stderr tail: " + stderr_tail[-500:]) if stderr_tail else ""
+            if screenshots_directory is not None:
+                (screenshots_directory / "luna-native-stdout.log").write_bytes(
+                    native_stdout.read_bytes()[-65536:])
+                (screenshots_directory / "luna-native-stderr.log").write_bytes(
+                    native_stderr.read_bytes()[-65536:])
+                (screenshots_directory / "luna-native-failure.json").write_text(
+                    json.dumps({"schema": 1, "status": status, "last_native_stage": stage,
+                                "elapsed_seconds": round(time.monotonic() - started, 2),
+                                "mode": "layout" if layout_only else "full",
+                                "scale": scale, "source_sha": os.getenv("GITHUB_SHA", "local"),
+                                "run_id": os.getenv("GITHUB_RUN_ID", "local")},
+                               indent=2), encoding="utf-8")
             raise RuntimeError(f"Native smoke {status}: {detail}") from error
+        if screenshots_directory is not None:
+            (screenshots_directory / "luna-native-stdout.log").write_bytes(
+                native_stdout.read_bytes()[-65536:])
+            (screenshots_directory / "luna-native-stderr.log").write_bytes(
+                native_stderr.read_bytes()[-65536:])
+            (screenshots_directory / "luna-native-success.json").write_text(
+                json.dumps({"schema": 1, "status": "native-exit-zero",
+                            "elapsed_seconds": round(time.monotonic() - started, 2),
+                            "mode": "layout" if layout_only else "full",
+                            "source_sha": os.getenv("GITHUB_SHA", "local")},
+                           indent=2), encoding="utf-8")
         memo_capture = Path(str(report) + ".memo.png")
         if not layout_only and screenshots_directory is not None and memo_capture.is_file():
             screenshots_directory.mkdir(parents=True, exist_ok=True)

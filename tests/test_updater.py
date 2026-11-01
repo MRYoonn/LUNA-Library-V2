@@ -89,7 +89,7 @@ class ReleaseUpdateTests(unittest.TestCase):
         self.assertIn("Get-FileHash", script)
         self.assertIn("Unsafe package path", script)
         self.assertIn("rollback", script.lower())
-        self.assertIn("user PDFs", script)
+        self.assertIn("User PDFs", script)
         self.assertNotIn("Remove-Item -LiteralPath $install", script)
 
     def test_updater_stages_before_closing_and_requires_healthy_restart(self):
@@ -129,7 +129,8 @@ class ReleaseUpdateTests(unittest.TestCase):
         # Check/Stage must never mutate installed program files; Apply is
         # the only mode allowed to copy into the install directory.
         stage = script.split("function New-Stage", 1)[1].split("function Check-Release", 1)[0]
-        self.assertNotIn("Copy-Item", stage)
+        self.assertIn("Copy-Item -LiteralPath $PSCommandPath", stage)
+        self.assertNotIn("Copy-Item -LiteralPath $file", stage)
         self.assertNotIn("Remove-Item -LiteralPath $install", stage)
         self.assertIn("if (!$available)", stage)
         self.assertIn("files", (ROOT / "tools/prepare_release.py").read_text(encoding="utf-8"))

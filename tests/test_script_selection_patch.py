@@ -46,7 +46,7 @@ class ScriptSelectionPatchContracts(unittest.TestCase):
     def test_windows_build_applies_verified_patch_not_on_main_branch(self):
         workflow = (ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")
         verified = "python tools/patch_script_text_layout.py pdf4qt --dry-run"
-        applied = "python tools/patch_script_text_layout.py pdf4qt"
+        applied = "python tools/patch_script_text_layout.py pdf4qt\n"
         self.assertIn(verified, workflow)
         self.assertIn(applied, workflow)
         self.assertLess(workflow.index(verified),

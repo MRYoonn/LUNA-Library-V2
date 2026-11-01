@@ -56,11 +56,19 @@ public:
         for (const auto& item : saved) {
             if (!recycler(item.first)) {
                 // Recover already trashed paths from their verified backup.
+                bool recovered=true;
                 for (const auto& prior : saved) {
                     if (removed.contains(prior.first) && !QFileInfo::exists(prior.first))
-                        QFile::copy(prior.second, prior.first);
+                        if (!QFile::copy(prior.second, prior.first)) recovered=false;
                 }
-                return reject(error, QStringLiteral("휴지통 이동이 완료되지 않았습니다. 원본 경로를 확인하세요."));
+                if (!recovered) {
+                    // A failed rollback must not destroy the only surviving
+                    // recovery bytes when the temporary directory goes away.
+                    backup->setAutoRemove(false);
+                    return reject(error, QStringLiteral("일부 파일 복원 실패. 보존된 로컬 복구 폴더: ")
+                        + backup->path());
+                }
+                return reject(error, QStringLiteral("휴지통 이동이 완료되지 않아 원본을 복구했습니다."));
             }
             removed.append(item.first);
         }

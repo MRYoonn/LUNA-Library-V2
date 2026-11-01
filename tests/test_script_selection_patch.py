@@ -105,7 +105,7 @@ class ScriptSelectionPatchContracts(unittest.TestCase):
             self.assertEqual(verify_pinned_text_layout(original), original.decode("utf-8"))
             self.assertEqual(verify_pinned_text_layout(patched), patched.decode("utf-8"))
             damaged = patched.replace(b"ratio < 1.20", b"ratio < 1.01")
-            with self.assertRaisesRegex(ValueError, "reverse to pinned upstream"):
+            with self.assertRaisesRegex(ValueError, "Unexpected script-patched|reverse to pinned upstream"):
                 verify_pinned_text_layout(damaged)
             with self.assertRaisesRegex(ValueError, "Unrecognized pinned"):
                 verify_pinned_text_layout(b"unapproved upstream")

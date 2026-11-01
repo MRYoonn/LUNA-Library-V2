@@ -3573,8 +3573,18 @@ bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error
 
 bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, const QString& capturePath) {
     if (!verifyReaderToolbar(window, error, false)) return false;
-    auto fail = [&error](const char* message) {
+    // Persist the last reached gate so a Windows smoke timeout leaves a
+    // useful diagnosis even when the process cannot write its final marker.
+    auto checkpoint = [&capturePath](const QString& label) {
+        if (capturePath.isEmpty()) return;
+        QFile file(capturePath + QStringLiteral(".stage.txt"));
+        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            file.write(label.toUtf8());
+    };
+    checkpoint(QStringLiteral("native UI smoke started"));
+    auto fail = [&error, &checkpoint](const char* message) {
         error = QString::fromLatin1(message);
+        checkpoint(QStringLiteral("FAILED: ") + error);
         qWarning("LUNA UI smoke: %s", message);
         return false;
     };
@@ -4053,11 +4063,13 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
                 QFileInfo(c->getOriginalFileName()).canonicalFilePath() == QFileInfo(expectedPath).canonicalFilePath();
         });
     };
+    checkpoint(QStringLiteral("moving PDF and thumbnail to a child folder"));
     library->moveDocumentTo(path, movedFolder);
     if (!reopened(movedPath) || QFileInfo::exists(path) || QFileInfo::exists(thumbnail) || !QFileInfo::exists(movedThumbnail))
         return fail("Opened PDF and sidecar did not move/reopen together");
     if (library->memos_.value(openedDateKey(movedPath)) != QStringLiteral("합성 메모 검색 742"))
         return fail("Paper memo did not follow paired file move");
+    checkpoint(QStringLiteral("restoring moved PDF to parent folder"));
     library->moveDocumentTo(movedPath, pdf.absolutePath());
     if (!reopened(path) || QFileInfo::exists(movedPath) || QFileInfo::exists(movedThumbnail)) {
         auto* c = window.getProgramController();
@@ -4078,6 +4090,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     beforePdf.close(); beforePng.close();
     if (!wait([&] { return list->count() == 1; })) return fail("Library list did not refresh after movement");
     item = list->item(0); // Folder refresh replaced the previous item.
+    checkpoint(QStringLiteral("creating 1000 synthetic PDFs"));
     {
         QTemporaryDir many(pdf.absolutePath() + QStringLiteral("/luna-library-scale-XXXXXX"));
         if (!many.isValid()) return fail("Cannot create synthetic 1000-PDF library");
@@ -4097,6 +4110,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             longestGap = qMax(longestGap, heartbeatClock.restart()); ++beats;
         });
         heartbeat.start(10);
+        checkpoint(QStringLiteral("scanning 1000-PDF child folder"));
         library->selectFolder(many.path());
         // CI disk/AV throughput varies. Keep an explicit 15-second full
         // discovery ceiling while separately enforcing <1s GUI event gaps
@@ -4107,6 +4121,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
                 .arg(library->folderTimer_->isActive()).arg(longestGap).arg(beats);
             return false;
         }
+        checkpoint(QStringLiteral("1000-PDF child folder scan complete"));
         const qint64 loadMs = loadClock.elapsed();
         QElapsedTimer searchClock; searchClock.start();
         search->setText(QStringLiteral("합성 논문 0999"));
@@ -4124,6 +4139,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
                 << "search ms" << searchMs << "maximum GUI timer gap ms" << longestGap;
         // Selecting the parent must include ALL nested PDFs, while the
         // synthetic 1000-PDF child directory is still present.
+        checkpoint(QStringLiteral("scanning parent folder with 1001 PDFs"));
         library->selectFolder(pdf.absolutePath());
         if (!wait([&] { return list->count() == 1001 &&
             !library->folderTimer_->isActive(); }, 15000))
@@ -4136,9 +4152,11 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             }
         if (!foundRootDocument)
             return fail("Parent folder omitted its own local PDF");
+        checkpoint(QStringLiteral("1001-PDF parent folder scan complete"));
     }
     // After the temporary child directory is deleted, a fresh scan must
     // return precisely the parent's single local PDF.
+    checkpoint(QStringLiteral("rescan after removing synthetic 1000-PDF folder"));
     library->selectFolder(pdf.absolutePath());
     if (!wait([&] { return list->count() == 1 &&
         !library->folderTimer_->isActive() &&
@@ -4146,8 +4164,10 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         return fail("Library did not recover after nested 1000-PDF directory removal");
     item = list->item(0);
     // Drive the same signal/slot used by double-click, including the save guard.
+    checkpoint(QStringLiteral("reopening PDF after library regression"));
     window.getProgramController()->closeDocument();
     list->itemDoubleClicked(item);
+    checkpoint(QStringLiteral("native UI smoke finished"));
     return true;
 }
 

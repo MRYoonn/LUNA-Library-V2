@@ -38,6 +38,12 @@ public:
             if (item.isSymLink()) return reject(error, QStringLiteral("연결된 썸네일은 삭제하지 않습니다."));
             if (item.exists() && item.isFile()) paths.append(item.canonicalFilePath());
         }
+        // Metadata sidecar is synced by MYBOX; trash/restore it with the PDF.
+        const QString portable=QDir(source.absolutePath()).filePath(
+            source.completeBaseName()+QStringLiteral(".luna-meta.json"));
+        if (QFileInfo(portable).isSymLink())
+            return reject(error, QStringLiteral("연결된 메타데이터 파일은 삭제하지 않습니다."));
+        if (QFileInfo(portable).isFile()) paths.append(QFileInfo(portable).canonicalFilePath());
         // Copy every byte before any source is moved to the Recycle Bin.
         // If the disk is full, abort without deleting a single file.
         for (int n = 0; n < paths.size(); ++n) {

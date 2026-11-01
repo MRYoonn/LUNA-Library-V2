@@ -120,6 +120,22 @@ int main(int argc, char** argv) {
            !preferences.value(QStringLiteral("library/favorites")).toStringList().contains(newName))
             return fail("Explorer rename dropped memo or favorite");
     }
+    // Simulate another PC importing a metadata file that MYBOX delivered.
+    QFile synced(luna::portableSidecar(newName));
+    if(!synced.open(QIODevice::ReadOnly)) return fail("Cannot open synced MYBOX sidecar");
+    const QJsonObject remote=QJsonDocument::fromJson(synced.readAll()).object();
+    synced.close();
+    if(remote.value("bibliography").toObject().value("title").toString() !=
+           QStringLiteral("Synthetic metadata remains attached") ||
+       remote.value("memo").toString()!=QStringLiteral("synced memo") ||
+       !remote.value("favorite").toBool())
+        return fail("Portable MYBOX record lost citation, memo or favorite");
+    const QString otherDevice=QDir(root).filePath(QStringLiteral("remote-device.pdf"));
+    if(!write(otherDevice,document) ||
+       !luna::applyPortableRecord(otherDevice,remote,bibliography) ||
+       bibliography.record(luna::DocumentClaim::identity(otherDevice)).value("title").toString()
+           != QStringLiteral("Synthetic metadata remains attached"))
+        return fail("MYBOX remote device could not import verified portable metadata");
     // Deterministic fake recycler validates Ctrl+Z without requiring an
     // Explorer Recycle Bin on CI. Production uses QFile::moveToTrash.
     luna::RecentTrashUndo undo;

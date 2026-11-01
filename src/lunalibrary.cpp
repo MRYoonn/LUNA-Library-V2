@@ -1692,7 +1692,21 @@ public:
             }
         }
     }
-    void updateMinimum() { setMinimumWidth((navigation_->isHidden() ? 0 : 225) + (documents_->isHidden() ? 0 : 195) + 12); }
+    void updateMinimum() {
+        const bool hasNavigation = !navigation_->isHidden();
+        const bool hasDocuments = !documents_->isHidden();
+        setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12);
+        // QDockWidget otherwise keeps its old 562px allocation even after
+        // a child panel hides. Give that width back to the PDF reader.
+        if (auto* dock = qobject_cast<QDockWidget*>(parentWidget())) {
+            dock->setVisible(hasNavigation || hasDocuments);
+            if (hasNavigation || hasDocuments)
+                if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget()))
+                    main->resizeDocks({dock},
+                        {hasNavigation && hasDocuments ? 562 : (hasNavigation ? 270 : 350)},
+                        Qt::Horizontal);
+        }
+    }
     void toggleNavigation() { savePanelState(); navigation_->setVisible(navigation_->isHidden()); updateMinimum(); }
     void toggleDocuments() { savePanelState(); documents_->setVisible(documents_->isHidden()); updateMinimum(); }
     void showBothPanels() { navigation_->show(); documents_->show(); updateMinimum(); }

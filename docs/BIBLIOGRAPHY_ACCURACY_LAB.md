@@ -251,3 +251,37 @@ Next: inspect the branch-specific CI result, run the full Python suite and
 capture authorized real records with an exact build SHA. Actual PDF goldset,
 offline/429/404 live responses, legacy QSettings and restart/move acceptance
 remain unverified. Keep the PR Draft and do not merge or release.
+
+
+## Follow-up: field-label denominator readiness (2026-11-02)
+
+A 20-PDF matrix can satisfy publisher/SI quotas but still have **no independently
+labeled journal abbreviation, issue, page, or article number**. A scorer can
+correctly emit `null` precision/recall for those fields, but such a dataset
+is **not ready** for a claim of comprehensive field-wise evaluation.
+
+The new opt-in `--field-coverage-gate` requires `--coverage-gate
+--require-real`. It adds `field_label_audit` to the local JSON report with
+positive, verified-negative, and unknown-label counts for all 11 fields,
+plus positive counts for DOI/title/terminal author/journal/year/document kind
+for each of ACS, RSC, Wiley, Nature, Elsevier. It fails if any field has zero
+known-positive labels globally or any publisher has zero known-positive
+core labels. It does **not** treat a missing label as a negative or infer
+accuracy from a PDF filename. It does not change the older `--coverage-gate`
+contract, so callers can compare the two readiness levels explicitly.
+
+Example (keep all actual inputs/reports outside this repository):
+
+```sh
+python -B tools/bibliography_accuracy_lab.py \
+  --goldset ../private/goldset.json \
+  --predictions ../private/native-snapshots.json \
+  --require-real --expected-engine-commit <EXACT_40_HEX_SHA> \
+  --coverage-gate --field-coverage-gate \
+  --report ../private/field-accuracy-report.json
+```
+
+Synthetic regression tests exercise the coverage inventory only; **no real
+publisher PDFs or native captures were available in this run**. The optional
+gate is a denominator-completeness check, not independent verification of
+goldset truth, PDF SHA, Windows runtime, network errors, or manual edits.

@@ -368,6 +368,63 @@ def audit_goldset_coverage(gold: dict, *, minimum_total: int = 20,
     }
 
 
+
+def audit_field_label_coverage(gold: dict, *, minimum_positive_per_field: int = 1,
+                               minimum_core_per_publisher: int = 1) -> dict:
+    """Inventory independently labeled real-PDF fields; not an accuracy score.
+
+    A 20-PDF goldset can satisfy publisher quotas yet contain no known issue,
+    article-number or journal-abbreviation labels. Such absent denominators
+    must be reported explicitly before claiming field-wise coverage.
+    """
+    from collections import Counter
+
+    cases = validate_cases(gold, "goldset")
+    positive = Counter()
+    negative = Counter()
+    unknown = Counter()
+    core_by_publisher = {publisher: Counter() for publisher in PUBLISHERS}
+    core = ("doi", "title", "terminal_author", "journal", "year", "document_kind")
+    for case in cases.values():
+        if case["source"]["kind"] == "synthetic":
+            continue
+        publisher = case["publisher"]
+        labels = case["expected"]
+        for field in FIELDS:
+            if field not in labels:
+                unknown[field] += 1
+            elif normalize(field, labels[field]):
+                positive[field] += 1
+                if publisher in core_by_publisher and field in core:
+                    core_by_publisher[publisher][field] += 1
+            else:
+                negative[field] += 1
+    gaps = []
+    for field in FIELDS:
+        if positive[field] < minimum_positive_per_field:
+            gaps.append({"criterion": "field_positive_labels", "field": field,
+                         "actual": positive[field], "required": minimum_positive_per_field})
+    for publisher in PUBLISHERS:
+        for field in core:
+            actual = core_by_publisher[publisher][field]
+            if actual < minimum_core_per_publisher:
+                gaps.append({"criterion": "publisher_core_positive_labels",
+                             "publisher": publisher, "field": field,
+                             "actual": actual, "required": minimum_core_per_publisher})
+    return {
+        "ready": not gaps,
+        "basis": "provided_goldset_labels_not_independently_verified",
+        "positive_labels": {field: positive[field] for field in FIELDS},
+        "negative_labels": {field: negative[field] for field in FIELDS},
+        "unknown_labels": {field: unknown[field] for field in FIELDS},
+        "core_positive_by_publisher": {
+            publisher: {field: counts[field] for field in core}
+            for publisher, counts in core_by_publisher.items()
+        },
+        "gaps": gaps,
+    }
+
+
 def check_engine_identity(predictions: dict, expected_commit: str) -> None:
     """Fail closed when a capture came from a different source revision."""
     if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_commit) or expected_commit.lower() == "0" * 40:
@@ -387,8 +444,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="require --require-real; reject snapshots from a different engine commit")
     parser.add_argument("--coverage-gate", action="store_true",
                         help="require --require-real and >=20 diverse verified-label PDF cases")
+    parser.add_argument("--field-coverage-gate", action="store_true",
+                        help="require --coverage-gate and labeled positive examples for every field")
     args = parser.parse_args(argv)
     try:
+        if args.field_coverage_gate and not args.coverage_gate:
+            raise DatasetError("--field-coverage-gate requires --coverage-gate")
         if args.coverage_gate and not args.require_real:
             raise DatasetError("--coverage-gate requires --require-real")
         if args.expected_engine_commit and not args.require_real:
@@ -404,6 +465,10 @@ def main(argv: list[str] | None = None) -> int:
             coverage = audit_goldset_coverage(gold)
             result["coverage_audit"] = coverage
             result["pass"] = result["pass"] and coverage["ready"]
+        if args.field_coverage_gate:
+            labels = audit_field_label_coverage(gold)
+            result["field_label_audit"] = labels
+            result["pass"] = result["pass"] and labels["ready"]
     except DatasetError as exc:
         print(f"[BLOCK] {exc}", file=sys.stderr)
         return 2

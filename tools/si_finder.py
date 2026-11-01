@@ -159,6 +159,7 @@ def lookup_acs_figshare(
         rejected = 0
         failed_details = 0
         truncated_files = 0
+        invalid_file_entries = 0
         for summary in found:
             if not isinstance(summary, dict):
                 rejected += 1
@@ -198,24 +199,27 @@ def lookup_acs_figshare(
                 truncated_files += 1
             for item in files[:MAX_FILES]:
                 if not isinstance(item, dict):
+                    invalid_file_entries += 1
                     continue
                 filename = item.get("name")
                 if (not isinstance(filename, str) or not filename or len(filename) > 255
                         or any(ch in filename for ch in "/\\\r\n\0")):
+                    invalid_file_entries += 1
                     continue
                 # Do not expose unvalidated remote download URLs. Every entry
                 # opens the official landing page for user review in a browser.
                 candidates.append(SiCandidate(article_id, doi, title, filename, landing))
         if candidates:
             status = "partial" if (failed_details or truncated_files
-                                   or len(found) == MAX_ARTICLES) else "candidates"
-        elif rejected or failed_details:
+                                   or invalid_file_entries or len(found) == MAX_ARTICLES) else "candidates"
+        elif rejected or failed_details or invalid_file_entries:
             status = "needs_review"
         else:
             status = "not_found"
         diagnostic = (f"rejected={rejected};detail_failures={failed_details};"
                       f"search_page_full={int(len(found) == MAX_ARTICLES)};"
-                      f"file_lists_truncated={truncated_files}")
+                      f"file_lists_truncated={truncated_files};"
+                      f"invalid_file_entries={invalid_file_entries}")
         return SiLookupResult(doi, status, tuple(candidates), fallback, diagnostic)
     except (ValueError, HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
         # Never include remote response bodies or local paths in diagnostics.

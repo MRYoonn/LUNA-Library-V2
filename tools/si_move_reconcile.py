@@ -10,13 +10,13 @@ from dataclasses import dataclass
 import os
 
 try:
-    from si_associations import AssociationIndex
-    from si_relocation_gate import apply_verified_relocation
-    from si_state_store import StoreError, commit, read
-except ImportError:
     from tools.si_associations import AssociationIndex
     from tools.si_relocation_gate import apply_verified_relocation
     from tools.si_state_store import StoreError, commit, read
+except ImportError:  # standalone execution with tools/ on sys.path
+    from si_associations import AssociationIndex
+    from si_relocation_gate import apply_verified_relocation
+    from si_state_store import StoreError, commit, read
 
 
 @dataclass(frozen=True)

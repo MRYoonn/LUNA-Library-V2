@@ -14,9 +14,9 @@ import stat
 from uuid import UUID
 
 try:
-    from si_associations import AssociationIndex, document_id, relative_pdf_path
-except ImportError:
     from tools.si_associations import AssociationIndex, document_id, relative_pdf_path
+except ImportError:  # standalone execution with tools/ on sys.path
+    from si_associations import AssociationIndex, document_id, relative_pdf_path
 
 MAX_SIDECAR_BYTES = 65536
 

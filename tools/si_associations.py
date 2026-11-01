@@ -14,9 +14,9 @@ import re
 from uuid import UUID
 
 try:
-    from si_finder import normalize_doi
-except ImportError:  # package-style imports in external test harnesses
     from tools.si_finder import normalize_doi
+except ImportError:  # standalone execution with tools/ on sys.path
+    from si_finder import normalize_doi
 
 MAX_DOCUMENTS = 20000
 MAX_LINKS = 20000

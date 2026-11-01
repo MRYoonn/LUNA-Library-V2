@@ -46,6 +46,13 @@ class MoveReconcileTests(unittest.TestCase):
                                         self.initial.revision if revision is None else revision,
                                         user_confirmed=confirmed)
 
+    def test_package_import_identity_matches_store_and_reconciler(self):
+        from tools import si_relocation_gate, si_move_reconcile
+        self.assertIs(AssociationIndex, si_state_store.AssociationIndex)
+        self.assertIs(AssociationIndex, si_relocation_gate.AssociationIndex)
+        self.assertIs(AssociationIndex, si_move_reconcile.AssociationIndex)
+        self.assertIs(si_state_store.commit, si_move_reconcile.commit)
+
     def test_success_persists_two_si_after_restart_without_changing_pdf(self):
         self.paired_move()
         pdf_bytes, meta_bytes = self.new.read_bytes(), self.new_meta.read_bytes()

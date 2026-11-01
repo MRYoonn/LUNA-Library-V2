@@ -14,9 +14,9 @@ import stat
 import tempfile
 
 try:
-    from si_associations import AssociationIndex
-except ImportError:
     from tools.si_associations import AssociationIndex
+except ImportError:  # standalone execution with tools/ on sys.path
+    from si_associations import AssociationIndex
 
 STATE_NAME = ".luna-si-associations.json"
 LOCK_NAME = ".luna-si-associations.lock"

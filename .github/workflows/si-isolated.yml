@@ -27,6 +27,9 @@ jobs:
       - name: Public-source privacy gate
         run: python -B tools/preflight_public.py
       - name: Actual repository SI integration tests (offline, synthetic)
+        # All finder network calls are injected synthetic fakes. An offline=1
+        # environment would bypass those fakes and invalidate the assertions.
+        # The suite has no live Figshare requests or PDF downloads.
         env:
-          LUNA_SI_OFFLINE: '1'
+          LUNA_SI_OFFLINE: '0'
         run: python -B -m unittest discover -s tests -p 'test_si_*.py' -v

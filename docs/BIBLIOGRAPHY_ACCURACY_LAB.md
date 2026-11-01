@@ -194,3 +194,15 @@ stale engine identity, and the real-mode CLI match/mismatch paths. **No
 Windows Qt6/native tests or real-publisher accuracy run has been performed
 in this change.** Run the full Python suite and CTest on the exact commit
 before interpreting any runtime PASS.
+
+## Follow-up: malformed DOI gold-label guard (2026-11-01)
+
+Goldset DOI values are now validated against the existing DOI syntax after
+normalization. A malformed DOI cannot become a true positive merely because
+the extraction snapshot repeats the same malformed string. Invalid **observed**
+DOIs are still scored as false positives (and false negatives when a real DOI
+was expected) and are labeled `invalid_doi` in per-case error reports.
+Two synthetic regression tests cover malformed matching labels, legitimate
+DOI URLs, invalid ACS extraction and a spurious invalid RSC SI DOI.
+This is a scorer-contract safeguard only: it does not prove a DOI resolves,
+that a publisher PDF was read, or that Windows Qt6/native tests passed.

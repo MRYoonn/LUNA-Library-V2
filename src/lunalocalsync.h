@@ -6,6 +6,7 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
@@ -152,6 +153,9 @@ public:
         renameDebounce_.setSingleShot(true);
         renameDebounce_.setInterval(300);
         connect(&renameDebounce_, &QTimer::timeout, this, [this]{scan();});
+        // Sidecar reconciliation must yield to the PDF list and Qt event loop.
+        sidecarTimer_.setSingleShot(true);
+        connect(&sidecarTimer_, &QTimer::timeout, this, [this] { processSidecarBatch(); });
         connect(&watcher_, &QFileSystemWatcher::directoryChanged,
                 this, [this](const QString&){renameDebounce_.start();});
         timer_.setInterval(30000);
@@ -161,6 +165,7 @@ public:
     ~LocalFolderSync() override {
         timer_.stop();
         renameDebounce_.stop();
+        sidecarTimer_.stop();
         ++generation_;
         if(worker_) worker_->wait(); // Worker only touches its isolated snapshot.
     }
@@ -172,6 +177,13 @@ public:
         root_ = QFileInfo(root).canonicalFilePath();
         mybox_ = myboxEnabled && !root_.isEmpty();
         renameDebounce_.stop();
+        // Cancel stale UI-thread metadata work when switching roots. An active
+        // filesystem worker is separately handled by the generation guard.
+        sidecarTimer_.stop();
+        sidecarPaths_.clear();
+        sidecarIndex_ = 0;
+        sidecarChanged_ = false;
+        if (!worker_) busy_ = false;
         const QStringList existing = watcher_.directories();
         if (!existing.isEmpty()) watcher_.removePaths(existing);
         if (!root_.isEmpty()) watcher_.addPath(root_);
@@ -259,8 +271,13 @@ public:
         worker_=worker;
         connect(worker,&QThread::finished,this,[this,result,generation] {
             worker_=nullptr;
-            busy_=false;
-            if (generation!=generation_) { QTimer::singleShot(0,this,[this]{scan();}); return; }
+            if (generation!=generation_) {
+                busy_=false;
+                QTimer::singleShot(0,this,[this]{scan();});
+                return;
+            }
+            // Keep busy_ true until sidecars have been processed in bounded
+            // event-loop turns; watcher feedback then causes one coalesced scan.
             // Track a bounded set of actual PDF parent directories. Watching
             // only the root misses renames inside nested scientific folders.
             const QStringList watchedDirs = watcher_.directories();
@@ -333,67 +350,99 @@ public:
                 for(const auto& id:duplicates) active.remove(id);
                 lunaLocalStore().setValue(key,active);
             }
-            if(mybox_ && localSnapshot) {
-                int read=0;
-                for(const QString& pdf:result->paths) {
-                    if(++read>30000) break;
-                    if(pendingPublish_.contains(pdf)) {
-                        if(publish(pdf)) pendingPublish_.remove(pdf);
-                        continue; // Never import an older synced copy over local edits.
-                    }
-                    const QString sidecar=portableSidecar(pdf);
-                    const QFileInfo info(sidecar);
-                    if(info.isSymLink() || (info.exists() && (!info.isFile() || info.size()>131072))) continue;
-                    if(!info.exists()) { publish(pdf); continue; }
-                    QFile file(sidecar);
-                    if(!file.open(QIODevice::ReadOnly)) continue;
-                    const QByteArray bytes=file.readAll();
-                    const QByteArray digest=QCryptographicHash::hash(bytes,QCryptographicHash::Sha256);
-                    if(seen_.value(sidecar)==digest)continue;
-                    const QJsonDocument document=QJsonDocument::fromJson(bytes);
-                    if(!document.isObject() ||
-                       document.object().value("schemaVersion").toInt()!=1 ||
-                       QUuid(document.object().value("documentId").toString()).isNull() ||
-                       !document.object().value("bibliography").isObject() ||
-                       !document.object().value("memo").isString() ||
-                       !document.object().value("favorite").isBool()) continue;
-                    // A newly connected PC with existing divergent local edits
-                    // keeps its originals; never silently overwrite them.
-                    const QJsonObject remote=document.object();
-                    const QJsonObject local=localSnapshot(pdf);
-                    const QString knownDigest=lunaLocalStore().value(
-                        QStringLiteral("library/mybox/seen/")+lunaPathKey(pdf)).toString();
-                    if(knownDigest.isEmpty() && !local.isEmpty() &&
-                       (local.value("bibliography")!=remote.value("bibliography") ||
-                        local.value("memo")!=remote.value("memo") ||
-                        local.value("favorite")!=remote.value("favorite"))) {
-                        qWarning().noquote() << "LUNA MYBOX metadata conflict: preserving local edits for" << pdf;
-                        continue;
-                    }
-                    if(remoteChanged && !remoteChanged(pdf,remote)) continue;
-                    seen_[sidecar]=digest;
-                    changed=true;
-                    lunaLocalStore().setValue(
-                        QStringLiteral("library/mybox/seen/")+lunaPathKey(pdf),
-                        QString::fromLatin1(digest.toHex()));
-                }
+            if (mybox_ && localSnapshot && !result->paths.isEmpty()) {
+                sidecarPaths_=result->paths;
+                sidecarIndex_=0;
+                sidecarChanged_=changed;
+                sidecarTimer_.start(0);
+                return;
             }
-            if(changed && filesChanged) filesChanged();
-            if (rescanPending_) {
-                rescanPending_=false;
-                QTimer::singleShot(0,this,[this]{scan();});
-            }
+            finishScan(changed);
         });
         connect(worker,&QThread::finished,worker,&QObject::deleteLater);
         connect(qApp,&QCoreApplication::aboutToQuit,worker,[worker]{worker->wait();});
         worker->start(QThread::LowPriority);
     }
 private:
+    void finishScan(bool changed) {
+        sidecarTimer_.stop();
+        sidecarPaths_.clear();
+        sidecarIndex_=0;
+        sidecarChanged_=false;
+        busy_=false;
+        if (changed && filesChanged) filesChanged();
+        if (rescanPending_) {
+            rescanPending_=false;
+            QTimer::singleShot(0,this,[this]{scan();});
+        }
+    }
+    void processSidecarBatch() {
+        // This used to loop over as many as 30,000 PDFs inside one
+        // QThread::finished GUI callback. On Windows, creating each
+        // .luna-meta.json and updating QSettings could block the reader
+        // for longer than the 45s native smoke timeout.
+        QElapsedTimer elapsed;
+        elapsed.start();
+        int processed=0;
+        while (sidecarIndex_<sidecarPaths_.size() && processed<8 && elapsed.elapsed()<12) {
+            const QString pdf=sidecarPaths_.at(sidecarIndex_++);
+            ++processed;
+
+            if(pendingPublish_.contains(pdf)) {
+                if(publish(pdf)) pendingPublish_.remove(pdf);
+                continue; // Never import an older synced copy over local edits.
+            }
+            const QString sidecar=portableSidecar(pdf);
+            const QFileInfo info(sidecar);
+            if(info.isSymLink() || (info.exists() && (!info.isFile() || info.size()>131072))) continue;
+            if(!info.exists()) { publish(pdf); continue; }
+            QFile file(sidecar);
+            if(!file.open(QIODevice::ReadOnly)) continue;
+            const QByteArray bytes=file.readAll();
+            const QByteArray digest=QCryptographicHash::hash(bytes,QCryptographicHash::Sha256);
+            if(seen_.value(sidecar)==digest)continue;
+            const QJsonDocument document=QJsonDocument::fromJson(bytes);
+            if(!document.isObject() ||
+               document.object().value("schemaVersion").toInt()!=1 ||
+               QUuid(document.object().value("documentId").toString()).isNull() ||
+               !document.object().value("bibliography").isObject() ||
+               !document.object().value("memo").isString() ||
+               !document.object().value("favorite").isBool()) continue;
+            // A newly connected PC with existing divergent local edits
+            // keeps its originals; never silently overwrite them.
+            const QJsonObject remote=document.object();
+            const QJsonObject local=localSnapshot(pdf);
+            const QString knownDigest=lunaLocalStore().value(
+                QStringLiteral("library/mybox/seen/")+lunaPathKey(pdf)).toString();
+            if(knownDigest.isEmpty() && !local.isEmpty() &&
+               (local.value("bibliography")!=remote.value("bibliography") ||
+                local.value("memo")!=remote.value("memo") ||
+                local.value("favorite")!=remote.value("favorite"))) {
+                qWarning().noquote() << "LUNA MYBOX metadata conflict: preserving local edits for" << pdf;
+                continue;
+            }
+            if(remoteChanged && !remoteChanged(pdf,remote)) continue;
+            seen_[sidecar]=digest;
+            changed=true;
+            lunaLocalStore().setValue(
+                QStringLiteral("library/mybox/seen/")+lunaPathKey(pdf),
+                QString::fromLatin1(digest.toHex()));
+        }
+        if (sidecarIndex_<sidecarPaths_.size()) {
+            sidecarTimer_.start(0);
+        } else {
+            finishScan(sidecarChanged_);
+        }
+    }
     QString root_;
     bool mybox_=false, busy_=false, rescanPending_=false;
     int generation_=0;
     QTimer timer_;
     QTimer renameDebounce_;
+    QTimer sidecarTimer_;
+    QStringList sidecarPaths_;
+    qsizetype sidecarIndex_=0;
+    bool sidecarChanged_=false;
     QFileSystemWatcher watcher_;
     QPointer<QThread> worker_;
     QHash<QString,QString> known_;

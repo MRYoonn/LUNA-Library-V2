@@ -1535,8 +1535,21 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
             for (const auto& previous : occupied) if (previous.intersects(rect)) return fail("Toolbar controls overlap");
             occupied.append(rect);
         }
-        auto* toggle = window.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
-        if (!toggle || !toggle->isVisible()) return fail("Library collapse button hidden by overflow");
+        // The combined toolbar toggle was removed: independent controls now
+        // live in the always-visible reader header, outside Qt toolbar overflow.
+        auto* navigationToggle = window.findChild<QToolButton*>(QStringLiteral("LunaNavigationCollapseButton"));
+        auto* documentsToggle = window.findChild<QToolButton*>(QStringLiteral("LunaDocumentsCollapseButton"));
+        if (!navigationToggle || !documentsToggle || !navigationToggle->isVisible() ||
+            !documentsToggle->isVisible() || navigationToggle->icon().isNull() ||
+            documentsToggle->icon().isNull())
+            return fail("Independent library collapse buttons missing from reader header");
+        auto* header = navigationToggle->parentWidget();
+        if (!header || header != documentsToggle->parentWidget() ||
+            !QStringList{"LunaDocumentHeader", "LunaTabCorner"}.contains(header->objectName()) ||
+            !header->rect().contains(navigationToggle->geometry()) ||
+            !header->rect().contains(documentsToggle->geometry()) ||
+            navigationToggle->geometry().intersects(documentsToggle->geometry()))
+            return fail("Independent reader-header collapse controls clipped or overlapping");
         if (auto* more = bar->findChild<QToolButton*>(QStringLiteral("qt_toolbar_ext_button")))
             if (more->isVisible()) for (const auto& rect : occupied)
                 if (more->geometry().intersects(rect)) return fail("Toolbar overflow button overlaps a control");

@@ -20,6 +20,8 @@ APPROVED = {
     "tests/native_accuracy/CMakeLists.txt",
     "tests/test_accuracy_snapshot_source_contract.py",
     "tools/bibliography_accuracy_lab.py",
+    "tools/bibliography_goldset_audit.py",
+    "tests/test_bibliography_goldset_audit.py",
     "tests/test_bibliography_accuracy_lab.py",
     "tests/fixtures/bibliography_accuracy_goldset.synthetic.json",
     "tests/fixtures/bibliography_accuracy_predictions.synthetic.json",

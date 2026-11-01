@@ -42,12 +42,9 @@ class NativeTabsContract(unittest.TestCase):
             'help->removeAction(upstream)',
             'actionGetSource', 'actionBecomeASponsor', 'actionAbout',
             'LUNA_LICENSE_NOTICE.md', 'PDF4QT_LICENSE.txt',
-            'QStringLiteral("독립 실행형',  # accept adjacent literal form as well
         ):
-            if value == 'QStringLiteral("독립 실행형':
-                self.assertIn('독립 실행형 Windows PDF 라이브러리', tabs)
-            else:
-                self.assertIn(value, tabs)
+            self.assertIn(value, tabs)
+        self.assertIn('독립 실행형 Windows PDF 라이브러리', tabs)
         self.assertIn('QMessageBox dialog(QMessageBox::Information', tabs)
         self.assertIn('dialog.setDetailedText(', tabs)
         self.assertIn('Copy-Item \'pdf4qt/LICENSE\' "$output/PDF4QT_LICENSE.txt"', workflow)

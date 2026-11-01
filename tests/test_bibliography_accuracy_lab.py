@@ -131,6 +131,24 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         self.assertEqual(report["by_publisher_fields"]["ACS"]["doi"]["fp"], 1)
         self.assertEqual(report["by_publisher_fields"]["RSC"]["doi"]["fp"], 1)
 
+    def test_goldset_rejects_unrecognized_document_classification(self):
+        gold, predictions = sample()
+        gold["cases"][0]["expected"]["document_kind"] = "paper"
+        predictions["cases"][0]["observed"]["document_kind"] = "paper"
+        with self.assertRaisesRegex(lab.DatasetError, "invalid expected document_kind"):
+            lab.score(gold, predictions)
+        gold["cases"][0]["expected"]["document_kind"] = "main_article"
+        self.assertTrue(lab.score(gold, sample()[1])["pass"])
+
+    def test_invalid_native_document_kind_is_a_scored_error(self):
+        gold, predictions = sample()
+        predictions["cases"][0]["observed"]["document_kind"] = "paper"
+        report = lab.score(gold, predictions)
+        self.assertFalse(report["pass"])
+        row = report["by_publisher_fields"]["ACS"]["document_kind"]
+        self.assertEqual((row["fp"], row["fn"]), (1, 1))
+        self.assertIn("invalid_document_kind", {e["error"] for e in report["errors"]})
+
     def test_title_chemistry_symbols_not_discarded(self):
         self.assertNotEqual(lab.normalize("title", "C5–C6 coupling"), lab.normalize("title", "C5 C6 coupling"))
         self.assertEqual(lab.normalize("page", "100–108"), lab.normalize("page", "100-108"))

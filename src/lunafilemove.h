@@ -72,6 +72,15 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
         }
         if (sidecar.exists()) moves.append({sidecar.absoluteFilePath(), QDir(targetRoot).filePath(name)});
     }
+    // MYBOX portable citation/memo sidecar follows a physical MOVE.
+    const QString metadataName=source.completeBaseName()+QStringLiteral(".luna-meta.json");
+    const QFileInfo metadata(QDir(originalRoot).filePath(metadataName));
+    if(metadata.isSymLink() || (metadata.exists() && !metadata.isFile())) {
+        result.error=QStringLiteral("메타데이터 연결 파일은 이동하지 않습니다.");
+        return result;
+    }
+    if(metadata.isFile()) moves.append({metadata.canonicalFilePath(),
+                                      QDir(targetRoot).filePath(metadataName)});
     moves.append({source.canonicalFilePath(), QDir(targetRoot).filePath(source.fileName())});
     for (const auto& pair : moves) {
         const QFileInfo target(pair.second);

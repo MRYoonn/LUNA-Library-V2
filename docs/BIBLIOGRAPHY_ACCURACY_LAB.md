@@ -230,3 +230,22 @@ exercise the contract. No PDF, personal QSettings or private paths were added.
 Run the isolated Python CI and Windows QtCore CTest at the exact commit before
 claiming validation. Actual 20+ authorized PDF measurements and live network
 error/restart/move regressions remain outstanding.
+
+## Follow-up: contradictory provider provenance gate (2026-11-02)
+
+The real-run scorer now requires **every supplied native provenance channel**
+for a populated, labeled field to be an allowed automatic source. A valid
+`field_sources.title=Crossref` cannot mask a stale
+`titleSource=legacy_preserved`. Distinct single-provider claims such as
+`Crossref` versus `OpenAlex` are blocked as ambiguous; an explicit
+`Crossref + OpenAlex` composite is accepted with either component. These
+are conservative **evaluation gates**, not a change to PR #16's provider
+selection or merge behavior. A blocked case needs human provenance review,
+not an automatic source rewrite.
+
+Two synthetic contract tests were added. They do not establish that live
+Crossref/OpenAlex responses agree, nor do they prove Windows GUI behavior.
+Next: inspect the branch-specific CI result, run the full Python suite and
+capture authorized real records with an exact build SHA. Actual PDF goldset,
+offline/429/404 live responses, legacy QSettings and restart/move acceptance
+remain unverified. Keep the PR Draft and do not merge or release.

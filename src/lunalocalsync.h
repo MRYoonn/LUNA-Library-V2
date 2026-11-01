@@ -165,6 +165,7 @@ public:
         ++generation_;
         seen_.clear();
         known_.clear();
+        pendingPublish_.clear();
         lastPaths_.clear();
         const QVariantMap stored = lunaLocalStore().value(
             QStringLiteral("library/fileIds/") + lunaPathKey(root_)).toMap();
@@ -198,9 +199,11 @@ public:
         if (bytes.size()>131072) return false;
         QSaveFile file(output);
         if (!file.open(QIODevice::WriteOnly) || file.write(bytes)!=bytes.size() || !file.commit()) {
+            pendingPublish_.insert(pdf);
             if (error) *error=QStringLiteral("MYBOX 로컬 메타데이터 저장 실패");
             return false;
         }
+        pendingPublish_.remove(pdf);
         seen_[output]=QCryptographicHash::hash(bytes,QCryptographicHash::Sha256);
         lunaLocalStore().setValue(QStringLiteral("library/mybox/seen/")+lunaPathKey(pdf),
                                   QString::fromLatin1(seen_.value(output).toHex()));
@@ -305,6 +308,10 @@ public:
                 int read=0;
                 for(const QString& pdf:result->paths) {
                     if(++read>30000) break;
+                    if(pendingPublish_.contains(pdf)) {
+                        if(publish(pdf)) pendingPublish_.remove(pdf);
+                        continue; // Never import an older synced copy over local edits.
+                    }
                     const QString sidecar=portableSidecar(pdf);
                     const QFileInfo info(sidecar);
                     if(info.isSymLink() || (info.exists() && (!info.isFile() || info.size()>131072))) continue;
@@ -357,5 +364,6 @@ private:
     QHash<QString,QString> known_;
     QSet<QString> lastPaths_;
     QHash<QString,QByteArray> seen_;
+    QSet<QString> pendingPublish_;
 };
 } // namespace luna

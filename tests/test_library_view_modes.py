@@ -105,6 +105,8 @@ class LibraryModes(unittest.TestCase):
         self.assertNotIn('QStringLiteral("LunaCombinedPanelToggle")', self.cpp)
         self.assertIn("navigation_->setVisible(navigation_->isHidden())", self.cpp)
         self.assertIn("documents_->setVisible(documents_->isHidden())", self.cpp)
+        self.assertIn("void focusSearch() { documents_->show(); updateMinimum();", self.cpp)
+        self.assertNotIn("void focusSearch() { showBothPanels();", self.cpp)
 
     def test_user_configurable_default_opening_zoom_preserves_restored_view(self):
         for token in (

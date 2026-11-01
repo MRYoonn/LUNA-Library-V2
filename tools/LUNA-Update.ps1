@@ -325,10 +325,20 @@ function Apply-Stage {
             Remove-Item Env:\LUNA_UPDATE_ACK_TOKEN -ErrorAction SilentlyContinue
             $confirmed = $false
             for ($i=0; $i -lt 60; $i++) {
-                if (Test-Path (Join-Path $work 'startup.ok')) { $confirmed=$true; break }
+                $ackFile = Join-Path $work 'startup.ok'
+                if ((Test-Path -LiteralPath $ackFile -PathType Leaf) -and
+                    ((Get-Content -LiteralPath $ackFile -Raw -Encoding UTF8).Trim() -ceq $Token)) {
+                    $confirmed = $true
+                    break
+                }
                 if ($proc.HasExited) { break }
                 Start-Sleep -Seconds 1
                 $proc.Refresh()
+            }
+            if ($confirmed) {
+                Start-Sleep -Seconds 5
+                $proc.Refresh()
+                if ($proc.HasExited) { throw 'LUNA exited during startup health window' }
             }
             if (!$confirmed) {
                 if (!$proc.HasExited) {

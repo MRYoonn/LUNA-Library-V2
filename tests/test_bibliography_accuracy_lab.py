@@ -151,7 +151,21 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
 
     def test_title_chemistry_symbols_not_discarded(self):
         self.assertNotEqual(lab.normalize("title", "C5–C6 coupling"), lab.normalize("title", "C5 C6 coupling"))
+        self.assertNotEqual(lab.normalize("title", "CO₂"), lab.normalize("title", "CO2"))
+        self.assertNotEqual(lab.normalize("title", "Fe³⁺"), lab.normalize("title", "Fe3+"))
+        self.assertEqual(lab.normalize("title", "Cafe\u0301"), lab.normalize("title", "Café"))
         self.assertEqual(lab.normalize("page", "100–108"), lab.normalize("page", "100-108"))
+
+    def test_title_subscript_mismatch_counts_fp_and_fn(self):
+        # Synthetic labels: an altered chemical formula must not score as TP.
+        gold, predictions = sample()
+        gold["cases"][0]["expected"]["title"] = "CO₂ photochemistry"
+        predictions["cases"][0]["observed"]["title"] = "CO2 photochemistry"
+        report = lab.score(gold, predictions)
+        self.assertFalse(report["pass"])
+        acs = report["by_publisher_fields"]["ACS"]["title"]
+        self.assertEqual((acs["tp"], acs["fp"], acs["fn"]), (0, 1, 1))
+        self.assertIn("title", {item["field"] for item in report["errors"]})
 
     def test_publisher_field_metrics_isolate_wrong_author(self):
         gold, predictions = sample()

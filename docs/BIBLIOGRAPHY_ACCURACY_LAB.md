@@ -206,3 +206,27 @@ Two synthetic regression tests cover malformed matching labels, legitimate
 DOI URLs, invalid ACS extraction and a spurious invalid RSC SI DOI.
 This is a scorer-contract safeguard only: it does not prove a DOI resolves,
 that a publisher PDF was read, or that Windows Qt6/native tests passed.
+
+
+## Follow-up: fail-closed field provenance (2026-11-02)
+
+In `--require-real` mode, a scored **nonempty observed value** now needs
+an explicitly recognized automatic source: Crossref, OpenAlex, combined
+Crossref/OpenAlex, verified first-page text, PDF metadata, or PDF front matter.
+The evaluator checks both `audit.field_sources` and legacy `*Source`
+fields. Any explicit manual source wins even if another source says Crossref;
+whitespace/case variations of `manual` are rejected. Missing, unknown, or
+`legacy_preserved` provenance is blocked instead of being counted as an
+automatic extraction true positive. An abstention needs no provenance.
+`document_kind` is exempt from this source requirement because the native
+record exposes classification without a `*Source` field; it still requires
+independent goldset evidence.
+
+This is a stricter **input evidence gate**, not a new parser or proof of
+publisher accuracy. Old real-run JSON snapshots without per-field provenance
+must be recaptured from a reviewed native adapter or separately marked
+regression-only. The new tests use fabricated Crossref labels solely to
+exercise the contract. No PDF, personal QSettings or private paths were added.
+Run the isolated Python CI and Windows QtCore CTest at the exact commit before
+claiming validation. Actual 20+ authorized PDF measurements and live network
+error/restart/move regressions remain outstanding.

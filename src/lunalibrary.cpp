@@ -3808,18 +3808,36 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         action->trigger();
         if (entry.second->isHidden()) return fail("Panel did not reopen");
     }
-    auto* combined = window.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
-    auto* focusAction = window.findChild<QAction*>(QStringLiteral("LunaFocusMode"));
-    if (!focusAction || !combined || !combined->isVisible() || combined->icon().isNull() || focusAction->property("lunaCollapsed").toBool())
-        return fail("Combined panel collapse control is missing");
-    combined->click();
+    auto* navigationToggle = window.findChild<QToolButton*>(QStringLiteral("LunaNavigationCollapseButton"));
+    auto* documentsToggle = window.findChild<QToolButton*>(QStringLiteral("LunaDocumentsCollapseButton"));
+    if (!navigationToggle || !documentsToggle || !navigationToggle->isVisible() ||
+        !documentsToggle->isVisible() || navigationToggle->icon().isNull() ||
+        documentsToggle->icon().isNull())
+        return fail("Independent library/paper collapse controls are missing");
+    navigationToggle->click();
     QCoreApplication::processEvents();
-    if (!dock->isHidden() || !combined->isVisible() || combined->icon().isNull() || !focusAction->property("lunaCollapsed").toBool())
-        return fail("Combined panel restore control is unreachable");
-    combined->click();
+    if (!navigation->isHidden() || documents->isHidden() || dock->isHidden())
+        return fail("Collapsing library navigation also hid the paper list");
+    navigationToggle->click();
     QCoreApplication::processEvents();
-    if (dock->isHidden() || !navigation->isVisible() || !documents->isVisible() || focusAction->isChecked())
-        return fail("Combined panel restore did not show both subpanels");
+    if (navigation->isHidden() || documents->isHidden())
+        return fail("Independent navigation restore failed");
+    documentsToggle->click();
+    QCoreApplication::processEvents();
+    if (navigation->isHidden() || !documents->isHidden() || dock->isHidden())
+        return fail("Collapsing paper list also hid library navigation");
+    navigationToggle->click();
+    QCoreApplication::processEvents();
+    if (!dock->isHidden() || !navigationToggle->isVisible() || !documentsToggle->isVisible())
+        return fail("Independent panel restore controls disappeared when both were collapsed");
+    documentsToggle->click();
+    QCoreApplication::processEvents();
+    if (dock->isHidden() || !navigation->isHidden() || documents->isHidden())
+        return fail("Restoring paper list unexpectedly expanded library navigation");
+    navigationToggle->click();
+    QCoreApplication::processEvents();
+    if (dock->isHidden() || navigation->isHidden() || documents->isHidden())
+        return fail("Both independent library panels failed to restore");
     // Exercise the real viewport crop and asynchronous hover in the temporary
     // synthetic library. Nothing here reads or modifies a user's library.
     auto* library = dynamic_cast<LibraryPanel*>(dock->widget());

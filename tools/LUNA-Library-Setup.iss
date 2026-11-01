@@ -7,6 +7,8 @@
 #endif
 
 [Setup]
+; Script lives in tools/; compiled sources, icon and output live at repository root.
+SourceDir=..
 AppId={{D921C772-E1D2-47B0-AF0E-13E81945C2B4}
 AppName={#LunaProduct}
 AppVersion={#LunaVersion}

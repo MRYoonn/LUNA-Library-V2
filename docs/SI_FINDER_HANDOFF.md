@@ -51,3 +51,54 @@ Synthetic offline test command:
 The isolated association contract passed 14/14 Python 3.13 tests locally. It was tested with a local copy of the existing DOI normalizer, not a full GitHub checkout. Full exact-HEAD public gate, Qt/MSVC, real PDF move/restart, API reachability, and real Windows acceptance remain NOT RUN. No live ACS/Figshare links were verified.
 
 Next actionable gate: create a Qt-only test adapter using PR #16's verified DOI and a durable per-document UUID contract; run it against temporary PDF+sidecar fixtures and a real Windows build, without changing PDF4QT or merging this Draft. Separately validate live ACS/Figshare public metadata and landing-page reachability without binary downloads.
+
+
+## Follow-up: opt-in QtCore document UUID sidecar adapter (2026-11-01)
+
+Added `src/lunasiidentity.h` and standalone `tests/native_si_identity/`
+with `tests/test_si_identity_source.py`. This is a small isolated
+**source implementation**, not a claim of successful Windows runtime integration.
+
+- `SiIdentity::read(libraryRoot, pdf)` is strictly read-only. Missing identity
+  remains `identity_missing`; no path-derived UUID or automatic link.
+- `SiIdentity::ensure(libraryRoot, pdf)` must be invoked only after a user
+  explicitly opts in to SI linking. It adds `documentId` (RFC4122 UUIDv4)
+  to the existing local `<paper>.luna-meta.json`, preserving all other fields.
+  A sidecar lock prevents competing opt-in assignments, and `QSaveFile` commits
+  atomically without direct-write fallback. Corrupt, future-version, oversized,
+  symlinked or malformed-ID sidecars are rejected without replacement.
+- PDFs must be regular files inside a canonical library root. Neither
+  original PDF bytes nor QSettings, annotations, memo or thumbnails are changed.
+  No network requests or remote data uploads occur.
+- Existing Issue #9 `movePdfWithThumbnails` already moves `.luna-meta.json`
+  with a PDF; `copyPdfWithThumbnails` deliberately does not copy it. The
+  standalone native fixture simulates move + sidecar rename and checks stable
+  UUID after restart-style re-read; copying only the PDF requires a new UUID.
+- The native test calls PR #16 `luna::Metadata::normalizeDoi`; there is no
+  new DOI extractor. No SI associations are auto-created by this adapter.
+
+Source-only test command:
+
+    python -B -m unittest discover -s tests -p 'test_si_identity_source.py' -v
+
+Standalone Qt6.5+ test commands (requires Qt6 Core SDK and CMake):
+
+    cmake -S tests/native_si_identity -B build/si-identity
+    cmake --build build/si-identity --config Release
+    ctest --test-dir build/si-identity -C Release --output-on-failure
+
+**Validation boundary:** This run has not executed a Qt/MSVC or Windows
+native compile (Qt6 SDK is unavailable in the runner). The new Python
+source-only test has not been executed against a full repository checkout.
+All native assertions are test code, not PASS claims. Exact-HEAD Windows
+CI is also not run. No real ACS/Figshare metadata or landing links were
+verified. Keep PR #17 Draft.
+
+**Next action:** Compile and run the isolated QtCore target in a Qt6.5+
+Windows environment, fix actual compiler/runtime errors, and verify the
+existing `.luna-meta.json` schema on real *permissioned* disposable
+fixtures. Then implement a separate atomic local association-state store
+and reconcile successful/rolled-back Issue #9 moves without editing the
+move engine; do not integrate cards until native and privacy gates pass.
+PR #16 has advanced independently; review its new HEAD before any
+integration or branch update, avoiding changes to its own files.

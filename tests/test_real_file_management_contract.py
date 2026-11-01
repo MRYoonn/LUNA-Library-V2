@@ -68,7 +68,7 @@ class NativeFileManagementContracts(unittest.TestCase):
         ):
             self.assertIn(token, UI, token)
         for token in (
-            "const std::function<bool(const QString&)>& recycler = QFile::moveToTrash",
+            "[](const QString& item) { return QFile::moveToTrash(item); }",
             "if (!recycler(item.first))",
             "const QString portable=",
             "destination.exists() || destination.isSymLink()",

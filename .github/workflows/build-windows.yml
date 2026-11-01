@@ -472,6 +472,10 @@ jobs:
           $output = Join-Path $env:GITHUB_WORKSPACE 'LUNA-Windows-Portable'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
           Copy-Item -Path "$bin/*" -Destination $output -Recurse -Force
+          # Standalone LUNA uses embedded moon resources, not the upstream
+          # Windows Store tiles. Remove these obsolete branding assets only.
+          if (Test-Path "$output/assets") { Remove-Item -LiteralPath "$output/assets" -Recurse -Force }
+          if (Test-Path "$output/AppxManifest.xml") { Remove-Item -LiteralPath "$output/AppxManifest.xml" -Force }
           Get-ChildItem -LiteralPath $output -Filter '*.exe' -File | Where-Object { $_.Name -ne 'LUNA.exe' } | Remove-Item
           Copy-Item 'pdf4qt/LICENSE' "$output/PDF4QT_LICENSE.txt"
           Copy-Item 'pdf4qt/3rdparty_licenses' "$output/third_party_licenses" -Recurse

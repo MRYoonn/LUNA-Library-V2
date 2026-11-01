@@ -55,6 +55,27 @@ class BuildDiagnosticsContracts(unittest.TestCase):
                 record(root, "start")
 
 
+    def test_native_access_violation_triggers_cdb_stack_without_masking_red(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")
+        crash = (root / "tools/probe_native_crash_windows.py").read_text(encoding="utf-8")
+        start = workflow.index("Capture crash-only synthetic Windows stack (CDB)")
+        end = workflow.index("Production native tabs, library and fresh-process", start)
+        step = workflow[start:end]
+        self.assertIn("failure() && steps.native-ui.outcome == 'failure'", step)
+        self.assertIn("Get-LunaCdb", step)
+        self.assertIn("probe_native_crash_windows.py", step)
+        self.assertIn("luna-ui/native-crash-replay", step)
+        self.assertIn("if: ${{ always() }}", workflow)
+        self.assertIn("if: ${{ failure() && steps.native-ui.outcome == 'failure' }}", workflow)
+        self.assertIn("LUNA_UNHANDLED_ACCESS_VIOLATION", crash)
+        self.assertIn("sxd -c2", crash)
+        self.assertIn("synthetic_pdf(2)", crash)
+        self.assertIn("first_run_remains_failed", crash)
+        self.assertIn("timeout=95", crash)
+        self.assertNotIn("os.environ.items()", crash)
+        self.assertNotIn("MiniDump", crash)
+
     def test_workflow_must_capture_first_failure_and_upload_even_if_red(self):
         root = Path(__file__).resolve().parents[1]
         workflow = (root / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")

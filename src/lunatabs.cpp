@@ -207,6 +207,15 @@ public:
         QTimer::singleShot(12000, updater_, [this] {
             if (updater_ && !closing_) updater_->check(false);
         });
+        // Long-running lab sessions also re-check periodically. The
+        // controller itself enforces a 24-hour interval after a valid result;
+        // offline checks may retry without interrupting the PDF reader.
+        auto* updatePoll = new QTimer(this);
+        updatePoll->setInterval(60 * 60 * 1000);
+        connect(updatePoll, &QTimer::timeout, this, [this] {
+            if (updater_ && !closing_) updater_->check(false);
+        });
+        updatePoll->start();
         setLibraryDocumentRouter(*this, [this](const QString& path) { open(path, "library-open"); },
             [this](const QString& path) {
                 auto* existing = find(path);

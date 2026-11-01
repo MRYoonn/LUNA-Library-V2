@@ -108,7 +108,6 @@ def run(package: Path, screenshots_directory: Path | None = None,
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 for suffix, name in ((".memo.png", "luna-paper-memo.png"),
                                      (".pages.png", "luna-page-grid.png"),
-                                     (".hover.png", "luna-thumbnail-hover.png"),
                                      (".desktop.png", "luna-windows-desktop.png")):
                     capture = Path(str(report) + suffix)
                     if capture.is_file():
@@ -150,12 +149,11 @@ def run(package: Path, screenshots_directory: Path | None = None,
             if screenshots_directory is not None:
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(pages, screenshots_directory / "luna-page-grid.png")
+            # The paper-list hover popup was removed intentionally.
+            # Reject obsolete output rather than requiring it.
             hover = Path(str(report) + ".hover.png")
-            if not hover.is_file() or not hover.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
-                raise RuntimeError("Native thumbnail hover capture missing")
-            if screenshots_directory is not None:
-                screenshots_directory.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(hover, screenshots_directory / "luna-thumbnail-hover.png")
+            if hover.exists():
+                raise RuntimeError("Removed thumbnail hover popup generated a capture")
             desktop = Path(str(report) + ".desktop.png")
             if not desktop.is_file() or not desktop.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
                 raise RuntimeError("Actual Windows shell icon review capture missing")
@@ -177,7 +175,7 @@ def run(package: Path, screenshots_directory: Path | None = None,
         print("[NOTICE] Per-process Qt scaling; physical monitor / OS per-monitor DPI changes remain separate checks.")
         return
     print("[PASS] Native library search, favorites, recent history, panel visibility and PDF reopen")
-    print("[PASS] Native viewport crop/cancel, atomic PNG sidecar, asynchronous hover, 165ms fade and screen bounds")
+    print("[PASS] Native viewport crop/cancel, atomic PNG sidecar and no secondary thumbnail hover popup")
     print("[PASS] Continuous layout at 200% and exact 1366x768 / 1920x1080 Qt layout captures")
     print("[PASS] Native text selection, highlight drag, sticky note, Save As and annotation disk round trip")
     print("[PASS] Original synthetic PDF bytes preserved; note contents and highlight color survive reopen")

@@ -86,6 +86,7 @@ APPROVED = {
     "tools/si_relocation_gate.py", "tests/test_si_relocation_gate.py",
     "tools/si_state_store.py", "tests/test_si_state_store.py",
     "tools/si_move_reconcile.py", "tests/test_si_move_reconcile.py",
+    "tools/si_landing_verify.py", "tests/test_si_landing_verify.py",
     ".github/workflows/si-isolated.yml",
     "tests/test_real_file_management_contract.py",
     "tests/test_updater.py", "tools/prepare_release.py",

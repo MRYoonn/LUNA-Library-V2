@@ -34,3 +34,21 @@ Capture read-only before/after snapshots for: stale `QSettings` from PR #13 (bot
 2. Add a **read-only Qt/native snapshot exporter** in a separate, reviewed step, or have the Windows owner export sanitized record snapshots manually. Map the final-author display explicitly and preserve per-field provenance.
 3. Run the harness against the 20+ real authorized PDF goldset on Windows at the exact PR #16 commit; report field-wise precision/recall, per-publisher error cases, unknown labels, and reproducible regression failures. Use actual runtime evidence for 429/404 and persisted QSettings, not fabricated pass flags.
 4. Only after those gates pass should the owner consider a merge. No auto-merge, Release, credential use, PDF upload, or automatic CI workflow dispatch.
+
+## Follow-up: Qt record snapshot adapter (source-only, not Windows-verified)
+
+The independent `tests/native_accuracy/snapshot_adapter.h` maps an **already loaded** `Bibliography::record(identity)` to a whitelisted `predictions` case with an opaque ID, a last-listed `terminal_author`, the original `documentKind`, and a small provenance audit. It never opens PDFs, QSettings, files or network connections, and never mutates a record. The caller must supply the exact 40-character source commit and a private case-ID mapping; the adapter does not read identities or user files. The returned `observed` values represent the **bibliography record**, not a rendered card screenshot; manual citation/senior-author overrides are only flagged, never misrepresented as terminal-author truth.
+
+Native synthetic regression tests seed **temporary** QSettings and exercise Crossref-style structured last author, ambiguous legacy `manual=true`/Hao Fang suppression, explicit manual author vs stale structured names, SI without invented DOI, and invalid opaque ID/build identity. They do not touch production settings. This is an isolated Qt Core CMake project, **not** wired into the main Windows release workflow.
+
+Run on a Windows/Qt6 machine:
+```sh
+cmake -S tests/native_accuracy -B build/native_accuracy -DCMAKE_BUILD_TYPE=Release
+cmake --build build/native_accuracy --config Release
+ctest --test-dir build/native_accuracy -C Release --output-on-failure
+python -B -m unittest discover -s tests -p 'test_accuracy_snapshot_source_contract.py' -v
+```
+
+**Current evidence:** the three Python source-contract checks passed locally; Qt6 was not installed in the current execution environment, so **native compilation, CTest, full repository preflight, and real Windows GUI behavior remain unverified**. No private snapshots were generated. A future reviewed test driver may call `captureCase(opaqueCaseId, store.record(identity))` inside a locally isolated Windows process and save the returned JSON **outside the repository**, after explicit privacy review. The adapter alone is not a running exporter and cannot prove that a card visibly displayed the same text. Never upload the resulting predictions, PDF filenames, QSettings, author data, or private case-ID map.
+
+Next: compile the native target on Windows; verify that exact SHA; build a reviewed, opt-in local driver that loads actual records without writing QSettings, compare against 20+ permissioned/public PDFs, then separately validate card display and restart/move/network behaviors.

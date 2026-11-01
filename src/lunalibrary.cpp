@@ -4,6 +4,7 @@
 #include "lunathumbnailcache.h"
 #include "lunafilemove.h"
 #include "lunatrashundo.h"
+#include "lunalocalsync.h"
 #include "lunadocumentclaim.h"
 #include "lunabibliography.h"
 #include "lunafirstpage.h"
@@ -1198,7 +1199,32 @@ public:
         addFolder->setToolTip(QStringLiteral("선택한 위치에 새 폴더 만들기"));
         addFolder->setObjectName(QStringLiteral("LunaTool"));
         folders->addWidget(addFolder);
+        auto* mybox = new QToolButton(navigation_);
+        mybox->setObjectName(QStringLiteral("LunaMyboxConnect"));
+        mybox->setText(QStringLiteral("MYBOX"));
+        mybox->setToolTip(QStringLiteral("설치된 MYBOX의 로컬 동기화 폴더를 선택합니다. 클라우드 로그인/API 없음"));
+        folders->addWidget(mybox);
         nav->addLayout(folders);
+        connect(mybox, &QToolButton::clicked, this, [this] {
+            const QString dir=QFileDialog::getExistingDirectory(this,
+                QStringLiteral("MYBOX 로컬 동기화 폴더 선택"),root_);
+            if(dir.isEmpty()) return;
+            QSettings store(QSettings::defaultFormat(),QSettings::UserScope,
+                            QStringLiteral("LUNA"),QStringLiteral("LUNA Library"));
+            store.setValue(QStringLiteral("library/mybox/root"),QFileInfo(dir).canonicalFilePath());
+            store.setValue(QStringLiteral("library/mybox/enabled"),true);
+            selectRoot(dir);
+        });
+        mybox->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(mybox,&QToolButton::customContextMenuRequested,this,[this,mybox](const QPoint& pos){
+            QMenu menu(this);
+            auto* off=menu.addAction(QStringLiteral("MYBOX 메타데이터 연동 끄기"));
+            if(menu.exec(mybox->mapToGlobal(pos))==off) {
+                auto store=luna::lunaLocalStore();
+                store.setValue(QStringLiteral("library/mybox/enabled"),false);
+                if(localSync_) localSync_->configure(root_,false);
+            }
+        });
         rootLabel_ = new QLabel(navigation_);
         rootLabel_->setObjectName(QStringLiteral("LunaSecondary"));
         rootLabel_->setWordWrap(true);
@@ -1586,7 +1612,40 @@ public:
         QString start = settings.value(QStringLiteral("library/root")).toString();
         if (!QFileInfo(start).isDir()) start = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
         if (!QFileInfo(start).isDir()) start = QDir::homePath();
-        bibliography_.changed = [this](const QString& identity) { refreshBibliography(identity); };
+        bibliography_.changed = [this](const QString& identity) {
+            refreshBibliography(identity);
+            if(localSync_ && !applyingRemote_) localSync_->publish(identity);
+        };
+        localSync_ = new luna::LocalFolderSync(this);
+        localSync_->localSnapshot = [this](const QString& pdf) {
+            return luna::capturePortableRecord(pdf,bibliography_);
+        };
+        localSync_->remoteChanged = [this](const QString& pdf,const QJsonObject& record) {
+            applyingRemote_=true;
+            if(luna::applyPortableRecord(pdf,record,bibliography_)) {
+                auto store=luna::lunaLocalStore();
+                memos_.insert(openedDateKey(pdf),store.value(QStringLiteral("library/memos/")+openedDateKey(pdf)).toString());
+                const auto favorites=store.value(QStringLiteral("library/favorites")).toStringList();
+                favorites_=QSet<QString>(favorites.cbegin(),favorites.cend());
+            }
+            applyingRemote_=false;
+        };
+        localSync_->renamed = [this](const QString& before,const QString& after) {
+            QString error;
+            if(!luna::reconcileExplorerRename(before,after,bibliography_,&error)) {
+                if(!error.isEmpty()) qWarning().noquote()<<error;
+                return;
+            }
+            const QString oldKey=openedDateKey(before),newKey=openedDateKey(after);
+            if(memos_.contains(oldKey)) memos_.insert(newKey,memos_.take(oldKey));
+            if(openedDates_.contains(oldKey)) openedDates_.insert(newKey,openedDates_.take(oldKey));
+            const auto favorites=savedPaths(QStringLiteral("library/favorites"));
+            favorites_=QSet<QString>(favorites.cbegin(),favorites.cend());
+            ThumbnailCache::instance()->invalidate();
+        };
+        localSync_->filesChanged = [this] {
+            refreshFileLists();
+        };
         metadataFetcher_ = new luna::MetadataFetcher(this);
         selectRoot(start);
         split_->restoreState(settings.value(QStringLiteral("library/splitter")).toByteArray());
@@ -1953,6 +2012,7 @@ private:
             return;
         }
         memos_.insert(key, text);
+        if(localSync_ && !applyingRemote_) localSync_->publish(path);
         for (auto* list : findChildren<QListWidget*>()) {
             for (int row = 0; row < list->count(); ++row) {
                 auto* item = list->item(row);
@@ -1977,6 +2037,7 @@ private:
         else paths.append(path);
         favorites_ = QSet<QString>(paths.cbegin(), paths.cend());
         QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).setValue(QStringLiteral("library/favorites"), paths);
+        if(localSync_ && !applyingRemote_) localSync_->publish(path);
         for (auto* list : {folderPdfs_, allPdfs_, historyPdfs_}) {
             for (int i = 0; i < list->count(); ++i) {
                 auto* item = list->item(i);
@@ -2745,6 +2806,11 @@ private:
         allCount_->setText(QStringLiteral("전체 PDF"));
         selectFolder(root_);
         model_->refreshPdfCounts(root_);
+        if (localSync_) {
+            const auto store=luna::lunaLocalStore();
+            localSync_->configure(root_,store.value(QStringLiteral("library/mybox/enabled"),false).toBool() &&
+                store.value(QStringLiteral("library/mybox/root")).toString().compare(root_,Qt::CaseInsensitive)==0);
+        }
         if (pages_->currentIndex() == 1) scanAll();
     }
     void selectFolder(const QString& path) {
@@ -3127,6 +3193,8 @@ private:
     QHash<QString, QString> memos_;
     QSet<QString> favorites_;
     luna::RecentTrashUndo recentUndo_;
+    luna::LocalFolderSync* localSync_=nullptr;
+    bool applyingRemote_=false;
     QStringList undoFavorites_, undoRecent_;
     LunaFolderModel* model_ = nullptr;
     QTreeView* tree_ = nullptr;

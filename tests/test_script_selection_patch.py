@@ -10,6 +10,8 @@ SCRIPT = ROOT / "tools" / "patch_script_text_layout.py"
 spec = importlib.util.spec_from_file_location("luna_script_patch", SCRIPT)
 patch = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(patch)
+from tools import patch_script_text_layout as workflow_patch
+from tools.apply_performance import verify_pinned_text_layout
 
 
 class ScriptSelectionPatchContracts(unittest.TestCase):
@@ -83,6 +85,33 @@ class ScriptSelectionPatchContracts(unittest.TestCase):
             'copied.contains(QStringLiteral("CF3-H"))',
         ):
             self.assertIn(required, native, required)
+
+    def test_performance_overlay_reverses_only_known_script_patch(self):
+        # Build #194 failed because the performance gate required the
+        # pristine blob AFTER the independently verified script patch ran.
+        original = (
+            patch.INTRO + "\n" + patch.BEFORE_LINE + "\n" +
+            patch.BEFORE_SPACE + "\n"
+        ).encode("utf-8")
+        digest = hashlib.sha1(
+            b"blob " + str(len(original)).encode() + b"\\x00" + original
+        ).hexdigest()
+        first = patch.PINNED_BLOB_SHA1
+        second = workflow_patch.PINNED_BLOB_SHA1
+        try:
+            patch.PINNED_BLOB_SHA1 = digest
+            workflow_patch.PINNED_BLOB_SHA1 = digest
+            patched = patch.patch_bytes(original)
+            self.assertEqual(verify_pinned_text_layout(original), original.decode("utf-8"))
+            self.assertEqual(verify_pinned_text_layout(patched), patched.decode("utf-8"))
+            damaged = patched.replace(b"ratio < 1.20", b"ratio < 1.01")
+            with self.assertRaisesRegex(ValueError, "reverse to pinned upstream"):
+                verify_pinned_text_layout(damaged)
+            with self.assertRaisesRegex(ValueError, "Unrecognized pinned"):
+                verify_pinned_text_layout(b"unapproved upstream")
+        finally:
+            patch.PINNED_BLOB_SHA1 = first
+            workflow_patch.PINNED_BLOB_SHA1 = second
 
     def test_windows_build_applies_verified_patch_not_on_main_branch(self):
         workflow = (ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")

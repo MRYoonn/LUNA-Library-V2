@@ -122,6 +122,55 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         self.assertEqual(metrics["ACS"]["article_number"]["tn"], 1)
         self.assertEqual(metrics["ACS"]["article_number"]["scored"], 1)
 
+    def test_require_real_rejects_unverified_snapshot_identity(self):
+        # Fabricated contract fixtures: NEVER a real-publisher measurement.
+        gold, predictions = sample()
+        for case in gold["cases"]:
+            case["source"] = {"kind": "public", "sha256": "a" * 64}
+            case["evidence"] = {field: "fabricated contract test only"
+                                for field in case["expected"]}
+        with self.assertRaisesRegex(lab.DatasetError, "engine_commit"):
+            lab.score(gold, predictions, require_real=True)
+        predictions["engine_commit"] = "b" * 40
+        with self.assertRaisesRegex(lab.DatasetError, "capture_kind"):
+            lab.score(gold, predictions, require_real=True)
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        with self.assertRaisesRegex(lab.DatasetError, "audit flags"):
+            lab.score(gold, predictions, require_real=True)
+        for case in predictions["cases"]:
+            case["audit"] = {"manual_citation_active": False,
+                             "senior_author_override_active": False}
+        result = lab.score(gold, predictions, require_real=True)
+        self.assertTrue(result["pass"])
+        self.assertEqual(result["assessment"], "provided_real_goldset_not_independently_verified")
+
+    def test_require_real_negative_label_evidence_and_pdf_hash(self):
+        # Real-mode structural validation is testable without claiming the
+        # fabricated labels or digest are authentic PDF evidence.
+        gold, predictions = sample()
+        for case in gold["cases"]:
+            case["source"] = {"kind": "public", "sha256": "a" * 64}
+            case["evidence"] = {field: "fabricated contract test only"
+                                for field in case["expected"]}
+        predictions["engine_commit"] = "b" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        for case in predictions["cases"]:
+            case["audit"] = {"manual_citation_active": False,
+                             "senior_author_override_active": False}
+        si = next(case for case in gold["cases"] if case["id"] == "syn-rsc-si")
+        si["evidence"].pop("doi")  # Known-negative null DOI needs evidence.
+        with self.assertRaisesRegex(lab.DatasetError, "evidence for doi"):
+            lab.score(gold, predictions, require_real=True)
+        si["evidence"]["doi"] = "  "
+        with self.assertRaisesRegex(lab.DatasetError, "evidence for doi"):
+            lab.score(gold, predictions, require_real=True)
+        si["evidence"]["doi"] = "fabricated absence evidence"
+        si["source"]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(lab.DatasetError, "placeholder PDF SHA256"):
+            lab.score(gold, predictions, require_real=True)
+        si["source"]["sha256"] = "a" * 64
+        self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
+
     def test_cli_exit_codes_and_local_report(self):
         gold = FIXTURES / "bibliography_accuracy_goldset.synthetic.json"
         predictions = FIXTURES / "bibliography_accuracy_predictions.synthetic.json"

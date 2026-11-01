@@ -1,4 +1,5 @@
 """Fail-closed contract for PDF4QT superscript/subscript selection correction."""
+import hashlib
 import importlib.util
 from pathlib import Path
 import unittest
@@ -42,6 +43,32 @@ class ScriptSelectionPatchContracts(unittest.TestCase):
             self.assertIn(required, source, required)
         self.assertIn("PINNED_BLOB_SHA1", source)
         self.assertNotIn("if True", source)
+
+    def test_patched_source_keeps_native_fallback_and_copy_order(self):
+        # Minimal upstream-format fixture; validates both LF and Windows CRLF
+        # while leaving the actual pinned Git SHA check enabled in production.
+        original = (
+            patch.INTRO + "\n" +
+            patch.BEFORE_LINE + "\n" +
+            patch.BEFORE_SPACE + "\n"
+        ).encode("utf-8")
+        pinned = patch.PINNED_BLOB_SHA1
+        try:
+            blob = b"blob " + str(len(original)).encode() + b"\x00" + original
+            patch.PINNED_BLOB_SHA1 = hashlib.sha1(blob).hexdigest()
+            result = patch.patch_bytes(original).decode()
+            self.assertIn(patch.MARKER, result)
+            self.assertIn("const bool nativeSameLine", result)
+            self.assertIn("nativeSameLine || isLunaInlineScript", result)
+            self.assertIn("!isLunaInlineScript(previousCharacter, currentCharacter)", result)
+            self.assertNotIn(patch.BEFORE_LINE, result)
+            self.assertNotIn(patch.BEFORE_SPACE, result)
+            with self.assertRaisesRegex(ValueError, "blob SHA mismatch"):
+                patch.patch_bytes(result.encode())
+            crlf = original.replace(b"\n", b"\r\n")
+            self.assertIn(b"\r\n", patch.patch_bytes(crlf))
+        finally:
+            patch.PINNED_BLOB_SHA1 = pinned
 
     def test_windows_build_applies_verified_patch_not_on_main_branch(self):
         workflow = (ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")

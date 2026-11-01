@@ -11,10 +11,19 @@ def verify_pinned_text_layout(normalized: bytes) -> str:
     Unrecognized source changes always fail closed.
     """
     import hashlib
-    from tools.patch_script_text_layout import (
-        PINNED_BLOB_SHA1, INTRO, HELPER, BEFORE_LINE, AFTER_LINE,
-        BEFORE_SPACE, AFTER_SPACE, MARKER,
-    )
+    # Both supported invocations must resolve the same pinned patch module:
+    #   python tools/apply_performance.py ...  (script: sys.path[0] == tools/)
+    #   from tools.apply_performance import ...  (package: repo on sys.path)
+    if __package__:
+        from .patch_script_text_layout import (
+            PINNED_BLOB_SHA1, INTRO, HELPER, BEFORE_LINE, AFTER_LINE,
+            BEFORE_SPACE, AFTER_SPACE, MARKER,
+        )
+    else:
+        from patch_script_text_layout import (
+            PINNED_BLOB_SHA1, INTRO, HELPER, BEFORE_LINE, AFTER_LINE,
+            BEFORE_SPACE, AFTER_SPACE, MARKER,
+        )
 
     def git_blob_sha(payload: bytes) -> str:
         return hashlib.sha1(

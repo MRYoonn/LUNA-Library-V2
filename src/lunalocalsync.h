@@ -109,6 +109,37 @@ inline bool reconcileExplorerRename(const QString& oldPath, const QString& newPa
     return settings.status()==QSettings::NoError;
 }
 
+inline QJsonObject capturePortableRecord(const QString& path, Bibliography& bibliography) {
+    auto store=lunaLocalStore();
+    const auto data=bibliography.record(DocumentClaim::identity(path));
+    const QString memo=store.value(QStringLiteral("library/memos/")+lunaPathKey(path)).toString();
+    const bool favorite=store.value(QStringLiteral("library/favorites")).toStringList().contains(path);
+    if(data.isEmpty() && memo.isEmpty() && !favorite) return {};
+    QJsonObject result;
+    result.insert(QStringLiteral("bibliography"),QJsonObject::fromVariantMap(data));
+    result.insert(QStringLiteral("memo"),memo);
+    result.insert(QStringLiteral("favorite"),favorite);
+    return result;
+}
+inline bool applyPortableRecord(const QString& path,const QJsonObject& record,
+                                Bibliography& bibliography) {
+    if(!QFileInfo(path).isFile() || QFileInfo(path).isSymLink()) return false;
+    auto store=lunaLocalStore();
+    if(record.value(QStringLiteral("bibliography")).isObject()) {
+        const QVariantMap fields=record.value(QStringLiteral("bibliography")).toObject().toVariantMap();
+        if(!fields.isEmpty() &&
+           !bibliography.save(DocumentClaim::identity(path),fields,fields.value("manual").toBool()))
+            return false;
+    }
+    store.setValue(QStringLiteral("library/memos/")+lunaPathKey(path),record.value("memo").toString());
+    auto favorites=store.value(QStringLiteral("library/favorites")).toStringList();
+    favorites.removeAll(path);
+    if(record.value("favorite").toBool())favorites.append(path);
+    favorites.removeDuplicates();
+    store.setValue(QStringLiteral("library/favorites"),favorites);
+    store.sync();
+    return store.status()==QSettings::NoError;
+}
 // MYBOX support intentionally uses the user's installed desktop sync folder.
 // No cloud tokens, API calls, credentials, background uploads or download code.
 class LocalFolderSync final : public QObject {
@@ -251,7 +282,7 @@ public:
                         continue;
                     }
                     seen_[sidecar]=digest;
-                    if(remoteChanged) remoteChanged(pdf,remote);
+                    if(remoteChanged) { remoteChanged(pdf,remote); changed=true; }
                     lunaLocalStore().setValue(
                         QStringLiteral("library/mybox/seen/")+lunaPathKey(pdf),
                         QString::fromLatin1(digest.toHex()));

@@ -23,7 +23,8 @@ public:
         return result;
     }
     bool trash(const QString& pdf, QString* error,
-               const std::function<bool(const QString&)>& recycler = QFile::moveToTrash) {
+               const std::function<bool(const QString&)>& recycler =
+                   [](const QString& item) { return QFile::moveToTrash(item); }) {
         const QFileInfo source(pdf);
         if (!source.isFile() || source.isSymLink() || source.canonicalFilePath().isEmpty())
             return reject(error, QStringLiteral("실제 PDF 파일이 아닙니다."));

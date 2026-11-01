@@ -210,9 +210,11 @@ def lookup_acs_figshare(
                 # opens the official landing page for user review in a browser.
                 candidates.append(SiCandidate(article_id, doi, title, filename, landing))
         if candidates:
-            status = "partial" if (failed_details or truncated_files
+            # A rejected summary/detail makes the discovered set incomplete.
+            # A full first page may conceal more records, even with zero files.
+            status = "partial" if (rejected or failed_details or truncated_files
                                    or invalid_file_entries or len(found) == MAX_ARTICLES) else "candidates"
-        elif rejected or failed_details or invalid_file_entries:
+        elif rejected or failed_details or truncated_files or invalid_file_entries or len(found) == MAX_ARTICLES:
             status = "needs_review"
         else:
             status = "not_found"

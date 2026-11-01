@@ -206,6 +206,33 @@ class SiFinderTests(unittest.TestCase):
         result = lookup_acs_figshare(DOI, api)
         self.assertEqual((result.status, len(result.candidates)), ("partial", 2))
 
+    def test_rejected_search_records_never_mark_remaining_si_complete(self):
+        # Even when a valid SI exists, discarded DOI/ID/summary records mean
+        # that the search was not exhaustively verified.
+        cases = (
+            FakeApi(search=[{"id": 123}, {"id": 456}],
+                    details={123: article(123), 456: article(456, doi="10.1021/jacs.6c99999")}),
+            FakeApi(search=[{"id": 123}, {"id": "not-a-number"}],
+                    details={123: article(123)}),
+            FakeApi(search=[{"id": 123}, None],
+                    details={123: article(123)}),
+        )
+        for api in cases:
+            with self.subTest(search=api.search):
+                result = lookup_acs_figshare(DOI, api)
+                self.assertEqual(result.status, "partial")
+                self.assertEqual(len(result.candidates), 2)
+                self.assertIn("rejected=1", result.diagnostic)
+
+    def test_full_search_page_with_no_files_is_not_exhaustive_not_found(self):
+        # Page two is unknown when the first page fills the provider cap.
+        api = FakeApi(search=[{"id": i} for i in range(1, 21)],
+                      details={i: article(i, files=[]) for i in range(1, 21)})
+        result = lookup_acs_figshare(DOI, api)
+        self.assertEqual(result.status, "needs_review")
+        self.assertEqual(result.candidates, ())
+        self.assertIn("search_page_full=1", result.diagnostic)
+
     def test_rate_limit(self):
         def blocked(method, url, body):
             raise HTTPError(url, 429, "rate limited", {}, None)

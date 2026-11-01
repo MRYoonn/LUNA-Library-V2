@@ -159,6 +159,7 @@ public:
         ++generation_;
         seen_.clear();
         known_.clear();
+        lastPaths_.clear();
         const QVariantMap stored = lunaLocalStore().value(
             QStringLiteral("library/fileIds/") + lunaPathKey(root_)).toMap();
         for (auto it=stored.cbegin();it!=stored.cend();++it)
@@ -229,7 +230,7 @@ public:
         });
         connect(worker,&QThread::finished,this,[this,result,generation] {
             busy_=false;
-            if (generation!=generation_) return;
+            if (generation!=generation_) { QTimer::singleShot(0,this,[this]{scan();}); return; }
             bool changed=false;
             for(auto it=result->ids.cbegin();it!=result->ids.cend();++it) {
                 if(result->ambiguous.contains(it.key())) continue;
@@ -251,7 +252,8 @@ public:
             known_=std::move(fresh);
             lunaLocalStore().setValue(QStringLiteral("library/fileIds/")+lunaPathKey(root_),stored);
             const QSet<QString> paths(result->paths.cbegin(),result->paths.cend());
-            if (paths!=lastPaths_) { changed=true; lastPaths_=paths; }
+            if (!lastPaths_.isEmpty() && paths!=lastPaths_) changed=true;
+            lastPaths_=paths;
             if(mybox_ && localSnapshot) {
                 int read=0;
                 for(const QString& pdf:result->paths) {

@@ -70,6 +70,20 @@ class ScriptSelectionPatchContracts(unittest.TestCase):
         finally:
             patch.PINNED_BLOB_SHA1 = pinned
 
+    def test_native_pdf_fixture_really_has_raised_and_lowered_glyphs(self):
+        fixture = (ROOT / "tools/smoke_windows.py").read_text(encoding="utf-8")
+        native = (ROOT / "src/lunaeditorsmoke.cpp").read_text(encoding="utf-8")
+        self.assertIn("/F1 10 Tf 6 Ts (3) Tj", fixture)
+        self.assertIn("/F1 10 Tf -4 Ts (3) Tj", fixture)
+        for required in (
+            "Reader phase: inline superscript/subscript native selection and copy order",
+            'glyphs.contains(QStringLiteral("C(sp3)-H"))',
+            'glyphs.contains(QStringLiteral("CF3-H"))',
+            'copied.contains(QStringLiteral("C(sp3)-H"))',
+            'copied.contains(QStringLiteral("CF3-H"))',
+        ):
+            self.assertIn(required, native, required)
+
     def test_windows_build_applies_verified_patch_not_on_main_branch(self):
         workflow = (ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")
         verified = "python tools/patch_script_text_layout.py pdf4qt --dry-run"

@@ -537,7 +537,18 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('tabs_->setTabText(index, text)', tabs)
         self.assertIn('tabs_->setElideMode(Qt::ElideMiddle)', tabs)
         self.assertIn('tabs_->tabBar()->setAcceptDrops(true)', tabs)
-        self.assertIn('row->insertWidget(0, toggle)', library)
+        # Both controls now live in the always-visible reader header rather
+        # than being inserted into the collapsible library navigation row.
+        # Keep the contract tied to independent, user-accessible controls.
+        self.assertIn('addIndependentPanelButtons(corner, row)', library)
+        self.assertIn('target->addWidget(toggle)', library)
+        self.assertIn('LunaNavigationCollapseButton', library)
+        self.assertIn('LunaDocumentsCollapseButton', library)
+        self.assertIn('toggle->setDefaultAction(entry.first)', library)
+        self.assertIn('navigationToggle->click()', library)
+        self.assertIn('documentsToggle->click()', library)
+        self.assertIn('Collapsing library navigation also hid the paper list', library)
+        self.assertIn('Collapsing paper list also hid library navigation', library)
         self.assertIn('QTabBar#LunaPdfTabBar::tab', style)
         self.assertIn('painter->fillPath(selectionPath', overlay)
         self.assertIn('PDFTextSelectionPainter selectionPainter(&m_textSelection)', overlay)

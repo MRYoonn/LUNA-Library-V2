@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""Offline bibliography goldset scorer; no PDF parsing or network access.
+
+This evaluates *supplied* extraction snapshots. A synthetic PASS is never a
+claim about the native LUNA engine, a publisher PDF, or a Windows build.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+import unicodedata
+from collections import defaultdict
+from pathlib import Path
+
+FIELDS = (
+    "doi", "title", "terminal_author", "journal", "journal_abbreviation",
+    "year", "volume", "issue", "page", "article_number", "document_kind",
+)
+ID = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
+SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
+DOI = re.compile(r"^10\.\d{4,9}/\S+$", re.I)
+
+
+class DatasetError(ValueError):
+    pass
+
+
+def load_json(path: Path) -> dict:
+    try:
+        result = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise DatasetError(f"cannot read JSON {path.name}: {exc}") from exc
+    if not isinstance(result, dict):
+        raise DatasetError(f"{path.name}: expected JSON object")
+    return result
+
+
+def normalize(field: str, value: object) -> str:
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str):
+        raise DatasetError(f"{field}: value must be string or null")
+    result = unicodedata.normalize("NFKC", value).strip()
+    if field == "doi":
+        result = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi\s*:\s*)", "", result, flags=re.I)
+        return result.rstrip("., ").casefold()
+    result = " ".join(result.split()).casefold()
+    if field == "page":
+        result = re.sub(r"\s*[-\u2013\u2014]\s*", "-", result)
+    # Deliberately do not strip title punctuation or chemistry symbols: a
+    # changed chemical formula/stereochemical descriptor is a real mismatch.
+    return result
+
+
+def validate_cases(doc: dict, kind: str) -> dict[str, dict]:
+    if doc.get("schema_version") != 1 or doc.get("kind") != kind:
+        raise DatasetError(f"{kind}: expected schema_version=1, kind={kind}")
+    if not isinstance(doc.get("dataset_id"), str) or not ID.fullmatch(doc["dataset_id"]):
+        raise DatasetError(f"{kind}: invalid dataset_id")
+    cases = doc.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise DatasetError(f"{kind}: nonempty cases list required")
+    indexed = {}
+    for case in cases:
+        if not isinstance(case, dict) or not isinstance(case.get("id"), str) or not ID.fullmatch(case["id"]):
+            raise DatasetError(f"{kind}: invalid case id")
+        ident = case["id"]
+        if ident in indexed:
+            raise DatasetError(f"{kind}: duplicate case id {ident}")
+        values = case.get("expected" if kind == "goldset" else "observed")
+        if not isinstance(values, dict) or set(values) - set(FIELDS):
+            raise DatasetError(f"{kind}/{ident}: invalid field names or missing values object")
+        for field, value in values.items():
+            normalize(field, value)
+        if kind == "goldset":
+            publisher = case.get("publisher")
+            if publisher not in ("ACS", "RSC", "Wiley", "Nature", "Elsevier", "Other"):
+                raise DatasetError(f"goldset/{ident}: unsupported publisher")
+            source = case.get("source")
+            if not isinstance(source, dict) or source.get("kind") not in ("synthetic", "public", "permissioned"):
+                raise DatasetError(f"goldset/{ident}: explicit source.kind required")
+            if source["kind"] != "synthetic":
+                if not isinstance(source.get("sha256"), str) or not SHA256.fullmatch(source["sha256"]):
+                    raise DatasetError(f"goldset/{ident}: real PDF requires SHA256")
+                evidence = case.get("evidence")
+                if not isinstance(evidence, dict):
+                    raise DatasetError(f"goldset/{ident}: real PDF requires evidence")
+                for field, value in values.items():
+                    if normalize(field, value) and not isinstance(evidence.get(field), str):
+                        raise DatasetError(f"goldset/{ident}: missing evidence for {field}")
+        indexed[ident] = case
+    return indexed
+
+
+def metric(tp: int, other: int) -> float | None:
+    return round(tp / (tp + other), 6) if tp + other else None
+
+
+def score(gold: dict, predictions: dict, *, require_real: bool = False) -> dict:
+    expected = validate_cases(gold, "goldset")
+    observed = validate_cases(predictions, "predictions")
+    if gold["dataset_id"] != predictions["dataset_id"]:
+        raise DatasetError("dataset_id mismatch")
+    if require_real and any(c["source"]["kind"] == "synthetic" for c in expected.values()):
+        raise DatasetError("--require-real rejects synthetic fixtures")
+    unknown = sorted(set(observed) - set(expected))
+    missing = sorted(set(expected) - set(observed))
+    if unknown or missing:
+        raise DatasetError(f"case ID mismatch: unexpected={unknown}, missing={missing}")
+    stats = {field: defaultdict(int) for field in FIELDS}
+    errors = []
+    by_publisher = defaultdict(lambda: {"cases": 0, "errors": 0})
+    for ident, case in expected.items():
+        publisher = case["publisher"]
+        by_publisher[publisher]["cases"] += 1
+        for field in FIELDS:
+            if field not in case["expected"]:
+                stats[field]["unscored"] += 1
+                continue
+            want = normalize(field, case["expected"][field])
+            got = normalize(field, observed[ident]["observed"].get(field))
+            stats[field]["scored"] += 1
+            if want == got:
+                stats[field]["tp" if want else "tn"] += 1
+            else:
+                if want:
+                    stats[field]["fn"] += 1
+                if got:
+                    stats[field]["fp"] += 1
+                by_publisher[publisher]["errors"] += 1
+                errors.append({"case_id": ident, "publisher": publisher, "field": field,
+                               "expected": case["expected"][field],
+                               "observed": observed[ident]["observed"].get(field),
+                               "error": "mismatch" if want and got else "missing" if want else "spurious"})
+    field_scores = {}
+    for field, count in stats.items():
+        field_scores[field] = {k: count[k] for k in ("tp", "fp", "fn", "tn", "scored", "unscored")}
+        field_scores[field]["precision"] = metric(count["tp"], count["fp"])
+        field_scores[field]["recall"] = metric(count["tp"], count["fn"])
+    checks = score_regressions(predictions.get("regressions", []))
+    return {
+        "schema_version": 1, "dataset_id": gold["dataset_id"],
+        "assessment": "synthetic_harness_only" if any(c["source"]["kind"] == "synthetic" for c in expected.values())
+                      else "provided_real_goldset_not_independently_verified",
+        "cases": len(expected), "field_scores": field_scores,
+        "by_publisher": dict(sorted(by_publisher.items())),
+        "errors": errors, "regression_checks": checks,
+        "pass": not errors and checks["failed"] == 0,
+    }
+
+
+def score_regressions(regressions: object) -> dict:
+    if not isinstance(regressions, list):
+        raise DatasetError("regressions must be a list")
+    failures = []
+    seen = set()
+    for case in regressions:
+        if not isinstance(case, dict) or not isinstance(case.get("id"), str) or not ID.fullmatch(case["id"]):
+            raise DatasetError("invalid regression id")
+        ident = case["id"]
+        if ident in seen:
+            raise DatasetError(f"duplicate regression id: {ident}")
+        seen.add(ident)
+        before, after = case.get("before"), case.get("after")
+        preserve = case.get("must_preserve", [])
+        empty = case.get("must_remain_empty", [])
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            raise DatasetError(f"regression/{ident}: before/after objects required")
+        if not isinstance(preserve, list) or not isinstance(empty, list) or not all(isinstance(x, str) for x in preserve + empty):
+            raise DatasetError(f"regression/{ident}: invalid field lists")
+        for field in preserve:
+            if field not in before or before[field] != after.get(field):
+                failures.append({"case_id": ident, "field": field, "reason": "changed_protected_value"})
+        for field in empty:
+            if after.get(field) not in (None, "", []):
+                failures.append({"case_id": ident, "field": field, "reason": "unexpected_value"})
+        if "expected_status" in case and case["expected_status"] != case.get("actual_status"):
+            failures.append({"case_id": ident, "field": "status", "reason": "wrong_status"})
+    return {"total": len(regressions), "passed": len(regressions) - len({f["case_id"] for f in failures}),
+            "failed": len({f["case_id"] for f in failures}), "failures": failures}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--goldset", type=Path, required=True)
+    parser.add_argument("--predictions", type=Path, required=True)
+    parser.add_argument("--report", type=Path)
+    parser.add_argument("--require-real", action="store_true")
+    args = parser.parse_args(argv)
+    try:
+        result = score(load_json(args.goldset), load_json(args.predictions), require_real=args.require_real)
+    except DatasetError as exc:
+        print(f"[BLOCK] {exc}", file=sys.stderr)
+        return 2
+    output = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if args.report:
+        args.report.write_text(output, encoding="utf-8")
+    else:
+        print(output, end="")
+    print(f"[{'PASS' if result['pass'] else 'FAIL'}] {result['assessment']}: "
+          f"{result['cases']} cases, {len(result['errors'])} field errors, "
+          f"{result['regression_checks']['failed']} regression failures", file=sys.stderr)
+    return 0 if result["pass"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

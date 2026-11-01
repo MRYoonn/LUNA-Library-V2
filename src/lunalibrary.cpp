@@ -369,7 +369,7 @@ public:
         return QRect(r.right() - 32, r.top() + 11, 22, 22);
     }
     static QRect compactMemoRect(const QRect& r) {
-        return QRect(r.left() + 101, r.top() + 87, qMax(18, r.width() - 115), 20);
+        return QRect(r.left() + 93, r.top() + 87, qMax(18, r.width() - 107), 20);
     }
     QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
         auto* editor = new QLineEdit(parent);
@@ -495,7 +495,10 @@ public:
             ((lastAuthor.isEmpty() ? QStringLiteral("저자 미확인") : lastAuthor) +
              QStringLiteral(", ") +
              (citation.isEmpty() ? QStringLiteral("저널·연도 미확인") : citation));
-        const QRect citeArea = citationRect(r);
+        // One-line titles should not reserve a blank second title line.
+        // Keep the original two-line citation position for longer titles.
+        const bool oneLineTitle = titleMetrics.horizontalAdvance(title) <= heading.width();
+        const QRect citeArea = oneLineTitle ? citationRect(r).translated(0, -19) : citationRect(r);
         painter->drawText(citeArea, Qt::AlignLeft | Qt::AlignVCenter,
             QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, citeArea.width()));
 
@@ -541,7 +544,7 @@ private:
         painter->setBrush(QColor(active ? "#F1F7FF" : selected ? "#EAF2FF" :
                                  hovered ? "#F8FBFF" : kPANEL));
         painter->drawRoundedRect(r.adjusted(4, 3, -5, -4), 7, 7);
-        const QRect thumb(r.left() + 11, r.top() + 12, 79, 88);
+        const QRect thumb(r.left() + 11, r.top() + 12, 72, 78);
         painter->setPen(QPen(QColor(kTHUMB_LINE), 1));
         painter->setBrush(Qt::white);
         painter->drawRoundedRect(thumb, 5, 5);
@@ -568,7 +571,7 @@ private:
                 QRect(thumb.center().x()-13, thumb.center().y()-18, 26, 32));
         }
 
-        const int left = r.left() + 101;
+        const int left = r.left() + 93;
         const int width = qMax(18, r.right() - left - 11);
         QFont titleFont = option.font;
         titleFont.setFamily(QStringLiteral("Malgun Gothic"));
@@ -613,10 +616,11 @@ private:
             ((author.isEmpty() ? QStringLiteral("저자 미확인") : author) +
              QStringLiteral(", ") +
              (citation.isEmpty() ? QStringLiteral("저널·연도 미확인") : citation));
-        painter->drawText(QRect(left, r.top()+57, width, 20), Qt::AlignVCenter | Qt::AlignLeft,
+        // Reserve two title lines, but put the citation immediately below them.
+        painter->drawText(QRect(left, r.top()+49, width, 20), Qt::AlignVCenter | Qt::AlignLeft,
             QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, width));
         painter->setPen(QColor(kLINE));
-        painter->drawLine(left, r.top()+83, left+width, r.top()+83);
+        painter->drawLine(left, r.top()+80, left+width, r.top()+80);
         painter->setPen(QColor(index.data(Qt::UserRole + 4).toString().isEmpty() ?
                                "#829BBE" : "#48648A"));
         const QRect memo = compactMemoRect(r);

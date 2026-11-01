@@ -278,6 +278,21 @@ class NativeTabsContract(unittest.TestCase):
         self.assertNotIn('getTextFromSelection(', source)
         ast.parse(source)
 
+    def test_native_print_probe_cancels_only_owned_dialogs_not_titles(self):
+        smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
+        runner = (ROOT / 'tools/smoke_windows.py').read_text(encoding='utf-8')
+        self.assertIn('GetWindowThreadProcessId(candidate, &process)', smoke)
+        self.assertIn('thread != state.guiThread', smoke)
+        self.assertIn('GetWindow(candidate, GW_OWNER)', smoke)
+        self.assertIn('lstrcmpW(windowClass, L"#32770") != 0', smoke)
+        self.assertIn('MAKEWPARAM(IDCANCEL, BN_CLICKED)', smoke)
+        self.assertIn('PostMessageW(candidate, WM_CLOSE, 0, 0)', smoke)
+        self.assertIn('if (!owned && IsWindowEnabled(state.owner)) return TRUE;', smoke)
+        self.assertNotIn('lstrcmpW(title, L"Print")', smoke)
+        self.assertNotIn('MAKEWPARAM(IDOK,', smoke)
+        self.assertIn('.print-probe.txt', smoke)
+        self.assertIn('luna-print-probe.txt', runner)
+
     def test_card_author_and_memo_context_only_without_tags(self):
         source = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
         for token in (

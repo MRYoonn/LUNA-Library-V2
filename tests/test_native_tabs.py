@@ -421,6 +421,16 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('if (complete) selectActiveCard();', scan)
         self.assertEqual(scan.count('selectActiveCard();'), 1)
         self.assertIn('list->count() == 1000 && !library->folderTimer_->isActive(); }, 15000', library)
+        # Recursive folder selection must include nested PDFs while present,
+        # then fully recover once the temporary child directory is removed.
+        self.assertIn('list->count() == 1001 &&', library)
+        self.assertIn('Parent folder did not include the 1000 child PDFs', library)
+        self.assertIn('Parent folder omitted its own local PDF', library)
+        self.assertIn('Library did not recover after nested 1000-PDF directory removal', library)
+        self.assertLess(
+            library.index('return fail("Parent folder did not include the 1000 child PDFs")'),
+            library.index('return fail("Library did not recover after nested 1000-PDF directory removal")')
+        )
         self.assertIn('longestGuiGapMs=%4 beats=%5', library)
         self.assertIn('if (longestGap > 1000)', library)
         self.assertIn('searchMs > 1000', library)

@@ -35,8 +35,10 @@ class LibraryModes(unittest.TestCase):
         for term in (
             "const bool oneLineTitle = titleMetrics.horizontalAdvance(title) <= heading.width();",
             "oneLineTitle ? citationRect(r).translated(0, -19) : citationRect(r)",
-            "const QRect thumb(r.left() + 11, r.top() + 12, 72, 78)",
-            "const int left = r.left() + 93",
+            "const QRect thumb(r.left() + 11, r.top() + 12, thumbWidth, thumbHeight)",
+            "const int left = compactTextLeft(r)",
+            "const int thumbWidth = compactThumbWidth(r)",
+            "qBound(34, (r.width() - 70) / 2, 72)",
             "r.top()+49, width, 20",
             "r.top()+80, left+width",
         ):
@@ -45,6 +47,20 @@ class LibraryModes(unittest.TestCase):
         self.assertIn("static constexpr int kCompactHeight = 112", self.cpp)
         self.assertIn("titleLayout.createLine()", self.cpp)
         self.assertIn("QTextLine line = layout.createLine();", self.cpp)
+
+    def test_narrow_document_pane_resizes_cards_and_preserves_controls(self):
+        for term in (
+            "return {1, compact_ ? kCompactHeight : kCardHeight};",
+            "const int height = qMin(164, qMax(48, content.width() * 2 / 3));",
+            "return QRect(content.left(), thumbnailRect(r).bottom() + 13, content.width(), 45);",
+            "titleMetrics.elidedText(text, Qt::ElideRight, available)",
+            "QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, width)",
+            "note.isEmpty() ? QStringLiteral(\"메모 추가\") : note, Qt::ElideRight",
+            "title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed)",
+            "documents_->setMinimumWidth(195)",
+            "list->setResizeMode(QListView::Adjust)",
+        ):
+            self.assertIn(term, self.cpp, term)
 
     def test_buttons_order_selection_and_brand_typography(self):
         for name in ("LunaListViewMode", "LunaCardViewMode"):

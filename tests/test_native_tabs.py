@@ -57,6 +57,33 @@ class NativeTabsContract(unittest.TestCase):
         self.assertEqual(tabs.count('integrationPanelClick(host, documentsToggle)'), 2)
         self.assertIn('addIndependentPanelButtons(corner, row);', library)
 
+    def test_build_206_native_memo_re_resolves_replaced_cards_and_checks_disk(self):
+        # Build #206: QSettings and the screenshot contained the entered memo,
+        # but a previously captured QListWidgetItem* failed the assertion.
+        # Require a fresh, displayed card plus durable local persistence.
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        self.assertIn('auto liveMemo = [&](const QString& expected)', tabs)
+        start = tabs.index('auto liveMemo = [&](const QString& expected)')
+        end = tabs.index('auto openContextMemo = [&]', start)
+        section = tabs[start:end]
+        for contract in (
+            'integrationList(host, files[0], &currentCard)',
+            'paper = currentCard;',
+            'QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256)',
+            'saved.value(QStringLiteral("library/memos/") + key)',
+            'currentCard->data(Qt::UserRole + 4).toString() == expected',
+            'currentCard->toolTip().contains(expected)',
+            'result["memoCommitDiagnostics"]',
+            '"modelMatches", modelMatches',
+            '"localSettingsMatch", diskMatches',
+        ):
+            self.assertIn(contract, section, contract)
+        self.assertIn('integrationWait([&] { return liveMemo(QStringLiteral("초기 메모")); })', tabs)
+        self.assertIn('integrationWait([&] { return liveMemo(memo); })', tabs)
+        self.assertNotIn('return paper->data(Qt::UserRole + 4).toString() == QStringLiteral("초기 메모");', tabs)
+        self.assertIn('const QPoint currentMemoLocation(liveCard.left() + 160,', tabs)
+        self.assertIn('integrationClick(host, list->viewport(), currentMemoLocation, true)', tabs)
+
     def test_selection_first_highlight_and_freetext_contract(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')

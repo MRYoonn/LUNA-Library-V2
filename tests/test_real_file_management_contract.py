@@ -146,6 +146,20 @@ class NativeFileManagementContracts(unittest.TestCase):
         self.assertIn("if(!info.exists()) { publish(pdf); continue; }", SYNC)
         self.assertIn("if (!worker_) busy_ = false;", SYNC)
 
+    def test_deleted_nested_directory_is_not_rewatched(self):
+        # Build #208 exited with 0xC0000005 immediately after Windows
+        # warned about a now-deleted synthetic nested library folder.
+        # Watcher removal is required but not treated as proof of AV repair.
+        for term in (
+            'if (!QFileInfo(path).isDir()) watcher_.removePath(path);',
+            'if (QFileInfo(dir).isDir() && !watching.contains(dir))',
+            'if (!QFileInfo(dir).isDir() || !result->directories.contains(dir))',
+            'renameDebounce_.start();',
+        ):
+            self.assertIn(term, SYNC, term)
+        for phase in ('count-start', 'count-child', 'count-deleted', 'count-recovered'):
+            self.assertIn('checkpoint("'+phase+'")', UI)
+
     def test_mybox_qvariant_values_are_converted_before_qset_lookup(self):
         # Windows Build #197: QVariantMap::value() returned QVariant, which
         # cannot be passed directly to QSet<QString>::contains() in Qt 6.

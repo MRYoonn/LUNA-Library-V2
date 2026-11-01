@@ -1201,6 +1201,7 @@ public:
         folders->addWidget(addFolder);
         auto* mybox = new QToolButton(navigation_);
         mybox->setObjectName(QStringLiteral("LunaMyboxConnect"));
+        mybox->setCheckable(true);
         mybox->setText(QStringLiteral("MYBOX"));
         mybox->setToolTip(QStringLiteral("설치된 MYBOX의 로컬 동기화 폴더를 선택합니다. 클라우드 로그인/API 없음"));
         folders->addWidget(mybox);
@@ -1213,6 +1214,8 @@ public:
                             QStringLiteral("LUNA"),QStringLiteral("LUNA Library"));
             store.setValue(QStringLiteral("library/mybox/root"),QFileInfo(dir).canonicalFilePath());
             store.setValue(QStringLiteral("library/mybox/enabled"),true);
+            store.sync();
+            if(store.status()!=QSettings::NoError) return;
             selectRoot(dir);
         });
         mybox->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -1223,6 +1226,7 @@ public:
                 auto store=luna::lunaLocalStore();
                 store.setValue(QStringLiteral("library/mybox/enabled"),false);
                 if(localSync_) localSync_->configure(root_,false);
+                mybox->setChecked(false);
             }
         });
         rootLabel_ = new QLabel(navigation_);
@@ -2755,6 +2759,8 @@ private:
             localSync_->configure(root_,store.value(QStringLiteral("library/mybox/enabled"),false).toBool() &&
                 store.value(QStringLiteral("library/mybox/root")).toString().compare(root_,Qt::CaseInsensitive)==0);
         }
+        if(auto* button=findChild<QToolButton*>(QStringLiteral("LunaMyboxConnect")))
+            button->setChecked(localSync_ && localSync_->myboxEnabled());
         if (pages_->currentIndex() == 1) scanAll();
     }
     void selectFolder(const QString& path) {

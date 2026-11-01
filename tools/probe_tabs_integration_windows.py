@@ -12,6 +12,7 @@ from ctypes import wintypes
 import time
 import zipfile
 import re
+import sys
 from smoke_windows import synthetic_pdf
 
 
@@ -166,7 +167,20 @@ def run(package, output, debugger=None):
         'scope': 'production native tabs and one library; fresh EXE process restores moved PDF, crop and local memo; Qt scales are not physical monitor DPI'},
         ensure_ascii=False, indent=2), encoding='utf-8')
     if not accepted:
-        raise RuntimeError('Production tabs/library integration failed; inspect native phase and screenshot')
+        failed = next(((entry['qtScale'], probe) for entry in results
+                       for probe in entry['runs']
+                       if probe['exitCode'] != 0 or probe.get('accepted') is not True), None)
+        if failed:
+            scale, probe = failed
+            phase = str(probe.get('phase', 'not-reported')).replace('\\n', ' ')[:120]
+            reason = str(probe.get('error', 'native process exited without reason')).replace('\\n', ' ')[:300]
+            print(f'[LUNA INTEGRATION BLOCK] scale={scale} process={probe.get("processPhase", "unknown")} '
+                  f'phase={phase} exit={probe["exitCode"]} reason={reason}', file=sys.stderr)
+        else:
+            print('[LUNA INTEGRATION BLOCK] diagnostic launcher: '
+                  + str(diagnostic.get('error', 'missing or invalid native report'))[:300],
+                  file=sys.stderr)
+        raise RuntimeError('Production tabs/library integration failed; inspect integrated/summary.json and native.log')
 
 
 if __name__ == '__main__':

@@ -166,3 +166,42 @@ Local isolated run:
 **Evidence:** 11/11 synthetic offline tests passed under Python 3 in a disposable local harness with a minimal compatibility copy of the existing `AssociationIndex` API. That compatibility copy was **not committed**. Full exact-branch checkout tests against the actual association module and Windows/Qt native tests are **not run**. This is reference code only, not an accepted production feature.
 
 **Next gates:** run the new tests against the exact GitHub branch with the real `tools/si_associations.py`; test lock/crash and atomic replacement on Windows; port the validated persistence boundary to a standalone QtCore `QSaveFile`/`QLockFile` component; reconcile paired PDF+UUID sidecar moves in Issue #9 before enabling the UI. Keep PR #17 Draft.
+
+
+## Follow-up: opt-in post-move state reconciliation (2026-11-01)
+
+Added `tools/si_move_reconcile.py` and `tests/test_si_move_reconcile.py` on the
+existing dedicated Draft PR #17 branch. The new coordinator composes the
+existing `si_relocation_gate` with `si_state_store`; it does **not** reimplement
+the UUID, DOI parser, file mover or state serializer.
+
+- Caller must capture the exact state revision **before** the physical move,
+  explicitly confirm the operation, and only invoke reconciliation after Issue
+  #9 has successfully moved **both** the PDF and `.luna-meta.json`.
+- The coordinator clones the validated in-memory association index, audits
+  old/destination PDF and sidecar identities, and persists the new relative
+  path via optimistic compare-and-swap. Main↔SI1↔SI2 UUID links survive restart.
+- Any stranded sidecar, wrong UUID, duplicate path, stale revision, lock,
+  corrupt state or write failure leaves the **persisted association state**
+  untouched. The physical move is **not** automatically rolled back. A failure
+  means the app must block subsequent linked moves and offer explicit repair.
+- This code does not read PDF contents, fetch publisher metadata, modify
+  QSettings, change PDF4QT or send any local data to GitHub.
+
+Run in a complete checkout:
+
+    python -B -m unittest discover -s tests -p 'test_si_move_reconcile.py' -v
+    python -B -m unittest discover -s tests -p 'test_si_*.py' -v
+    python -B tools/preflight_public.py
+
+**Evidence:** the two new Python files passed local syntax compilation, and
+the committed source was checked on GitHub. The 7 new integration tests have
+**NOT** been executed against the full repository. No Windows/Qt6 native test,
+actual ACS/Figshare landing reachability, or production file-move acceptance
+has been verified. Do not mark this as production-ready.
+
+**Next exact action:** run the above tests on the actual PR #17 checkout,
+repair any failures, then execute Qt6/Windows paired-move/rollback/restart
+tests once Issue #9's owner makes the metadata sidecar part of the native
+no-overwrite move contract. PR #16 advanced independently; review its latest
+DOI contract before any Qt integration. Keep Draft; do not merge/release.

@@ -95,6 +95,7 @@
 #include <QProcess>
 #include <QScopedValueRollback>
 #include <QMimeData>
+#include <QDrag>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QClipboard>
@@ -710,21 +711,23 @@ public:
     }
 protected:
     bool eventFilter(QObject* object, QEvent* event) override {
-        if (event->type() != QEvent::DragEnter && event->type() != QEvent::Drop) return false;
+        if (event->type() != QEvent::DragEnter &&
+            event->type() != QEvent::DragMove && event->type() != QEvent::Drop) return false;
         auto* widget = qobject_cast<QWidget*>(object);
         if (!widget || widget->window() != &window_) return false;
         // Library folder tree handles URL drops as real file moves/copies;
         // the global editor drop-to-open handler must not intercept them.
-        if (widget->objectName() == QStringLiteral("LunaFolderDropTree") ||
-            widget->objectName() == QStringLiteral("LunaFolderDocumentsButton") ||
-            (widget->parentWidget() && widget->parentWidget()->objectName() ==
-             QStringLiteral("LunaFolderDropTree"))) return false;
+        for (auto* parent = widget; parent; parent = parent->parentWidget())
+            if (parent->objectName() == QStringLiteral("LunaFolderDropTree") ||
+                parent->objectName() == QStringLiteral("LunaFolderDocumentsButton"))
+                return false;
         auto* drop = static_cast<QDropEvent*>(event);
         const auto urls = drop->mimeData()->urls();
         if (urls.isEmpty()) return false;
         for (const auto& url : urls) if (!url.isLocalFile() || !validPdf(url.toLocalFile())) return false;
         if (event->type() == QEvent::Drop) for (const auto& url : urls) open(url.toLocalFile());
-        drop->acceptProposedAction();
+        drop->setDropAction(Qt::CopyAction); // Opening never moves an external source.
+        drop->accept();
         return true;
     }
 private:
@@ -833,15 +836,37 @@ public:
 };
 class LunaFolderModel final : public QFileSystemModel {
 public:
-    explicit LunaFolderModel(QObject* parent) : QFileSystemModel(parent) {}
+    explicit LunaFolderModel(QObject* parent) : QFileSystemModel(parent) {
+        recountTimer_.setSingleShot(true);
+        connect(&recountTimer_, &QTimer::timeout, this, [this] { beginRecount(); });
+    }
+    std::function<void()> countsUpdated;
+    int pdfCount(const QString& folder) const {
+        return pdfCounts_.value(QDir::cleanPath(folder).toCaseFolded(), 0);
+    }
+    bool countsAvailable() const { return countsReady_; }
+    // One bounded-background scan aggregates each PDF into all ancestors.
+    // Never enumerate filesystem contents from data()/paint(), which would
+    // make expanding a folder block the Qt UI and the PDF reader.
+    void refreshPdfCounts(const QString& root) {
+        countRoot_ = QDir::cleanPath(root);
+        ++generation_;
+        countsReady_ = false;
+        recountTimer_.start(280); // Coalesce drag/move/import bursts.
+    }
     QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override {
         if (role == Qt::DecorationRole && index.isValid() && isDir(index)) {
             const QString folder = filePath(index);
             if (!ids_.contains(folder)) {
-                if (ids_.size() > 4096) ids_.clear(); // Bound cache across folder navigation.
+                if (ids_.size() > 4096) ids_.clear();
                 ids_.insert(folder, folderIconId(folder));
             }
             return embeddedFolderIcon(ids_.value(folder));
+        }
+        if (role == Qt::DisplayRole && index.isValid() && index.column() == 0 && isDir(index) && countsReady_) {
+            const QString label = QFileSystemModel::data(index, role).toString();
+            // Each count includes descendants; the actual filename/path stays unchanged.
+            return QStringLiteral("%1  ·  %2").arg(label).arg(pdfCount(filePath(index)));
         }
         return QFileSystemModel::data(index, role);
     }
@@ -851,6 +876,48 @@ public:
         Q_EMIT dataChanged(index, index, {Qt::DecorationRole});
     }
 private:
+    void beginRecount() {
+        const QString root = countRoot_;
+        const int version = generation_;
+        if (root.isEmpty() || !QFileInfo(root).isDir()) return;
+        auto result = std::make_shared<QHash<QString, int>>();
+        auto* worker = QThread::create([root, result] {
+            const QString normalizedRoot = root.toCaseFolded();
+            result->insert(normalizedRoot, 0);
+            QDirIterator it(root, {QStringLiteral("*.pdf"), QStringLiteral("*.PDF")},
+                            QDir::Files | QDir::Readable | QDir::NoDotAndDotDot | QDir::NoSymLinks,
+                            QDirIterator::Subdirectories);
+            // This is off the GUI thread. No PDF bytes are opened or uploaded.
+            while (it.hasNext()) {
+                const QFileInfo pdf(it.next());
+                if (!pdf.isFile() || pdf.isSymLink() ||
+                    pdf.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
+                QString folder = QDir::cleanPath(pdf.absolutePath()).toCaseFolded();
+                while (folder == normalizedRoot ||
+                       folder.startsWith(normalizedRoot + QLatin1Char('/'))) {
+                    result->insert(folder, result->value(folder) + 1);
+                    if (folder == normalizedRoot) break;
+                    const QString parent = QDir::cleanPath(QFileInfo(folder).absolutePath()).toCaseFolded();
+                    if (parent == folder) break;
+                    folder = parent;
+                }
+            }
+        });
+        connect(worker, &QThread::finished, this, [this, result, version] {
+            if (generation_ != version) return;
+            pdfCounts_ = *result;
+            countsReady_ = true;
+            if (countsUpdated) countsUpdated();
+        });
+        connect(qApp, &QCoreApplication::aboutToQuit, worker, [worker] { worker->wait(); });
+        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        worker->start(QThread::LowPriority);
+    }
+    QTimer recountTimer_;
+    QString countRoot_;
+    int generation_ = 0;
+    bool countsReady_ = false;
+    QHash<QString, int> pdfCounts_;
     mutable QHash<QString, QString> ids_;
 };
 
@@ -877,6 +944,33 @@ protected:
     }
     Qt::DropActions supportedDropActions() const override {
         return Qt::CopyAction | Qt::MoveAction;
+    }
+    void startDrag(Qt::DropActions) override {
+        const auto chosen = selectedItems();
+        QMimeData* files = mimeData(chosen);
+        if (!files || files->urls().isEmpty()) { delete files; return; }
+        // Never drag a 322px card or the entire 112px row over the folder tree.
+        // The cursor always carries a small, fixed-size PDF badge.
+        QPixmap badge(132, 38);
+        badge.fill(Qt::transparent);
+        QPainter painter(&badge);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(QColor("#B4CAE7"), 1));
+        painter.setBrush(QColor("#F5F9FF"));
+        painter.drawRoundedRect(QRect(1, 1, 129, 35), 7, 7);
+        readerIcon(QStringLiteral("documents")).paint(&painter, QRect(9, 8, 20, 21));
+        painter.setPen(QColor("#254D82"));
+        painter.drawText(QRect(34, 3, 94, 32), Qt::AlignVCenter,
+                         QStringLiteral("%1 PDF").arg(files->urls().size()));
+        painter.end();
+        auto* drag = new QDrag(this);
+        drag->setMimeData(files);
+        drag->setPixmap(badge);
+        drag->setHotSpot(QPoint(13, 18));
+        // The target applies the actual filesystem move/copy. Do not let the
+        // default Qt item-view drag remove model rows afterward.
+        drag->exec(Qt::MoveAction | Qt::CopyAction, Qt::MoveAction);
+        drag->deleteLater();
     }
 };
 
@@ -1063,11 +1157,13 @@ public:
         rootLabel_->hide();
         nav->addWidget(folderTab_);
         model_ = new LunaFolderModel(this);
+        model_->countsUpdated = [this] { if (tree_) tree_->viewport()->update(); queueNavigationCounts(); };
         model_->setReadOnly(true); model_->setIconProvider(new FolderIcons(model_));
         model_->setFilter(QDir::AllDirs | QDir::NoDotAndDotDot);
         tree_ = new FolderFileDropTree(navigation_);
         tree_->setObjectName(QStringLiteral("LunaFolderDropTree"));
         tree_->setAcceptDrops(true);
+        tree_->viewport()->setAcceptDrops(true);
         tree_->setDragDropMode(QAbstractItemView::DropOnly);
         static_cast<FolderFileDropTree*>(tree_)->dropped = [this](const QStringList& paths, const QString& folder, bool copy) {
             transferPdfs(paths, folder, copy);
@@ -1719,7 +1815,8 @@ private:
         QTimer::singleShot(0, this, [this] {
             countsPending_ = false;
             allBadge_->setText(allScanned_ ? QString::number(allPdfs_->count()) + (allIterator_ ? QStringLiteral("+") : QString()) : QString());
-            folderBadge_->setText(QString::number(folderPdfs_->count()) + (folderIterator_ ? QStringLiteral("+") : QString()));
+            folderBadge_->setText(model_->countsAvailable() ? QString::number(model_->pdfCount(root_)) :
+                QString::number(folderPdfs_->count()) + (folderIterator_ ? QStringLiteral("+") : QString()));
             favoriteBadge_->setText(QString::number(favorites_.size())); recentBadge_->setText(QString::number(recentCount_));
         });
     }
@@ -1845,6 +1942,7 @@ private:
         if (pages_->currentIndex() == 1) scanAll();
         else if (pages_->currentIndex() == 2) showHistory(showingFavorites_);
         ThumbnailCache::instance()->invalidate();
+        model_->refreshPdfCounts(root_);
     }
 
     // Persist per-document user data alongside the physical copy, without
@@ -2444,6 +2542,7 @@ private:
             });
             restore->start(50);
         }
+        if (result.success) model_->refreshPdfCounts(root_);
         if (!result.success) QMessageBox::warning(this, QStringLiteral("파일 이동 실패"), result.error);
     }
     void filter(QListWidget* list, const QString& word) {
@@ -2477,6 +2576,7 @@ private:
         allScanned_ = false;
         allCount_->setText(QStringLiteral("전체 PDF"));
         selectFolder(root_);
+        model_->refreshPdfCounts(root_);
         if (pages_->currentIndex() == 1) scanAll();
     }
     void selectFolder(const QString& path) {
@@ -2814,7 +2914,7 @@ private:
         if (!QDir(current_).mkdir(name)) {
             QMessageBox::warning(this, QStringLiteral("폴더 생성 실패"),
                 QStringLiteral("폴더가 이미 존재하거나 쓰기 권한이 없습니다."));
-        }
+        } else model_->refreshPdfCounts(root_);
     }
 
     QFrame* thumbnailPopup_ = nullptr;

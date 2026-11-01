@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from si_live_probe import inspect_doi, main
@@ -80,6 +80,64 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(data["result"]["status"], "offline")
         self.assertEqual(data["verification_scope"], "metadata_only")
 
+
+    def test_strict_landing_gate_passes_only_verified_html(self):
+        source = SiLookupResult(DOI, "verified", (
+            SiCandidate(7688531, DOI, "Public example", "si.pdf", PUBLIC_LANDING,
+                        status="landing_verified"),
+        ), "https://doi.org/" + DOI)
+        fake = {"verification_scope": "landing_html_only", "result": source.to_dict()}
+        with patch("si_live_probe.inspect_doi", return_value=fake):
+            output = StringIO()
+            with contextlib.redirect_stdout(output):
+                rc = main(["--doi", DOI, "--live", "--check-landings",
+                           "--require-landing-http", "--expected-article-id", "7688531"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(output.getvalue())["landing_http_gate"], "pass")
+
+    def test_strict_landing_gate_rejects_partial_and_wrong_article(self):
+        source = SiLookupResult(DOI, "partial_verified", (
+            SiCandidate(7688531, DOI, "Public example", "si.pdf", PUBLIC_LANDING,
+                        status="landing_verified"),
+        ), "https://doi.org/" + DOI)
+        fake = {"verification_scope": "landing_html_only", "result": source.to_dict()}
+        with patch("si_live_probe.inspect_doi", return_value=fake):
+            output = StringIO()
+            with contextlib.redirect_stdout(output):
+                rc = main(["--doi", DOI, "--live", "--check-landings", "--require-landing-http"])
+        self.assertEqual(rc, 2)
+        self.assertEqual(json.loads(output.getvalue())["landing_http_gate"], "fail")
+        fake["result"]["status"] = "verified"
+        with patch("si_live_probe.inspect_doi", return_value=fake):
+            with contextlib.redirect_stdout(StringIO()):
+                rc = main(["--doi", DOI, "--live", "--check-landings",
+                           "--require-landing-http", "--expected-article-id", "7688532"])
+        self.assertEqual(rc, 2)
+
+    def test_strict_landing_gate_rejects_empty_or_unchecked_candidates(self):
+        fake = {"verification_scope": "landing_html_only", "result": {
+            "status": "verified", "candidates": []}}
+        with patch("si_live_probe.inspect_doi", return_value=fake):
+            with contextlib.redirect_stdout(StringIO()):
+                self.assertEqual(main(["--doi", DOI, "--live", "--check-landings",
+                                       "--require-landing-http"]), 2)
+        fake["result"]["candidates"] = [{"article_id": 7688531,
+                                         "status": "metadata_match_link_unchecked"}]
+        with patch("si_live_probe.inspect_doi", return_value=fake):
+            with contextlib.redirect_stdout(StringIO()):
+                self.assertEqual(main(["--doi", DOI, "--live", "--check-landings",
+                                       "--require-landing-http"]), 2)
+
+    def test_strict_landing_gate_rejects_missing_opt_in_without_network(self):
+        with patch("si_live_probe.inspect_doi", side_effect=AssertionError("network")):
+            with contextlib.redirect_stderr(StringIO()):
+                with self.assertRaises(SystemExit) as cm:
+                    main(["--doi", DOI, "--require-landing-http"])
+                self.assertEqual(cm.exception.code, 2)
+                with self.assertRaises(SystemExit) as cm:
+                    main(["--doi", DOI, "--live", "--check-landings",
+                          "--expected-article-id", "7688531"])
+                self.assertEqual(cm.exception.code, 2)
 
 if __name__ == "__main__":
     unittest.main()

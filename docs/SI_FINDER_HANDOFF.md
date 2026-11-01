@@ -344,3 +344,26 @@ DOI/API detail ID/landing status without any file downloads, and keep
 unconfirmed candidates unconfirmed. Issue #9 still needs the actual
 `.luna-meta.json` paired move/rollback fix before native SI-linked moves
 can be enabled. Keep PR #17 Draft; no merge/release.
+
+
+## Follow-up: strict opt-in public DOI landing gate (2026-11-02)
+
+The existing smoke CLI normally returns exit code 0 even for `offline`, `not_found`,
+`partial`, or unverified results: this is intentional for exploratory JSON
+reports, but must not be mistaken for an acceptance PASS. A separate **opt-in**
+strict gate now returns exit code **2** unless all returned SI candidates have
+verified HTTP HTML landing responses and the result is fully `verified`.
+It never downloads SI files, opens PDFs, scrapes HTML or certifies file bytes.
+
+```sh
+python -B tools/si_live_probe.py --doi 10.1021/acsnano.8b07631 --live --check-landings --require-landing-http --expected-article-id 7688531
+```
+
+The expected ID is taken from a publicly indexed ACS Figshare landing URL,
+**not** from a completed live API test. This command must be run from an
+internet-enabled environment before claiming any live DOI→SI verification.
+`--expected-article-id` is optional, but when supplied it must be a positive
+integer and the strict gate must be enabled. Even a strict PASS confirms only
+public metadata identity plus HTTP HTML landing reachability, **not** that an
+individual SI file opens or downloads. Failure remains `미확인` with the
+original DOI fallback; the default offline behavior is unchanged.

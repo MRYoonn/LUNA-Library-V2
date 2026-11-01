@@ -38,12 +38,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--live", action="store_true", help="Opt in to public Figshare API requests")
     parser.add_argument("--check-landings", action="store_true",
                         help="Also opt in to bounded HEAD/GET landing checks (requires --live)")
+    parser.add_argument("--require-landing-http", action="store_true",
+                        help="Exit 2 unless all SI HTML landings respond successfully; never certifies SI files")
+    parser.add_argument("--expected-article-id", type=int, metavar="ID",
+                        help="Optional public Figshare article ID to require in the verified landing set")
     args = parser.parse_args(argv)
     if args.check_landings and not args.live:
         parser.error("--check-landings requires --live")
+    if args.require_landing_http and not (args.live and args.check_landings):
+        parser.error("--require-landing-http requires --live --check-landings")
+    if args.expected_article_id is not None and (args.expected_article_id <= 0 or
+                                                  not args.require_landing_http):
+        parser.error("--expected-article-id requires a positive ID and --require-landing-http")
     report = inspect_doi(args.doi, live=args.live, check_landings=args.check_landings)
+    accepted = True
+    if args.require_landing_http:
+        result = report["result"]
+        candidates = result["candidates"]
+        accepted = (report["verification_scope"] == "landing_html_only"
+                    and result["status"] == "verified" and bool(candidates)
+                    and all(c["status"] == "landing_verified" for c in candidates)
+                    and (args.expected_article_id is None or
+                         any(c["article_id"] == args.expected_article_id for c in candidates)))
+        report["landing_http_gate"] = "pass" if accepted else "fail"
     print(json.dumps(report, indent=2, ensure_ascii=True, sort_keys=True))
-    return 0
+    return 0 if accepted else 2
 
 
 if __name__ == "__main__":

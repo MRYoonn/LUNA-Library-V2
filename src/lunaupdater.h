@@ -71,7 +71,6 @@ public:
             QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
             const QDateTime last = settings.value(QStringLiteral("updater/lastCheckedUtc")).toDateTime();
             if (last.isValid() && last.secsTo(QDateTime::currentDateTimeUtc()) < 86400) return;
-            settings.setValue(QStringLiteral("updater/lastCheckedUtc"), QDateTime::currentDateTimeUtc());
         }
         checking_ = true;
         auto* process = new QProcess(this);
@@ -96,6 +95,11 @@ public:
                 return;
             }
             const QJsonObject value = json.object();
+            // An offline/invalid check must not suppress retries for a day.
+            if (!explicitRequest) {
+                QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+                settings.setValue(QStringLiteral("updater/lastCheckedUtc"), QDateTime::currentDateTimeUtc());
+            }
             if (!value.value(QStringLiteral("available")).toBool()) {
                 if (explicitRequest)
                     QMessageBox::information(&shell_, QStringLiteral("업데이트 확인"),

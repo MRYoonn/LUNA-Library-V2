@@ -487,7 +487,17 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('Accidental left click opened memo editor', tabs)
         self.assertIn('openContextMemo()', tabs)
         self.assertIn('LunaEditPaperMemo', tabs)
-        self.assertIn('integrationClick(host, list->viewport(), memoLocation, true)', tabs)
+        # The live paper list can rebuild while sidecars sync. Resolve its
+        # current card/viewport before the real Win32 right-click instead of
+        # requiring the removed stale card-coordinate expression.
+        self.assertIn('integrationList(host, files[0], &currentCard)', tabs)
+        self.assertIn('const QRect liveCard = list->visualItemRect(paper);', tabs)
+        self.assertIn('list->viewport()->rect().contains(currentMemoLocation)', tabs)
+        self.assertIn('integrationClick(host, list->viewport(), currentMemoLocation, true)', tabs)
+        self.assertIn('integrationType(QStringLiteral("초기 메모")) && integrationKey(VK_RETURN)', tabs)
+        self.assertIn('return liveMemo(QStringLiteral("초기 메모"));', tabs)
+        self.assertIn('liveMemo(memo)', tabs)
+        self.assertIn('localSettingsMatch', tabs)
         self.assertNotIn('Inline memo editor did not focus', tabs)
         self.assertNotIn('Memo edit mouse input failed', tabs)
         self.assertIn('menu.addAction(QStringLiteral("메모 편집…"))', library)

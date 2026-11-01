@@ -9,6 +9,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
@@ -146,12 +147,20 @@ inline bool applyPortableRecord(const QString& path,const QJsonObject& record,
 class LocalFolderSync final : public QObject {
 public:
     explicit LocalFolderSync(QObject* parent=nullptr) : QObject(parent) {
+        // QFileSystemWatcher makes Explorer renames visible without waiting for
+        // the 30-second periodic fallback; debounce rapid MYBOX sync bursts.
+        renameDebounce_.setSingleShot(true);
+        renameDebounce_.setInterval(300);
+        connect(&renameDebounce_, &QTimer::timeout, this, [this]{scan();});
+        connect(&watcher_, &QFileSystemWatcher::directoryChanged,
+                this, [this](const QString&){renameDebounce_.start();});
         timer_.setInterval(30000);
         connect(&timer_,&QTimer::timeout,this,[this]{scan();});
         timer_.start();
     }
     ~LocalFolderSync() override {
         timer_.stop();
+        renameDebounce_.stop();
         ++generation_;
         if(worker_) worker_->wait(); // Worker only touches its isolated snapshot.
     }
@@ -162,6 +171,11 @@ public:
     void configure(const QString& root, bool myboxEnabled) {
         root_ = QFileInfo(root).canonicalFilePath();
         mybox_ = myboxEnabled && !root_.isEmpty();
+        renameDebounce_.stop();
+        const QStringList existing = watcher_.directories();
+        if (!existing.isEmpty()) watcher_.removePaths(existing);
+        if (!root_.isEmpty()) watcher_.addPath(root_);
+        rescanPending_ = false;
         ++generation_;
         seen_.clear();
         known_.clear();
@@ -210,7 +224,8 @@ public:
         return true;
     }
     void scan() {
-        if (busy_ || root_.isEmpty() || !QFileInfo(root_).isDir()) return;
+        if (busy_) { rescanPending_=true; return; }
+        if (root_.isEmpty() || !QFileInfo(root_).isDir()) return;
         busy_=true;
         const QString root=root_;
         const int generation=generation_;
@@ -218,9 +233,11 @@ public:
             QStringList paths;
             QHash<QString,QString> ids;
             QSet<QString> ambiguous;
+            QSet<QString> directories;
         };
         auto result=std::make_shared<Scan>();
         auto* worker=QThread::create([root,result] {
+            result->directories.insert(root);
             QDirIterator it(root,{QStringLiteral("*.pdf"),QStringLiteral("*.PDF")},
                 QDir::Files|QDir::Readable|QDir::NoDotAndDotDot|QDir::NoSymLinks,
                 QDirIterator::Subdirectories);
@@ -229,6 +246,8 @@ public:
                 if (!f.isFile() || f.isSymLink()) continue;
                 const QString path=f.canonicalFilePath();
                 if (path.isEmpty()) continue;
+                if (result->directories.size() < 96)
+                    result->directories.insert(f.absolutePath());
                 result->paths.append(path);
                 const QString id=fileObjectId(path);
                 if (!id.isEmpty()) {
@@ -242,6 +261,14 @@ public:
             worker_=nullptr;
             busy_=false;
             if (generation!=generation_) { QTimer::singleShot(0,this,[this]{scan();}); return; }
+            // Track a bounded set of actual PDF parent directories. Watching
+            // only the root misses renames inside nested scientific folders.
+            const QStringList watchedDirs = watcher_.directories();
+            const QSet<QString> watching(watchedDirs.cbegin(), watchedDirs.cend());
+            for (const QString& dir : result->directories)
+                if (!watching.contains(dir)) watcher_.addPath(dir);
+            for (const QString& dir : watcher_.directories())
+                if (!result->directories.contains(dir)) watcher_.removePath(dir);
             bool changed=false;
             QSet<QString> matched;
             for(auto it=result->ids.cbegin();it!=result->ids.cend();++it) {
@@ -352,6 +379,10 @@ public:
                 }
             }
             if(changed && filesChanged) filesChanged();
+            if (rescanPending_) {
+                rescanPending_=false;
+                QTimer::singleShot(0,this,[this]{scan();});
+            }
         });
         connect(worker,&QThread::finished,worker,&QObject::deleteLater);
         connect(qApp,&QCoreApplication::aboutToQuit,worker,[worker]{worker->wait();});
@@ -359,9 +390,11 @@ public:
     }
 private:
     QString root_;
-    bool mybox_=false, busy_=false;
+    bool mybox_=false, busy_=false, rescanPending_=false;
     int generation_=0;
     QTimer timer_;
+    QTimer renameDebounce_;
+    QFileSystemWatcher watcher_;
     QPointer<QThread> worker_;
     QHash<QString,QString> known_;
     QSet<QString> lastPaths_;

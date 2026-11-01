@@ -34,8 +34,13 @@ def normalize_doi(raw: str) -> str:
     return value.lower() if len(value) <= 220 and DOI_RE.fullmatch(value) else ""
 
 
-def safe_figshare_landing(url: object) -> str:
-    """Accept only public Figshare landing pages, never arbitrary API URLs."""
+def safe_figshare_landing(url: object, article_id: int | None = None) -> str:
+    """Validate a canonical public article landing, optionally bound to its API id.
+
+    Figshare documents that the final numeric path component is the article
+    id. Reject query strings, encoded path separators and noncanonical paths
+    so a different reachable page cannot verify an unrelated SI record.
+    """
     if not isinstance(url, str) or len(url) > 2048:
         return ""
     if any(ord(ch) < 32 for ch in url) or url != url.strip():
@@ -47,9 +52,18 @@ def safe_figshare_landing(url: object) -> str:
         return ""
     host = (parsed.hostname or "").lower()
     if (parsed.scheme != "https" or parsed.username or parsed.password
-            or port not in (None, 443) or parsed.fragment
-            or not (host == "figshare.com" or host.endswith(".figshare.com"))
-            or not parsed.path.startswith("/articles/")):
+            or port not in (None, 443) or parsed.fragment or parsed.query
+            or host not in ("acs.figshare.com", "figshare.com")
+            or "%" in parsed.path or "\\" in parsed.path):
+        return ""
+    segments = parsed.path.split("/")
+    if (len(segments) < 4 or segments[:2] != ["", "articles"]
+            or not all(re.fullmatch(r"[A-Za-z0-9_-]+", part) for part in segments[2:])):
+        return ""
+    numeric_id = segments[-1]
+    if not re.fullmatch(r"[1-9][0-9]*", numeric_id):
+        return ""
+    if article_id is not None and (type(article_id) is not int or int(numeric_id) != article_id):
         return ""
     return url
 
@@ -166,7 +180,7 @@ def lookup_acs_figshare(
             if normalize_doi(detail.get("resource_doi", "")) != doi:
                 rejected += 1
                 continue
-            landing = safe_figshare_landing(detail.get("url_public_html"))
+            landing = safe_figshare_landing(detail.get("url_public_html"), article_id)
             if not landing:
                 rejected += 1
                 continue

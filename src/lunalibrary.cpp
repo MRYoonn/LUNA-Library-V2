@@ -2246,20 +2246,27 @@ private:
     }
     void undoRecentTrash() {
         if (!recentUndo_.available()) return;
+        const QString restored=recentUndo_.path();
         QString error;
         if (!recentUndo_.undo(&error)) {
             QMessageBox::warning(this, QStringLiteral("삭제 취소 실패"), error);
             return;
         }
-        QSettings store(QSettings::defaultFormat(), QSettings::UserScope,
-                        QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
-        store.setValue(QStringLiteral("library/favorites"), undoFavorites_);
-        store.setValue(QStringLiteral("library/recent"), undoRecent_);
+        auto store=luna::lunaLocalStore();
+        // Restore only this paper's prior membership; never discard unrelated
+        // favorites/recent changes made since the deletion.
+        QStringList favorites=store.value(QStringLiteral("library/favorites")).toStringList();
+        if(undoFavorites_.contains(restored) && !favorites.contains(restored))favorites.append(restored);
+        QStringList recent=store.value(QStringLiteral("library/recent")).toStringList();
+        const int order=undoRecent_.indexOf(restored);
+        if(order>=0 && !recent.contains(restored))recent.insert(qMin(order, int(recent.size())),restored);
+        store.setValue(QStringLiteral("library/favorites"),favorites);
+        store.setValue(QStringLiteral("library/recent"),recent);
         store.sync();
-        if (store.status() != QSettings::NoError)
-            QMessageBox::warning(this, QStringLiteral("복원 완료 · 설정 확인"),
-                QStringLiteral("PDF는 복원했지만 즐겨찾기 설정 저장에 실패했습니다."));
-        favorites_ = QSet<QString>(undoFavorites_.cbegin(), undoFavorites_.cend());
+        if(store.status()!=QSettings::NoError)
+            QMessageBox::warning(this,QStringLiteral("복원 완료 · 설정 확인"),
+                QStringLiteral("PDF는 복원했지만 일부 기록 설정을 저장하지 못했습니다."));
+        favorites_=QSet<QString>(favorites.cbegin(),favorites.cend());
         undoFavorites_.clear(); undoRecent_.clear();
         refreshFileLists();
     }

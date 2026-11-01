@@ -94,7 +94,7 @@ class ScriptSelectionPatchContracts(unittest.TestCase):
             patch.BEFORE_SPACE + "\n"
         ).encode("utf-8")
         digest = hashlib.sha1(
-            b"blob " + str(len(original)).encode() + b"\\x00" + original
+            b"blob " + str(len(original)).encode() + b"\x00" + original
         ).hexdigest()
         first = patch.PINNED_BLOB_SHA1
         second = workflow_patch.PINNED_BLOB_SHA1

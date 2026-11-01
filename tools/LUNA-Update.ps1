@@ -155,7 +155,17 @@ function New-Stage {
     try {
         $manifest = Get-Manifest $source (Join-Path $work $manifestName)
         $localVersion = [string]$local.version
-        if ($localVersion -match '^v\d+\.\d+\.\d+(?:\.\d+)?
+        if ($localVersion -match '^v\d+\.\d+\.\d+(?:\.\d+)?$') {
+            $available = Is-Newer ([string]$manifest.tag) $localVersion
+        } else {
+            # Legacy CI builds without semantic tags may only move forward.
+            $available = [long]$manifest.source_run -gt [long]$local.run
+        }
+        if (!$available) {
+            Remove-Item -LiteralPath $work -Recurse -Force
+            @{ status='current'; available=$false } | ConvertTo-Json -Compress
+            return
+        }
         $zipFile = Join-Path $work $assetName
         Invoke-WebRequest -Uri $source.ZipAsset.browser_download_url -OutFile $zipFile -TimeoutSec 240 -UseBasicParsing
         if ((Get-FileHash $zipFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$manifest.sha256) {

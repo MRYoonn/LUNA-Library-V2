@@ -3848,8 +3848,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     // synthetic library. Nothing here reads or modifies a user's library.
     auto* library = dynamic_cast<LibraryPanel*>(dock->widget());
     if (!library) return fail("Library panel type missing");
-    // Count the direct synthetic PDF and an additional nested PDF without
-    // rescanning on the GUI thread. Do not change user settings or PDF bytes.
+    checkpoint("count-start");
     if (!wait([&] { return library->model_->countsAvailable(); }, 10000))
         return fail("Asynchronous folder PDF counts were not delivered");
     const QString countRoot = library->root_;
@@ -3860,16 +3859,19 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         if (!subfolder.isValid() ||
             !QFile::copy(path, QDir(subfolder.path()).filePath(QStringLiteral("nested.pdf"))))
             return fail("Nested PDF count fixture could not be created");
+        checkpoint("count-child");
         library->model_->refreshPdfCounts(countRoot);
         if (!wait([&] { return library->model_->countsAvailable() &&
             library->model_->pdfCount(countRoot) == baselineCount + 1 &&
             library->model_->pdfCount(subfolder.path()) == 1; }, 10000))
             return fail("Child PDF did not increment its own folder and every ancestor");
     }
+    checkpoint("count-deleted");
     library->model_->refreshPdfCounts(countRoot);
     if (!wait([&] { return library->model_->countsAvailable() &&
         library->model_->pdfCount(countRoot) == baselineCount; }, 10000))
         return fail("Folder count did not recover after child PDF removal");
+    checkpoint("count-recovered");
     if (!wait([&] { return window.isEnabled() && window.getProgramController()->canClose(); }))
         return fail("Reader busy before crop verification");
     auto* preview = window.findChild<QAction*>(QStringLiteral("LunaPagePreview"));

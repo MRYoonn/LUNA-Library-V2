@@ -52,6 +52,21 @@ inline QJsonObject captureCase(const QString& opaqueId, const QVariantMap& visib
         const QString value = visibleRecord.value(field).toString().trimmed();
         if (!value.isEmpty()) audit.insert(field, value);
     }
+    // Whitelist nested provider provenance, never dump arbitrary field_sources.
+    const QVariantMap sources = visibleRecord.value(QStringLiteral("field_sources")).toMap();
+    QJsonObject fieldSources;
+    for (const char* key : {"doi", "title", "authors", "journal", "journal_abbreviation",
+                            "year", "volume", "issue", "page", "article_number"}) {
+        const QString field = QString::fromLatin1(key);
+        const QString provider = sources.value(field).toString();
+        if (provider == QStringLiteral("manual") || provider == QStringLiteral("Crossref") ||
+            provider == QStringLiteral("OpenAlex") ||
+            provider == QStringLiteral("Crossref + OpenAlex") ||
+            provider == QStringLiteral("first_page_verified") ||
+            provider == QStringLiteral("pdf_metadata"))
+            fieldSources.insert(field, provider);
+    }
+    if (!fieldSources.isEmpty()) audit.insert(QStringLiteral("field_sources"), fieldSources);
     audit.insert(QStringLiteral("manual_citation_active"),
                  !visibleRecord.value(QStringLiteral("citation")).toString().trimmed().isEmpty());
     audit.insert(QStringLiteral("senior_author_override_active"),

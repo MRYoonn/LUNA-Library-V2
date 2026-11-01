@@ -83,22 +83,25 @@ def verify_landing_candidates(
     checked = []
     for candidate in result.candidates:
         url = candidate.landing_url
-        if url not in cache:
-            if len(cache) >= MAX_LANDINGS:
-                cache[url] = "verification_limit"
-            elif safe_figshare_landing(url, candidate.article_id) != url:
-                cache[url] = "unsafe_url"
-            else:
-                try:
-                    code = probe(url)
-                except (HTTPError, URLError, TimeoutError, OSError, ValueError):
-                    code = "network_unchecked"
-                cache[url] = code if code in (
-                    "reachable_html", "redirect_unchecked", "rate_limited",
-                    "not_found", "non_html", "http_unchecked",
-                    "network_unchecked", "head_unsupported", "unsafe_url"
-                ) else "network_unchecked"
-        code = cache[url]
+        # Validate the candidate-to-landing identity on EVERY item, including
+        # cached URLs: two different article IDs must never share verification.
+        if safe_figshare_landing(url, candidate.article_id) != url:
+            code = "unsafe_url"
+        else:
+            if url not in cache:
+                if len(cache) >= MAX_LANDINGS:
+                    cache[url] = "verification_limit"
+                else:
+                    try:
+                        response = probe(url)
+                    except (HTTPError, URLError, TimeoutError, OSError, ValueError):
+                        response = "network_unchecked"
+                    cache[url] = response if response in (
+                        "reachable_html", "redirect_unchecked", "rate_limited",
+                        "not_found", "non_html", "http_unchecked",
+                        "network_unchecked", "head_unsupported", "unsafe_url"
+                    ) else "network_unchecked"
+            code = cache[url]
         status = "landing_verified" if code == "reachable_html" else "landing_unchecked_" + code
         checked.append(replace(candidate, status=status))
     verified = sum(c.status == "landing_verified" for c in checked)

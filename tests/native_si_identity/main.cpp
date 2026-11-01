@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLockFile>
+#include <QProcess>
 #include <QTemporaryDir>
 #include <cstdio>
 #include <cstdlib>
@@ -30,6 +31,12 @@ static QJsonObject json(const QString& path) {
 }
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
+    // A genuine fresh process must recover the same local UUID from disk.
+    if (argc == 5 && QString::fromLocal8Bit(argv[1]) == QStringLiteral("--verify-restart")) {
+        const auto read = luna::SiIdentity::read(QString::fromLocal8Bit(argv[2]),
+                                                 QString::fromLocal8Bit(argv[3]));
+        return read.ok() && read.id == QString::fromLocal8Bit(argv[4]) ? 0 : 3;
+    }
     QTemporaryDir temp;
     check(temp.isValid(), "temporary library");
     const QString root = temp.path();
@@ -65,6 +72,12 @@ int main(int argc, char** argv) {
           "synthetic paired rename");
     check(luna::SiIdentity::read(root, moved).id == first.id,
           "UUID survives paired move and restart-style re-read");
+    QProcess fresh;
+    fresh.start(QCoreApplication::applicationFilePath(),
+                {QStringLiteral("--verify-restart"), root, moved, first.id});
+    check(fresh.waitForStarted(5000) && fresh.waitForFinished(10000) &&
+              fresh.exitStatus() == QProcess::NormalExit && fresh.exitCode() == 0,
+          "fresh process restart recovers the same moved PDF identity");
     check(luna::SiIdentity::read(root, pdf).error == QStringLiteral("unsafe_pdf_path"),
           "stale path does not recreate identity");
 

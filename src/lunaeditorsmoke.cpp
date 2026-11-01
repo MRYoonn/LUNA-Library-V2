@@ -464,6 +464,7 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1 && select->isChecked(); }))
         return fail("Selection-then-color did not write native highlight and return to SelectText");
     bool greenWritten = false;
+    bool matchingOpacity = false;
     for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
         if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
         const auto components = item.annotation->getColor();
@@ -471,8 +472,14 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
             std::abs(components[0] - 163.0 / 255.0) < 0.02 &&
             std::abs(components[1] - 230.0 / 255.0) < 0.02 &&
             std::abs(components[2] - 164.0 / 255.0) < 0.02;
+        // The PDF appearance stream paints filled highlight paths. Prior
+        // versions wrote /CA=0.36 but omitted /ca, so the unsaved highlight
+        // looked fully saturated while the reopened annotation looked pale.
+        matchingOpacity = std::abs(item.annotation->getStrokeOpacity() - 0.36) < 0.001 &&
+            std::abs(item.annotation->getFillOpacity() - 0.36) < 0.001;
     }
     if (!greenWritten) return fail("Drag highlight color not written to native PDF annotation");
+    if (!matchingOpacity) return fail("Native highlight fill opacity must match its saved appearance");
     QRectF initialGreenBounds;
     for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
         if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;

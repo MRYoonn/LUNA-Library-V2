@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <QTemporaryDir>
 #include <memory>
+#include <functional>
 
 namespace luna {
 // Only the MOST RECENT completed LUNA deletion can be undone in this process.
@@ -21,7 +22,8 @@ public:
         for (const auto& copy : copies_) result.append(copy.first);
         return result;
     }
-    bool trash(const QString& pdf, QString* error) {
+    bool trash(const QString& pdf, QString* error,
+               const std::function<bool(const QString&)>& recycler = QFile::moveToTrash) {
         const QFileInfo source(pdf);
         if (!source.isFile() || source.isSymLink() || source.canonicalFilePath().isEmpty())
             return reject(error, QStringLiteral("실제 PDF 파일이 아닙니다."));
@@ -46,7 +48,7 @@ public:
         }
         QList<QString> removed;
         for (const auto& item : saved) {
-            if (!QFile::moveToTrash(item.first)) {
+            if (!recycler(item.first)) {
                 // Recover already trashed paths from their verified backup.
                 for (const auto& prior : saved) {
                     if (removed.contains(prior.first) && !QFileInfo::exists(prior.first))

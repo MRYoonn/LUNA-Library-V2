@@ -5,6 +5,9 @@
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QDebug>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QThread>
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
@@ -150,6 +153,59 @@ int main(int argc, char** argv) {
     if(!undo.trash(newName,&renameError,recycle)) return fail("Second delete failed");
     if(!write(newName,"collision") || undo.undo(&renameError) || read(newName)!="collision")
         return fail("Ctrl+Z overwrote an existing PDF");
+    // End-to-end regression: the previous tests called reconcileExplorerRename
+    // directly and could not catch a missing folder watcher. Reproduce a real
+    // Explorer rename in a nested PDF folder and wait for the live callback.
+    const QString watchedRoot=QDir(root).filePath(QStringLiteral("watched-library"));
+    const QString watchedFolder=QDir(watchedRoot).filePath(QStringLiteral("nested"));
+    if(!QDir().mkpath(watchedFolder)) return fail("Cannot create watched nested folder");
+    const QString watchedBefore=QDir(watchedFolder).filePath(QStringLiteral("watched-original.pdf"));
+    const QString watchedAfter=QDir(watchedFolder).filePath(QStringLiteral("watched-renamed.pdf"));
+    const QString oldPng=QDir(watchedFolder).filePath(QStringLiteral("watched-original.luna-thumb.png"));
+    const QString newPng=QDir(watchedFolder).filePath(QStringLiteral("watched-renamed.luna-thumb.png"));
+    const QString oldJpg=QDir(watchedFolder).filePath(QStringLiteral("watched-original.luna-thumb.jpg"));
+    const QString newJpg=QDir(watchedFolder).filePath(QStringLiteral("watched-renamed.luna-thumb.jpg"));
+    if(!write(watchedBefore,document) || !write(oldPng,thumbnail) ||
+       !write(oldJpg,QByteArray("separate JPG crop")))
+        return fail("Cannot create nested Explorer thumbnail fixtures");
+    bool watcherRenamed=false;
+    {
+        luna::LocalFolderSync watcher;
+        watcher.localSnapshot=[&](const QString& item){
+            return luna::capturePortableRecord(item,bibliography);
+        };
+        watcher.renamed=[&](const QString& before,const QString& after){
+            QString error;
+            watcherRenamed=luna::reconcileExplorerRename(before,after,bibliography,&error);
+            if(!watcherRenamed) qCritical().noquote()<<error;
+        };
+        watcher.configure(watchedRoot,true);
+        const QString key=QStringLiteral("library/fileIds/")+luna::lunaPathKey(watchedRoot);
+        const QString stableId=luna::fileObjectId(watchedBefore);
+#ifdef Q_OS_WIN
+        if(stableId.isEmpty()) return fail("Native watcher fixture has no stable Windows file ID");
+#endif
+        auto pumpUntil=[&](const std::function<bool()>& predicate) {
+            QElapsedTimer timer; timer.start();
+            while(timer.elapsed()<7500) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents,50);
+                if(predicate()) return true;
+                QThread::msleep(15);
+            }
+            return predicate();
+        };
+        if(!pumpUntil([&] {
+            const QVariantMap stored=luna::lunaLocalStore().value(key).toMap();
+            return stored.value(stableId).toString()==watchedBefore;
+        })) return fail("Native nested watcher did not index original PDF file identity");
+        if(!luna::renameWithoutReplacement(watchedBefore,watchedAfter))
+            return fail("Cannot simulate nested Explorer PDF filename rename");
+        if(!pumpUntil([&] { return watcherRenamed; }))
+            return fail("Native nested watcher missed Explorer rename");
+    }
+    if(QFileInfo::exists(oldPng) || QFileInfo::exists(oldJpg) ||
+       read(newPng)!=thumbnail || read(newJpg)!="separate JPG crop")
+        return fail("Live Explorer rename did not preserve original PNG/JPG thumbnails");
     qInfo() << "[PASS] Undo and MYBOX metadata/Explorer rename contracts, plus Unicode/long-path paired moves";
     return 0;
 }

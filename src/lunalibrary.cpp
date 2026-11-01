@@ -1335,8 +1335,10 @@ public:
                             (query.isEmpty() || button->text().contains(query, Qt::CaseInsensitive) ||
                              button->property("symbolId").toString().contains(query, Qt::CaseInsensitive));
                         button->setVisible(show);
-                        if (show) symbolGrid->addWidget(button, visible / 4, visible % 4);
-                        ++visible; // positions of filtered-out buttons remain harmless
+                        if (show) {
+                            symbolGrid->addWidget(button, visible / 4, visible % 4);
+                            ++visible;
+                        }
                     }
                 };
                 for (int i = 0; i < symbolButtons.size(); ++i)
@@ -3550,6 +3552,20 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         if (other != dock && other->isVisible()) return fail("Unexpected extra PDF sidebar");
     }
     if (window.styleSheet().isEmpty()) return fail("Theme resource missing");
+    // Real packaged Qt resource verification. Source-only contracts cannot
+    // prove that the 40 SVGs actually ship in the Windows executable.
+    for (const auto& preset : kFolderIconPresets)
+        if (embeddedFolderIcon(QString::fromLatin1(preset.id)).pixmap(20, 20).isNull())
+            return fail("Folder SVG resource missing from the native Windows package");
+    for (const auto& preset : kSymbolIconPresets) {
+        const QString id = QStringLiteral("symbol:") + QString::fromLatin1(preset.id);
+        if (validatedFolderIconId(id) != id ||
+            embeddedFolderIcon(id).pixmap(20, 20).isNull() ||
+            embeddedFolderIcon(id).pixmap(44, 44).isNull())
+            return fail("General 40-symbol SVG resource missing or unrenderable");
+    }
+    if (validatedFolderIconId(QStringLiteral("symbol:unknown")) != QStringLiteral("general"))
+        return fail("Unrecognized icon ID bypassed the fallback rule");
     auto* toolbar = window.findChild<QToolBar*>(QStringLiteral("mainToolBar"));
     if (!toolbar || !toolbar->isVisible() || !window.getProgramController()->getPdfWidget()->isVisible())
         return fail("Native PDF toolbar or renderer widget is hidden");

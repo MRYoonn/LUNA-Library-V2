@@ -73,7 +73,12 @@ def validate_cases(doc: dict, kind: str) -> dict[str, dict]:
         if not isinstance(values, dict) or set(values) - set(FIELDS):
             raise DatasetError(f"{kind}/{ident}: invalid field names or missing values object")
         for field, value in values.items():
-            normalize(field, value)
+            canonical = normalize(field, value)
+            # A gold label is ground truth, not an arbitrary string. If a
+            # malformed DOI is present in both datasets, it must never TP.
+            # Keep invalid *predictions* scoreable as extraction failures.
+            if kind == "goldset" and field == "doi" and canonical and not DOI.fullmatch(canonical):
+                raise DatasetError(f"goldset/{ident}: invalid expected DOI")
         if kind == "goldset":
             publisher = case.get("publisher")
             if publisher not in ("ACS", "RSC", "Wiley", "Nature", "Elsevier", "Other"):
@@ -198,7 +203,8 @@ def score(gold: dict, predictions: dict, *, require_real: bool = False) -> dict:
                 errors.append({"case_id": ident, "publisher": publisher, "field": field,
                                "expected": case["expected"][field],
                                "observed": observed[ident]["observed"].get(field),
-                               "error": "mismatch" if want and got else "missing" if want else "spurious"})
+                               "error": "invalid_doi" if field == "doi" and got and not DOI.fullmatch(got)
+                                        else "mismatch" if want and got else "missing" if want else "spurious"})
     def field_row(count: dict) -> dict:
         row = {k: count[k] for k in ("tp", "fp", "fn", "tn", "scored", "unscored")}
         row["precision"] = metric(count["tp"], count["fp"])

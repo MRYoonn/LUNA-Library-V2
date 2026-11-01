@@ -28,6 +28,35 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn("if: ${{ !inputs.native_tabs_proof && steps.engine-cache.outputs.cache-hit != 'true' }}", text)
         self.assertIn('Upload LUNA Windows portable artifact\n        if: ${{ !inputs.native_tabs_proof }}', text)
 
+    def test_integrated_panels_use_two_real_buttons_not_removed_combined_toggle(self):
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        reader = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
+        # Build #205's native probe failed because the old single-button test
+        # persisted after the UI had gained two independently collapsible panes.
+        for source in (tabs, library, reader):
+            self.assertNotIn('QStringLiteral("LunaCombinedPanelToggle")', source)
+        for token in (
+            'corner->show();',
+            'phase("ten real independent library/paper panel toggle cycles")',
+            'QStringLiteral("LunaNavigationCollapseButton")',
+            'QStringLiteral("LunaDocumentsCollapseButton")',
+            'QStringLiteral("LunaNavigation")',
+            'QStringLiteral("LunaDocuments")',
+            'QStringLiteral("LunaLibraryDock")',
+            'integrationPanelClick(host, navigationToggle)',
+            'integrationPanelClick(host, documentsToggle)',
+            'navigationPanel->isHidden() &&',
+            'documentsPanel->isHidden() && libraryDock->isHidden() && buttonsVisible()',
+            'navigationToggle->geometry().intersects(documentsToggle->geometry())',
+            'result["tenIndependentPanelToggleCycles"] = true;',
+        ):
+            self.assertIn(token, tabs, token)
+        self.assertIn('for (int turn = 0; turn < 10; ++turn)', tabs)
+        self.assertEqual(tabs.count('integrationPanelClick(host, navigationToggle)'), 2)
+        self.assertEqual(tabs.count('integrationPanelClick(host, documentsToggle)'), 2)
+        self.assertIn('addIndependentPanelButtons(corner, row);', library)
+
     def test_selection_first_highlight_and_freetext_contract(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')

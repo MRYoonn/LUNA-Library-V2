@@ -490,6 +490,68 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         )
         self.assertTrue(audit["ready"])
 
+
+    def test_real_field_label_inventory_exposes_unmeasurable_denominators(self):
+        # Entirely fabricated records: this is a schema/coverage contract.
+        gold, _ = sample()
+        synthetic = lab.audit_field_label_coverage(gold)
+        self.assertFalse(synthetic["ready"])
+        self.assertEqual(synthetic["positive_labels"]["doi"], 0)
+        self.assertEqual(synthetic["unknown_labels"]["title"], 0)
+
+        cases = []
+        templates = {case["publisher"]: case for case in gold["cases"]
+                     if case["publisher"] in lab.PUBLISHERS}
+        si = next(case for case in gold["cases"]
+                  if case["expected"].get("document_kind") == "supporting_information")
+        no_doi = next(case for case in gold["cases"] if case["id"] == "syn-no-doi")
+        for publisher in lab.PUBLISHERS:
+            for index in range(3):
+                item = copy.deepcopy(templates[publisher])
+                item["id"] = f"fake-label-{publisher}-{index}"
+                cases.append(item)
+        for index in range(3):
+            item = copy.deepcopy(si)
+            item["id"] = f"fake-label-si-{index}"
+            cases.append(item)
+        for index in range(2):
+            item = copy.deepcopy(no_doi)
+            item["id"] = f"fake-label-no-doi-{index}"
+            cases.append(item)
+        for index, item in enumerate(cases):
+            item["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            item["evidence"] = {field: "fabricated, not real evidence"
+                                for field in item["expected"]}
+        gold["cases"] = cases
+        self.assertTrue(lab.audit_goldset_coverage(gold)["ready"])
+        labels = lab.audit_field_label_coverage(gold)
+        self.assertFalse(labels["ready"])
+        self.assertEqual(labels["positive_labels"]["journal_abbreviation"], 0)
+        self.assertIn({"criterion": "field_positive_labels",
+                       "field": "journal_abbreviation", "actual": 0, "required": 1},
+                      labels["gaps"])
+        self.assertEqual(labels["negative_labels"]["doi"], 5)
+        self.assertEqual(labels["unknown_labels"]["issue"], 17)
+        gold["cases"][0]["expected"]["journal_abbreviation"] = "J. Am. Chem. Soc."
+        gold["cases"][0]["evidence"]["journal_abbreviation"] = "fabricated test"
+        labels = lab.audit_field_label_coverage(gold)
+        self.assertTrue(labels["ready"])
+        self.assertEqual(labels["positive_labels"]["journal_abbreviation"], 1)
+
+    def test_field_label_gate_requires_existing_real_coverage_gate(self):
+        gold, predictions = sample()
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            goldfile, predfile = base / "gold.json", base / "pred.json"
+            goldfile.write_text(json.dumps(gold), encoding="utf-8")
+            predfile.write_text(json.dumps(predictions), encoding="utf-8")
+            cmd = [sys.executable, str(TOOL), "--goldset", str(goldfile),
+                   "--predictions", str(predfile), "--field-coverage-gate"]
+            blocked = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(blocked.returncode, 2)
+            self.assertIn("--field-coverage-gate requires --coverage-gate", blocked.stderr)
+
+
     def test_engine_identity_rejects_stale_or_placeholder_snapshot(self):
         predictions = {"engine_commit": "a" * 40}
         lab.check_engine_identity(predictions, "A" * 40)

@@ -555,6 +555,44 @@ jobs:
           if ($nativeTests -lt 1) { throw 'Empty native Qt test scope' }
           @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ userPcRepeatedCtrlW = 'User confirmed 30 closes on Windows 10 at 30e2a01; current CI legacy-layout disposal regression passed under CDB/page heap'; pythonTests = $pythonTests; nativeQtTests = $nativeTests; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; nativeTabBibliographyIsolation = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; publicMainAndSiBibliography = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
+      - name: Build and smoke-test per-user LUNA Setup EXE
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --version=6.7.1 --yes --no-progress --limit-output
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+          if (!(Test-Path $iscc)) { throw 'Pinned Inno compiler is unavailable' }
+          & $iscc 'tools/LUNA-Library-Setup.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'LUNA installer compilation failed' }
+          $setup = Join-Path $env:GITHUB_WORKSPACE 'LUNA-Windows-Installer/LUNA-Library-Setup.exe'
+          if (!(Test-Path $setup)) { throw 'Installer output missing' }
+          $destination = Join-Path $env:RUNNER_TEMP 'luna-install-smoke'
+          & $setup /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$destination"
+          if ($LASTEXITCODE -ne 0) { throw 'Silent installer failed' }
+          $installed = Join-Path $destination 'LUNA.exe'
+          if (!(Test-Path $installed)) { throw 'Installed LUNA.exe missing' }
+          $expected = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash
+          $actual = (Get-FileHash $installed -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { throw 'Installer changed verified executable bytes' }
+          $uninstaller = @(Get-ChildItem $destination -Filter 'unins*.exe' -File)
+          if ($uninstaller.Count -ne 1) { throw 'Uninstaller missing or ambiguous' }
+          & $uninstaller[0].FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          if ($LASTEXITCODE -ne 0 -or (Test-Path $installed)) { throw 'Silent uninstall did not remove app binaries' }
+          Get-FileHash $setup -Algorithm SHA256 | Format-List
+          Write-Host '[PASS] Setup EXE verified against portable, installed and uninstalled'
+
+      - name: Upload LUNA Windows installer artifact
+        if: ${{ !inputs.native_tabs_proof }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-Windows-Installer
+          path: LUNA-Windows-Installer/LUNA-Library-Setup.exe
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Upload synthetic native UI screenshots
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

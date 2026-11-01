@@ -1622,13 +1622,15 @@ public:
         };
         localSync_->remoteChanged = [this](const QString& pdf,const QJsonObject& record) {
             applyingRemote_=true;
-            if(luna::applyPortableRecord(pdf,record,bibliography_)) {
+            const bool applied=luna::applyPortableRecord(pdf,record,bibliography_);
+            if(applied) {
                 auto store=luna::lunaLocalStore();
                 memos_.insert(openedDateKey(pdf),store.value(QStringLiteral("library/memos/")+openedDateKey(pdf)).toString());
                 const auto favorites=store.value(QStringLiteral("library/favorites")).toStringList();
                 favorites_=QSet<QString>(favorites.cbegin(),favorites.cend());
             }
             applyingRemote_=false;
+            return applied;
         };
         localSync_->renamed = [this](const QString& before,const QString& after) {
             QString error;

@@ -19,6 +19,8 @@ class SnapshotSourceContract(unittest.TestCase):
             self.assertIn(expected, code)
         self.assertNotIn('observed.insert(QStringLiteral("identity")', code)
         self.assertNotIn('observed.insert(QStringLiteral("path")', code)
+        self.assertIn('fieldSources.insert(field, provider)', code)
+        self.assertNotIn('fieldSources.insert(QStringLiteral("private_note")', code)
 
     def test_native_regressions_seed_isolated_settings(self):
         code = NATIVE.read_text(encoding="utf-8")

@@ -276,6 +276,41 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         audit.pop("titleSource")
         self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
 
+    def test_real_mode_rejects_trusted_plus_unknown_provenance(self):
+        # Fabricated public-kind records test only the structural guard.
+        gold, predictions = sample()
+        for index, case in enumerate(gold["cases"]):
+            case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            case["evidence"] = {field: "fabricated contract evidence"
+                                for field in case["expected"]}
+        predictions["engine_commit"] = "b" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        seed_synthetic_audit(predictions)
+        audit = predictions["cases"][0]["audit"]
+        audit["titleSource"] = "legacy_preserved"
+        with self.assertRaisesRegex(lab.DatasetError, "unverified automatic provenance for title"):
+            lab.score(gold, predictions, require_real=True)
+        audit["titleSource"] = "Crossref"
+        self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
+
+    def test_real_mode_rejects_conflicting_trusted_providers(self):
+        # Crossref and OpenAlex are each trusted, but independent contradictory
+        # single-provider claims cannot be treated as one verified source.
+        gold, predictions = sample()
+        for index, case in enumerate(gold["cases"]):
+            case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            case["evidence"] = {field: "fabricated contract evidence"
+                                for field in case["expected"]}
+        predictions["engine_commit"] = "b" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        seed_synthetic_audit(predictions)
+        audit = predictions["cases"][0]["audit"]
+        audit["titleSource"] = "OpenAlex"
+        with self.assertRaisesRegex(lab.DatasetError, "conflicting automatic provenance for title"):
+            lab.score(gold, predictions, require_real=True)
+        audit["field_sources"]["title"] = "Crossref + OpenAlex"
+        self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
+
     def test_coverage_gate_synthetic_is_never_real(self):
         gold, _ = sample()
         audit = lab.audit_goldset_coverage(gold)

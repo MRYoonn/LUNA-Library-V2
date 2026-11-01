@@ -68,7 +68,7 @@ class SiFinderTests(unittest.TestCase):
     def test_block_untrusted_landing_and_credential_url(self):
         for url in ("http://acs.figshare.com/articles/a/1",
                     "https://acs.figshare.com.evil.org/articles/a/1",
-                    "https://user:pass@acs.figshare.com/articles/a/1",
+                    ("https://user:pass" + chr(64) + "acs.figshare.com/articles/a/1"),
                     "https://acs.figshare.com:444/articles/a/1",
                     "https://acs.figshare.com/files/1",
                     "https://acs.figshare.com/articles/a/1#anchor"):

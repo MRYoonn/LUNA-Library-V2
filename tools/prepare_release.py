@@ -34,20 +34,27 @@ def prepare(root: Path, destination: Path, tag: str, source_run: int, commit: st
         raise ValueError("Symlinks not allowed")
     destination.mkdir(parents=True, exist_ok=True)
     zip_path = destination / "LUNA-Windows-Portable.zip"
+    # The tagged release owns a semantic version, even when the source CI
+    # package has only an immutable Actions run number. The EXE is unchanged.
+    info["version"] = tag
+    manifest_files = []
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for file in paths:
             relative = file.relative_to(root).as_posix()
-            # Archive paths cannot be absolute or escape the root.
             if relative.startswith("/") or ".." in Path(relative).parts:
                 raise ValueError("Unsafe archive entry")
+            data = ((json.dumps(info, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+                    .encode("utf-8") if relative == "build-info.json" else file.read_bytes())
             item = zipfile.ZipInfo(relative, date_time=(2026, 1, 1, 0, 0, 0))
             item.compress_type = zipfile.ZIP_DEFLATED
             item.external_attr = 0o100644 << 16
-            archive.writestr(item, file.read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=6)
+            archive.writestr(item, data, compress_type=zipfile.ZIP_DEFLATED, compresslevel=6)
+            manifest_files.append({"path": relative, "sha256": hashlib.sha256(data).hexdigest(),
+                                   "size": len(data)})
     digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
-    manifest = {"schema": 1, "tag": tag, "source_run": source_run,
+    manifest = {"schema": 2, "tag": tag, "source_run": source_run,
                 "commit": commit, "zip": zip_path.name,
-                "sha256": digest}
+                "sha256": digest, "files": manifest_files}
     (destination / "LUNA-Release.json").write_text(
         json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8")

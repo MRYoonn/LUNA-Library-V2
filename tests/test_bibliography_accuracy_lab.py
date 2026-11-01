@@ -23,6 +23,20 @@ def sample():
     return gold, predictions
 
 
+def seed_synthetic_audit(predictions):
+    """Fabricated provider labels for contract tests; NOT engine evidence."""
+    for case in predictions["cases"]:
+        sources = {}
+        for field, value in case["observed"].items():
+            if field != "document_kind" and value not in (None, ""):
+                sources["authors" if field == "terminal_author" else field] = "Crossref"
+        case["audit"] = {
+            "manual_citation_active": False,
+            "senior_author_override_active": False,
+            "field_sources": sources,
+        }
+
+
 class BibliographyAccuracyLabTests(unittest.TestCase):
     def test_synthetic_all_publishers_and_negative_doi(self):
         gold, predictions = sample()
@@ -159,9 +173,7 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         predictions["capture_kind"] = "qt_record_snapshot_read_only"
         with self.assertRaisesRegex(lab.DatasetError, "audit flags"):
             lab.score(gold, predictions, require_real=True)
-        for case in predictions["cases"]:
-            case["audit"] = {"manual_citation_active": False,
-                             "senior_author_override_active": False}
+        seed_synthetic_audit(predictions)
         result = lab.score(gold, predictions, require_real=True)
         self.assertTrue(result["pass"])
         self.assertEqual(result["assessment"], "provided_real_goldset_not_independently_verified")
@@ -176,9 +188,7 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
                                 for field in case["expected"]}
         predictions["engine_commit"] = "b" * 40
         predictions["capture_kind"] = "qt_record_snapshot_read_only"
-        for case in predictions["cases"]:
-            case["audit"] = {"manual_citation_active": False,
-                             "senior_author_override_active": False}
+        seed_synthetic_audit(predictions)
         si = next(case for case in gold["cases"] if case["id"] == "syn-rsc-si")
         si["evidence"].pop("doi")  # Known-negative null DOI needs evidence.
         with self.assertRaisesRegex(lab.DatasetError, "evidence for doi"):
@@ -202,9 +212,7 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
                                 for field in case["expected"]}
         predictions["engine_commit"] = "b" * 40
         predictions["capture_kind"] = "qt_record_snapshot_read_only"
-        for case in predictions["cases"]:
-            case["audit"] = {"manual_citation_active": False,
-                             "senior_author_override_active": False}
+        seed_synthetic_audit(predictions)
         for flag in ("manual_citation_active", "senior_author_override_active"):
             predictions["cases"][0]["audit"][flag] = True
             with self.assertRaisesRegex(lab.DatasetError, "manual card override"):
@@ -220,14 +228,12 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
                                 for field in case["expected"]}
         predictions["engine_commit"] = "b" * 40
         predictions["capture_kind"] = "qt_record_snapshot_read_only"
-        for case in predictions["cases"]:
-            case["audit"] = {"manual_citation_active": False,
-                             "senior_author_override_active": False}
+        seed_synthetic_audit(predictions)
         audit = predictions["cases"][0]["audit"]
         audit["field_sources"] = {"title": "manual"}
         with self.assertRaisesRegex(lab.DatasetError, "manually sourced title"):
             lab.score(gold, predictions, require_real=True)
-        audit["field_sources"] = {}
+        audit["field_sources"]["title"] = "Crossref"
         audit["authorsSource"] = "manual"
         with self.assertRaisesRegex(lab.DatasetError, "manually sourced terminal_author"):
             lab.score(gold, predictions, require_real=True)
@@ -236,6 +242,38 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         with self.assertRaisesRegex(lab.DatasetError, "invalid field_sources"):
             lab.score(gold, predictions, require_real=True)
         audit.pop("field_sources")
+        with self.assertRaisesRegex(lab.DatasetError, "missing or unverified automatic provenance"):
+            lab.score(gold, predictions, require_real=True)
+        seed_synthetic_audit(predictions)
+        self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
+
+
+    def test_real_mode_rejects_unknown_and_conflicting_provenance(self):
+        # All sources and hashes below are synthetic, not publisher evidence.
+        gold, predictions = sample()
+        for index, case in enumerate(gold["cases"]):
+            case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            case["evidence"] = {field: "fabricated contract evidence"
+                                for field in case["expected"]}
+        predictions["engine_commit"] = "b" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        seed_synthetic_audit(predictions)
+        audit = predictions["cases"][0]["audit"]
+        self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
+        audit["field_sources"].pop("title")
+        with self.assertRaisesRegex(lab.DatasetError, "missing or unverified automatic provenance for title"):
+            lab.score(gold, predictions, require_real=True)
+        audit["field_sources"]["title"] = "legacy_preserved"
+        with self.assertRaisesRegex(lab.DatasetError, "missing or unverified automatic provenance for title"):
+            lab.score(gold, predictions, require_real=True)
+        audit["field_sources"]["title"] = " MANUAL "
+        with self.assertRaisesRegex(lab.DatasetError, "manually sourced title"):
+            lab.score(gold, predictions, require_real=True)
+        audit["field_sources"]["title"] = "Crossref"
+        audit["titleSource"] = "manual"  # conflicting legacy source must win
+        with self.assertRaisesRegex(lab.DatasetError, "manually sourced title"):
+            lab.score(gold, predictions, require_real=True)
+        audit.pop("titleSource")
         self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
 
     def test_coverage_gate_synthetic_is_never_real(self):
@@ -363,9 +401,7 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
             case["evidence"] = {field: "fabricated contract only" for field in case["expected"]}
         predictions["engine_commit"] = "a" * 40
         predictions["capture_kind"] = "qt_record_snapshot_read_only"
-        for case in predictions["cases"]:
-            case["audit"] = {"manual_citation_active": False,
-                             "senior_author_override_active": False}
+        seed_synthetic_audit(predictions)
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)
             goldfile, predfile, report = (base / name for name in

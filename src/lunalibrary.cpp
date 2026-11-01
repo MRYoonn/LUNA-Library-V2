@@ -2386,77 +2386,10 @@ private:
         }
         return {};
     }
-    void ensureThumbnailPopup() {
-        if (thumbnailPopup_) return;
-        thumbnailPopup_ = new QFrame(this, Qt::ToolTip | Qt::FramelessWindowHint);
-        thumbnailPopup_->setObjectName(QStringLiteral("LunaThumbnailPopup"));
-        thumbnailPopup_->setAttribute(Qt::WA_TransparentForMouseEvents);
-        thumbnailPopup_->setAttribute(Qt::WA_ShowWithoutActivating);
-        thumbnailPopup_->setStyleSheet(QStringLiteral(
-            "QFrame#LunaThumbnailPopup {background:#FFFFFF; border:1px solid #CBD5E1;"
-            " border-radius:10px;} QLabel {background:transparent; color:#334155;}"));
-        auto* layout = new QVBoxLayout(thumbnailPopup_);
-        layout->setContentsMargins(10, 10, 10, 10);
-        layout->setSpacing(7);
-        thumbnailImage_ = new QLabel(thumbnailPopup_);
-        thumbnailImage_->setFixedWidth(235);
-        thumbnailImage_->setAlignment(Qt::AlignCenter);
-        thumbnailImage_->setTextFormat(Qt::PlainText);
-        layout->addWidget(thumbnailImage_);
-        thumbnailLabel_ = new QLabel(thumbnailPopup_);
-        thumbnailLabel_->setFixedWidth(235);
-        thumbnailLabel_->setWordWrap(true);
-        thumbnailLabel_->setTextFormat(Qt::PlainText);
-        layout->addWidget(thumbnailLabel_);
-        auto* opacity = new QGraphicsOpacityEffect(thumbnailPopup_);
-        thumbnailPopup_->setGraphicsEffect(opacity);
-        fade_ = new QPropertyAnimation(opacity, "opacity", thumbnailPopup_);
-        fade_->setDuration(165);
-        fade_->setStartValue(0.0);
-        fade_->setEndValue(1.0);
-        thumbnailPopup_->hide();
-    }
+    // The old floating thumbnail-hover popup is intentionally disabled.
+    // User-selected crops are still displayed directly inside paper cards.
     void hideThumbnail() {
-        if (thumbnailPopup_) thumbnailPopup_->hide();
-        thumbnailPath_.clear();
-        thumbnailRevision_.clear();
-        hoverRequest_.clear();
-        if (fade_) fade_->stop();
-    }
-    void showThumbnailFor(const QString& pdfPath) {
-        const QString file = thumbnailForPdf(pdfPath);
-        if (file.isEmpty()) { hideThumbnail(); return; }
-        const QFileInfo currentImage(file);
-        const QString revision = file + QStringLiteral("|%1|%2").arg(currentImage.size()).arg(currentImage.lastModified().toMSecsSinceEpoch());
-        if (revision == thumbnailRevision_ && thumbnailPopup_ && thumbnailPopup_->isVisible())
-            return;
-        ensureThumbnailPopup();
-        hoverRequest_ = file;
-        QPointer<LibraryPanel> owner(this);
-        const QImage image = ThumbnailCache::instance()->request(file, this, [owner, file, pdfPath] {
-            if (owner && owner->hoverRequest_ == file) owner->showThumbnailFor(pdfPath);
-        });
-        if (image.isNull()) { if (thumbnailPopup_) thumbnailPopup_->hide(); return; }
-        thumbnailImage_->setPixmap(QPixmap::fromImage(image.scaled(QSize(235,310), Qt::KeepAspectRatio, Qt::SmoothTransformation)));
-        thumbnailLabel_->setText(QFileInfo(pdfPath).fileName());
-        thumbnailPopup_->adjustSize();
-        const QPoint cursor = QCursor::pos();
-        QPoint target = cursor + QPoint(19, 12);
-        if (auto* screen = QGuiApplication::screenAt(cursor)) {
-            const QRect area = screen->availableGeometry();
-            target.setX(qBound(area.left(), target.x(),
-                qMax(area.left(), area.right() - thumbnailPopup_->width() + 1)));
-            target.setY(qBound(area.top(), target.y(),
-                qMax(area.top(), area.bottom() - thumbnailPopup_->height() + 1)));
-        }
-        fade_->stop();
-        if (auto* effect = qobject_cast<QGraphicsOpacityEffect*>(thumbnailPopup_->graphicsEffect()))
-            effect->setOpacity(0.0);
-        thumbnailPopup_->move(target);
-        thumbnailPopup_->show();
-        fade_->start();
-        thumbnailPath_ = file;
-        thumbnailRevision_ = revision;
+        thumbnailPath_.clear(); thumbnailRevision_.clear(); hoverRequest_.clear();
     }
 
     void startThumbnailCrop() {

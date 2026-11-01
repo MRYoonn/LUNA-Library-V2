@@ -102,3 +102,47 @@ and reconcile successful/rolled-back Issue #9 moves without editing the
 move engine; do not integrate cards until native and privacy gates pass.
 PR #16 has advanced independently; review its new HEAD before any
 integration or branch update, avoiding changes to its own files.
+
+
+## Follow-up: post-move identity reconciliation gate (2026-11-01)
+
+New isolated Python reference files: tools/si_relocation_gate.py and
+tests/test_si_relocation_gate.py. No PDF/sidecar move implementation was
+changed. This is not yet wired into LUNA or the Windows reader.
+
+**Important integration blocker found by inspecting the current branch:**
+src/lunafilemove.h::movePdfWithThumbnails currently enumerates
+.luna-thumb.png/.jpg/.jpeg and the PDF, but **does not enumerate
+.luna-meta.json**. Consequently, the prior handoff's claim that the
+existing Issue #9 move helper already moves the identity metadata sidecar
+was incorrect. Do NOT enable SI-linked moves or assume UUID continuity
+through that helper. Issue #9's owner must implement and test safe paired
+metadata moves/rollback before the UI may claim move-safe SI linking.
+
+The new read-only gate is designed to fail closed **after** a caller reports
+a physical move as successful. It verifies old PDF/sidecar absence, regular
+destination PDF, same UUIDv4 in the destination sidecar, v1 schema, a 64 KiB
+sidecar cap, and rejects symlinks, invalid paths, stale index entries and
+identity conflicts. Only a verified pair updates the **in-memory**
+AssociationIndex path; it never moves/deletes files, repairs identities,
+persists links, accesses the network or writes QSettings. It does not fix
+the underlying move-helper bug. File-system race resistance, actual Windows
+case-only moves, and a production Qt implementation remain unverified.
+
+Test command from a full repository checkout:
+
+    python -B -m unittest discover -s tests -p 'test_si_relocation_gate.py' -v
+
+Development-run evidence: 12/12 offline synthetic gate tests PASS in an
+isolated Python 3.13 environment with a **minimal compatibility shim** for
+the existing association model. The shim was NOT committed. Full exact-HEAD
+repository tests and Windows/Qt6 native execution are NOT RUN. The GitHub
+files are the reviewed standalone source and tests, not a verified native
+release.
+
+Next: coordinate with Issue #9 owner to add .luna-meta.json to the
+no-overwrite move+rollback contract, test synthetic same-volume moves and
+failed rollback on Windows, run the gate against the actual association
+module in full checkout, and then implement atomic local association-state
+persistence with explicit opt-in. Do not silently modify another PR or
+merge this Draft. Live ACS/Figshare SI landing links remain unverified.

@@ -182,7 +182,10 @@ public:
             plus->setAccessibleName(QStringLiteral("새 PDF 탭 열기")); plus->setToolTip(QStringLiteral("새 PDF 탭 열기")); plus->setFixedSize(43, 41);
             addRow->addWidget(plus); tabs_->setCornerWidget(addCorner, Qt::TopRightCorner);
             connect(plus, &QToolButton::clicked, open_, &QAction::trigger);
-            corner->setVisible(findChild<QAction*>(QStringLiteral("LunaFocusMode"))->isChecked());
+            // Restore controls belong to the tab header itself, never inside
+            // the collapsible library dock. Keep both visible in every panel
+            // combination, including when both library columns are hidden.
+            corner->show();
         }
         quit_ = new QAction(QStringLiteral("끝내기"), this); quit_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q"))); addAction(quit_);
         connect(quit_, &QAction::triggered, this, [this] { trace("shell-quit-action"); close(); });
@@ -1023,15 +1026,52 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(extra[2] && host.closeTab(tabs->indexOf(extra[2])) && host.documentCount() == 2, "Extra-tab cleanup damaged original documents");
             tabs->setCurrentWidget(a); pa->zoom(1.25); pb->zoom(1.5);
             result["fiveTabsBoundedElidedTooltipScrollAndIndependentViews"] = true;
+            phase("ten real independent library/paper panel toggle cycles");
             focus->setChecked(false);
-            auto* toggle = host.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
-            integrationRequire(toggle, "Combined panel button missing");
+            auto* navigationToggle = host.findChild<QToolButton*>(QStringLiteral("LunaNavigationCollapseButton"));
+            auto* documentsToggle = host.findChild<QToolButton*>(QStringLiteral("LunaDocumentsCollapseButton"));
+            auto* navigationPanel = host.findChild<QWidget*>(QStringLiteral("LunaNavigation"));
+            auto* documentsPanel = host.findChild<QWidget*>(QStringLiteral("LunaDocuments"));
+            auto* libraryDock = host.findChild<QDockWidget*>(QStringLiteral("LunaLibraryDock"));
+            auto* corner = host.findChild<QWidget*>(QStringLiteral("LunaTabCorner"));
+            integrationRequire(navigationToggle && documentsToggle && navigationPanel &&
+                               documentsPanel && libraryDock && corner,
+                               "Independent panel controls or dock missing");
+            integrationRequire(navigationToggle->parentWidget() == corner &&
+                               documentsToggle->parentWidget() == corner &&
+                               !navigationToggle->icon().isNull() && !documentsToggle->icon().isNull(),
+                               "Independent panel buttons are not hosted in the tab corner");
+            auto buttonsVisible = [&] {
+                return corner->isVisible() && navigationToggle->isVisible() &&
+                       documentsToggle->isVisible() &&
+                       corner->rect().contains(navigationToggle->geometry()) &&
+                       corner->rect().contains(documentsToggle->geometry()) &&
+                       !navigationToggle->geometry().intersects(documentsToggle->geometry());
+            };
+            integrationRequire(buttonsVisible() && !navigationPanel->isHidden() &&
+                               !documentsPanel->isHidden() && libraryDock->isVisible(),
+                               "Initial independent panel geometry invalid");
             for (int turn = 0; turn < 10; ++turn) {
-                integrationRequire(!focus->isChecked() && !focus->property("lunaCollapsed").toBool() && !toggle->icon().isNull() && integrationPanelClick(host, toggle) && integrationWait([&] { return focus->isChecked() && toggle->isVisible() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8; }), "Real collapse click failed");
-                integrationRequire(focus->property("lunaCollapsed").toBool() && !toggle->icon().isNull() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8, "Restore button moved away from left edge");
-                integrationRequire(integrationPanelClick(host, toggle) && integrationWait([&] { return !focus->isChecked(); }), "Real expand click failed");
+                integrationRequire(integrationPanelClick(host, navigationToggle) &&
+                    integrationWait([&] { return navigationPanel->isHidden() &&
+                        !documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
+                    "Navigation-only real collapse click failed");
+                integrationRequire(integrationPanelClick(host, documentsToggle) &&
+                    integrationWait([&] { return navigationPanel->isHidden() &&
+                        documentsPanel->isHidden() && libraryDock->isHidden() && buttonsVisible(); }),
+                    "Both panels hidden: restore buttons disappeared or document panel did not collapse");
+                integrationRequire(integrationPanelClick(host, navigationToggle) &&
+                    integrationWait([&] { return !navigationPanel->isHidden() &&
+                        documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
+                    "Independent navigation restore failed while paper list stayed hidden");
+                integrationRequire(integrationPanelClick(host, documentsToggle) &&
+                    integrationWait([&] { return !navigationPanel->isHidden() &&
+                        !documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
+                    "Independent paper-list restore failed");
+                integrationRequire(!focus->isChecked(),
+                    "Independent panel clicks unexpectedly activated focus mode");
             }
-            result["tenRealPanelToggleCyclesPinnedLeft"] = true;
+            result["tenIndependentPanelToggleCycles"] = true;
             auto collapse = [&] {
                 focus->setChecked(true);
                 host.resize(host.screen()->availableGeometry().size() - QSize(24, 48)); host.move(8, 8);

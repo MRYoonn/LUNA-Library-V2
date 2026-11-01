@@ -171,6 +171,90 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         si["source"]["sha256"] = "a" * 64
         self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
 
+    def test_coverage_gate_synthetic_is_never_real(self):
+        gold, _ = sample()
+        audit = lab.audit_goldset_coverage(gold)
+        self.assertFalse(audit["ready"])
+        self.assertEqual(audit["real_pdf_total"], 0)
+        self.assertEqual(audit["basis"], "provided_pdf_metadata_only_not_independently_verified")
+        self.assertIn("real_pdf_total", {gap["criterion"] for gap in audit["gaps"]})
+
+    def test_coverage_gate_fabricated_breadth_and_duplicate_detection(self):
+        # This is a structural contract test, NOT actual publisher PDFs.
+        gold, _ = sample()
+        templates = {case["publisher"]: case for case in gold["cases"]
+                     if case["expected"].get("document_kind") == "main_article"}
+        si = next(case for case in gold["cases"]
+                  if case["expected"].get("document_kind") == "supporting_information")
+        no_doi = next(case for case in gold["cases"] if case["id"] == "syn-no-doi")
+        cases = []
+        for publisher in lab.PUBLISHERS:
+            for index in range(3):
+                item = copy.deepcopy(templates[publisher])
+                item["id"] = f"fake-{publisher}-{index}"
+                cases.append(item)
+        for index in range(2):
+            item = copy.deepcopy(si)
+            item["id"] = f"fake-si-{index}"
+            cases.append(item)
+        for index in range(2):
+            item = copy.deepcopy(no_doi)
+            item["id"] = f"fake-no-doi-{index}"
+            item["expected"]["doi"] = None
+            cases.append(item)
+        extra = copy.deepcopy(templates["ACS"])
+        extra["id"] = "fake-extra"
+        cases.append(extra)
+        for index, item in enumerate(cases):
+            item["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            item["evidence"] = {field: "fabricated evidence, contract test only"
+                                for field in item["expected"]}
+        gold["cases"] = cases
+        audit = lab.audit_goldset_coverage(gold)
+        self.assertTrue(audit["ready"])
+        self.assertEqual(audit["real_pdf_total"], 20)
+        self.assertEqual(audit["supporting_information"], 2)
+        self.assertEqual(audit["no_doi_main"], 2)
+        gold["cases"][1]["source"]["sha256"] = gold["cases"][0]["source"]["sha256"].upper()
+        audit = lab.audit_goldset_coverage(gold)
+        self.assertFalse(audit["ready"])
+        self.assertIn("duplicate_pdf_sha256", {gap["criterion"] for gap in audit["gaps"]})
+        gold["cases"][1]["source"]["sha256"] = f"{2:064x}"
+        gold["cases"][0]["source"]["kind"] = "synthetic"
+        audit = lab.audit_goldset_coverage(gold)
+        self.assertEqual(audit["main_by_publisher"]["ACS"], 3)
+        self.assertEqual(audit["main_by_publisher"]["RSC"], 3)
+        self.assertEqual(audit["real_pdf_total"], 19)
+
+    def test_coverage_cli_requires_real_and_writes_gap_report(self):
+        gold, predictions = sample()
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            goldfile, predfile, report = (base / name for name in ("gold.json", "pred.json", "report.json"))
+            goldfile.write_text(json.dumps(gold), encoding="utf-8")
+            predfile.write_text(json.dumps(predictions), encoding="utf-8")
+            cmd = [sys.executable, str(TOOL), "--goldset", str(goldfile),
+                   "--predictions", str(predfile), "--coverage-gate", "--report", str(report)]
+            blocked = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            self.assertEqual(blocked.returncode, 2)
+            self.assertIn("requires --require-real", blocked.stderr)
+            for index, case in enumerate(gold["cases"]):
+                case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+                case["evidence"] = {field: "fabricated test only" for field in case["expected"]}
+            predictions["engine_commit"] = "b" * 40
+            predictions["capture_kind"] = "qt_record_snapshot_read_only"
+            for case in predictions["cases"]:
+                case["audit"] = {"manual_citation_active": False,
+                                 "senior_author_override_active": False}
+            goldfile.write_text(json.dumps(gold), encoding="utf-8")
+            predfile.write_text(json.dumps(predictions), encoding="utf-8")
+            failed = subprocess.run(cmd + ["--require-real"], capture_output=True, text=True, check=False)
+            self.assertEqual(failed.returncode, 1, failed.stderr)
+            result = json.loads(report.read_text(encoding="utf-8"))
+            self.assertFalse(result["pass"])
+            self.assertFalse(result["coverage_audit"]["ready"])
+            self.assertEqual(result["coverage_audit"]["real_pdf_total"], 7)
+
     def test_cli_exit_codes_and_local_report(self):
         gold = FIXTURES / "bibliography_accuracy_goldset.synthetic.json"
         predictions = FIXTURES / "bibliography_accuracy_predictions.synthetic.json"

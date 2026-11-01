@@ -237,12 +237,13 @@ Run from the full branch checkout:
     python -B tools/preflight_public.py
 
 Local isolated development used a **minimal noncommitted SiCandidate/
-SiLookupResult/safe_figshare_landing compatibility shim**; the first twelve
-synthetic verifier tests passed there. Three additional HTTP-request mock
-tests were added after that run and require exact-branch CI execution.
-The full repository suite and actual ACS/Figshare network were **not**
-executed locally. Treat any CI result as synthetic only. No real public
-SI landing or file link is claimed reachable by this change.
+SiLookupResult/safe_figshare_landing compatibility shim**; all 15 new
+synthetic verifier tests passed there. GitHub Actions run #41319527437 at
+source commit `71d2f1946b8a5c0eb1dd509af3df0600f32d19b0` then passed
+**84/84 actual-repository SI Python tests** and the public privacy gate
+(**140 approved source/icon files**). The subsequent handoff edit is docs-only.
+This is **not** a Windows/Qt test or a live ACS/Figshare reachability test.
+No real public SI landing or file link is claimed reachable by this change.
 
 **Next exact actions:** review the GitHub Actions \`si-isolated.yml\` run for
 the final commit and fix any failures. Obtain a publicly usable ACS article

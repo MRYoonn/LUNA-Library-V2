@@ -69,7 +69,7 @@ class NativeFileManagementContracts(unittest.TestCase):
             "const std::function<bool(const QString&)>& recycler = QFile::moveToTrash",
             "if (!recycler(item.first))",
             "const QString portable=",
-            "QFileInfo::exists(item.first)",
+            "destination.exists() || destination.isSymLink()",
             "if (!QFile::copy(item.second, item.first))",
             "void clear()",
         ):

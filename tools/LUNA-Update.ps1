@@ -4,7 +4,7 @@
 # User PDFs, thumbnails, citation sidecars, QSettings and unknown files are never
 # deleted or overwritten. SHA-256 is integrity checking, not publisher signing.
 param(
-    [ValidateSet('Check','Stage','Apply','Cancel')][string]$Mode = 'Check',
+    [ValidateSet('Check','Stage','Apply','Cancel','Recover')][string]$Mode = 'Check',
     [Parameter(Mandatory)][string]$InstallDir,
     [int]$WaitPid = 0,
     [string]$Token = ''
@@ -153,6 +153,7 @@ function New-Stage {
     $work = Stage-Path $token
     New-Item -ItemType Directory -Path $work -ErrorAction Stop | Out-Null
     try {
+        Copy-Item -LiteralPath $PSCommandPath -Destination (Join-Path $work 'recovery.ps1') -Force
         $manifest = Get-Manifest $source (Join-Path $work $manifestName)
         $localVersion = [string]$local.version
         if ($localVersion -match '^v\d+\.\d+\.\d+(?:\.\d+)?$') {
@@ -207,6 +208,55 @@ function Undo-Copy([string]$backup, [System.Collections.Generic.List[string]]$ch
         }
     }
 }
+function Assert-Safe-Target([string]$relative) {
+    Validate-Relative $relative
+    $destination = [IO.Path]::GetFullPath((Join-Path $install ($relative.Replace('/', '\'))))
+    if (!$destination.StartsWith($install + '\',[StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Managed path escaped program directory'
+    }
+    $parent = Split-Path -Parent $destination
+    while ($parent.Length -ge $install.Length) {
+        if (Test-Path -LiteralPath $parent) {
+            if (((Get-Item -LiteralPath $parent).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw 'Program directory contains a junction or symlink'
+            }
+        }
+        if ($parent -ieq $install) { break }
+        $parent = Split-Path -Parent $parent
+    }
+    return $destination
+}
+function Recover-Stage {
+    $work = Stage-Path $Token
+    $state = Read-Json (Join-Path $work 'state.json')
+    $journal = Read-Json (Join-Path $work 'transaction.json')
+    if ([string]$state.token -cne $Token -or [string]$state.install -cne $install -or
+        [string]$state.state -cne 'applying' -or [string]$journal.token -cne $Token) {
+        throw 'No interrupted transaction to recover'
+    }
+    $busy = @(Get-CimInstance Win32_Process -Filter "name='LUNA.exe'" -ErrorAction Stop |
+              Where-Object { $_.ExecutablePath -ieq (Join-Path $install 'LUNA.exe') })
+    if ($busy.Count) { throw 'Close all LUNA windows before recovery' }
+    $backup = Join-Path $work 'backup'
+    $previous = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($item in @($journal.prior)) {
+        $name = [string]$item
+        Validate-Relative $name
+        [void]$previous.Add($name)
+        if (!(Test-Path -LiteralPath (Join-Path $backup ($name.Replace('/', '\'))) -PathType Leaf)) {
+            throw 'Recovery backup incomplete; no changes made'
+        }
+    }
+    $all = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($item in @($journal.files)) {
+        $name = [string]$item
+        [void](Assert-Safe-Target $name)
+        $all.Add($name)
+    }
+    Undo-Copy $backup $all $previous
+    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    @{ status='recovered'; restored=$all.Count } | ConvertTo-Json -Compress
+}
 function Apply-Stage {
     $work = Stage-Path $Token
     $state = Read-Json (Join-Path $work 'state.json')
@@ -239,7 +289,7 @@ function Apply-Stage {
         $prior = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
         foreach ($file in @($manifest.files)) {
             $name = [string]$file.path; Validate-Relative $name
-            $dst = Join-Path $install ($name.Replace('/', '\'))
+            $dst = Assert-Safe-Target $name
             if (Test-Path -LiteralPath $dst) {
                 if (!(Test-Path -LiteralPath $dst -PathType Leaf) -or
                     ((Get-Item -LiteralPath $dst).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -256,11 +306,14 @@ function Apply-Stage {
         @{ token=$Token; tag=$manifest.tag; state='backup-complete';
            prior=@($prior); files=@($manifest.files | ForEach-Object { $_.path }) } |
             ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $work 'transaction.json') -Encoding UTF8
+        $state.state = 'applying'
+        $state | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $work 'state.json') -Encoding UTF8
         $changed = New-Object 'System.Collections.Generic.List[string]'
+        $proc = $null
         try {
             foreach ($file in @($manifest.files)) {
                 $name = [string]$file.path
-                $dst = Join-Path $install ($name.Replace('/', '\'))
+                $dst = Assert-Safe-Target $name
                 New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
                 $changed.Add($name)
                 Copy-Item -LiteralPath (Join-Path $work ('payload\' + $name.Replace('/', '\'))) -Destination $dst -Force
@@ -304,6 +357,7 @@ try {
         'Check' { Check-Release }
         'Stage' { New-Stage }
         'Apply' { Apply-Stage }
+        'Recover' { Recover-Stage }
         'Cancel' {
             $work = Stage-Path $Token
             if (Test-Path -LiteralPath (Join-Path $work 'state.json')) {

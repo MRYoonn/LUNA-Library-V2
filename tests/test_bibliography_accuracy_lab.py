@@ -171,6 +171,51 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         si["source"]["sha256"] = "a" * 64
         self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
 
+    def test_real_mode_rejects_manual_card_override_contamination(self):
+        # Fabricated public-kind metadata: tests only the scorer contract.
+        gold, predictions = sample()
+        for index, case in enumerate(gold["cases"]):
+            case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            case["evidence"] = {field: "fabricated contract evidence"
+                                for field in case["expected"]}
+        predictions["engine_commit"] = "b" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        for case in predictions["cases"]:
+            case["audit"] = {"manual_citation_active": False,
+                             "senior_author_override_active": False}
+        for flag in ("manual_citation_active", "senior_author_override_active"):
+            predictions["cases"][0]["audit"][flag] = True
+            with self.assertRaisesRegex(lab.DatasetError, "manual card override"):
+                lab.score(gold, predictions, require_real=True)
+            predictions["cases"][0]["audit"][flag] = False
+        self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
+
+    def test_real_mode_rejects_manual_field_source_contamination(self):
+        gold, predictions = sample()
+        for index, case in enumerate(gold["cases"]):
+            case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            case["evidence"] = {field: "fabricated contract evidence"
+                                for field in case["expected"]}
+        predictions["engine_commit"] = "b" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        for case in predictions["cases"]:
+            case["audit"] = {"manual_citation_active": False,
+                             "senior_author_override_active": False}
+        audit = predictions["cases"][0]["audit"]
+        audit["field_sources"] = {"title": "manual"}
+        with self.assertRaisesRegex(lab.DatasetError, "manually sourced title"):
+            lab.score(gold, predictions, require_real=True)
+        audit["field_sources"] = {}
+        audit["authorsSource"] = "manual"
+        with self.assertRaisesRegex(lab.DatasetError, "manually sourced terminal_author"):
+            lab.score(gold, predictions, require_real=True)
+        audit.pop("authorsSource")
+        audit["field_sources"] = []  # malformed native provenance is not ignored
+        with self.assertRaisesRegex(lab.DatasetError, "invalid field_sources"):
+            lab.score(gold, predictions, require_real=True)
+        audit.pop("field_sources")
+        self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
+
     def test_coverage_gate_synthetic_is_never_real(self):
         gold, _ = sample()
         audit = lab.audit_goldset_coverage(gold)

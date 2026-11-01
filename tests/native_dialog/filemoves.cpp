@@ -196,7 +196,10 @@ int main(int argc, char** argv) {
         };
         if(!pumpUntil([&] {
             const QVariantMap stored=luna::lunaLocalStore().value(key).toMap();
-            return stored.value(stableId).toString()==watchedBefore;
+            const QString storedPath=stored.value(stableId).toString();
+            return !storedPath.isEmpty() &&
+                QFileInfo(storedPath).canonicalFilePath().compare(
+                    QFileInfo(watchedBefore).canonicalFilePath(),Qt::CaseInsensitive)==0;
         })) return fail("Native nested watcher did not index original PDF file identity");
         if(!luna::renameWithoutReplacement(watchedBefore,watchedAfter))
             return fail("Cannot simulate nested Explorer PDF filename rename");

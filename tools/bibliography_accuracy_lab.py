@@ -112,33 +112,48 @@ def score(gold: dict, predictions: dict, *, require_real: bool = False) -> dict:
     stats = {field: defaultdict(int) for field in FIELDS}
     errors = []
     by_publisher = defaultdict(lambda: {"cases": 0, "errors": 0})
+    by_publisher_fields = defaultdict(lambda: {field: defaultdict(int) for field in FIELDS})
     for ident, case in expected.items():
         publisher = case["publisher"]
         by_publisher[publisher]["cases"] += 1
         for field in FIELDS:
             if field not in case["expected"]:
                 stats[field]["unscored"] += 1
+                by_publisher_fields[publisher][field]["unscored"] += 1
                 continue
             want = normalize(field, case["expected"][field])
             got = normalize(field, observed[ident]["observed"].get(field))
             stats[field]["scored"] += 1
+            by_publisher_fields[publisher][field]["scored"] += 1
             if want == got:
-                stats[field]["tp" if want else "tn"] += 1
+                outcome = "tp" if want else "tn"
+                stats[field][outcome] += 1
+                by_publisher_fields[publisher][field][outcome] += 1
             else:
                 if want:
                     stats[field]["fn"] += 1
+                    by_publisher_fields[publisher][field]["fn"] += 1
                 if got:
                     stats[field]["fp"] += 1
+                    by_publisher_fields[publisher][field]["fp"] += 1
                 by_publisher[publisher]["errors"] += 1
                 errors.append({"case_id": ident, "publisher": publisher, "field": field,
                                "expected": case["expected"][field],
                                "observed": observed[ident]["observed"].get(field),
                                "error": "mismatch" if want and got else "missing" if want else "spurious"})
-    field_scores = {}
-    for field, count in stats.items():
-        field_scores[field] = {k: count[k] for k in ("tp", "fp", "fn", "tn", "scored", "unscored")}
-        field_scores[field]["precision"] = metric(count["tp"], count["fp"])
-        field_scores[field]["recall"] = metric(count["tp"], count["fn"])
+    def field_row(count: dict) -> dict:
+        row = {k: count[k] for k in ("tp", "fp", "fn", "tn", "scored", "unscored")}
+        row["precision"] = metric(count["tp"], count["fp"])
+        row["recall"] = metric(count["tp"], count["fn"])
+        return row
+
+    field_scores = {field: field_row(count) for field, count in stats.items()}
+    # Publisher-level denominators are independent: no ACS result may inflate
+    # RSC precision/recall, and missing ground truth remains unscored.
+    publisher_field_scores = {
+        publisher: {field: field_row(count) for field, count in fields.items()}
+        for publisher, fields in sorted(by_publisher_fields.items())
+    }
     checks = score_regressions(predictions.get("regressions", []))
     return {
         "schema_version": 1, "dataset_id": gold["dataset_id"],
@@ -146,6 +161,7 @@ def score(gold: dict, predictions: dict, *, require_real: bool = False) -> dict:
                       else "provided_real_goldset_not_independently_verified",
         "cases": len(expected), "field_scores": field_scores,
         "by_publisher": dict(sorted(by_publisher.items())),
+        "by_publisher_fields": publisher_field_scores,
         "errors": errors, "regression_checks": checks,
         "pass": not errors and checks["failed"] == 0,
     }

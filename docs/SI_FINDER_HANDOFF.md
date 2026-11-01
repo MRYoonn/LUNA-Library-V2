@@ -252,3 +252,35 @@ the same strict probe; record evidence without copying PDFs or private data.
 Then compile \`tests/native_si_identity\` on Windows Qt6 and coordinate
 Issue #9's PDF + \`.luna-meta.json\` move/rollback fix. Do not enable native
 linked moves or merge Draft #17 until those blockers pass.
+
+
+## Follow-up: prevent false-positive landing links (2026-11-02)
+
+A Figshare API record can have an exact matching `resource_doi` and `id`
+while its `url_public_html` points at a *different* Figshare article.
+Previously, a reachable HTML page could therefore be labeled
+`landing_verified` for the wrong SI. The landing verifier also cached
+results solely by URL, allowing a forged candidate to reuse a legitimate
+candidate's successful probe.
+
+- `safe_figshare_landing(url, article_id)` now requires a canonical public
+  `/articles/.../<numeric-id>` path with a final article ID matching the
+  verified Figshare API detail record. Noncanonical paths, query strings,
+  encoded path components, non-ACS tenant subdomains, and other IDs fail
+  closed. Only `acs.figshare.com` and `figshare.com` are accepted in
+  this ACS-first prototype. A legitimate but unsupported URL remains
+  **unconfirmed**; the parent DOI fallback remains available.
+- `lookup_acs_figshare` rejects mismatched landing identity before
+  constructing SI candidates. `verify_landing_candidates` checks each
+  candidate's ID before consulting the per-URL reachability cache.
+- Added synthetic regressions for wrong IDs, query/download routes,
+  traversal, and the same reachable URL reused by two different IDs in
+  either order. These tests do not access any PDF or remote download URL.
+
+The official Figshare API user guide documents that the numeric final
+component of an article landing URL is its article ID:
+https://info.figshare.com/user-guide/how-to-use-the-figshare-api/
+
+Validation still required: exact-HEAD GitHub Actions test result, live
+ACS/Figshare metadata and landing reachability, native Windows/Qt6 tests,
+and Issue #9 paired metadata-sidecar move/rollback. Keep PR #17 Draft.

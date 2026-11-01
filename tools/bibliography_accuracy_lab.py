@@ -164,9 +164,18 @@ def validate_real_run(gold: dict, predictions: dict) -> None:
             if normalize(field, observed.get(field)):
                 trusted = {"crossref", "openalex", "crossref + openalex",
                            "first_page_verified", "pdf_metadata", "pdf_front_matter"}
-                if not provenance or not any(value in trusted for value in provenance):
+                # Both native provenance channels must be trusted. A trusted
+                # field_sources entry cannot launder a stale/unknown *Source
+                # value into an apparent automatic extraction success.
+                if not provenance or any(value not in trusted for value in provenance):
                     raise DatasetError(
                         f"real run/{case['id']}: missing or unverified automatic provenance for {field}"
+                    )
+                # Crossref and OpenAlex can legitimately be combined, but
+                # contradictory single-provider claims need human review.
+                if len(set(provenance)) > 1 and "crossref + openalex" not in provenance:
+                    raise DatasetError(
+                        f"real run/{case['id']}: conflicting automatic provenance for {field}"
                     )
 
 

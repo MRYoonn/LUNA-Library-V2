@@ -45,6 +45,10 @@ def check(root: Path) -> list[str]:
         return ["Portable directory is missing or is a symlink"]
     for path in root.rglob("*"):
         relative = path.relative_to(root).as_posix()
+        # Upstream Windows Store logos/tiles are not part of LUNA's identity.
+        # Preserve PDF engine and required third-party notices instead.
+        if relative == "AppxManifest.xml" or relative.startswith("assets/"):
+            errors.append("Obsolete upstream app branding asset: " + relative)
         if path.is_symlink():
             errors.append("Symlink blocked: " + relative)
         elif path.is_file():

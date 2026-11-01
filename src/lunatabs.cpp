@@ -480,9 +480,9 @@ private:
                 about->setObjectName(QStringLiteral("LunaAboutApp"));
                 connect(about, &QAction::triggered, this, [this] {
                     QMessageBox::information(this, QStringLiteral("LUNA Library"),
-                        QStringLiteral("LUNA Library\\n\\n"
-                            "독립 실행형 Windows PDF 라이브러리 및 논문 관리 프로그램입니다.\\n"
-                            "LUNA 자체 인터페이스와 문서 관리 기능을 제공합니다.\\n"
+                        QStringLiteral("LUNA Library\n\n"
+                            "독립 실행형 Windows PDF 라이브러리 및 논문 관리 프로그램입니다.\n"
+                            "LUNA 자체 인터페이스와 문서 관리 기능을 제공합니다.\n"
                             "PDF 처리에는 제3자 오픈소스 구성요소가 포함되어 있으며, "
                             "도움말의 오픈소스 라이선스에서 확인할 수 있습니다."));
                 });
@@ -504,7 +504,7 @@ private:
                         QStringLiteral("LUNA에서 사용한 제3자 구성요소의 저작권 및 라이선스 고지입니다."),
                         QMessageBox::Ok, this);
                     dialog.setDetailedText(QString::fromUtf8(notice.readAll()) +
-                        QStringLiteral("\\n\\n----- Original license -----\\n") +
+                        QStringLiteral("\n\n----- Original license -----\n") +
                         QString::fromUtf8(license.readAll()));
                     dialog.exec();
                 });

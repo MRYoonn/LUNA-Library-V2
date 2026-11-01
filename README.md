@@ -1,6 +1,6 @@
 # LUNA Library V2
 
-**PDF4QT 기반 Windows용 LUNA Library** — 2열 인터페이스 (왼쪽 폴더/PDF 목록, 오른쪽 PDF 본문)
+**LUNA Library — 독립 실행형 Windows PDF 라이브러리**. PDF 열람·주석·논문 관리용 자체 인터페이스와 다중 탭을 제공하며 별도의 PDF 뷰어 설치 없이 실행한다. 서드파티 엔진의 라이선스와 출처는 아래 저작권 및 `LICENSE_NOTICE.md`에서 명시한다.
 
 This is a **public source-only build repository**. It does not store, synchronize or receive your PDF files, annotations, research notes, cloud credentials or local databases.
 
@@ -217,6 +217,16 @@ MYBOX API·로그인·토큰 처리나 GitHub를 이용한 PDF 동기화는 추�
 ## 개인정보 보호
 
 공개 저장소에는 사용자 PDF, 실제 논문 기록, 메모, 썸네일, SQLite DB, API 키, MYBOX 인증정보, 로컬 사용자 경로, 기존 비공개 LUNA/Recall 소스를 **절대 업로드하지 않는다**. 의심이 생기면 빌드 및 공개 작업을 중단한다. 자세한 내용은 [SECURITY_POLICY.md](SECURITY_POLICY.md).
+
+## 배포 정책 — 포터블 우선
+
+기본 Windows 빌드는 전체 네이티브 UI/주석·다중 탭/창 수명 검증을 거친
+`LUNA-Windows-Portable.zip`만 배포 대상으로 만든다. 사용자는 전체 ZIP을 압축 해제하고
+`LUNA.exe`를 실행한다. 별도 설치 프로그램이나 원본 PDF 뷰어 설치는 필요 없다.
+설치형 빌드·설치/제거 검증 코드는 보존하되 수동 `build_installer` 선택 시에만 실행한다.
+포터블 업데이트는 승인된 GitHub Release와 무결성 검증을 전제로 하며,
+PDF·메모·썸네일·주석은 업데이트로 변경하지 않는다. 공개 Release 없이 자동 업데이트를
+제공한다고 주장하지 않는다.
 
 ## 저작권
 

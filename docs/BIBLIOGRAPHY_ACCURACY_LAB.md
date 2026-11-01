@@ -106,3 +106,39 @@ Next run: execute all Python tests on the exact PR #18 HEAD, compile
 read-only real records at an exact PR #16 commit and independently review
 >=20 authorized/public PDFs. The PR #16 branch has advanced; review its
 changes before any integration. Do not silently rebase or merge.
+
+
+## Follow-up: optional 20-PDF coverage gate (2026-11-01)
+
+The existing scorer now supports `--coverage-gate` **together with**
+`--require-real`. This is an optional stricter readiness gate; the old
+synthetic and small real-pilot scoring behavior is unchanged. It requires:
+
+- At least **20 distinct public/permissioned PDF cases**, counted by the
+  supplied SHA256 metadata, with duplicate PDF digests explicitly blocked.
+- At least **3 main articles each** from ACS, RSC, Wiley, Nature and Elsevier.
+- At least **2 explicitly labeled SI PDFs**, plus **2 separately labeled
+  main-article PDFs without a DOI**. An SI's missing DOI does **not** satisfy
+  the no-DOI main-article requirement.
+- Missing publisher/sample/duplicate coverage is returned as machine-readable
+  `coverage_audit.gaps`; the CLI exits 1 and still writes the JSON report.
+  Calling `--coverage-gate` without `--require-real` exits 2.
+
+Example on a **local, permissioned, privacy-reviewed** dataset (never commit
+the actual PDF, file paths, case-ID map, predictions or report):
+
+```sh
+python -B tools/bibliography_accuracy_lab.py --require-real --coverage-gate \
+  --goldset LOCAL_GOLDSET.json --predictions LOCAL_PREDICTIONS.json \
+  --report LOCAL_COVERAGE_REPORT.json
+python -B -m unittest discover -s tests -p 'test_bibliography_accuracy_lab.py' -v
+```
+
+The coverage gate checks only the **provided metadata**, not the existence or
+contents of any PDF, authenticity of the declared SHA256, or actual Windows
+execution. Fabricated public-kind fixtures are used **only** to exercise the
+gate and must never be described as real-publisher validation. A passing
+`coverage_audit.ready` is a sample-design check, **not** evidence of
+extraction accuracy. Native Qt6 CTest, live Crossref/OpenAlex, user-settings
+preservation, real Windows restarts/moves, and independently reviewed PDF
+evidence are still outstanding. Keep PR #18 Draft; do not merge or release.

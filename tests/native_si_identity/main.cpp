@@ -110,6 +110,6 @@ int main(int argc, char** argv) {
     // Reuse PR #16's DOI normalizer; SI identity must not implement another.
     check(luna::Metadata::normalizeDoi(QStringLiteral("https://doi.org/10.1021/JACS.4C05881.")) ==
               QStringLiteral("10.1021/jacs.4c05881"), "shared DOI normalizer");
-    std::fprintf(stderr, "LUNA_SI_IDENTITY_TESTS_PASS: 15 checkpoints\n");
+    std::fprintf(stderr, "LUNA_SI_IDENTITY_TESTS_PASS: synthetic scenarios\n");
     return 0;
 }

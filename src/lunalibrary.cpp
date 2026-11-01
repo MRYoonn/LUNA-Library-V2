@@ -1710,7 +1710,7 @@ public:
     void toggleNavigation() { savePanelState(); navigation_->setVisible(navigation_->isHidden()); updateMinimum(); }
     void toggleDocuments() { savePanelState(); documents_->setVisible(documents_->isHidden()); updateMinimum(); }
     void showBothPanels() { navigation_->show(); documents_->show(); updateMinimum(); }
-    void focusSearch() { showBothPanels(); query_->setFocus(); query_->selectAll(); }
+    void focusSearch() { documents_->show(); updateMinimum(); query_->setFocus(); query_->selectAll(); }
     QLineEdit* searchEdit() const { return query_; }
     void savePanelState() {
         if (navigation_->isHidden() || documents_->isHidden()) return;
@@ -3291,10 +3291,9 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     if (auto* options = window.findChild<QAction*>(QStringLiteral("actionOptions")))
         options->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+O")));
     window.addAction(search);
-    QObject::connect(search, &QAction::triggered, &window, [dock, library, globalSearch, folders, documents, focus] {
+    QObject::connect(search, &QAction::triggered, &window, [dock, library, globalSearch, documents, focus] {
         focus->setChecked(false);
         dock->show();
-        folders->setChecked(true);
         documents->setChecked(true);
         library->focusSearch();
         globalSearch->setFocus();

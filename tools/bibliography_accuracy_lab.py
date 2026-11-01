@@ -261,7 +261,7 @@ PUBLISHERS = ("ACS", "RSC", "Wiley", "Nature", "Elsevier")
 
 def audit_goldset_coverage(gold: dict, *, minimum_total: int = 20,
                            minimum_main_per_publisher: int = 3,
-                           minimum_si: int = 2, minimum_no_doi_main: int = 2) -> dict:
+                           minimum_si: int = 3, minimum_no_doi_main: int = 2) -> dict:
     """Check goldset sample breadth, not extraction accuracy or PDF authenticity."""
     from collections import Counter
 
@@ -317,20 +317,38 @@ def audit_goldset_coverage(gold: dict, *, minimum_total: int = 20,
     }
 
 
+def check_engine_identity(predictions: dict, expected_commit: str) -> None:
+    """Fail closed when a capture came from a different source revision."""
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_commit) or expected_commit.lower() == "0" * 40:
+        raise DatasetError("--expected-engine-commit must be a non-placeholder 40-hex SHA")
+    actual = predictions.get("engine_commit")
+    if not isinstance(actual, str) or actual.lower() != expected_commit.lower():
+        raise DatasetError("engine_commit mismatch: snapshot is not from the expected build")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--goldset", type=Path, required=True)
     parser.add_argument("--predictions", type=Path, required=True)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--require-real", action="store_true")
+    parser.add_argument("--expected-engine-commit", metavar="SHA40",
+                        help="require --require-real; reject snapshots from a different engine commit")
     parser.add_argument("--coverage-gate", action="store_true",
                         help="require --require-real and >=20 diverse verified-label PDF cases")
     args = parser.parse_args(argv)
     try:
         if args.coverage_gate and not args.require_real:
             raise DatasetError("--coverage-gate requires --require-real")
+        if args.expected_engine_commit and not args.require_real:
+            raise DatasetError("--expected-engine-commit requires --require-real")
         gold = load_json(args.goldset)
-        result = score(gold, load_json(args.predictions), require_real=args.require_real)
+        predictions = load_json(args.predictions)
+        if args.expected_engine_commit:
+            check_engine_identity(predictions, args.expected_engine_commit)
+        result = score(gold, predictions, require_real=args.require_real)
+        if args.require_real:
+            result["engine_commit"] = predictions["engine_commit"].lower()
         if args.coverage_gate:
             coverage = audit_goldset_coverage(gold)
             result["coverage_audit"] = coverage

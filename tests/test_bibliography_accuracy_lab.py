@@ -347,9 +347,7 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
                 case["evidence"] = {field: "fabricated test only" for field in case["expected"]}
             predictions["engine_commit"] = "b" * 40
             predictions["capture_kind"] = "qt_record_snapshot_read_only"
-            for case in predictions["cases"]:
-                case["audit"] = {"manual_citation_active": False,
-                                 "senior_author_override_active": False}
+            seed_synthetic_audit(predictions)
             goldfile.write_text(json.dumps(gold), encoding="utf-8")
             predfile.write_text(json.dumps(predictions), encoding="utf-8")
             failed = subprocess.run(cmd + ["--require-real"], capture_output=True, text=True, check=False)

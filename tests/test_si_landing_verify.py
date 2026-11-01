@@ -58,6 +58,21 @@ class LandingVerifierTests(unittest.TestCase):
         result = verify_landing_candidates(source, lambda _: self.fail("network"))
         self.assertEqual(result.candidates[0].status, "landing_unchecked_unsafe_url")
 
+    def test_same_url_with_different_article_ids_never_reuses_verification(self):
+        good = fixture(1).candidates[0]
+        forged = SiCandidate(456, DOI, "Wrong record", "wrong.pdf", good.landing_url)
+        for ordered in ((good, forged), (forged, good)):
+            with self.subTest(first_id=ordered[0].article_id):
+                source = SiLookupResult(DOI, "candidates", ordered, "https://doi.org/" + DOI)
+                calls = []
+                result = verify_landing_candidates(
+                    source, lambda url: calls.append(url) or "reachable_html")
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(result.status, "partial_verified")
+                statuses = {c.article_id: c.status for c in result.candidates}
+                self.assertEqual(statuses[123], "landing_verified")
+                self.assertEqual(statuses[456], "landing_unchecked_unsafe_url")
+
     def test_multiple_urls_partial_and_failure(self):
         first = fixture(1).candidates[0]
         second = SiCandidate(456, DOI, "Synthetic", "si2.pdf", BASE + "456")

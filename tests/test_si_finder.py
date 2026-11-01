@@ -120,6 +120,42 @@ class SiFinderTests(unittest.TestCase):
         result = lookup_acs_figshare(DOI, api)
         self.assertEqual((result.status, len(result.candidates)), ("partial", 20))
 
+    def test_bounded_file_list_reports_partial_not_complete(self):
+        # More than 40 files are never silently presented as the full SI set.
+        files = [{"name": f"si{i:02}.pdf"} for i in range(42)]
+        api = FakeApi(details={123: article(123, files=files)})
+        result = lookup_acs_figshare(DOI, api)
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(len(result.candidates), 40)
+        self.assertIn("file_lists_truncated=1", result.diagnostic)
+        self.assertEqual(result.candidates[0].filename, "si00.pdf")
+        self.assertEqual(result.candidates[-1].filename, "si39.pdf")
+        self.assertTrue(all(c.status == "metadata_match_link_unchecked"
+                            for c in result.candidates))
+        # Exactly the cap is complete unless another error is present.
+        exact = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=files[:40])}))
+        self.assertEqual(exact.status, "candidates")
+        self.assertIn("file_lists_truncated=0", exact.diagnostic)
+
+    def test_truncated_second_article_keeps_first_and_partial_status(self):
+        api = FakeApi(
+            search=[{"id": 123}, {"id": 456}],
+            details={
+                123: article(123, files=[{"name": "si1.pdf"}]),
+                456: article(456, files=[{"name": f"extra{i}.pdf"}
+                                         for i in range(41)]),
+            })
+        result = lookup_acs_figshare(DOI, api)
+        self.assertEqual((result.status, len(result.candidates)), ("partial", 41))
+        self.assertIn("file_lists_truncated=1", result.diagnostic)
+
+    def test_boolean_detail_id_cannot_impersonate_numeric_article(self):
+        api = FakeApi(search=[{"id": 1}], details={
+            1: {**article(1), "id": True}})
+        result = lookup_acs_figshare(DOI, api)
+        self.assertEqual((result.status, result.candidates), ("needs_review", ()))
+
     def test_no_unverified_doi(self):
         api = FakeApi()
         self.assertEqual(lookup_acs_figshare("10.1021/", api).status, "invalid_doi")

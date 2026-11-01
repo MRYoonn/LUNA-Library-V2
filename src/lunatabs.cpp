@@ -1254,7 +1254,12 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             auto liveMemo = [&](const QString& expected) {
                 QListWidgetItem* currentCard = nullptr;
                 QListWidget* currentList = integrationList(host, files[0], &currentCard);
-                if (!currentList || !currentCard || !currentList->isVisible()) return false;
+                if (!currentList || !currentCard || !currentList->isVisible()) {
+                    result["memoCommitDiagnostics"] = QJsonObject{
+                        {"cardFound", bool(currentCard)},
+                        {"listVisible", currentList && currentList->isVisible()}};
+                    return false;
+                }
                 list = currentList;
                 paper = currentCard;
                 const QString path = currentCard->data(Qt::UserRole).toString();
@@ -1262,9 +1267,19 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                     QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex());
                 QSettings saved(QSettings::defaultFormat(), QSettings::UserScope,
                                 QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
-                return currentCard->data(Qt::UserRole + 4).toString() == expected &&
-                       currentCard->toolTip().contains(expected) &&
-                       saved.value(QStringLiteral("library/memos/") + key).toString() == expected;
+                const bool modelMatches = currentCard->data(Qt::UserRole + 4).toString() == expected;
+                const bool tipMatches = currentCard->toolTip().contains(expected);
+                const bool diskMatches = saved.value(QStringLiteral("library/memos/") + key).toString() == expected;
+                // Only booleans: no personal file paths or memo content in a
+                // public native diagnostic. This also distinguishes a stale
+                // list pointer from a genuinely failed persistence write.
+                result["memoCommitDiagnostics"] = QJsonObject{
+                    {"cardFound", true}, {"listVisible", true},
+                    {"modelMatches", modelMatches}, {"tipMatches", tipMatches},
+                    {"localSettingsMatch", diskMatches},
+                    {"editorOpen", bool(list->findChild<QLineEdit*>(
+                        QStringLiteral("LunaPaperMemoEditor")))}};
+                return modelMatches && tipMatches && diskMatches;
             };
             auto openContextMemo = [&] {
                 QListWidgetItem* currentCard = nullptr;

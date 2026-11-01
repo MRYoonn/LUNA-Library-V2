@@ -104,6 +104,12 @@ def run(package: Path, screenshots_directory: Path | None = None,
                            cwd=folder, env=child_env, check=True, timeout=45)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             detail = report.read_text(encoding="utf-8")[:512] if report.is_file() else "No native diagnostic"
+            print_probe = Path(str(report) + ".print-probe.txt")
+            if print_probe.is_file():
+                detail += " | " + print_probe.read_text(encoding="utf-8", errors="replace")[:400].strip()
+                if screenshots_directory is not None:
+                    screenshots_directory.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(print_probe, screenshots_directory / "luna-print-probe.txt")
             failure_image = Path(str(report) + ".failure.png")
             if screenshots_directory is not None and failure_image.is_file():
                 screenshots_directory.mkdir(parents=True, exist_ok=True)

@@ -237,15 +237,85 @@ def score_regressions(regressions: object) -> dict:
             "failed": len({f["case_id"] for f in failures}), "failures": failures}
 
 
+PUBLISHERS = ("ACS", "RSC", "Wiley", "Nature", "Elsevier")
+
+
+def audit_goldset_coverage(gold: dict, *, minimum_total: int = 20,
+                           minimum_main_per_publisher: int = 3,
+                           minimum_si: int = 2, minimum_no_doi_main: int = 2) -> dict:
+    """Check goldset sample breadth, not extraction accuracy or PDF authenticity."""
+    from collections import Counter
+
+    cases = validate_cases(gold, "goldset")
+    main_by_publisher = Counter()
+    source_counts = Counter()
+    digest_to_id = {}
+    duplicate_digests = []
+    real_count = si_count = no_doi_main_count = 0
+    for ident, case in cases.items():
+        source = case["source"]
+        source_counts[source["kind"]] += 1
+        if source["kind"] == "synthetic":
+            continue
+        real_count += 1
+        digest = source["sha256"].lower()
+        if digest in digest_to_id:
+            duplicate_digests.append({"first_case_id": digest_to_id[digest], "duplicate_case_id": ident})
+        else:
+            digest_to_id[digest] = ident
+        expected = case["expected"]
+        kind = expected.get("document_kind")
+        if kind == "main_article":
+            main_by_publisher[case["publisher"]] += 1
+            if "doi" in expected and normalize("doi", expected["doi"]) == "":
+                no_doi_main_count += 1
+        elif kind == "supporting_information":
+            si_count += 1
+    gaps = []
+    if real_count < minimum_total:
+        gaps.append({"criterion": "real_pdf_total", "actual": real_count, "required": minimum_total})
+    for publisher in PUBLISHERS:
+        actual = main_by_publisher[publisher]
+        if actual < minimum_main_per_publisher:
+            gaps.append({"criterion": "main_per_publisher", "publisher": publisher,
+                         "actual": actual, "required": minimum_main_per_publisher})
+    if si_count < minimum_si:
+        gaps.append({"criterion": "supporting_information", "actual": si_count, "required": minimum_si})
+    if no_doi_main_count < minimum_no_doi_main:
+        gaps.append({"criterion": "no_doi_main", "actual": no_doi_main_count,
+                     "required": minimum_no_doi_main})
+    if duplicate_digests:
+        gaps.append({"criterion": "duplicate_pdf_sha256", "cases": duplicate_digests})
+    return {
+        "ready": not gaps,
+        "basis": "provided_pdf_metadata_only_not_independently_verified",
+        "real_pdf_total": real_count,
+        "source_counts": dict(sorted(source_counts.items())),
+        "main_by_publisher": {name: main_by_publisher[name] for name in PUBLISHERS},
+        "supporting_information": si_count,
+        "no_doi_main": no_doi_main_count,
+        "gaps": gaps,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--goldset", type=Path, required=True)
     parser.add_argument("--predictions", type=Path, required=True)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--require-real", action="store_true")
+    parser.add_argument("--coverage-gate", action="store_true",
+                        help="require --require-real and >=20 diverse verified-label PDF cases")
     args = parser.parse_args(argv)
     try:
-        result = score(load_json(args.goldset), load_json(args.predictions), require_real=args.require_real)
+        if args.coverage_gate and not args.require_real:
+            raise DatasetError("--coverage-gate requires --require-real")
+        gold = load_json(args.goldset)
+        result = score(gold, load_json(args.predictions), require_real=args.require_real)
+        if args.coverage_gate:
+            coverage = audit_goldset_coverage(gold)
+            result["coverage_audit"] = coverage
+            result["pass"] = result["pass"] and coverage["ready"]
     except DatasetError as exc:
         print(f"[BLOCK] {exc}", file=sys.stderr)
         return 2

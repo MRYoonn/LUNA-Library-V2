@@ -99,6 +99,29 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         self.assertNotEqual(lab.normalize("title", "C5–C6 coupling"), lab.normalize("title", "C5 C6 coupling"))
         self.assertEqual(lab.normalize("page", "100–108"), lab.normalize("page", "100-108"))
 
+    def test_publisher_field_metrics_isolate_wrong_author(self):
+        gold, predictions = sample()
+        predictions["cases"][0]["observed"]["terminal_author"] = "Wrong Author"
+        result = lab.score(gold, predictions)
+        acs = result["by_publisher_fields"]["ACS"]["terminal_author"]
+        rsc = result["by_publisher_fields"]["RSC"]["terminal_author"]
+        self.assertEqual((acs["tp"], acs["fp"], acs["fn"]), (0, 1, 1))
+        self.assertEqual((acs["precision"], acs["recall"]), (0.0, 0.0))
+        self.assertEqual((rsc["tp"], rsc["tn"], rsc["fp"], rsc["fn"]), (1, 1, 0, 0))
+        self.assertEqual((rsc["precision"], rsc["recall"]), (1.0, 1.0))
+        self.assertEqual(result["by_publisher"]["ACS"]["errors"], 1)
+        self.assertEqual(result["by_publisher"]["RSC"]["errors"], 0)
+
+    def test_publisher_field_metrics_unknown_and_negative_labels(self):
+        gold, predictions = sample()
+        metrics = lab.score(gold, predictions)["by_publisher_fields"]
+        self.assertEqual(metrics["RSC"]["doi"]["tn"], 1)
+        self.assertEqual(metrics["RSC"]["issue"]["unscored"], 2)
+        self.assertIsNone(metrics["RSC"]["issue"]["precision"])
+        self.assertIsNone(metrics["RSC"]["issue"]["recall"])
+        self.assertEqual(metrics["ACS"]["article_number"]["tn"], 1)
+        self.assertEqual(metrics["ACS"]["article_number"]["scored"], 1)
+
     def test_cli_exit_codes_and_local_report(self):
         gold = FIXTURES / "bibliography_accuracy_goldset.synthetic.json"
         predictions = FIXTURES / "bibliography_accuracy_predictions.synthetic.json"

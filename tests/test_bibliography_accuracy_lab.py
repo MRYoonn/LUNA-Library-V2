@@ -230,7 +230,7 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         predictions["capture_kind"] = "qt_record_snapshot_read_only"
         seed_synthetic_audit(predictions)
         audit = predictions["cases"][0]["audit"]
-        audit["field_sources"] = {"title": "manual"}
+        audit["field_sources"]["title"] = "manual"
         with self.assertRaisesRegex(lab.DatasetError, "manually sourced title"):
             lab.score(gold, predictions, require_real=True)
         audit["field_sources"]["title"] = "Crossref"

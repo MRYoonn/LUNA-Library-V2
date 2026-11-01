@@ -4066,11 +4066,29 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             return fail("Library discovery opened an unrelated PDF");
         qInfo() << "LUNA synthetic 1000-PDF library: load ms" << loadMs
                 << "search ms" << searchMs << "maximum GUI timer gap ms" << longestGap;
+        // Selecting the parent must include ALL nested PDFs, while the
+        // synthetic 1000-PDF child directory is still present.
         library->selectFolder(pdf.absolutePath());
-        if (!wait([&] { return list->count() == 1 && !library->folderTimer_->isActive(); }))
-            return fail("Library did not recover after large-folder switching");
-        item = list->item(0);
+        if (!wait([&] { return list->count() == 1001 &&
+            !library->folderTimer_->isActive(); }, 15000))
+            return fail("Parent folder did not include the 1000 child PDFs");
+        bool foundRootDocument = false;
+        for (int i = 0; i < list->count(); ++i)
+            if (list->item(i)->data(Qt::UserRole).toString() == path) {
+                foundRootDocument = true;
+                break;
+            }
+        if (!foundRootDocument)
+            return fail("Parent folder omitted its own local PDF");
     }
+    // After the temporary child directory is deleted, a fresh scan must
+    // return precisely the parent's single local PDF.
+    library->selectFolder(pdf.absolutePath());
+    if (!wait([&] { return list->count() == 1 &&
+        !library->folderTimer_->isActive() &&
+        list->item(0)->data(Qt::UserRole).toString() == path; }, 15000))
+        return fail("Library did not recover after nested 1000-PDF directory removal");
+    item = list->item(0);
     // Drive the same signal/slot used by double-click, including the save guard.
     window.getProgramController()->closeDocument();
     list->itemDoubleClicked(item);

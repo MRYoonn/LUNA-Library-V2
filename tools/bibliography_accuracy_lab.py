@@ -145,14 +145,29 @@ def validate_real_run(gold: dict, predictions: dict) -> None:
             raise DatasetError(f"real run/{case['id']}: invalid field_sources audit")
         for field in labeled.get(case["id"], ()):
             native_field = "authors" if field == "terminal_author" else field
-            # The Qt adapter exposes both per-field source maps and selected
-            # legacy *Source fields; check either without trusting record-wide
-            # legacy manual=true (which may be a machine-filled value).
-            if (sources.get(native_field) == "manual" or
-                    audit.get(native_field + "Source") == "manual"):
+            # A legacy record-wide manual=true is ambiguous. Inspect BOTH
+            # native field-level provenance channels, since one can be stale.
+            # Missing/unknown provenance is not evidence of auto extraction.
+            candidates = (sources.get(native_field), audit.get(native_field + "Source"))
+            provenance = [value.strip().casefold() for value in candidates
+                          if isinstance(value, str) and value.strip()]
+            if "manual" in provenance:
                 raise DatasetError(
                     f"real run/{case['id']}: manually sourced {field} cannot score automatic extraction"
                 )
+            # The SI/main classification comes from a separate native record
+            # property with no Source field. Its ground truth still requires
+            # independent goldset evidence; do not invent a provenance tag.
+            if field == "document_kind":
+                continue
+            observed = case.get("observed", {})
+            if normalize(field, observed.get(field)):
+                trusted = {"crossref", "openalex", "crossref + openalex",
+                           "first_page_verified", "pdf_metadata", "pdf_front_matter"}
+                if not provenance or not any(value in trusted for value in provenance):
+                    raise DatasetError(
+                        f"real run/{case['id']}: missing or unverified automatic provenance for {field}"
+                    )
 
 
 def metric(tp: int, other: int) -> float | None:

@@ -205,3 +205,49 @@ repair any failures, then execute Qt6/Windows paired-move/rollback/restart
 tests once Issue #9's owner makes the metadata sidecar part of the native
 no-overwrite move contract. PR #16 advanced independently; review its latest
 DOI contract before any Qt integration. Keep Draft; do not merge/release.
+
+
+## Follow-up: explicit Figshare landing reachability gate (2026-11-02)
+
+Added \`tools/si_landing_verify.py\` and \`tests/test_si_landing_verify.py\` as an
+**opt-in, standalone Python reference**, building on the existing DOI-matched
+\`SiLookupResult\` from \`si_finder.py\`. It does not rewrite DOI extraction,
+association persistence, PDF4QT, native cards, or the Issue #9 move helper.
+
+- A matching Figshare \`resource_doi\` yields **metadata-only** candidates.
+  Only a direct HTTPS response with HTML content type from the allowlisted
+  Figshare \`/articles/\` landing URL promotes to \`landing_verified\`.
+- Requests use HEAD, with a bounded GET Range fallback only for 405/501.
+  Redirects are **never followed**, and no response body is read. A redirect,
+  404, 429, timeout, non-HTML response or unknown probe result stays
+  \`landing_unchecked_*\`. No PDF bytes or file download URLs are accessed.
+- One probe per distinct landing URL (maximum eight); multiple SI files on
+  the same article remain separate entries. A partial/paginated Figshare
+  search never becomes fully verified solely because its checked landings
+  open. Offline mode makes no network requests.
+- Verification means **landing page reachable at check time**, not that
+  individual SI file URLs or their binary content were opened. No automatic
+  local Main↔SI association is created; user confirmation remains required.
+- On failure, retain the existing parent DOI resolver \`fallback_url\` and
+  show an **unconfirmed** state; never fabricate an SI download link.
+
+Run from the full branch checkout:
+
+    LUNA_SI_OFFLINE=0 python -B -m unittest discover -s tests -p 'test_si_*.py' -v
+    python -B tools/preflight_public.py
+
+Local isolated development used a **minimal noncommitted SiCandidate/
+SiLookupResult/safe_figshare_landing compatibility shim**; the first twelve
+synthetic verifier tests passed there. Three additional HTTP-request mock
+tests were added after that run and require exact-branch CI execution.
+The full repository suite and actual ACS/Figshare network were **not**
+executed locally. Treat any CI result as synthetic only. No real public
+SI landing or file link is claimed reachable by this change.
+
+**Next exact actions:** review the GitHub Actions \`si-isolated.yml\` run for
+the final commit and fix any failures. Obtain a publicly usable ACS article
+DOI and verify its official Figshare metadata and direct HTML landing with
+the same strict probe; record evidence without copying PDFs or private data.
+Then compile \`tests/native_si_identity\` on Windows Qt6 and coordinate
+Issue #9's PDF + \`.luna-meta.json\` move/rollback fix. Do not enable native
+linked moves or merge Draft #17 until those blockers pass.

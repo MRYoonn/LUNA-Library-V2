@@ -33,7 +33,7 @@ class MoveReconcileTests(unittest.TestCase):
         self.old_meta = self.root / "Old" / "SI1.luna-meta.json"
         self.new = self.root / "New" / "Renamed.pdf"
         self.new_meta = self.root / "New" / "Renamed.luna-meta.json"
-        self.old.write_bytes(b"%PDF-1.4\\n% synthetic\\n")
+        self.old.write_bytes(b"%PDF-1.4\n% synthetic\n")
         self.old_meta.write_text(json.dumps({"schemaVersion": 1, "documentId": SI1,
                                              "manualTitle": "preserve"}))
 

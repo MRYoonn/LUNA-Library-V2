@@ -13,6 +13,7 @@ class InstallerContracts(unittest.TestCase):
     def test_install_per_user_without_repackaging_different_executable(self):
         for expected in (
             "PrivilegesRequired=lowest", "DefaultDirName={localappdata}",
+            "SourceDir=..",
             "OutputDir=LUNA-Windows-Installer",
             "OutputBaseFilename=LUNA-Library-Setup",
             'Source: "LUNA-Windows-Portable\\*"; DestDir: "{app}"',

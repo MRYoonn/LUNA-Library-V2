@@ -45,6 +45,19 @@ class InstallerContracts(unittest.TestCase):
         ):
             self.assertIn(token, WORKFLOW, token)
 
+    def test_portable_default_keeps_installer_available_only_by_explicit_opt_in(self):
+        # Build #209 passed every native gate but failed on the optional
+        # Setup EXE installation check. Keep the installer sources for later,
+        # without letting the paused installer block validated portable ZIPs.
+        self.assertIn('      build_installer:', WORKFLOW)
+        self.assertIn('default: false\n      research_pdf_probe:', WORKFLOW)
+        self.assertEqual(WORKFLOW.count("!inputs.native_tabs_proof && inputs.build_installer"), 2)
+        self.assertIn("Build and smoke-test per-user LUNA Setup EXE (optional, paused)", WORKFLOW)
+        self.assertIn("Upload LUNA Windows installer artifact (optional, paused)", WORKFLOW)
+        self.assertIn("name: LUNA-Windows-Portable", WORKFLOW)
+        self.assertIn("name: LUNA-Windows-Installer", WORKFLOW)
+        self.assertIn("if ($actual -ne $expected)", WORKFLOW)
+
     def test_one_library_picker_and_portable_metadata_on_any_selected_folder(self):
         self.assertNotIn('QStringLiteral("LunaMyboxConnect")', UI)
         self.assertIn('QStringLiteral("LunaLocation")', UI)

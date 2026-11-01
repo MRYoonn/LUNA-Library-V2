@@ -9,6 +9,7 @@ on:
     paths:
       - '.github/workflows/bibliography-accuracy-lab.yml'
       - 'tools/bibliography_accuracy_lab.py'
+      - 'docs/BIBLIOGRAPHY_ACCURACY_LAB.md'
       - 'tools/preflight_public.py'
       - 'tests/test_bibliography_accuracy_lab.py'
       - 'tests/test_accuracy_snapshot_source_contract.py'

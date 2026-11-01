@@ -92,19 +92,37 @@ class NativeFileManagementContracts(unittest.TestCase):
         ):
             self.assertIn(token, SYNC, token)
         for token in (
-            'QStringLiteral("LunaMyboxConnect")',
             "luna::LocalFolderSync* localSync_",
             "localSync_->remoteChanged",
             "localSync_->renamed",
             "localSync_->publish(path)",
-            'QStringLiteral("library/mybox/enabled")',
+            "localSync_->configure(root_,true)",
+            'QStringLiteral("LunaLocation")',
         ):
             self.assertIn(token, UI, token)
+        self.assertNotIn('QStringLiteral("LunaMyboxConnect")', UI)
+        self.assertNotIn('QStringLiteral("library/mybox/enabled")', UI)
+        self.assertNotIn('QStringLiteral("library/mybox/root")', UI)
         self.assertNotIn("MYBOX_TOKEN", SYNC)
         self.assertNotIn("https://", SYNC)
         overlay = (ROOT / "tools/apply_overlay.py").read_text(encoding="utf-8")
         self.assertIn('folder / "lunatrashundo.h"', overlay)
         self.assertIn('folder / "lunalocalsync.h"', overlay)
+
+    def test_external_rename_thumbnail_card_and_nested_watcher(self):
+        self.assertIn("QString savedThumbnailForPdf(const QString& documentPath)", UI)
+        self.assertEqual(UI.count("savedThumbnailForPdf(index.data(Qt::UserRole).toString())"), 2)
+        for token in (
+            'QStringLiteral(".png"), QStringLiteral(".jpg"), QStringLiteral(".jpeg")',
+            "if (sidecar.isFile() && !sidecar.isSymLink()",
+            "QFileSystemWatcher watcher_;",
+            "QFileSystemWatcher::directoryChanged",
+            "result->directories.insert(f.absolutePath())",
+            "const QStringList watchedDirs = watcher_.directories();",
+            "renameDebounce_.setInterval(300)",
+            "if (busy_) { rescanPending_=true; return; }",
+        ):
+            self.assertIn(token, (UI + SYNC), token)
 
     def test_mybox_qvariant_values_are_converted_before_qset_lookup(self):
         # Windows Build #197: QVariantMap::value() returned QVariant, which

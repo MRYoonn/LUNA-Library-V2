@@ -83,6 +83,12 @@ class NativeFileManagementContracts(unittest.TestCase):
         self.assertIn('return QStringLiteral("%1  ·  %2").arg(label).arg(pdfCount(filePath(index)));', UI)
         self.assertIn('if (parent->objectName() == QStringLiteral("LunaFolderDropTree")', UI)
 
+    def test_folder_selection_matches_recursive_count_badges(self):
+        self.assertIn("The selected folder represents its complete subtree", UI)
+        self.assertIn("QDirIterator::Subdirectories", UI)
+        self.assertIn("folderCountPoll->setInterval(60000)", UI)
+        self.assertIn("model_->refreshPdfCounts(root_)", UI)
+
     def test_favorite_smoke_reselects_after_async_folder_reload(self):
         # selectFolder() clears all QListWidgetItem objects. Its previous
         # pointers are invalid, so the smoke must reacquire and select a row.

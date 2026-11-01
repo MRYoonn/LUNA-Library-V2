@@ -33,7 +33,13 @@ def synthetic_pdf(page_count: int = 1, *, bibliography_author: str | None = None
     ]
     if page_count >= 2:
         objects[1] = b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>"
-        second = b"BT /F1 18 Tf 40 160 Td (Second synthetic page) Tj ET\n"
+        second = (b"BT /F1 18 Tf 40 160 Td (Second synthetic page) Tj ET\n"
+                  # Separate PDF text runs with deliberate text rise and a
+                  # smaller font reproduce journal superscripts/subscripts.
+                  b"BT /F1 16 Tf 40 112 Td (C\\(sp) Tj /F1 10 Tf 6 Ts (3) Tj "
+                  b"0 Ts /F1 16 Tf (\\)-H) Tj ET\n"
+                  b"BT /F1 16 Tf 40 82 Td (CF) Tj /F1 10 Tf -4 Ts (3) Tj "
+                  b"0 Ts /F1 16 Tf (-H) Tj ET\n")
         objects.extend([
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] "
             b"/Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>",

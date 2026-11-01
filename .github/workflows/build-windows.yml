@@ -635,6 +635,16 @@ jobs:
           if ($nativeTests -lt 1) { throw 'Empty native Qt test scope' }
           @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ userPcRepeatedCtrlW = 'User confirmed 30 closes on Windows 10 at 30e2a01; current CI legacy-layout disposal regression passed under CDB/page heap'; pythonTests = $pythonTests; nativeQtTests = $nativeTests; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; nativeTabBibliographyIsolation = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; publicMainAndSiBibliography = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
+      - name: Verify tagged portable release manifest and file hashes (offline)
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'luna-update-release-probe'
+          python -B -m tools.prepare_release --portable LUNA-Windows-Portable --destination "$probe" --tag v0.0.0.1 --source-run $env:GITHUB_RUN_ID --commit $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Versioned updater manifest packaging failed' }
+          python -B -c "import json,zipfile,hashlib,sys,pathlib; p=pathlib.Path(sys.argv[1]); m=json.loads((p/'LUNA-Release.json').read_text()); z=zipfile.ZipFile(p/'LUNA-Windows-Portable.zip'); assert m['schema']==2 and len(m['files'])==len(z.namelist()); assert json.loads(z.read('build-info.json'))['version']=='v0.0.0.1'; assert all(hashlib.sha256(z.read(f['path'])).hexdigest()==f['sha256'] for f in m['files']); print('[PASS] Versioned updater ZIP and per-file manifest') " "$probe"
+          if ($LASTEXITCODE -ne 0) { throw 'Versioned updater manifest content mismatch' }
+
       - name: Build and smoke-test per-user LUNA Setup EXE (optional, paused)
         id: installer-test
         if: ${{ !inputs.native_tabs_proof && inputs.build_installer }}

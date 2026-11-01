@@ -100,7 +100,16 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('setHighlightArmed(false);\n        selectText(); // Remain in ordinary native text selection after the click.', adapter)
         self.assertIn('selectionEnd_ = end;', adapter)
         self.assertNotIn('if (ready && highlightArmed_) applyHighlight();', adapter)
-        self.assertIn('setAnnotationOpacity(ref, 0.36)', adapter)
+        self.assertIn('constexpr pdf::PDFReal kHighlightOpacity = 0.36;', adapter)
+        self.assertIn('setAnnotationOpacity(ref, kHighlightOpacity)', adapter)
+        self.assertIn('setAnnotationFillOpacity(ref, kHighlightOpacity)', adapter)
+        self.assertLess(adapter.index('setAnnotationOpacity(ref, kHighlightOpacity)'),
+                        adapter.index('setAnnotationFillOpacity(ref, kHighlightOpacity)'))
+        self.assertLess(adapter.index('setAnnotationFillOpacity(ref, kHighlightOpacity)'),
+                        adapter.index('updateAnnotationAppearanceStreams(ref)'))
+        self.assertIn('getFillOpacity()', smoke)
+        self.assertIn('getStrokeOpacity()', smoke)
+        self.assertIn('Native highlight fill opacity must match its saved appearance', smoke)
         self.assertIn('setAnnotationQuadPoints(edit.ref, edit.remainder)', adapter)
         self.assertIn('const bool sameColor', adapter)
         self.assertIn('const auto& quads = old->getHiglightArea().getQuadrilaterals()', adapter)

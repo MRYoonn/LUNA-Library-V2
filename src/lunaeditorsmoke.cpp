@@ -60,24 +60,50 @@ namespace {
 #ifdef Q_OS_WIN
 struct PrintCancellation {
     DWORD process;
+    DWORD guiThread;
+    HWND owner;
     std::atomic_bool seen{false};
+    std::atomic_int ownedDialogs{0};
+    std::atomic_int cancelRequests{0};
 };
 
-BOOL CALLBACK cancelNativePrintWindow(HWND window, LPARAM parameter) {
+BOOL CALLBACK cancelNativePrintWindow(HWND candidate, LPARAM parameter) {
     auto& state = *reinterpret_cast<PrintCancellation*>(parameter);
     DWORD process = 0;
-    GetWindowThreadProcessId(window, &process);
-    if (process != state.process || !IsWindowVisible(window)) return TRUE;
-    wchar_t windowClass[32] = {}, title[128] = {};
-    GetClassNameW(window, windowClass, 32); GetWindowTextW(window, title, 128);
-    // The hosted Windows image is English. Never send Print/OK or touch
-    // another process; only cancel our own standard Windows Print dialog.
-    if (lstrcmpW(windowClass, L"#32770") || lstrcmpW(title, L"Print")) return TRUE;
-    HWND cancel = GetDlgItem(window, IDCANCEL);
-    if (cancel && IsWindowEnabled(cancel) && PostMessageW(window, WM_COMMAND,
-        MAKEWPARAM(IDCANCEL, BN_CLICKED), reinterpret_cast<LPARAM>(cancel))) {
+    const DWORD thread = GetWindowThreadProcessId(candidate, &process);
+    if (process != state.process || thread != state.guiThread ||
+        candidate == state.owner || !IsWindowVisible(candidate)) return TRUE;
+    wchar_t windowClass[32] = {};
+    GetClassNameW(candidate, windowClass, 32);
+    // The Windows PrintDlgEx title is not guaranteed to equal "Print":
+    // printer drivers and system languages can change it. Match the native
+    // dialog class AND the disabled LUNA owner instead, never a title.
+    if (lstrcmpW(windowClass, L"#32770") != 0) return TRUE;
+    bool owned = false;
+    for (HWND parent = GetWindow(candidate, GW_OWNER); parent;
+         parent = GetWindow(parent, GW_OWNER)) {
+        if (parent == state.owner || GetAncestor(parent, GA_ROOT) == state.owner) {
+            owned = true;
+            break;
+        }
+    }
+    // Qt's native print host may omit the direct owner chain. A disabled
+    // main window and matching GUI thread identify its modal child safely.
+    if (!owned && IsWindowEnabled(state.owner)) return TRUE;
+    ++state.ownedDialogs;
+    const HWND cancel = GetDlgItem(candidate, IDCANCEL);
+    if (cancel && IsWindowEnabled(cancel)) {
+        if (PostMessageW(candidate, WM_COMMAND,
+                         MAKEWPARAM(IDCANCEL, BN_CLICKED),
+                         reinterpret_cast<LPARAM>(cancel))) {
+            ++state.cancelRequests;
+            state.seen = true;
+        }
+    } else if (PostMessageW(candidate, WM_CLOSE, 0, 0)) {
+        // WM_CLOSE is cancellation for dialog windows with no IDCANCEL
+        // control; NEVER send IDOK/Print or any physical print command.
+        ++state.cancelRequests;
         state.seen = true;
-        return FALSE;
     }
     return TRUE;
 }
@@ -1198,13 +1224,26 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         // QPrintDialog::exec uses PrintDlgEx directly on Windows, bypassing
         // QDialog::exec and QApplication::activeModalWidget(). Its native
         // modal loop also need not dispatch a Qt timer. Cancel from Win32.
-        PrintCancellation cancellation{GetCurrentProcessId()};
+        const HWND printOwner = reinterpret_cast<HWND>(window.winId());
+        PrintCancellation cancellation{GetCurrentProcessId(),
+                                      GetWindowThreadProcessId(printOwner, nullptr),
+                                      printOwner};
         std::atomic_bool finished{false};
         std::thread cancelPrint([&] {
-            for (int i = 0; i < 200 && !finished; ++i) {
+            // Keep cancelling while the native modal loop is active; a
+            // single posted IDCANCEL may be consumed before initialization.
+            for (int i = 0; i < 300 && !finished; ++i) {
                 EnumWindows(cancelNativePrintWindow, reinterpret_cast<LPARAM>(&cancellation));
-                if (cancellation.seen) break;
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            // Persist a small native diagnostic for a timed-out smoke run.
+            // The synthetic CI artifact contains no private PDF content.
+            QFile diagnostic(reportPath + QStringLiteral(".print-probe.txt"));
+            if (diagnostic.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                diagnostic.write(QStringLiteral("ownedDialogs=%1 cancelRequests=%2 seen=%3 finished=%4\n")
+                    .arg(cancellation.ownedDialogs.load())
+                    .arg(cancellation.cancelRequests.load())
+                    .arg(cancellation.seen.load()).arg(finished.load()).toUtf8());
             }
         });
         key(widget,Qt::Key_P,Qt::ControlModifier);

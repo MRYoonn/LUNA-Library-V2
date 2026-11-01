@@ -16,6 +16,7 @@ APPROVED = {
     "assets/symbol_icons/svg_bundle.part4.b85",
     "tests/test_symbol_icons.py",
     "tools/compare_ui_reference.py",
+    "BUILD_DIAGNOSTICS.md",
     "tools/build_diagnostics.py",
     "tests/test_build_diagnostics.py",
     ".gitattributes",

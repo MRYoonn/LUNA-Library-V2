@@ -560,7 +560,14 @@ private:
         if (!clean.isEmpty()) {
             const pdf::PDFObjectReference ref = modifier.getBuilder()->createAnnotationHighlight(
                 page->getPageReference(), clean, color_);
-            modifier.getBuilder()->setAnnotationOpacity(ref, 0.36);
+            // PDF highlight rectangles are FILLED paths. The upstream builder
+            // writes /CA (stroke) and /ca (fill) separately into the appearance
+            // stream's graphics state. Setting only /CA leaves /ca=1.0, so a
+            // fresh highlight renders at full saturation until save/reopen.
+            // Keep both at 36%: the on-screen preview must match the saved PDF.
+            constexpr pdf::PDFReal kHighlightOpacity = 0.36;
+            modifier.getBuilder()->setAnnotationOpacity(ref, kHighlightOpacity);
+            modifier.getBuilder()->setAnnotationFillOpacity(ref, kHighlightOpacity);
             modifier.getBuilder()->updateAnnotationAppearanceStreams(ref);
         }
         modifier.markAnnotationsChanged();

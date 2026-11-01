@@ -291,3 +291,56 @@ and Issue #9 paired metadata-sidecar move/rollback. Keep PR #17 Draft.
 - HTTP 204 (No Content) is no longer accepted as a reachable HTML landing. Diagnostics now say `landing_entries_verified` instead of `files_verified`: an HTML landing response is **not** a verified downloadable SI file.
 - Added three synthetic/offline regression cases in `tests/test_si_landing_verify.py`. The source is committed; exact-HEAD GitHub Actions and native Windows/Qt6 evidence must be checked independently before reporting PASS.
 - Still unverified: live ACS/Figshare API and landing availability, direct SI file availability, and Issue #9 PDF+UUID sidecar move/rollback. No HTML scraping, authentication bypass or PDF downloads were introduced.
+
+
+## Follow-up: opt-in public DOI smoke CLI (2026-11-02)
+
+Added `tools/si_live_probe.py` and `tests/test_si_live_probe.py`, reusing
+the existing `si_finder.lookup_acs_figshare` and
+`si_landing_verify.verify_landing_candidates`. This is an isolated diagnostic
+entry point, not a new DOI parser, SI downloader, app integration, or link
+association implementation.
+
+- Default invocation makes **zero network requests** and reports `offline`.
+- `--live` explicitly permits the bounded official Figshare public metadata
+  lookup. Candidate SI entries remain `metadata_match_link_unchecked`.
+- `--check-landings` requires `--live` and separately invokes the existing
+  allowlisted HEAD/limited-GET HTML landing verifier. It never verifies SI
+  binary files or fetches PDF contents. A non-candidate status (including
+  404/not_found) never initiates a landing request.
+- JSON output declares `verification_scope` as either `metadata_only` or
+  `landing_html_only`; do not interpret a reachable landing as a verified
+  file. DOI fallback is preserved on failure.
+- Seven offline synthetic contract tests cover opt-in behavior, no-network
+  default, metadata-only mode, a 404, and a public ACS Figshare `/articles/dataset/`
+  URL structure. Tests contain no personal PDFs or local paths.
+
+Public reference to try manually: article DOI `10.1021/acsnano.8b07631`;
+ACS Figshare article `7688531` has an independently browsable public landing
+at `https://acs.figshare.com/articles/dataset/Extrinsic_and_Dynamic_Edge_States_of_Two-Dimensional_Lead_Halide_Perovskites/7688531`.
+The landing displays supplementary DOI `10.1021/acsnano.8b07631.s002` and
+a related-materials link. **The API `resource_doi` and strict HEAD result
+have not been measured in this environment**. This example is not yet a
+validated DOI-to-Figshare lookup fixture.
+
+Run from a complete checkout (one DOI per command):
+
+    python -B tools/si_live_probe.py --doi 10.1021/acsnano.8b07631
+    python -B tools/si_live_probe.py --doi 10.1021/acsnano.8b07631 --live
+    python -B tools/si_live_probe.py --doi 10.1021/acsnano.8b07631 --live --check-landings
+    python -B -m unittest discover -s tests -p 'test_si_*.py' -v
+    python -B tools/preflight_public.py
+
+The first command is offline. The next two are **explicit public network**
+checks and must not run in the offline CI suite. The live API/HEAD checks
+were blocked in this development environment by DNS resolution failure,
+so no live lookup or strict landing PASS is claimed. The new seven tests
+passed locally using noncommitted minimal dependency shims; exact-branch
+CI must independently confirm against the actual repository files.
+
+Next: inspect exact-HEAD GitHub Actions Python/Windows results; run the
+manual live CLI from a network-enabled permitted environment, record
+DOI/API detail ID/landing status without any file downloads, and keep
+unconfirmed candidates unconfirmed. Issue #9 still needs the actual
+`.luna-meta.json` paired move/rollback fix before native SI-linked moves
+can be enabled. Keep PR #17 Draft; no merge/release.

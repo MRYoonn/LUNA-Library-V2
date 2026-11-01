@@ -115,7 +115,7 @@ protected:
         Q_UNUSED(index);
         return {218, 41};
     }
-    QSize minimumTabSizeHint(int index) const override { return tabSizeHint(index); }
+    QSize minimumTabSizeHint(int) const override { return {88, 41}; }
 };
 class PdfTabs final : public QTabWidget {
 public:
@@ -160,6 +160,8 @@ public:
         tabs_->tabBar()->setObjectName(QStringLiteral("LunaPdfTabBar"));
         tabs_->tabBar()->setExpanding(false);
         tabs_->tabBar()->setUsesScrollButtons(true);
+        tabs_->setAcceptDrops(true);
+        tabs_->tabBar()->setAcceptDrops(true);
         auto* initial = createEditor();
         performanceEvent("native-shell-before-library", performanceNow());
         installLibraryShell(*this, *initial);
@@ -348,6 +350,8 @@ private:
     Editor* createEditor() {
         PerformanceSpan span("editor-create");
         auto* editor = new Editor(tabs_); editor->setWindowFlags(Qt::Widget);
+        editor->setAcceptDrops(true);
+        editor->getProgramController()->getPdfWidget()->getDrawWidget()->getWidget()->setAcceptDrops(true);
         const int serial = property("LunaEditorCreations").toInt() + 1; setProperty("LunaEditorCreations", serial); editor->setProperty("LunaEditorSerial", serial);
         connect(editor, &QObject::destroyed, this, [this, serial] { setProperty("LunaLastDestroyedEditor", serial); trace("editor-destroyed"); });
         editor->setAttribute(Qt::WA_DeleteOnClose, false); editor->setAttribute(Qt::WA_QuitOnClose, false); editor->installEventFilter(this);
@@ -478,8 +482,9 @@ private:
         const int index = tabs_->indexOf(editor); if (index >= 0) {
             // Keep tabs compact even when a single PDF has an extremely long filename.
             // The full filename remains available in the tooltip and window title.
-            const QString label = tabs_->tabBar()->fontMetrics().elidedText(text, Qt::ElideMiddle, 156);
-            tabs_->setTabText(index, label); tabs_->setTabToolTip(index, display);
+            // Store the full title; the Qt tab bar elides it to its ACTUAL
+            // current width as more papers open (Chrome-style compression).
+            tabs_->setTabText(index, text); tabs_->setTabToolTip(index, display);
             for (auto side : {QTabBar::LeftSide, QTabBar::RightSide})
                 if (auto* button = qobject_cast<QAbstractButton*>(tabs_->tabBar()->tabButton(index, side)))
                     button->setEnabled(!s->identity.isEmpty() && !s->loading && c->canClose() && editor->isEnabled());
@@ -555,12 +560,32 @@ private:
             static_cast<QCloseEvent*>(event)->ignore(); QPointer<Editor> guarded(editor);
             QTimer::singleShot(0, this, [this, guarded] { if (guarded) closeTab(tabs_->indexOf(guarded)); }); return true;
         }
-        if (event->type() == QEvent::DragEnter || event->type() == QEvent::Drop) {
-            auto* widget = qobject_cast<QWidget*>(object); if (!widget || widget->window() != this) return false;
-            auto* drop = static_cast<QDropEvent*>(event); const auto urls = drop->mimeData()->urls(); if (urls.isEmpty()) return false;
-            for (const auto& url : urls) if (!url.isLocalFile() || QFileInfo(url.toLocalFile()).suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive)) return false;
-            if (event->type() == QEvent::Drop) for (const auto& url : urls) open(url.toLocalFile(), "drop");
-            drop->acceptProposedAction(); return true;
+        if (event->type() == QEvent::DragEnter ||
+            event->type() == QEvent::DragMove || event->type() == QEvent::Drop) {
+            auto* widget = qobject_cast<QWidget*>(object);
+            if (!widget || widget->window() != this) return false;
+            // The folder tree owns file moves/copies. The global PDF opener
+            // must never consume its DragEnter/DragMove/Drop events.
+            for (auto* parent = widget; parent; parent = parent->parentWidget())
+                if (parent->objectName() == QStringLiteral("LunaFolderDropTree") ||
+                    parent->objectName() == QStringLiteral("LunaFolderDocumentsButton"))
+                    return false;
+            auto* drop = static_cast<QDropEvent*>(event);
+            const auto urls = drop->mimeData()->urls();
+            if (urls.isEmpty()) return false;
+            for (const auto& url : urls) {
+                if (!url.isLocalFile()) return false;
+                const QFileInfo file(url.toLocalFile());
+                if (!file.isFile() || file.isSymLink() ||
+                    file.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
+                    return false;
+            }
+            if (event->type() == QEvent::Drop)
+                for (const auto& url : urls) open(url.toLocalFile(), "drop");
+            // Opening an external PDF never moves the source file.
+            drop->setDropAction(Qt::CopyAction);
+            drop->accept();
+            return true;
         }
         return QMainWindow::eventFilter(object, event);
     }
@@ -970,7 +995,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 auto* scroll = widget->getVerticalScrollbar(); scroll->setValue(scroll->maximum() / 3);
                 scrollPositions.append(scroll->value()); zoomValues.append(zoom);
                 const QRect tab = tabs->tabBar()->tabRect(tabs->indexOf(editor));
-                integrationRequire(tab.width() >= 135 && tab.width() <= 240 && tab.height() == 41, "Whole tab bounds exceed compact design");
+                integrationRequire(tab.width() >= 88 && tab.width() <= 240 && tab.height() == 41, "Responsive tabs exceeded compact size bounds");
             }
             for (int turn = 0; turn < 10; ++turn) for (int i = 0; i < documents.size(); ++i) {
                 tabs->setCurrentWidget(documents[i]); QCoreApplication::processEvents();
@@ -980,8 +1005,10 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(isolatedBibliography(), "Repeated tab switches changed another paper's author");
             auto* tabBar = tabs->tabBar();
             integrationRequire(tabBar->usesScrollButtons() && tabBar->elideMode() == Qt::ElideMiddle, "Tab scroll/elision mode changed");
-            bool scrolling = false; for (auto* button : tabBar->findChildren<QToolButton*>()) scrolling |= button->isVisible();
-            integrationRequire(scrolling && tabs->tabText(4).contains(QChar(0x2026)), "Long tabs did not elide and scroll");
+            integrationRequire(tabBar->tabRect(4).width() >= 88 &&
+                tabBar->tabRect(4).width() <= 218 &&
+                !tabs->tabText(4).isEmpty() && !tabs->tabToolTip(4).isEmpty(),
+                "Responsive tab title sizing or full tooltip missing");
             QToolTip::hideText();
             integrationRequire(integrationMove(host, tabBar, tabBar->tabRect(4).center()) && integrationWait([&] { return QToolTip::isVisible() && QToolTip::text() == tabs->tabToolTip(4); }), "Actual tab hover did not show full filename tooltip");
             QToolTip::hideText();

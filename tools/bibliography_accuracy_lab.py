@@ -43,7 +43,10 @@ def normalize(field: str, value: object) -> str:
         return ""
     if not isinstance(value, str):
         raise DatasetError(f"{field}: value must be string or null")
-    result = unicodedata.normalize("NFKC", value).strip()
+    # NFKC folds chemical subscripts/superscripts (CO₂ -> CO2, Fe³⁺ -> Fe3+).
+    # Titles are scientific evidence: keep these distinct while still treating
+    # canonically equivalent Unicode spellings (NFC) as the same title.
+    result = unicodedata.normalize("NFC" if field == "title" else "NFKC", value).strip()
     if field == "doi":
         result = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi\s*:\s*)", "", result, flags=re.I)
         return result.rstrip("., ").casefold()

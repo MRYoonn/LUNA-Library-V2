@@ -340,7 +340,8 @@ public:
     void setCompact(bool compact) { compact_ = compact; }
     bool compact() const { return compact_; }
     QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override {
-        return {300, compact_ ? kCompactHeight : kCardHeight};
+        // Paper rows follow the viewport width, not the old 300px minimum.
+        return {1, compact_ ? kCompactHeight : kCardHeight};
     }
     std::function<void(const QString&, const QString&)> saveMemo;
     static QRect contentRect(const QRect& r) {
@@ -348,19 +349,20 @@ public:
     }
     static QRect thumbnailRect(const QRect& r) {
         const QRect content = contentRect(r);
-        return QRect(content.left(), r.top() + 14, content.width(), 164);
+        const int height = qMin(164, qMax(48, content.width() * 2 / 3));
+        return QRect(content.left(), r.top() + 14, content.width(), height);
     }
     static QRect titleRect(const QRect& r) {
         const QRect content = contentRect(r);
-        return QRect(content.left(), r.top() + 190, content.width(), 45);
+        return QRect(content.left(), thumbnailRect(r).bottom() + 13, content.width(), 45);
     }
     static QRect citationRect(const QRect& r) {
         const QRect content = contentRect(r);
-        return QRect(content.left(), r.top() + 241, content.width(), 24);
+        return QRect(content.left(), titleRect(r).bottom() + 7, content.width(), 24);
     }
     static QRect memoRect(const QRect& r) {
         const QRect content = contentRect(r);
-        return QRect(content.left(), r.top() + 280, content.width(), 26);
+        return QRect(content.left(), citationRect(r).bottom() + 16, content.width(), 26);
     }
     static QRect favoriteRect(const QRect& r) {
         return QRect(r.right() - 48, r.top() + 22, 28, 28);
@@ -368,8 +370,15 @@ public:
     static QRect compactFavoriteRect(const QRect& r) {
         return QRect(r.right() - 32, r.top() + 11, 22, 22);
     }
+    static int compactThumbWidth(const QRect& r) {
+        return qBound(34, (r.width() - 70) / 2, 72);
+    }
+    static int compactTextLeft(const QRect& r) {
+        return r.left() + 21 + compactThumbWidth(r);
+    }
     static QRect compactMemoRect(const QRect& r) {
-        return QRect(r.left() + 93, r.top() + 87, qMax(18, r.width() - 107), 20);
+        const int left = compactTextLeft(r);
+        return QRect(left, r.top() + 87, qMax(1, r.right() - left - 11), 20);
     }
     QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
         auto* editor = new QLineEdit(parent);
@@ -505,7 +514,7 @@ public:
         // Bottom: memo uses the SAME full-width text column, close to citation.
         const QRect content = contentRect(r);
         painter->setPen(QColor(kLINE));
-        painter->drawLine(content.left(), r.top() + 272, content.right(), r.top() + 272);
+        painter->drawLine(content.left(), memoRect(r).top() - 8, content.right(), memoRect(r).top() - 8);
         const QString memo = index.data(Qt::UserRole + 4).toString();
         painter->setPen(QColor(memo.isEmpty() ? "#829BBE" : "#48648A"));
         const QRect note = memoRect(r);
@@ -544,7 +553,9 @@ private:
         painter->setBrush(QColor(active ? "#F1F7FF" : selected ? "#EAF2FF" :
                                  hovered ? "#F8FBFF" : kPANEL));
         painter->drawRoundedRect(r.adjusted(4, 3, -5, -4), 7, 7);
-        const QRect thumb(r.left() + 11, r.top() + 12, 72, 78);
+        const int thumbWidth = compactThumbWidth(r);
+        const int thumbHeight = qMin(78, qMax(42, thumbWidth * 78 / 72));
+        const QRect thumb(r.left() + 11, r.top() + 12, thumbWidth, thumbHeight);
         painter->setPen(QPen(QColor(kTHUMB_LINE), 1));
         painter->setBrush(Qt::white);
         painter->drawRoundedRect(thumb, 5, 5);
@@ -571,8 +582,8 @@ private:
                 QRect(thumb.center().x()-13, thumb.center().y()-18, 26, 32));
         }
 
-        const int left = r.left() + 93;
-        const int width = qMax(18, r.right() - left - 11);
+        const int left = compactTextLeft(r);
+        const int width = qMax(1, r.right() - left - 11);
         QFont titleFont = option.font;
         titleFont.setFamily(QStringLiteral("Malgun Gothic"));
         titleFont.setPixelSize(12);
@@ -1058,7 +1069,7 @@ public:
             const QString date = openedDates_.value(openedDateKey(path));
             if (!date.isEmpty()) rememberDateAlias(path, date);
         }
-        setMinimumWidth(482);
+        setMinimumWidth(432);
         auto* layout = new QHBoxLayout(this);
         layout->setContentsMargins(7, 7, 0, 7);
         split_ = new QSplitter(Qt::Horizontal, this);
@@ -1269,20 +1280,24 @@ public:
 
         documents_ = new QWidget(split_);
         documents_->setObjectName(QStringLiteral("LunaDocuments"));
-        documents_->setMinimumWidth(325);
+        documents_->setMinimumWidth(195);
         auto* docs = new QVBoxLayout(documents_);
         docs->setContentsMargins(0, 0, 0, 0);
         docs->setSpacing(0);
         auto* heading = new QWidget(documents_);
         auto* headingLayout = new QVBoxLayout(heading);
-        headingLayout->setContentsMargins(12, 0, 12, 0);
+        headingLayout->setContentsMargins(8, 0, 8, 0);
         headingLayout->setSpacing(0);
         auto* title = new QLabel(QStringLiteral("논문 목록"), heading);
         title->setObjectName(QStringLiteral("LunaLibraryTitle"));
         title->setFont(headingFont);
         title->setFixedHeight(48);
+        title->setMinimumWidth(0);
+        title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         auto* titleRow = new QHBoxLayout;
         titleRow->setObjectName(QStringLiteral("LunaPaperHeadingLayout"));
+        titleRow->setSpacing(3);
+        // Right-side controls stay visible when the title has to contract.
         titleRow->addWidget(title, 1);
         headingLayout->addLayout(titleRow);
         // Both paper views keep the same vertical QListWidget and model.
@@ -1490,7 +1505,7 @@ public:
             }
         }
     }
-    void updateMinimum() { setMinimumWidth((navigation_->isHidden() ? 0 : 225) + (documents_->isHidden() ? 0 : 325) + 12); }
+    void updateMinimum() { setMinimumWidth((navigation_->isHidden() ? 0 : 225) + (documents_->isHidden() ? 0 : 195) + 12); }
     void toggleNavigation() { savePanelState(); navigation_->setVisible(navigation_->isHidden()); updateMinimum(); }
     void toggleDocuments() { savePanelState(); documents_->setVisible(documents_->isHidden()); updateMinimum(); }
     void showBothPanels() { navigation_->show(); documents_->show(); updateMinimum(); }
@@ -2346,6 +2361,7 @@ private:
         list->setWrapping(false);
         list->setSpacing(0);
         list->setUniformItemSizes(true);
+        list->setResizeMode(QListView::Adjust);
         list->setSelectionMode(QAbstractItemView::ExtendedSelection);
         list->setDragEnabled(true);
         list->setDragDropMode(QAbstractItemView::DragOnly);

@@ -1636,6 +1636,10 @@ public:
             ThumbnailCache::instance()->invalidate();
         };
         localSync_->filesChanged = [this] {
+            // A background file-identity sweep must not erase/restart a user
+            // initiated incremental scan. In particular, the 1000-PDF fixture
+            // can trigger a watcher while its first batches are still loading.
+            if (folderTimer_->isActive() || allTimer_->isActive()) return;
             refreshFileLists();
         };
         metadataFetcher_ = new luna::MetadataFetcher(this);
@@ -2129,7 +2133,13 @@ private:
         auto* proxy = controller->getPdfWidget()->getDrawWidgetProxy();
         if (!editor.property("LunaPreserveReopenView").toBool()) {
             proxy->setPageLayout(pdf::PageLayout::OneColumn);
-            proxy->zoom(2.0);
+            // Default 200%, configurable in View > Default opening zoom.
+            // Restoring an existing document's view never uses this default.
+            QSettings preferences(QSettings::defaultFormat(), QSettings::UserScope,
+                                  QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+            const int percent = qBound(25, preferences.value(
+                QStringLiteral("reader/defaultZoomPercent"), 200).toInt(), 500);
+            proxy->zoom(double(percent) / 100.0);
         }
         editor.setProperty("LunaPreserveReopenView", false);
         if (viewer_ == &editor) selectActiveCard();
@@ -3211,6 +3221,26 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     if (auto* view = viewer.findChild<QMenu*>(QStringLiteral("menuView"))) {
         view->addAction(folders);
         view->addAction(documents);
+        auto* defaultZoom = view->addAction(QStringLiteral("기본 시작 배율 설정…"));
+        defaultZoom->setObjectName(QStringLiteral("LunaDefaultOpeningZoom"));
+        defaultZoom->setToolTip(QStringLiteral("새 PDF를 열 때 적용하는 기본 배율 (25~500%, 기본 200%)"));
+        QObject::connect(defaultZoom, &QAction::triggered, &window, [&window] {
+            QSettings preferences(QSettings::defaultFormat(), QSettings::UserScope,
+                                  QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+            const int current = qBound(25, preferences.value(
+                QStringLiteral("reader/defaultZoomPercent"), 200).toInt(), 500);
+            bool accepted = false;
+            const int percent = QInputDialog::getInt(&window,
+                QStringLiteral("기본 시작 배율"),
+                QStringLiteral("새 PDF를 열 때 사용할 배율 (%)"), current,
+                25, 500, 5, &accepted);
+            if (!accepted) return;
+            preferences.setValue(QStringLiteral("reader/defaultZoomPercent"), percent);
+            preferences.sync();
+            if (preferences.status() != QSettings::NoError)
+                QMessageBox::warning(&window, QStringLiteral("기본 배율 저장 실패"),
+                    QStringLiteral("설정을 저장하지 못했습니다. 다시 시도해 주세요."));
+        });
     }
     // One filename search field in the paper panel; no duplicate toolbar row.
     auto* globalSearch = library->searchEdit();

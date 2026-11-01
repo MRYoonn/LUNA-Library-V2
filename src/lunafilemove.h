@@ -75,6 +75,11 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
     // MYBOX portable citation/memo sidecar follows a physical MOVE.
     const QString metadataName=source.completeBaseName()+QStringLiteral(".luna-meta.json");
     const QFileInfo metadata(QDir(originalRoot).filePath(metadataName));
+    const QFileInfo targetMetadata(QDir(targetRoot).filePath(metadataName));
+    if(targetMetadata.exists() || targetMetadata.isSymLink()) {
+        result.error=QStringLiteral("대상 폴더에 같은 이름의 메타데이터가 있어 이동하지 않았습니다.");
+        return result;
+    }
     if(metadata.isSymLink() || (metadata.exists() && !metadata.isFile())) {
         result.error=QStringLiteral("메타데이터 연결 파일은 이동하지 않습니다.");
         return result;
@@ -145,6 +150,14 @@ inline FileCopyResult copyPdfWithThumbnails(const QString& path, const QString& 
         if (sidecar.isFile())
             copies.append(qMakePair(sidecar.absoluteFilePath(),
                                     QDir(targetRoot).filePath(name)));
+    }
+    // Copies get a NEW portable document UUID when LUNA publishes metadata.
+    // Never adopt a pre-existing destination sidecar from an unrelated paper.
+    const QFileInfo targetMetadata(QDir(targetRoot).filePath(
+        source.completeBaseName()+QStringLiteral(".luna-meta.json")));
+    if (targetMetadata.exists() || targetMetadata.isSymLink()) {
+        result.error=QStringLiteral("대상 폴더에 같은 이름의 서지정보 파일이 있습니다.");
+        return result;
     }
     for (const auto& pair : copies) {
         const QFileInfo destination(pair.second);

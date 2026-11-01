@@ -142,3 +142,22 @@ gate and must never be described as real-publisher validation. A passing
 extraction accuracy. Native Qt6 CTest, live Crossref/OpenAlex, user-settings
 preservation, real Windows restarts/moves, and independently reviewed PDF
 evidence are still outstanding. Keep PR #18 Draft; do not merge or release.
+
+## Follow-up: manual-provenance contamination guard (2026-11-01)
+
+The native Qt snapshot adapter reports both field-level provenance and flags
+for active pasted citations / senior-author overrides. In `--require-real`
+mode the scorer now **blocks** such card overrides, and blocks any scored
+field with `manual` provenance (including `authorsSource` for
+`terminal_author`). This avoids counting user corrections as successful
+**automatic extraction**. Do not treat legacy record-wide `manual=true` as
+proof of a human edit: PR #13 explicitly documents machine-filled legacy
+records. Use the separate before/after regression checks for manual-value
+preservation and UI-card overrides. Synthetic default scoring is unchanged.
+
+Two new synthetic contract tests cover both override flags, title/author
+manual provenance, malformed field source maps, and clean read-only records.
+They have not been executed on a Windows/Qt6 build. Real publisher accuracy,
+actual QSettings persistence, file relocation and network error injection
+remain unverified. Run the complete Python tests and native CTest before any
+merge; do not upload private snapshots or user PDF files.

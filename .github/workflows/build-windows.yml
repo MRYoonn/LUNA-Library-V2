@@ -553,6 +553,24 @@ jobs:
           python -B tools/probe_documents_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui"
           if ($LASTEXITCODE -ne 0) { throw "Native UI or annotation round trip failed" }
 
+      # Only a failed native UI run triggers this Microsoft-signed debugger.
+      # It cannot turn the preceding failure into a success.
+      - name: Capture crash-only synthetic Windows stack (CDB)
+        if: ${{ failure() && steps.native-ui.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'luna-ui/native-crash-replay'
+          New-Item -ItemType Directory -Force $evidence | Out-Null
+          try {
+            . ./tools/Luna-Crash-Tools.ps1
+            $cdb = Get-LunaCdb
+            python -B tools/probe_native_crash_windows.py LUNA-Windows-Portable "$evidence" --debugger "$cdb"
+            if ($LASTEXITCODE -ne 0) { throw 'CDB crash replay failed; original smoke remains failed' }
+          } catch {
+            $_.Exception.Message | Set-Content -Encoding utf8 (Join-Path $evidence 'debugger-unavailable.txt')
+            Write-Warning 'Crash replay unavailable. Original native failure is still fatal.'
+          }
+
       - name: Production native tabs, library and fresh-process memo restoration
         id: tabs-test
         if: ${{ !inputs.native_tabs_proof }}

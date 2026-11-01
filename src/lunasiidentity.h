@@ -40,8 +40,10 @@ inline QString guardedPdf(const QString& root, const QString& pdfPath) {
         return {};
     const QString rootPath = QDir::fromNativeSeparators(folder.canonicalFilePath());
     const QString canonical = QDir::fromNativeSeparators(pdf.canonicalFilePath());
+    const QString prefix = rootPath.endsWith(QLatin1Char('/')) ?
+        rootPath : rootPath + QLatin1Char('/');
     if (rootPath.isEmpty() || canonical.isEmpty() ||
-        !canonical.startsWith(rootPath + QLatin1Char('/'), Qt::CaseInsensitive))
+        !canonical.startsWith(prefix, Qt::CaseInsensitive))
         return {};
     return canonical;
 }

@@ -9,6 +9,12 @@ ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
     "assets/folder_icons/README.md",
     "assets/folder_icons/svg_bundle.b85",
+    "assets/symbol_icons/README.md",
+    "assets/symbol_icons/svg_bundle.part1.b85",
+    "assets/symbol_icons/svg_bundle.part2.b85",
+    "assets/symbol_icons/svg_bundle.part3.b85",
+    "assets/symbol_icons/svg_bundle.part4.b85",
+    "tests/test_symbol_icons.py",
     "tools/compare_ui_reference.py",
     ".gitattributes",
     "assets/icons/ui-library.svg",

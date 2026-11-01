@@ -86,6 +86,7 @@ APPROVED = {
     "tests/test_updater.py", "tools/prepare_release.py",
     "src/lunaupdater.h", "tools/LUNA-Update.ps1",
     ".github/workflows/draft-release.yml",
+    "tools/LUNA-Library-Setup.iss", "tests/test_installer_contract.py",
     "tools/verify_portable.py", "tests/test_portable.py",
     "tools/smoke_windows.py",
     "tools/stage_msvc_runtime.ps1",

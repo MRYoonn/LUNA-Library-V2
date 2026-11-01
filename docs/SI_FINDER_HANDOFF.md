@@ -284,3 +284,10 @@ https://info.figshare.com/user-guide/how-to-use-the-figshare-api/
 Validation still required: exact-HEAD GitHub Actions test result, live
 ACS/Figshare metadata and landing reachability, native Windows/Qt6 tests,
 and Issue #9 paired metadata-sidecar move/rollback. Keep PR #17 Draft.
+
+## Follow-up: fail-closed DOI/landing identity (2026-11-02)
+
+- `tools/si_landing_verify.py` now checks the canonical ACS parent DOI on the lookup result and checks each candidate's `resource_doi` against it **before** any HTTP probe or cached landing result. A mixed-paper candidate remains `landing_unchecked_doi_mismatch`; an invalid/unsupported parent DOI remains `landing_unchecked_invalid_parent_doi`. Neither becomes a verified SI link.
+- HTTP 204 (No Content) is no longer accepted as a reachable HTML landing. Diagnostics now say `landing_entries_verified` instead of `files_verified`: an HTML landing response is **not** a verified downloadable SI file.
+- Added three synthetic/offline regression cases in `tests/test_si_landing_verify.py`. The source is committed; exact-HEAD GitHub Actions and native Windows/Qt6 evidence must be checked independently before reporting PASS.
+- Still unverified: live ACS/Figshare API and landing availability, direct SI file availability, and Issue #9 PDF+UUID sidecar move/rollback. No HTML scraping, authentication bypass or PDF downloads were introduced.

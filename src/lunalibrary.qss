@@ -64,11 +64,11 @@ QListView#LunaPageGrid::item:hover { background:#F4F8FF; border:1px solid #D5E3F
 QListView#LunaPageGrid::item:selected { background:#E9F1FF; border:1px solid #77A7EA; }
 QToolButton#LunaCombinedPanelToggle { color:#2F5C9C; background:white; border:1px solid #DFE7F1; border-radius:7px; padding:3px; }
 QToolButton#LunaCombinedPanelToggle:hover { background:#EAF2FF; }
-QTabWidget#LunaPdfTabs::pane { border:1px solid #DCE6F2; border-top:0; border-bottom-left-radius:12px; border-bottom-right-radius:12px; background:#DFE5ED; }
-QTabBar#LunaPdfTabBar { background:#F3F6FB; border-bottom:1px solid #D6E2F1; }
-QTabBar#LunaPdfTabBar::tab { background:#EDF2F9; color:#657794; font-size:12px; border:0; border-right:1px solid #DBE5F1; border-bottom:3px solid transparent; border-top-left-radius:9px; border-top-right-radius:9px; padding:0 8px 0 12px; }
-QTabBar#LunaPdfTabBar::tab:hover { background:#F6F9FF; }
-QTabBar#LunaPdfTabBar::tab:selected { background:white; color:#14396C; border-bottom:3px solid #4F84DC; }
+QTabWidget#LunaPdfTabs::pane { border:0; background:#F3F6FB; }
+QTabBar#LunaPdfTabBar { background:#F3F6FB; border:0; }
+QTabBar#LunaPdfTabBar::tab { background:#F3F6FB; color:#657794; font-size:12px; border:0; border-bottom:2px solid transparent; border-top-left-radius:6px; border-top-right-radius:6px; padding:0 4px 0 8px; }
+QTabBar#LunaPdfTabBar::tab:hover { background:#EDF3FC; }
+QTabBar#LunaPdfTabBar::tab:selected { background:#FFFFFF; color:#14396C; border-bottom:2px solid #4F84DC; }
 QToolButton#LunaCloseTab, QToolButton#LunaNewTab { background:transparent; color:#71809A; border:0; border-radius:4px; padding:0; }
 QToolButton#LunaCloseTab:hover, QToolButton#LunaNewTab:hover { background:#E5ECF5; }
 QToolButton#LunaCloseTab:disabled { color:#B7C3D4; }

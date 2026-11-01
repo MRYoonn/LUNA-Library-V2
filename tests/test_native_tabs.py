@@ -259,8 +259,13 @@ class NativeTabsContract(unittest.TestCase):
 
     def test_selection_overlay_keeps_native_text_and_bridges_visual_word_gaps(self):
         source = (ROOT / 'tools/apply_performance.py').read_text(encoding='utf-8')
-        # Pinned PDF4QT painter only: do not change PDF text extraction.
-        self.assertIn('a50aeb3ca241f41bd54c4d9d49bd5682f1bed2b8', source)
+        # The exact pinned Git blob is verified through the shared guard,
+        # including the separately verified inline-script patch.
+        self.assertIn('verify_pinned_text_layout(normalized)', source)
+        self.assertIn('PINNED_BLOB_SHA1', source)
+        self.assertIn('git_blob_sha(upstream.encode(\'utf-8\')) != PINNED_BLOB_SHA1', source)
+        from tools.patch_script_text_layout import PINNED_BLOB_SHA1
+        self.assertEqual(PINNED_BLOB_SHA1, 'a50aeb3ca241f41bd54c4d9d49bd5682f1bed2b8')
         self.assertIn('LunaSelectionBand', source)
         self.assertIn('const qreal gap = qMax(0.0', source)
         self.assertIn('gap <= qMin(48.0, 2.1 * h)', source)

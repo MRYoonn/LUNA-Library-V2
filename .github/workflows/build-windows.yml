@@ -1,4 +1,4 @@
-name: LUNA Library V2 - PDF4QT Windows Portable
+name: LUNA Library V2 - Windows Portable
 
 # Manual builds only. No private data, secrets, or untrusted PR execution.
 on:
@@ -24,6 +24,10 @@ on:
         description: 'Experimental host only: successful full Beta Windows source run ID'
         type: string
         default: ''
+      build_installer:
+        description: 'Optional legacy installer investigation only; disabled for portable-first distribution'
+        type: boolean
+        default: false
       research_pdf_probe:
         description: 'Optional precise public research PDF glyph/selection check (not a core Beta gate)'
         type: boolean
@@ -627,9 +631,9 @@ jobs:
           if ($nativeTests -lt 1) { throw 'Empty native Qt test scope' }
           @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ userPcRepeatedCtrlW = 'User confirmed 30 closes on Windows 10 at 30e2a01; current CI legacy-layout disposal regression passed under CDB/page heap'; pythonTests = $pythonTests; nativeQtTests = $nativeTests; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; nativeTabBibliographyIsolation = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; publicMainAndSiBibliography = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
-      - name: Build and smoke-test per-user LUNA Setup EXE
+      - name: Build and smoke-test per-user LUNA Setup EXE (optional, paused)
         id: installer-test
-        if: ${{ !inputs.native_tabs_proof }}
+        if: ${{ !inputs.native_tabs_proof && inputs.build_installer }}
         shell: pwsh
         run: |
           $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
@@ -657,8 +661,8 @@ jobs:
           Get-FileHash $setup -Algorithm SHA256 | Format-List
           Write-Host '[PASS] Setup EXE verified against portable, installed and uninstalled'
 
-      - name: Upload LUNA Windows installer artifact
-        if: ${{ !inputs.native_tabs_proof }}
+      - name: Upload LUNA Windows installer artifact (optional, paused)
+        if: ${{ !inputs.native_tabs_proof && inputs.build_installer }}
         uses: actions/upload-artifact@v4
         with:
           name: LUNA-Windows-Installer

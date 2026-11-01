@@ -1,0 +1,32 @@
+name: SI isolated synthetic regression
+on:
+  push:
+    branches:
+      - agent/paper-si-finder-linker
+    paths:
+      - 'tools/si_*.py'
+      - 'tests/test_si_*.py'
+      - 'tools/preflight_public.py'
+      - '.github/workflows/si-isolated.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Public-source privacy gate
+        run: python -B tools/preflight_public.py
+      - name: Actual repository SI integration tests (offline, synthetic)
+        env:
+          LUNA_SI_OFFLINE: '1'
+        run: python -B -m unittest discover -s tests -p 'test_si_*.py' -v

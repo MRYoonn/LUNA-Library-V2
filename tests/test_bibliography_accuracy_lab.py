@@ -86,6 +86,46 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         predictions["regressions"][1]["actual_status"] = "complete"
         self.assertEqual(lab.score(gold, predictions)["regression_checks"]["failed"], 1)
 
+    def test_assertion_free_regressions_cannot_claim_pass(self):
+        gold, predictions = sample()
+        predictions["regressions"].append({
+            "id": "fake-restart", "before": {}, "after": {}
+        })
+        with self.assertRaisesRegex(lab.DatasetError, "no assertions"):
+            lab.score(gold, predictions)
+        predictions["regressions"][-1]["actual_status"] = "offline"
+        with self.assertRaisesRegex(lab.DatasetError, "without expected_status"):
+            lab.score(gold, predictions)
+
+    def test_duplicate_and_contradictory_regression_assertions_block(self):
+        gold, predictions = sample()
+        case = predictions["regressions"][0]
+        case["must_preserve"].append("title")
+        with self.assertRaisesRegex(lab.DatasetError, "duplicate field assertion"):
+            lab.score(gold, predictions)
+        case["must_preserve"].pop()
+        case["must_remain_empty"] = ["title"]
+        with self.assertRaisesRegex(lab.DatasetError, "contradictory field assertions"):
+            lab.score(gold, predictions)
+        case["must_remain_empty"] = []
+        case["expected_status"] = " "
+        with self.assertRaisesRegex(lab.DatasetError, "invalid expected_status"):
+            lab.score(gold, predictions)
+
+    def test_status_only_regression_is_explicit_and_scoreable(self):
+        gold, predictions = sample()
+        predictions["regressions"].append({
+            "id": "status-only", "before": {}, "after": {},
+            "expected_status": "offline", "actual_status": "offline"
+        })
+        report = lab.score(gold, predictions)
+        self.assertTrue(report["pass"])
+        self.assertEqual(report["regression_checks"]["total"], 10)
+        predictions["regressions"][-1]["actual_status"] = "complete"
+        report = lab.score(gold, predictions)
+        self.assertFalse(report["pass"])
+        self.assertEqual(report["regression_checks"]["failed"], 1)
+
     def test_duplicate_missing_and_unknown_ids_block(self):
         gold, predictions = sample()
         predictions["cases"].append(copy.deepcopy(predictions["cases"][0]))

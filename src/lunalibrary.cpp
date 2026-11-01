@@ -24,6 +24,8 @@
 #include "lunapagegrid.h"
 #include <QListView>
 #include <QTabBar>
+#include <QTabWidget>
+#include <QComboBox>
 #include <QResizeEvent>
 
 #include <QAbstractItemView>
@@ -808,12 +810,41 @@ constexpr LunaFolderIconPreset kFolderIconPresets[] = {
     {"external","외부 자료"}, {"archive","보관"},
     {"private","비공개"}, {"temporary","임시"}
 };
+// The 40 user-supplied general-purpose SVG symbols are separate from
+// the legacy 20 folder drawings. Stable IDs survive folder moves and MYBOX.
+struct LunaSymbolPreset { const char* id; const char* label; const char* category; };
+constexpr LunaSymbolPreset kSymbolIconPresets[] = {
+    {"star","별","favorites"}, {"heart","하트","favorites"},
+    {"crown","왕관","favorites"}, {"gem","보석","favorites"},
+    {"flame","불꽃","favorites"}, {"sparkles","반짝임","favorites"},
+    {"bookmark","북마크","favorites"}, {"pin","핀","favorites"},
+    {"flag","깃발","favorites"}, {"trophy","트로피","favorites"},
+    {"book","책","research"}, {"flask","플라스크","research"},
+    {"atom","원자","research"}, {"microscope","현미경","research"},
+    {"graduation","학사모","research"}, {"lightbulb","전구","research"},
+    {"puzzle","퍼즐","research"}, {"target","과녁","research"},
+    {"network","네트워크","research"}, {"brain","두뇌","research"},
+    {"check","체크","workflow"}, {"clock","시계","workflow"},
+    {"timer","타이머","workflow"}, {"calendar","달력","workflow"},
+    {"hourglass","모래시계","workflow"}, {"refresh","새로고침","workflow"},
+    {"archive","보관함","workflow"}, {"inbox","수신함","workflow"},
+    {"send","전송","workflow"}, {"layers","레이어","workflow"},
+    {"moon","달","personal"}, {"sun","태양","personal"},
+    {"coffee","커피","personal"}, {"palette","팔레트","personal"},
+    {"leaf","나뭇잎","personal"}, {"gift","선물","personal"},
+    {"smile","스마일","personal"}, {"music","음표","personal"},
+    {"camera","카메라","personal"}, {"rocket","로켓","personal"}
+};
 QString folderMetadataPath(const QString& folder) {
     return QDir(folder).filePath(QString::fromLatin1(kFolderIconMetadata));
 }
 QString validatedFolderIconId(QString id) {
     for (const auto& preset : kFolderIconPresets)
         if (id == QString::fromLatin1(preset.id)) return id;
+    if (id.startsWith(QStringLiteral("symbol:")))
+        for (const auto& preset : kSymbolIconPresets)
+            if (id == QStringLiteral("symbol:") + QString::fromLatin1(preset.id))
+                return id;
     return QStringLiteral("general");
 }
 QIcon embeddedFolderIcon(const QString& id) {
@@ -822,7 +853,9 @@ QIcon embeddedFolderIcon(const QString& id) {
     static QHash<QString, QIcon> cache;
     const auto cached = cache.constFind(validId);
     if (cached != cache.cend()) return cached.value();
-    const QIcon icon(QStringLiteral(":/luna/folders/") + validId + QStringLiteral(".svg"));
+    const QIcon icon(validId.startsWith(QStringLiteral("symbol:")) ?
+        QStringLiteral(":/luna/symbols/") + validId.mid(7) + QStringLiteral(".svg") :
+        QStringLiteral(":/luna/folders/") + validId + QStringLiteral(".svg"));
     cache.insert(validId, icon);
     return icon;
 }
@@ -1211,25 +1244,112 @@ public:
                 dialog.setObjectName(QStringLiteral("LunaFolderIconPicker"));
                 dialog.setWindowTitle(QStringLiteral("폴더 아이콘 변경"));
                 auto* layout = new QVBoxLayout(&dialog);
-                auto* grid = new QGridLayout;
-                grid->setSpacing(7);
+                layout->setContentsMargins(10, 10, 10, 10);
                 QString selected;
-                for (int i = 0; i < 20; ++i) {
+                auto* tabs = new QTabWidget(&dialog);
+                tabs->setObjectName(QStringLiteral("LunaFolderIconTabs"));
+
+                auto makeGrid = [&](const QString& name, int count, auto bindButton) {
+                    auto* scroll = new QScrollArea(tabs);
+                    scroll->setWidgetResizable(true);
+                    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+                    auto* body = new QWidget(scroll);
+                    auto* grid = new QGridLayout(body);
+                    grid->setContentsMargins(6, 6, 6, 6);
+                    grid->setSpacing(7);
+                    for (int i = 0; i < count; ++i) {
+                        auto* button = new QToolButton(body);
+                        bindButton(button, i);
+                        button->setIconSize(QSize(44, 44));
+                        button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+                        button->setFixedSize(110, 88);
+                        grid->addWidget(button, i / 4, i % 4);
+                    }
+                    grid->setRowStretch((count + 3) / 4, 1);
+                    scroll->setWidget(body);
+                    tabs->addTab(scroll, name);
+                    return scroll;
+                };
+
+                makeGrid(QStringLiteral("폴더"), 20, [&](QToolButton* button, int i) {
                     const auto& preset = kFolderIconPresets[i];
-                    auto* button = new QToolButton(&dialog);
-                    button->setObjectName(QStringLiteral("LunaFolderIconOption_%1").arg(QString::fromLatin1(preset.id)));
+                    const QString id = QString::fromLatin1(preset.id);
+                    button->setObjectName(QStringLiteral("LunaFolderIconOption_%1").arg(id));
                     button->setText(QString::fromUtf8(preset.label));
-                    button->setIcon(embeddedFolderIcon(QString::fromLatin1(preset.id)));
+                    button->setIcon(embeddedFolderIcon(id));
+                    connect(button, &QToolButton::clicked, &dialog, [&, id] {
+                        selected = id;
+                        dialog.accept();
+                    });
+                });
+
+                auto* symbols = new QWidget(tabs);
+                auto* symbolLayout = new QVBoxLayout(symbols);
+                symbolLayout->setContentsMargins(0, 0, 0, 0);
+                auto* filters = new QHBoxLayout;
+                auto* search = new QLineEdit(symbols);
+                search->setObjectName(QStringLiteral("LunaSymbolSearch"));
+                search->setPlaceholderText(QStringLiteral("일반 아이콘 검색"));
+                filters->addWidget(search, 1);
+                auto* category = new QComboBox(symbols);
+                category->setObjectName(QStringLiteral("LunaSymbolCategory"));
+                category->addItem(QStringLiteral("전체"), QString());
+                category->addItem(QStringLiteral("인기·즐겨찾기"), QStringLiteral("favorites"));
+                category->addItem(QStringLiteral("연구·학습"), QStringLiteral("research"));
+                category->addItem(QStringLiteral("작업·관리"), QStringLiteral("workflow"));
+                category->addItem(QStringLiteral("감성·개인화"), QStringLiteral("personal"));
+                filters->addWidget(category);
+                symbolLayout->addLayout(filters);
+                auto* symbolScroll = new QScrollArea(symbols);
+                symbolScroll->setWidgetResizable(true);
+                symbolScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+                auto* symbolBody = new QWidget(symbolScroll);
+                auto* symbolGrid = new QGridLayout(symbolBody);
+                symbolGrid->setContentsMargins(6, 6, 6, 6);
+                symbolGrid->setSpacing(7);
+                QList<QToolButton*> symbolButtons;
+                for (const auto& preset : kSymbolIconPresets) {
+                    const QString id = QStringLiteral("symbol:") + QString::fromLatin1(preset.id);
+                    auto* button = new QToolButton(symbolBody);
+                    button->setObjectName(QStringLiteral("LunaSymbolIconOption_%1").arg(QString::fromLatin1(preset.id)));
+                    button->setText(QString::fromUtf8(preset.label));
+                    button->setIcon(embeddedFolderIcon(id));
                     button->setIconSize(QSize(44, 44));
                     button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
                     button->setFixedSize(110, 88);
-                    grid->addWidget(button, i / 4, i % 4);
-                    connect(button, &QToolButton::clicked, &dialog, [&, id = QString::fromLatin1(preset.id)] {
+                    button->setProperty("symbolCategory", QString::fromLatin1(preset.category));
+                    button->setProperty("symbolId", id);
+                    symbolButtons.append(button);
+                    connect(button, &QToolButton::clicked, &dialog, [&, id] {
                         selected = id;
                         dialog.accept();
                     });
                 }
-                layout->addLayout(grid);
+                auto updateSymbolFilter = [=] {
+                    const QString query = search->text().trimmed();
+                    const QString activeCategory = category->currentData().toString();
+                    int visible = 0;
+                    for (auto* button : symbolButtons) {
+                        const bool show = (activeCategory.isEmpty() ||
+                                           button->property("symbolCategory").toString() == activeCategory) &&
+                            (query.isEmpty() || button->text().contains(query, Qt::CaseInsensitive) ||
+                             button->property("symbolId").toString().contains(query, Qt::CaseInsensitive));
+                        button->setVisible(show);
+                        if (show) symbolGrid->addWidget(button, visible / 4, visible % 4);
+                        ++visible; // positions of filtered-out buttons remain harmless
+                    }
+                };
+                for (int i = 0; i < symbolButtons.size(); ++i)
+                    symbolGrid->addWidget(symbolButtons[i], i / 4, i % 4);
+                connect(search, &QLineEdit::textChanged, symbols, [=](const QString&) { updateSymbolFilter(); });
+                connect(category, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                        symbols, [=](int) { updateSymbolFilter(); });
+                symbolScroll->setWidget(symbolBody);
+                symbolLayout->addWidget(symbolScroll);
+                tabs->addTab(symbols, QStringLiteral("일반"));
+                tabs->setCurrentIndex(folderIconId(folder).startsWith(QStringLiteral("symbol:")) ? 1 : 0);
+                layout->addWidget(tabs, 1);
+                dialog.resize(520, 470);
                 auto* cancel = new QPushButton(QStringLiteral("취소"), &dialog);
                 connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
                 layout->addWidget(cancel, 0, Qt::AlignRight);

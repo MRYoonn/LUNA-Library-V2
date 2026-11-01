@@ -12,9 +12,9 @@ from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
-    from tools.si_finder import SiLookupResult, safe_figshare_landing
+    from tools.si_finder import SiLookupResult, normalize_doi, safe_figshare_landing
 except ImportError:
-    from si_finder import SiLookupResult, safe_figshare_landing
+    from si_finder import SiLookupResult, normalize_doi, safe_figshare_landing
 
 MAX_LANDINGS = 8
 HTML_TYPES = frozenset(("text/html", "application/xhtml+xml"))
@@ -37,7 +37,7 @@ def _request(method: str, url: str) -> str:
                 return "redirect_unchecked"
             status = response.status
             media = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-            if status not in ((200, 204) if method == "HEAD" else (200, 206)):
+            if status not in ((200,) if method == "HEAD" else (200, 206)):
                 return "http_unchecked"
             if media not in HTML_TYPES:
                 return "non_html"
@@ -79,13 +79,23 @@ def verify_landing_candidates(
         return result
     if offline or os.environ.get("LUNA_SI_OFFLINE") == "1":
         return replace(result, status="offline", diagnostic="landing_check_offline")
+    # A reachable page cannot certify a candidate whose parent DOI differs
+    # from the lookup result. Do not trust externally assembled result objects.
+    doi = normalize_doi(result.doi)
+    if not doi or doi != result.doi or not doi.startswith("10.1021/"):
+        return replace(result, status="needs_review",
+                       candidates=tuple(replace(c, status="landing_unchecked_invalid_parent_doi")
+                                        for c in result.candidates),
+                       diagnostic="invalid_parent_doi")
     cache: dict[str, str] = {}
     checked = []
     for candidate in result.candidates:
         url = candidate.landing_url
         # Validate the candidate-to-landing identity on EVERY item, including
         # cached URLs: two different article IDs must never share verification.
-        if safe_figshare_landing(url, candidate.article_id) != url:
+        if candidate.resource_doi != doi:
+            code = "doi_mismatch"
+        elif safe_figshare_landing(url, candidate.article_id) != url:
             code = "unsafe_url"
         else:
             if url not in cache:
@@ -109,4 +119,4 @@ def verify_landing_candidates(
     overall = "verified" if all_verified else "partial_verified" if verified else "needs_review"
     return replace(result, status=overall, candidates=tuple(checked),
                    diagnostic=f"landings_checked={min(len(cache), MAX_LANDINGS)};"
-                              f"files_verified={verified};search_partial={int(result.status == 'partial')}")
+                              f"landing_entries_verified={verified};search_partial={int(result.status == 'partial')}")

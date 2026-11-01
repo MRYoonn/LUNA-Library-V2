@@ -3211,8 +3211,12 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     auto* focus = controls->addAction(QStringLiteral("집중 모드"));
     focus->setObjectName(QStringLiteral("LunaFocusMode"));
     focus->setCheckable(true);
-    QObject::connect(focus, &QAction::toggled, dock, [dock, library](bool enabled) {
-        if (!enabled) library->showBothPanels();
+    QObject::connect(focus, &QAction::toggled, dock, [dock, library, folders, documents](bool enabled) {
+        if (!enabled) {
+            library->showBothPanels();
+            folders->setChecked(true);
+            documents->setChecked(true);
+        }
         dock->setVisible(!enabled);
     });
     // Legacy individual panel actions remain available in View, not as three
@@ -3242,6 +3246,27 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
                     QStringLiteral("설정을 저장하지 못했습니다. 다시 시도해 주세요."));
         });
     }
+    // Separate always-reachable controls: hiding one panel must never hide
+    // the other. Keep both toggles in the reader header even when a pane is
+    // collapsed, so it can be restored without opening the View menu.
+    auto addIndependentPanelButtons = [folders, documents](QWidget* owner,
+                                                            QHBoxLayout* target) {
+        for (const auto& entry : QList<QPair<QAction*, QString>>{
+                 {folders, QStringLiteral("LunaNavigationCollapseButton")},
+                 {documents, QStringLiteral("LunaDocumentsCollapseButton")}}) {
+            auto* toggle = new QToolButton(owner);
+            toggle->setObjectName(entry.second);
+            toggle->setDefaultAction(entry.first);
+            toggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
+            toggle->setIconSize(QSize(19, 19));
+            toggle->setFixedSize(31, 30);
+            toggle->setAccessibleName(entry.first == folders
+                ? QStringLiteral("라이브러리 탐색 패널 접기 / 펼치기")
+                : QStringLiteral("논문 목록 패널 접기 / 펼치기"));
+            toggle->setToolTip(toggle->accessibleName());
+            target->addWidget(toggle);
+        }
+    };
     // One filename search field in the paper panel; no duplicate toolbar row.
     auto* globalSearch = library->searchEdit();
     auto* search = new QAction(QStringLiteral("라이브러리 검색"), &window);
@@ -3252,9 +3277,10 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     if (auto* options = window.findChild<QAction*>(QStringLiteral("actionOptions")))
         options->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+O")));
     window.addAction(search);
-    QObject::connect(search, &QAction::triggered, &window, [dock, library, globalSearch, documents, focus] {
+    QObject::connect(search, &QAction::triggered, &window, [dock, library, globalSearch, folders, documents, focus] {
         focus->setChecked(false);
         dock->show();
+        folders->setChecked(true);
         documents->setChecked(true);
         library->focusSearch();
         globalSearch->setFocus();
@@ -3310,30 +3336,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         documentTitle->setMinimumWidth(0);
         documentTitle->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         documentRow->addWidget(documentTitle, 1);
-        auto* panelToggle = new QToolButton(documentHeader);
-        panelToggle->setObjectName(QStringLiteral("LunaCombinedPanelToggle"));
-        panelToggle->setDefaultAction(focus);
-        panelToggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
-        panelToggle->setAccessibleName(QStringLiteral("라이브러리와 논문 목록 접기 / 펼치기"));
-        panelToggle->setMinimumSize(30, 30);
-        panelToggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
-        auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
-        auto placeToggle = [panelToggle, paperHeading, documentRow, documentHeader, focus](bool collapsed) {
-            paperHeading->removeWidget(panelToggle);
-            documentRow->removeWidget(panelToggle);
-            panelToggle->setParent(collapsed ? documentHeader : paperHeading->parentWidget());
-            if (collapsed) documentRow->insertWidget(0, panelToggle);
-            else paperHeading->addWidget(panelToggle);
-            panelToggle->setFixedSize(collapsed ? QSize(39, 41) : QSize(32, 30));
-            panelToggle->setIconSize(QSize(19, 19));
-            focus->setText(collapsed ? QStringLiteral("패널 펼치기") : QStringLiteral("패널 접기"));
-            focus->setIcon(readerIcon(collapsed ? QStringLiteral("panel-open") : QStringLiteral("panel-close")));
-            focus->setProperty("lunaCollapsed", collapsed);
-            focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
-            panelToggle->show();
-        };
-        QObject::connect(focus, &QAction::toggled, panelToggle, placeToggle);
-        placeToggle(false);
+        addIndependentPanelButtons(documentHeader, documentRow);
         QObject::connect(&window, &QWidget::windowTitleChanged, documentTitle, [&viewer, documentTitle] {
             QTimer::singleShot(0, documentTitle, [&viewer, documentTitle] {
                 const QString file = viewer.getProgramController()->getOriginalFileName();
@@ -3352,23 +3355,8 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         auto* layout = new QVBoxLayout(frame); layout->setContentsMargins(0, 7, 7, 7); layout->setSpacing(0);
         auto* corner = new QWidget(frame); corner->setObjectName(QStringLiteral("LunaTabCorner"));
         auto* row = new QHBoxLayout(corner); row->setContentsMargins(0, 0, 4, 0);
-        auto* toggle = new QToolButton(corner); toggle->setObjectName(QStringLiteral("LunaCombinedPanelToggle"));
-        toggle->setDefaultAction(focus); toggle->setAccessibleName(QStringLiteral("라이브러리와 논문 목록 접기 / 펼치기")); toggle->setMinimumSize(30, 30);
-        toggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
-        auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
-        auto place = [toggle, paperHeading, row, corner, focus](bool collapsed) {
-            paperHeading->removeWidget(toggle); row->removeWidget(toggle);
-            toggle->setParent(collapsed ? corner : paperHeading->parentWidget());
-            if (collapsed) row->insertWidget(0, toggle); else paperHeading->addWidget(toggle);
-            toggle->setFixedSize(collapsed ? QSize(39, 41) : QSize(32, 30));
-            toggle->setIconSize(QSize(19, 19));
-            focus->setText(collapsed ? QStringLiteral("패널 펼치기") : QStringLiteral("패널 접기"));
-            focus->setIcon(readerIcon(collapsed ? QStringLiteral("panel-open") : QStringLiteral("panel-close")));
-            focus->setProperty("lunaCollapsed", collapsed);
-            focus->setToolTip(collapsed ? QStringLiteral("라이브러리와 논문 목록 펼치기") : QStringLiteral("라이브러리와 논문 목록 접기"));
-            corner->setVisible(collapsed || corner->property("lunaHasOpenButton").toBool()); toggle->show();
-        };
-        QObject::connect(focus, &QAction::toggled, toggle, place); place(false);
+        addIndependentPanelButtons(corner, row);
+        corner->show();
         layout->addWidget(corner); window.setCentralWidget(frame);
     }
     QObject::connect(&window, &QWidget::windowTitleChanged, &window,

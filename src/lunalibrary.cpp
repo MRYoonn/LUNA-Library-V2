@@ -2185,6 +2185,7 @@ private:
             favorites_.insert(destination);
         }
         settings.sync();
+        if (localSync_) localSync_->publish(destination);
         if (settings.status() != QSettings::NoError)
             QMessageBox::warning(this, QStringLiteral("복사 데이터 저장 실패"),
                 QStringLiteral("PDF는 복사됐지만 일부 메모·즐겨찾기 저장에 실패했습니다. 원본 데이터는 유지됩니다."));
@@ -2675,6 +2676,7 @@ private:
             if (!bibliography_.relocate(sourceIdentity, DocumentClaim::identity(result.documentPath)))
                 QMessageBox::warning(this, QStringLiteral("서지정보 이동 실패"),
                     QStringLiteral("PDF는 이동했지만 서지정보를 이전하지 못했습니다. 기존 설정을 확인해 주세요."));
+            if (localSync_) localSync_->publish(result.documentPath);
             const auto favorites = savedPaths(QStringLiteral("library/favorites"));
             favorites_ = QSet<QString>(favorites.cbegin(), favorites.cend());
             ThumbnailCache::instance()->invalidate();

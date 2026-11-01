@@ -82,6 +82,7 @@ APPROVED = {
     "tests/test_public_gate.py",
     "tests/test_citation_contract.py",
     "tools/si_finder.py", "tests/test_si_finder.py", "docs/SI_FINDER_HANDOFF.md",
+    "tools/si_associations.py", "tests/test_si_associations.py",
     "tests/test_real_file_management_contract.py",
     "tests/test_updater.py", "tools/prepare_release.py",
     "src/lunaupdater.h", "tools/LUNA-Update.ps1",

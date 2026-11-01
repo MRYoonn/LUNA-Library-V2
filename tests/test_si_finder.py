@@ -61,6 +61,25 @@ class SiFinderTests(unittest.TestCase):
         result = lookup_acs_figshare(DOI, api)
         self.assertEqual((result.status, result.candidates), ("needs_review", ()))
 
+    def test_landing_article_id_must_match_verified_metadata(self):
+        # An exact parent DOI is insufficient when the public landing URL
+        # points at another article or a noncanonical/download route.
+        for url in (
+            "https://acs.figshare.com/articles/journal_contribution/Fixture/456",
+            "https://acs.figshare.com/articles/journal_contribution/Fixture/123?download=1",
+            "https://acs.figshare.com/articles/journal_contribution/../123",
+            "https://acs.figshare.com/articles/journal_contribution/%2e%2e/123",
+            "https://acs.figshare.com/articles/journal_contribution/Fixture/not-an-id",
+            "https://other.figshare.com/articles/journal_contribution/Fixture/123",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(
+                    lookup_acs_figshare(DOI, FakeApi(details={123: article(123, url=url)})).status,
+                    "needs_review")
+        good = "https://acs.figshare.com/articles/journal_contribution/Fixture/123"
+        self.assertEqual(safe_figshare_landing(good, 123), good)
+        self.assertEqual(safe_figshare_landing(good, 456), "")
+
     def test_summary_id_mismatch_rejected(self):
         api = FakeApi(details={123: article(456)})
         self.assertEqual(lookup_acs_figshare(DOI, api).status, "needs_review")

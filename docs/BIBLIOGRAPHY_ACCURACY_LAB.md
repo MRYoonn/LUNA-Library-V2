@@ -79,3 +79,30 @@ Follow-up remains: Windows Qt6 compile/CTest of the existing
 LUNA record snapshots; 20+ authorized/public PDFs with SHA and independent
 field evidence; actual restart/move/QSettings/HTTP 429/404 evidence.
 No private PDF, settings, predictions or generated report may be committed.
+
+## Follow-up: stricter real-run provenance gate (2026-11-01)
+
+The `--require-real` mode now **blocks structurally unverified runs** instead of
+merely rejecting synthetic `source.kind`. Every prediction document must
+declare an exact nonzero 40-hex `engine_commit`, the read-only native adapter
+`capture_kind: "qt_record_snapshot_read_only"`, and each case must carry
+boolean `audit.manual_citation_active` and
+`audit.senior_author_override_active` flags. Each real PDF must have a
+nonzero SHA256, and **every labeled field, including explicit null (verified
+absence)**, requires a nonblank evidence string. An omitted field remains
+unknown/unscored and does not require evidence. This specifically catches SI
+DOI-negative cases without a justification.
+
+The default synthetic harness is unchanged. Added two **fabricated
+contract-only** regression tests for unverified commit/capture/audit, blank or
+missing evidence for a null DOI, and placeholder PDF hash. A 40-hex commit,
+hash and text evidence are only **syntactic checks**; they do not authenticate
+PDF bytes, prove an application was executed, or prove the evidence was
+independently reviewed. A successful real-mode report still says
+`provided_real_goldset_not_independently_verified`. Keep real data local.
+
+Next run: execute all Python tests on the exact PR #18 HEAD, compile
+`tests/native_accuracy` on Windows with Qt6 and run CTest, then capture
+read-only real records at an exact PR #16 commit and independently review
+>=20 authorized/public PDFs. The PR #16 branch has advanced; review its
+changes before any integration. Do not silently rebase or merge.

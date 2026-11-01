@@ -141,6 +141,24 @@ constexpr const char* kHOVER = "#F0F5FD";
 constexpr const char* kACTIVE_TEXT = "#31549B";
 constexpr const char* kBLUE_HOVER = "#3E60A5";
 
+// Sidecar filenames must follow the PDF basename. Both card layouts used to
+// hard-code PNG, hiding valid JPEG crops even when rename reconciliation worked.
+QString savedThumbnailForPdf(const QString& documentPath) {
+    const QFileInfo pdf(documentPath);
+    if (!pdf.isFile() || pdf.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
+        return {};
+    const QString prefix = pdf.absolutePath() + QLatin1Char('/') +
+        pdf.completeBaseName() + QStringLiteral(".luna-thumb");
+    for (const QString& ext : {QStringLiteral(".png"), QStringLiteral(".jpg"), QStringLiteral(".jpeg")}) {
+        const QString candidate = prefix + ext;
+        const QFileInfo sidecar(candidate);
+        if (sidecar.isFile() && !sidecar.isSymLink() &&
+            sidecar.size() > 0 && sidecar.size() <= 5'000'000)
+            return candidate;
+    }
+    return {};
+}
+
 QString themeSheet(const QByteArray& bytes) {
     QString sheet = QString::fromUtf8(bytes);
     sheet.replace(QStringLiteral("@NAVY@"), QString::fromLatin1(kNAVY));
@@ -427,9 +445,7 @@ public:
         painter->setPen(QPen(QColor(kLINE), 1));
         painter->setBrush(Qt::white);
         painter->drawRoundedRect(imageArea, 7, 7);
-        const QFileInfo pdf(index.data(Qt::UserRole).toString());
-        const QString sidecar = pdf.absolutePath() + QLatin1Char('/') +
-            pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
+        const QString sidecar = savedThumbnailForPdf(index.data(Qt::UserRole).toString());
         QPointer<QWidget> view(const_cast<QWidget*>(option.widget));
         const QImage image = ThumbnailCache::instance()->request(sidecar, view, [view] {
             if (auto* list = qobject_cast<QAbstractItemView*>(view.data())) list->viewport()->update();
@@ -563,9 +579,7 @@ private:
         painter->setPen(QPen(QColor(kTHUMB_LINE), 1));
         painter->setBrush(Qt::white);
         painter->drawRoundedRect(thumb, 5, 5);
-        const QFileInfo pdf(index.data(Qt::UserRole).toString());
-        const QString sidecar = pdf.absolutePath() + QLatin1Char('/') +
-            pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
+        const QString sidecar = savedThumbnailForPdf(index.data(Qt::UserRole).toString());
         QPointer<QWidget> view(const_cast<QWidget*>(option.widget));
         const QImage image = ThumbnailCache::instance()->request(sidecar, view, [view] {
             if (auto* list = qobject_cast<QAbstractItemView*>(view.data())) list->viewport()->update();
@@ -2357,20 +2371,7 @@ private:
     }
 
     QString thumbnailForPdf(const QString& documentPath) const {
-        const QFileInfo info(documentPath);
-        if (!info.isFile() ||
-            info.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
-            return {};
-        const QString prefix = info.absolutePath() + QLatin1Char('/') +
-                               info.completeBaseName() + QStringLiteral(".luna-thumb");
-        for (const QString& extension : {QStringLiteral(".png"), QStringLiteral(".jpg"),
-                                         QStringLiteral(".jpeg")}) {
-            const QString candidate = prefix + extension;
-            const QFileInfo thumbnail(candidate);
-            if (!thumbnail.isSymLink() && thumbnail.isFile() && thumbnail.size() > 0 && thumbnail.size() <= 5'000'000)
-                return candidate;
-        }
-        return {};
+        return savedThumbnailForPdf(documentPath);
     }
     // The old floating thumbnail-hover popup is intentionally disabled.
     // User-selected crops are still displayed directly inside paper cards.

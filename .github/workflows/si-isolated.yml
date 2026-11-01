@@ -6,6 +6,8 @@ on:
     paths:
       - 'tools/si_*.py'
       - 'tests/test_si_*.py'
+      - 'src/lunasiidentity.h'
+      - 'tests/native_si_identity/**'
       - 'tools/preflight_public.py'
       - '.github/workflows/si-isolated.yml'
   workflow_dispatch:
@@ -33,3 +35,33 @@ jobs:
         env:
           LUNA_SI_OFFLINE: '0'
         run: python -B -m unittest discover -s tests -p 'test_si_*.py' -v
+
+  windows-qtcore-identity:
+    # Standalone native identity proof; no PDF4QT, UI, secrets or user files.
+    # Do not confuse this with the production Windows LUNA application build.
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+          cache: 'false'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Compile and run isolated QtCore SI UUID tests
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP 'luna-si-identity-native'
+          cmake -S tests/native_si_identity -B $build -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'SI identity QtCore configure failed' }
+          cmake --build $build --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'SI identity QtCore compile failed' }
+          ctest --test-dir $build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'SI identity QtCore regression failed' }

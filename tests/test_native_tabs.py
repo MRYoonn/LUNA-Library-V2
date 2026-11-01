@@ -384,7 +384,9 @@ class NativeTabsContract(unittest.TestCase):
             'Folder icon reset altered PDF or thumbnail files',
         ):
             self.assertIn(token, library)
-        self.assertIn('luna_folder_icons.qrc)', overlay)
+        self.assertIn('luna_folder_icons.qrc luna_symbol_icons.qrc)', overlay)
+        self.assertIn("'<RCC><qresource prefix=\"/luna/folders\">'", overlay)
+        self.assertIn("'<RCC><qresource prefix=\"/luna/symbols\">'", overlay)
         self.assertIn('b85decode(encoded)', overlay)
         self.assertIn('MYBOX', guide)
         self.assertIn('LUNA.folder.json', guide)

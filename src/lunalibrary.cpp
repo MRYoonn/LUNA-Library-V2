@@ -1271,6 +1271,15 @@ public:
         folderIconPoll_->setInterval(3000);
         connect(folderIconPoll_, &QTimer::timeout, this, [this] { refreshVisibleFolderIcons(); });
         folderIconPoll_->start();
+        // External Explorer/MYBOX changes may not go through LUNA's own
+        // import/move actions. Refresh the badges periodically off-thread.
+        auto* folderCountPoll = new QTimer(this);
+        folderCountPoll->setInterval(60000);
+        connect(folderCountPoll, &QTimer::timeout, this, [this] {
+            if (tree_ && tree_->isVisible() && !root_.isEmpty())
+                model_->refreshPdfCounts(root_);
+        });
+        folderCountPoll->start();
         auto* location = new QPushButton(readerIcon(QStringLiteral("open")), QString(), libraryHeader);
         location->setFixedSize(30, 30);
         location->setToolTip(QStringLiteral("라이브러리 위치 선택…"));
@@ -2609,9 +2618,12 @@ private:
         folderSeen_.clear();
         folderPdfs_->setSortingEnabled(false);
         folderCount_->setText(QStringLiteral("PDF 검색 중…"));
+        // The selected folder represents its complete subtree, matching
+        // the per-folder count badges and the user's root-folder view.
         folderIterator_ = std::make_unique<QDirIterator>(
             current_, QStringList{QStringLiteral("*.pdf"), QStringLiteral("*.PDF")},
-            QDir::Files | QDir::Readable | QDir::NoDotAndDotDot);
+            QDir::Files | QDir::Readable | QDir::NoDotAndDotDot | QDir::NoSymLinks,
+            QDirIterator::Subdirectories);
         folderTimer_->start();
     }
     void scanAll() {

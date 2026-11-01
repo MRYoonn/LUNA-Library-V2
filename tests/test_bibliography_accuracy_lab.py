@@ -501,7 +501,8 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
 
         cases = []
         templates = {case["publisher"]: case for case in gold["cases"]
-                     if case["publisher"] in lab.PUBLISHERS}
+                     if case["publisher"] in lab.PUBLISHERS
+                     and case["expected"].get("document_kind") == "main_article"}
         si = next(case for case in gold["cases"]
                   if case["expected"].get("document_kind") == "supporting_information")
         no_doi = next(case for case in gold["cases"] if case["id"] == "syn-no-doi")
@@ -523,7 +524,9 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
             item["evidence"] = {field: "fabricated, not real evidence"
                                 for field in item["expected"]}
         gold["cases"] = cases
-        self.assertTrue(lab.audit_goldset_coverage(gold)["ready"])
+        breadth = lab.audit_goldset_coverage(gold)
+        self.assertTrue(breadth["ready"], breadth["gaps"])
+        self.assertEqual(breadth["main_by_publisher"]["RSC"], 3)
         labels = lab.audit_field_label_coverage(gold)
         self.assertFalse(labels["ready"])
         self.assertEqual(labels["positive_labels"]["journal_abbreviation"], 0)

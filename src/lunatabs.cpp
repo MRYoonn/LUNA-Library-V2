@@ -1248,7 +1248,36 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 !list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")),
                 "Accidental left click opened memo editor");
             QLineEdit* edit = nullptr;
+            // Folder/sidecar discovery may replace QListWidgetItem instances
+            // asynchronously. Re-resolve the visible card on every assertion;
+            // never trust a QListWidgetItem* captured before the edit.
+            auto liveMemo = [&](const QString& expected) {
+                QListWidgetItem* currentCard = nullptr;
+                QListWidget* currentList = integrationList(host, files[0], &currentCard);
+                if (!currentList || !currentCard || !currentList->isVisible()) return false;
+                list = currentList;
+                paper = currentCard;
+                const QString path = currentCard->data(Qt::UserRole).toString();
+                const QString key = QString::fromLatin1(
+                    QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex());
+                QSettings saved(QSettings::defaultFormat(), QSettings::UserScope,
+                                QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+                return currentCard->data(Qt::UserRole + 4).toString() == expected &&
+                       currentCard->toolTip().contains(expected) &&
+                       saved.value(QStringLiteral("library/memos/") + key).toString() == expected;
+            };
             auto openContextMemo = [&] {
+                QListWidgetItem* currentCard = nullptr;
+                QListWidget* currentList = integrationList(host, files[0], &currentCard);
+                if (!currentList || !currentCard) return false;
+                list = currentList;
+                paper = currentCard;
+                list->scrollToItem(paper);
+                QCoreApplication::processEvents();
+                const QRect liveCard = list->visualItemRect(paper);
+                const QPoint currentMemoLocation(liveCard.left() + 160, liveCard.top() + 293);
+                if (liveCard.height() != 322 ||
+                    !list->viewport()->rect().contains(currentMemoLocation)) return false;
                 bool chosen = false;
                 QTimer menuPicker;
                 QObject::connect(&menuPicker, &QTimer::timeout, &host, [&] {
@@ -1264,7 +1293,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                     }
                 });
                 menuPicker.start(25);
-                const bool clicked = integrationClick(host, list->viewport(), memoLocation, true);
+                const bool clicked = integrationClick(host, list->viewport(), currentMemoLocation, true);
                 const bool focused = clicked && integrationWait([&] {
                     edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor"));
                     return chosen && edit && edit->hasFocus();
@@ -1274,13 +1303,17 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             };
             integrationRequire(openContextMemo(), "Right-click paper memo context menu did not focus editor");
             integrationRequire(integrationType(QStringLiteral("초기 메모")) && integrationKey(VK_RETURN), "Real memo typing/Enter failed");
-            integrationRequire(integrationWait([&] { return paper->data(Qt::UserRole + 4).toString() == QStringLiteral("초기 메모"); }), "Memo Enter did not persist");
+            integrationRequire(integrationWait([&] { return liveMemo(QStringLiteral("초기 메모")); }),
+                               "Memo Enter did not persist in live card, tooltip and local settings");
             integrationRequire(openContextMemo(), "Right-click memo edit did not reopen");
             integrationRequire(integrationKey('A', true) && integrationType(memo), "Memo replacement input failed");
             auto* query = host.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch")); integrationRequire(integrationClick(host, query, query->rect().center()), "Memo focus-out click failed");
-            integrationRequire(integrationWait([&] { return paper->data(Qt::UserRole + 4).toString() == memo; }) && paper->toolTip().contains(memo), "Memo focus-out did not save with full tooltip");
+            integrationRequire(integrationWait([&] { return liveMemo(memo); }),
+                               "Memo focus-out did not persist in live card, tooltip and local settings");
             integrationRequire(integrationType(QStringLiteral("724")), "Memo search keyboard input failed");
-            integrationRequire(integrationWait([&] { return query->text() == QStringLiteral("724"); }) && !paper->isHidden(), "Paper memo search excluded A"); query->clear();
+            integrationRequire(integrationWait([&] { return query->text() == QStringLiteral("724") &&
+                liveMemo(memo) && !paper->isHidden(); }),
+                               "Paper memo search excluded the persisted A card"); query->clear();
             integrationRequire(host.screen()->grabWindow(0).save(report + ".memo.png"), "Could not capture integrated memo");
             const QByteArray originalThumb = integrationBytes(thumbnail); const QString moved = QFileInfo(files[0]).absolutePath() + "/Moved"; QDir().mkpath(moved);
             bool menuChosen = false; QTimer moveUi;

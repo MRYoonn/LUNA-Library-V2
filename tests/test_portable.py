@@ -46,6 +46,16 @@ class PortableLayoutTests(unittest.TestCase):
     def test_complete_layout(self):
         self.assertEqual(check(self.root), [])
 
+    def test_obsolete_upstream_brand_tiles_are_not_in_luna_distribution(self):
+        for relative in ("AppxManifest.xml", "assets/logo.png",
+                         "assets/150x150/upstream.png"):
+            with self.subTest(relative=relative):
+                path = self.root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"obsolete")
+                self.assertTrue(any("Obsolete upstream" in e for e in check(self.root)))
+                path.unlink()
+
     def test_missing_qt_platform_plugin(self):
         (self.root / "platforms/qwindows.dll").unlink()
         self.assertTrue(any("qwindows.dll" in e for e in check(self.root)))

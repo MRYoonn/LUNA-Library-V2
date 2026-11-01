@@ -199,7 +199,7 @@ class NativeSmokeHarnessTests(unittest.TestCase):
         def process(command, **kwargs):
             if "--luna-smoke-report" in command:
                 report = Path(command[2])
-                report.write_bytes(b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\\n")
+                report.write_bytes(b"LUNA_SMOKE_EDITOR_ROUNDTRIP_OK\n")
                 Path(str(report) + ".annotated.pdf").write_bytes(synthetic_pdf())
                 Path(str(report) + ".png").write_bytes(png_header(1366, 768))
                 Path(str(report) + ".wide.png").write_bytes(png_header(1920, 1080))
@@ -207,9 +207,11 @@ class NativeSmokeHarnessTests(unittest.TestCase):
                 Path(str(report) + ".hover.png").write_bytes(png_header(255, 300))
                 Path(str(report) + ".desktop.png").write_bytes(png_header(1024, 768))
         with tempfile.TemporaryDirectory() as package:
-            with patch("tools.smoke_windows.sys.platform", "win32"), \\
-                 patch.dict("os.environ", {"SystemRoot": package}), \\
-                 patch("tools.smoke_windows.subprocess.run", side_effect=process):
+            with (
+                patch("tools.smoke_windows.sys.platform", "win32"),
+                patch.dict("os.environ", {"SystemRoot": package}),
+                patch("tools.smoke_windows.subprocess.run", side_effect=process),
+            ):
                 with self.assertRaisesRegex(RuntimeError, "Removed thumbnail hover popup"):
                     run(Path(package))
 

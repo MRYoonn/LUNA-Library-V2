@@ -150,6 +150,29 @@ class SiFinderTests(unittest.TestCase):
         self.assertEqual((result.status, len(result.candidates)), ("partial", 41))
         self.assertIn("file_lists_truncated=1", result.diagnostic)
 
+    def test_malformed_file_entries_mark_listing_partial(self):
+        # A reachable article can still contain an incomplete SI listing.
+        # Never certify the remaining valid entries as a complete set.
+        api = FakeApi(details={123: article(123, files=[
+            {"name": "valid-si.pdf"}, {"name": "../unsafe.pdf"},
+            {"name": ""}, {"name": 42}, None,
+        ])})
+        result = lookup_acs_figshare(DOI, api)
+        self.assertEqual(result.status, "partial")
+        self.assertEqual([c.filename for c in result.candidates], ["valid-si.pdf"])
+        self.assertIn("invalid_file_entries=4", result.diagnostic)
+        self.assertTrue(all(c.status == "metadata_match_link_unchecked"
+                            for c in result.candidates))
+
+    def test_all_malformed_file_entries_require_review_not_not_found(self):
+        api = FakeApi(details={123: article(123, files=[
+            {"name": "../unsafe.pdf"}, None, {"name": 9},
+        ])})
+        result = lookup_acs_figshare(DOI, api)
+        self.assertEqual(result.status, "needs_review")
+        self.assertEqual(result.candidates, ())
+        self.assertIn("invalid_file_entries=3", result.diagnostic)
+
     def test_boolean_detail_id_cannot_impersonate_numeric_article(self):
         api = FakeApi(search=[{"id": 1}], details={
             1: {**article(1), "id": True}})

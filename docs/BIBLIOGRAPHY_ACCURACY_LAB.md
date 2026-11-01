@@ -285,3 +285,29 @@ Synthetic regression tests exercise the coverage inventory only; **no real
 publisher PDFs or native captures were available in this run**. The optional
 gate is a denominator-completeness check, not independent verification of
 goldset truth, PDF SHA, Windows runtime, network errors, or manual edits.
+
+## Follow-up: goldset collection audit without engine predictions (2026-11-02)
+
+Before a Windows Qt snapshot is available, run the independent **read-only**
+`tools/bibliography_goldset_audit.py` on a local, authorized goldset:
+
+```sh
+python -B tools/bibliography_goldset_audit.py --goldset LOCAL_GOLDSET.json --report LOCAL_MISSING_LABELS.json
+python -B -m unittest discover -s tests -p 'test_bibliography_goldset_audit.py' -v
+```
+
+This command does **not** need prediction snapshots, PDFs, QSettings or network.
+It reports the existing 20-PDF publisher/SI/no-DOI sample quotas, the 11-field
+label-coverage matrix, and an actionable `unknown_cases` list with opaque
+case IDs, publisher and **omitted** labels. Explicit `null` is a verified
+negative label and is never listed as unknown. `synthetic_case_ids_excluded`
+prevents fabricated fixtures from being mistaken for real publisher coverage.
+Exit status: `0` for structurally ready, `1` for incomplete quotas/labels,
+`2` for malformed input or missing evidence. Even status 0 is **not** evidence
+that any PDF hash, publisher evidence or extraction was independently verified.
+The generated report can contain private case IDs; keep it outside GitHub.
+
+The source and synthetic tests were added independently of the existing DOI
+engine, PDF renderer, and application settings. The exact branch's Python and
+Windows CI must be checked before claiming this follow-up passes. Real ACS,
+RSC, Wiley, Nature and Elsevier accuracy remains unmeasured.

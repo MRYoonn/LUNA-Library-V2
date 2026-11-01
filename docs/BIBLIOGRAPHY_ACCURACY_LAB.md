@@ -52,3 +52,30 @@ python -B -m unittest discover -s tests -p 'test_accuracy_snapshot_source_contra
 **Current evidence:** the three Python source-contract checks passed locally; Qt6 was not installed in the current execution environment, so **native compilation, CTest, full repository preflight, and real Windows GUI behavior remain unverified**. No private snapshots were generated. A future reviewed test driver may call `captureCase(opaqueCaseId, store.record(identity))` inside a locally isolated Windows process and save the returned JSON **outside the repository**, after explicit privacy review. The adapter alone is not a running exporter and cannot prove that a card visibly displayed the same text. Never upload the resulting predictions, PDF filenames, QSettings, author data, or private case-ID map.
 
 Next: compile the native target on Windows; verify that exact SHA; build a reviewed, opt-in local driver that loads actual records without writing QSettings, compare against 20+ permissioned/public PDFs, then separately validate card display and restart/move/network behaviors.
+
+## Follow-up: publisher-by-field accuracy matrix (source implemented; runtime pending)
+
+The offline scorer now returns `by_publisher_fields` alongside the existing
+`field_scores` and `by_publisher` keys. Each publisher has its **own**
+`tp/fp/fn/tn/scored/unscored/precision/recall` for each of the 11 fields.
+A wrong nonempty final author counts as FP+FN **only for that publisher**;
+a field omitted from goldset stays `unscored` rather than becoming a false
+negative. Undefined precision/recall remains JSON `null`.
+
+The existing synthetic fixtures still cannot establish real extraction
+accuracy. Two additional source-level Python test cases cover publisher
+isolation, SI negative DOI, and unknown-label denominators. **They must be
+executed in the target environment before claiming PASS**:
+
+```sh
+python -B -m unittest discover -s tests -p 'test_bibliography_accuracy_lab.py' -v
+python -B tools/bibliography_accuracy_lab.py \
+  --goldset tests/fixtures/bibliography_accuracy_goldset.synthetic.json \
+  --predictions tests/fixtures/bibliography_accuracy_predictions.synthetic.json
+```
+
+Follow-up remains: Windows Qt6 compile/CTest of the existing
+`tests/native_accuracy` adapter; privacy-reviewed, opt-in capture of real
+LUNA record snapshots; 20+ authorized/public PDFs with SHA and independent
+field evidence; actual restart/move/QSettings/HTTP 429/404 evidence.
+No private PDF, settings, predictions or generated report may be committed.

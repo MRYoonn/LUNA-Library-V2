@@ -11,6 +11,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPointer>
 #include <QSaveFile>
 #include <QSettings>
 #include <QThread>
@@ -149,6 +150,11 @@ public:
         connect(&timer_,&QTimer::timeout,this,[this]{scan();});
         timer_.start();
     }
+    ~LocalFolderSync() override {
+        timer_.stop();
+        ++generation_;
+        if(worker_) worker_->wait(); // Worker only touches its isolated snapshot.
+    }
     std::function<void(const QString&,const QString&)> renamed;
     std::function<void(const QString&,const QJsonObject&)> remoteChanged;
     std::function<QJsonObject(const QString&)> localSnapshot;
@@ -228,7 +234,9 @@ public:
                 }
             }
         });
+        worker_=worker;
         connect(worker,&QThread::finished,this,[this,result,generation] {
+            worker_=nullptr;
             busy_=false;
             if (generation!=generation_) { QTimer::singleShot(0,this,[this]{scan();}); return; }
             bool changed=false;
@@ -269,7 +277,11 @@ public:
                     if(seen_.value(sidecar)==digest)continue;
                     const QJsonDocument document=QJsonDocument::fromJson(bytes);
                     if(!document.isObject() ||
-                       document.object().value("schemaVersion").toInt()!=1) continue;
+                       document.object().value("schemaVersion").toInt()!=1 ||
+                       QUuid(document.object().value("documentId").toString()).isNull() ||
+                       !document.object().value("bibliography").isObject() ||
+                       !document.object().value("memo").isString() ||
+                       !document.object().value("favorite").isBool()) continue;
                     // A newly connected PC with existing divergent local edits
                     // keeps its originals; never silently overwrite them.
                     const QJsonObject remote=document.object();
@@ -301,6 +313,7 @@ private:
     bool mybox_=false, busy_=false;
     int generation_=0;
     QTimer timer_;
+    QPointer<QThread> worker_;
     QHash<QString,QString> known_;
     QSet<QString> lastPaths_;
     QHash<QString,QByteArray> seen_;

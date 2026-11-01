@@ -423,7 +423,7 @@ private:
             }
             if(remoteChanged && !remoteChanged(pdf,remote)) continue;
             seen_[sidecar]=digest;
-            changed=true;
+            sidecarChanged_=true;
             lunaLocalStore().setValue(
                 QStringLiteral("library/mybox/seen/")+lunaPathKey(pdf),
                 QString::fromLatin1(digest.toHex()));

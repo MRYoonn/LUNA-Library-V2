@@ -62,7 +62,9 @@ class NativeFileManagementContracts(unittest.TestCase):
             "undoTrash->setShortcutContext(Qt::WidgetWithChildrenShortcut)",
             "recentUndo_.trash(path, &error)",
             "recentUndo_.undo(&error)",
-            "store.setValue(QStringLiteral(\"library/favorites\"), undoFavorites_)",
+            "if(undoFavorites_.contains(restored)",
+            "if(order>=0 && !recent.contains(restored))",
+            "store.setValue(QStringLiteral(\"library/favorites\"),favorites)",
         ):
             self.assertIn(token, UI, token)
         for token in (

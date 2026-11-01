@@ -1,0 +1,70 @@
+name: Bibliography Accuracy Lab - isolated synthetic validation
+
+# Only this independent branch is auto-tested. The production Windows build
+# remains manual-only; no PDF, private QSettings, release, or merge is involved.
+on:
+  push:
+    branches:
+      - agent/bibliography-accuracy-lab
+    paths:
+      - '.github/workflows/bibliography-accuracy-lab.yml'
+      - 'tools/bibliography_accuracy_lab.py'
+      - 'tools/preflight_public.py'
+      - 'tests/test_bibliography_accuracy_lab.py'
+      - 'tests/test_accuracy_snapshot_source_contract.py'
+      - 'tests/native_accuracy/**'
+      - 'tests/fixtures/bibliography_accuracy_*.synthetic.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: luna-bibliography-accuracy-lab
+  cancel-in-progress: false
+
+jobs:
+  python-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Public source and privacy preflight
+        run: python -B tools/preflight_public.py
+      - name: Run actual offline goldset scorer tests
+        run: python -B -m unittest discover -s tests -p 'test_bibliography_accuracy_lab.py' -v
+      - name: Run native snapshot source contracts
+        run: python -B -m unittest discover -s tests -p 'test_accuracy_snapshot_source_contract.py' -v
+
+  windows-qtcore:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+          cache: 'false'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Configure and compile isolated QtCore snapshot harness
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP 'luna-accuracy-native'
+          cmake -S tests/native_accuracy -B $build -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'QtCore CMake configure failed' }
+          cmake --build $build --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'QtCore native compile failed' }
+          ctest --test-dir $build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'QtCore native synthetic regression failed' }

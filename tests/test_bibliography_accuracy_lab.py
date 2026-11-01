@@ -238,7 +238,7 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
                 item = copy.deepcopy(templates[publisher])
                 item["id"] = f"fake-{publisher}-{index}"
                 cases.append(item)
-        for index in range(2):
+        for index in range(3):
             item = copy.deepcopy(si)
             item["id"] = f"fake-si-{index}"
             cases.append(item)
@@ -247,9 +247,6 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
             item["id"] = f"fake-no-doi-{index}"
             item["expected"]["doi"] = None
             cases.append(item)
-        extra = copy.deepcopy(templates["ACS"])
-        extra["id"] = "fake-extra"
-        cases.append(extra)
         for index, item in enumerate(cases):
             item["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
             item["evidence"] = {field: "fabricated evidence, contract test only"
@@ -258,7 +255,7 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         audit = lab.audit_goldset_coverage(gold)
         self.assertTrue(audit["ready"])
         self.assertEqual(audit["real_pdf_total"], 20)
-        self.assertEqual(audit["supporting_information"], 2)
+        self.assertEqual(audit["supporting_information"], 3)
         self.assertEqual(audit["no_doi_main"], 2)
         gold["cases"][1]["source"]["sha256"] = gold["cases"][0]["source"]["sha256"].upper()
         audit = lab.audit_goldset_coverage(gold)
@@ -299,6 +296,70 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
             self.assertFalse(result["pass"])
             self.assertFalse(result["coverage_audit"]["ready"])
             self.assertEqual(result["coverage_audit"]["real_pdf_total"], 7)
+
+    def test_coverage_gate_requires_three_si_even_with_twenty_cases(self):
+        # Structural sample counts only: fabricated hashes are not PDF evidence.
+        gold, _ = sample()
+        si = next(case for case in gold["cases"]
+                  if case["expected"].get("document_kind") == "supporting_information")
+        gold["cases"] = []
+        for index in range(2):
+            item = copy.deepcopy(si)
+            item["id"] = f"fabricated-si-{index}"
+            item["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            item["evidence"] = {field: "synthetic test only" for field in item["expected"]}
+            gold["cases"].append(item)
+        audit = lab.audit_goldset_coverage(
+            gold, minimum_total=2, minimum_main_per_publisher=0, minimum_no_doi_main=0
+        )
+        self.assertFalse(audit["ready"])
+        self.assertIn("supporting_information", {gap["criterion"] for gap in audit["gaps"]})
+        third = copy.deepcopy(gold["cases"][0])
+        third["id"] = "fabricated-si-2"
+        third["source"]["sha256"] = f"{3:064x}"
+        gold["cases"].append(third)
+        audit = lab.audit_goldset_coverage(
+            gold, minimum_total=2, minimum_main_per_publisher=0, minimum_no_doi_main=0
+        )
+        self.assertTrue(audit["ready"])
+
+    def test_engine_identity_rejects_stale_or_placeholder_snapshot(self):
+        predictions = {"engine_commit": "a" * 40}
+        lab.check_engine_identity(predictions, "A" * 40)
+        for expected in ("b" * 40, "0" * 40, "not-a-sha"):
+            with self.assertRaises(lab.DatasetError):
+                lab.check_engine_identity(predictions, expected)
+        with self.assertRaisesRegex(lab.DatasetError, "engine_commit mismatch"):
+            lab.check_engine_identity({}, "a" * 40)
+
+    def test_cli_real_mode_engine_identity_gate(self):
+        gold, predictions = sample()
+        for index, case in enumerate(gold["cases"]):
+            case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            case["evidence"] = {field: "fabricated contract only" for field in case["expected"]}
+        predictions["engine_commit"] = "a" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        for case in predictions["cases"]:
+            case["audit"] = {"manual_citation_active": False,
+                             "senior_author_override_active": False}
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            goldfile, predfile, report = (base / name for name in
+                                         ("gold.json", "pred.json", "report.json"))
+            goldfile.write_text(json.dumps(gold), encoding="utf-8")
+            predfile.write_text(json.dumps(predictions), encoding="utf-8")
+            cmd = [sys.executable, str(TOOL), "--goldset", str(goldfile),
+                   "--predictions", str(predfile), "--report", str(report),
+                   "--require-real", "--expected-engine-commit"]
+            stale = subprocess.run(cmd + ["b" * 40], capture_output=True, text=True)
+            self.assertEqual(stale.returncode, 2)
+            self.assertIn("engine_commit mismatch", stale.stderr)
+            self.assertFalse(report.exists())
+            matched = subprocess.run(cmd + ["A" * 40], capture_output=True, text=True)
+            self.assertEqual(matched.returncode, 0, matched.stderr)
+            result = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(result["engine_commit"], "a" * 40)
+            self.assertEqual(result["assessment"], "provided_real_goldset_not_independently_verified")
 
     def test_cli_exit_codes_and_local_report(self):
         gold = FIXTURES / "bibliography_accuracy_goldset.synthetic.json"

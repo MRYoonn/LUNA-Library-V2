@@ -9,6 +9,8 @@ on:
     paths:
       - '.github/workflows/bibliography-accuracy-lab.yml'
       - 'tools/bibliography_accuracy_lab.py'
+      - 'tools/bibliography_goldset_audit.py'
+      - 'tests/test_bibliography_goldset_audit.py'
       - 'docs/BIBLIOGRAPHY_ACCURACY_LAB.md'
       - 'tools/preflight_public.py'
       - 'tests/test_bibliography_accuracy_lab.py'
@@ -39,6 +41,8 @@ jobs:
         run: python -B tools/preflight_public.py
       - name: Run actual offline goldset scorer tests
         run: python -B -m unittest discover -s tests -p 'test_bibliography_accuracy_lab.py' -v
+      - name: Run goldset collection readiness inventory tests
+        run: python -B -m unittest discover -s tests -p 'test_bibliography_goldset_audit.py' -v
       - name: Run native snapshot source contracts
         run: python -B -m unittest discover -s tests -p 'test_accuracy_snapshot_source_contract.py' -v
       - name: Run entire offline Python unittest suite

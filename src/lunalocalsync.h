@@ -240,28 +240,67 @@ public:
             busy_=false;
             if (generation!=generation_) { QTimer::singleShot(0,this,[this]{scan();}); return; }
             bool changed=false;
+            QSet<QString> matched;
             for(auto it=result->ids.cbegin();it!=result->ids.cend();++it) {
                 if(result->ambiguous.contains(it.key())) continue;
                 const QString before=known_.value(it.key());
+                // Explorer filename change must stay in the same directory.
                 if (!before.isEmpty() && before!=it.value() &&
+                    QFileInfo(before).absolutePath().compare(
+                        QFileInfo(it.value()).absolutePath(),Qt::CaseInsensitive)==0 &&
                     !QFileInfo::exists(before) && renamed) {
                     renamed(before,it.value());
+                    matched.insert(it.value());
                     changed=true;
                 }
             }
-            // Replace the map only after callbacks have reconciled old paths.
-            QHash<QString,QString> fresh;
             QVariantMap stored;
+            for(auto it=known_.cbegin();it!=known_.cend();++it)
+                if(!QFileInfo::exists(it.value())) stored.insert(it.key(),it.value());
             for(auto it=result->ids.cbegin();it!=result->ids.cend();++it)
-                if(!result->ambiguous.contains(it.key())) {
-                    fresh.insert(it.key(),it.value());
-                    stored.insert(it.key(),it.value());
-                }
-            known_=std::move(fresh);
+                if(!result->ambiguous.contains(it.key())) stored.insert(it.key(),it.value());
+            known_.clear();
+            for(auto it=stored.cbegin();it!=stored.cend();++it)
+                known_.insert(it.key(),it.value().toString());
             lunaLocalStore().setValue(QStringLiteral("library/fileIds/")+lunaPathKey(root_),stored);
             const QSet<QString> paths(result->paths.cbegin(),result->paths.cend());
             if (!lastPaths_.isEmpty() && paths!=lastPaths_) changed=true;
             lastPaths_=paths;
+            // On a second MYBOX PC the NTFS file ID differs. The portable
+            // documentId recorded beside the PDF provides the same safe rename
+            // detection after sync, even if LUNA was closed when it changed.
+            if(mybox_) {
+                const QString key=QStringLiteral("library/mybox/documentIds/")+lunaPathKey(root_);
+                auto previous=lunaLocalStore().value(key).toMap();
+                QVariantMap active;
+                QSet<QString> duplicates;
+                for(const QString& pdf:result->paths) {
+                    const QFileInfo sidecar(portableSidecar(pdf));
+                    if(!sidecar.isFile() || sidecar.isSymLink() || sidecar.size()>131072) continue;
+                    QFile input(sidecar.absoluteFilePath());
+                    if(!input.open(QIODevice::ReadOnly)) continue;
+                    const auto doc=QJsonDocument::fromJson(input.readAll());
+                    const QString id=doc.object().value("documentId").toString();
+                    if(!doc.isObject() || QUuid(id).isNull()) continue;
+                    if(active.contains(id)) duplicates.insert(id);
+                    else active.insert(id,pdf);
+                }
+                for(auto it=active.cbegin();it!=active.cend();++it) {
+                    if(duplicates.contains(it.key()) || matched.contains(it.value())) continue;
+                    const QString before=previous.value(it.key()).toString();
+                    const QString after=it.value().toString();
+                    if(!before.isEmpty() && before!=after && !QFileInfo::exists(before) &&
+                       QFileInfo(before).absolutePath().compare(
+                           QFileInfo(after).absolutePath(),Qt::CaseInsensitive)==0 && renamed) {
+                        renamed(before,after);
+                        changed=true;
+                    }
+                }
+                for(auto it=previous.cbegin();it!=previous.cend();++it)
+                    if(!active.contains(it.key())) active.insert(it.key(),it.value());
+                for(const auto& id:duplicates) active.remove(id);
+                lunaLocalStore().setValue(key,active);
+            }
             if(mybox_ && localSnapshot) {
                 int read=0;
                 for(const QString& pdf:result->paths) {

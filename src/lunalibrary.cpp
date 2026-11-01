@@ -1522,7 +1522,7 @@ public:
             });
         } else {
             pagePreviewAction_->setEnabled(false);
-            pagePreviewAction_->setToolTip(QStringLiteral("PDF4QT 페이지 미리보기 모델을 사용할 수 없습니다."));
+            pagePreviewAction_->setToolTip(QStringLiteral("페이지 미리보기를 사용할 수 없습니다."));
         }
         auto page = [this](QListWidget*& list, QLabel*& count) {
             auto* p = new QWidget(pages_);

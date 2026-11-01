@@ -104,6 +104,15 @@ def run(package: Path, screenshots_directory: Path | None = None,
                            cwd=folder, env=child_env, check=True, timeout=45)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             detail = report.read_text(encoding="utf-8")[:512] if report.is_file() else "No native diagnostic"
+            # Keep the last C++ checkpoint when the Windows GUI times out
+            # before it can write its final success or failure marker.
+            stage_file = Path(str(report) + ".stage.txt")
+            if stage_file.is_file():
+                stage = stage_file.read_text(encoding="utf-8", errors="replace").strip()[:220]
+                detail += f" | Last native stage: {stage}"
+                if screenshots_directory is not None:
+                    screenshots_directory.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(stage_file, screenshots_directory / "luna-native-last-stage.txt")
             print_probe = Path(str(report) + ".print-probe.txt")
             if print_probe.is_file():
                 detail += " | " + print_probe.read_text(encoding="utf-8", errors="replace")[:400].strip()

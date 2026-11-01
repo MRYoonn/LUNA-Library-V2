@@ -14,6 +14,7 @@ APPROVED = {
     "assets/symbol_icons/svg_bundle.part2.b85",
     "assets/symbol_icons/svg_bundle.part3.b85",
     "assets/symbol_icons/svg_bundle.part4.b85",
+    ".github/workflows/bibliography-accuracy-lab.yml",
     "tests/native_accuracy/snapshot_adapter.h",
     "tests/native_accuracy/main.cpp",
     "tests/native_accuracy/CMakeLists.txt",

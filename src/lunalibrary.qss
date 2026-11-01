@@ -62,8 +62,9 @@ QListView#LunaPageGrid { background:white; border:0; padding:0; }
 QListView#LunaPageGrid::item { border:1px solid transparent; border-radius:10px; margin:4px; padding:4px; }
 QListView#LunaPageGrid::item:hover { background:#F4F8FF; border:1px solid #D5E3F8; }
 QListView#LunaPageGrid::item:selected { background:#E9F1FF; border:1px solid #77A7EA; }
-QToolButton#LunaCombinedPanelToggle { color:#2F5C9C; background:white; border:1px solid #DFE7F1; border-radius:7px; padding:3px; }
-QToolButton#LunaCombinedPanelToggle:hover { background:#EAF2FF; }
+QToolButton#LunaNavigationCollapseButton, QToolButton#LunaDocumentsCollapseButton { color:#2F5C9C; background:white; border:1px solid #DFE7F1; border-radius:7px; padding:3px; }
+QToolButton#LunaNavigationCollapseButton:hover, QToolButton#LunaDocumentsCollapseButton:hover { background:#EAF2FF; }
+QToolButton#LunaNavigationCollapseButton:checked, QToolButton#LunaDocumentsCollapseButton:checked { background:#EAF2FF; }
 QTabWidget#LunaPdfTabs::pane { border:0; background:#F3F6FB; }
 QTabBar#LunaPdfTabBar { background:#F3F6FB; border:0; }
 QTabBar#LunaPdfTabBar::tab { background:#F3F6FB; color:#657794; font-size:12px; border:0; border-bottom:2px solid transparent; border-top-left-radius:6px; border-top-right-radius:6px; padding:0 4px 0 8px; }

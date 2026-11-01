@@ -58,7 +58,7 @@ static bool isLunaInlineScript(const TextCharacter& a, const TextCharacter& b)
 INTRO = "/// Nearest character found by the spatial index of text characters\n"
 BEFORE_LINE = r'''            if (info.squaredDistance < maximalDistance * maximalDistance && // 1)
                 std::fabs(characters[i].position.y() - characters[info.index].position.y()) < fontSizeMin * m_settings.charactersOnLineSensitivity && // 2)
-                fontSizeMax / fontSizeMin < m_settings.fontSensitivity) // 3
+                fontSizeMax / fontSizeMin < m_settings.fontSensitivity) // 3)
 '''
 AFTER_LINE = r'''            const bool nativeSameLine =
                 info.squaredDistance < maximalDistance * maximalDistance &&

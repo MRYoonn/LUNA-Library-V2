@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "predictions",
+  "dataset_id": "luna-synthetic-multipublisher-v1",
+  "engine_commit": "NOT_RUN_SYNTHETIC_SNAPSHOTS",
+  "cases": [
+    {"id": "syn-acs-main", "observed": {"doi": "https://doi.org/10.1000/synthetic-acs-main", "title": "Synthetic Photoredox Catalysis of Uracils", "terminal_author": "Alex Example", "journal": "Journal of the American Chemical Society", "year": "2025", "volume": "147", "issue": "4", "page": "100–108", "document_kind": "main_article"}},
+    {"id": "syn-rsc-main", "observed": {"doi": "10.1000/synthetic-rsc-main", "title": "Synthetic Radical Reaction Mapping", "terminal_author": "Jamie Example", "journal": "Chemical Science", "year": "2026", "volume": "17", "page": "247", "document_kind": "main_article"}},
+    {"id": "syn-rsc-si", "observed": {"document_kind": "supporting_information"}},
+    {"id": "syn-wiley-main", "observed": {"doi": "10.1000/synthetic-wiley-main", "title": "Synthetic Triplet Energy Transfer", "terminal_author": "Morgan Example", "journal": "Angewandte Chemie International Edition", "year": "2024", "article_number": "e202400001", "document_kind": "main_article"}},
+    {"id": "syn-nature-main", "observed": {"doi": "10.1000/synthetic-nature-main", "title": "Synthetic Photochemistry with PCET", "terminal_author": "Taylor Example", "journal": "Nature Chemistry", "year": "2023", "volume": "15", "page": "900-908", "document_kind": "main_article"}},
+    {"id": "syn-elsevier-main", "observed": {"doi": "10.1000/synthetic-elsevier-main", "title": "Synthetic Visible-Light Alkylation", "terminal_author": "Casey Example", "journal": "Tetrahedron", "year": "2022", "volume": "120", "article_number": "132900", "document_kind": "main_article"}},
+    {"id": "syn-no-doi", "observed": {"title": "Synthetic Unindexed Article", "document_kind": "main_article"}}
+  ],
+  "regressions": [
+    {"id": "offline-manual", "before": {"title": "User Title", "titleSource": "manual", "citation": "User Citation"}, "after": {"title": "User Title", "titleSource": "manual", "citation": "User Citation"}, "must_preserve": ["title", "titleSource", "citation"], "expected_status": "offline", "actual_status": "offline"},
+    {"id": "http-429", "before": {"doi": "10.1000/synthetic-acs-main", "journal": "User Journal"}, "after": {"doi": "10.1000/synthetic-acs-main", "journal": "User Journal"}, "must_preserve": ["doi", "journal"], "expected_status": "rate_limited", "actual_status": "rate_limited"},
+    {"id": "http-404", "before": {"title": "User Title"}, "after": {"title": "User Title"}, "must_preserve": ["title"], "expected_status": "not_found", "actual_status": "not_found"},
+    {"id": "ambiguous-doi", "before": {}, "after": {"doi": null}, "must_remain_empty": ["doi"], "expected_status": "needs_review", "actual_status": "needs_review"},
+    {"id": "invalid-doi", "before": {}, "after": {}, "must_remain_empty": ["doi"], "expected_status": "needs_review", "actual_status": "needs_review"},
+    {"id": "manual-overwrite", "before": {"authors": "Human Correct Author", "authorsSource": "manual"}, "after": {"authors": "Human Correct Author", "authorsSource": "manual"}, "must_preserve": ["authors", "authorsSource"]},
+    {"id": "restart", "before": {"citation": "User Citation", "titleSource": "manual"}, "after": {"citation": "User Citation", "titleSource": "manual"}, "must_preserve": ["citation", "titleSource"]},
+    {"id": "file-move", "before": {"doi": "10.1000/synthetic-rsc-main", "memo": "Synthetic note"}, "after": {"doi": "10.1000/synthetic-rsc-main", "memo": "Synthetic note"}, "must_preserve": ["doi", "memo"]},
+    {"id": "si-no-paper-fields", "before": {}, "after": {"title": null, "authors": null, "journal": null}, "must_remain_empty": ["title", "authors", "journal"]}
+  ]
+}

@@ -146,3 +146,23 @@ failed rollback on Windows, run the gate against the actual association
 module in full checkout, and then implement atomic local association-state
 persistence with explicit opt-in. Do not silently modify another PR or
 merge this Draft. Live ACS/Figshare SI landing links remain unverified.
+
+
+## Follow-up: atomic local SI association state (2026-11-01)
+
+Added `tools/si_state_store.py` and `tests/test_si_state_store.py` as an **opt-in Python persistence reference** for the already-existing `AssociationIndex` model; this is not a new DOI extractor, file mover, UI integration, or production Qt store.
+
+- `read(library_root)` is non-mutating and returns an empty index with `missing` revision if no state exists.
+- `commit(library_root, index, expected_revision, user_confirmed=True)` validates the full v1 graph through `AssociationIndex.from_json`, takes an exclusive local lock, compares SHA256 of current raw state against the expected revision, then writes to a same-directory temporary file, fsyncs and atomically replaces `.luna-si-associations.json`. Missing, corrupt, oversized, symlinked, future-schema, locked or concurrently modified state is never silently replaced.
+- Link creation still requires `AssociationIndex.confirm_link(..., user_confirmed=True)`; a matching filename/DOI does not auto-create a link. Stored paths are slash-relative under a caller-selected library root, not personal absolute paths.
+- No PDF bytes, QSettings, memo, user credentials or SI file downloads are sent to GitHub or a remote service. A stale lock after a crash requires deliberate user/operator recovery; it is **not** automatically deleted.
+- The store does not fix the blocking `lunafilemove.h` omission of `.luna-meta.json`. Until Issue #9's owner safely moves/rolls back this sidecar, SI-linked physical moves must remain disabled. The Python relocation gate is a separate post-move check.
+- Directory fsync is best effort on POSIX after replacement. Windows power-loss durability, antivirus interference, SMB/network drives, Windows Qt6/MSVC, live ACS links and real LUNA app integration are **not verified**.
+
+Local isolated run:
+
+    python -B -m unittest discover -s tests -p 'test_si_state_store.py' -v
+
+**Evidence:** 11/11 synthetic offline tests passed under Python 3 in a disposable local harness with a minimal compatibility copy of the existing `AssociationIndex` API. That compatibility copy was **not committed**. Full exact-branch checkout tests against the actual association module and Windows/Qt native tests are **not run**. This is reference code only, not an accepted production feature.
+
+**Next gates:** run the new tests against the exact GitHub branch with the real `tools/si_associations.py`; test lock/crash and atomic replacement on Windows; port the validated persistence boundary to a standalone QtCore `QSaveFile`/`QLockFile` component; reconcile paired PDF+UUID sidecar moves in Issue #9 before enabling the UI. Keep PR #17 Draft.

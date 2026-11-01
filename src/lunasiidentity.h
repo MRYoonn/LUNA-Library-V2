@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 // Isolated, opt-in stable identity for local Main/SI PDFs.
-// No PDF parsing, network access, QSettings mutation, or association creation.
+// No PDF parsing, network access, user-settings mutation, or association creation.
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>

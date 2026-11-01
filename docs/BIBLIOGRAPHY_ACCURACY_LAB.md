@@ -117,7 +117,7 @@ synthetic and small real-pilot scoring behavior is unchanged. It requires:
 - At least **20 distinct public/permissioned PDF cases**, counted by the
   supplied SHA256 metadata, with duplicate PDF digests explicitly blocked.
 - At least **3 main articles each** from ACS, RSC, Wiley, Nature and Elsevier.
-- At least **2 explicitly labeled SI PDFs**, plus **2 separately labeled
+- At least **3 explicitly labeled SI PDFs**, plus **2 separately labeled
   main-article PDFs without a DOI**. An SI's missing DOI does **not** satisfy
   the no-DOI main-article requirement.
 - Missing publisher/sample/duplicate coverage is returned as machine-readable
@@ -161,3 +161,36 @@ They have not been executed on a Windows/Qt6 build. Real publisher accuracy,
 actual QSettings persistence, file relocation and network error injection
 remain unverified. Run the complete Python tests and native CTest before any
 merge; do not upload private snapshots or user PDF files.
+
+## Follow-up: exact engine-SHA gate and SI coverage correction (2026-11-01)
+
+The coverage gate now requires **three** independently labeled SI PDFs,
+consistent with the minimum real-paper matrix above. The earlier two-SI
+threshold could report sample-design readiness even though the documented
+acceptance matrix was incomplete. The new synthetic test holds the other
+thresholds constant and proves that two SI are rejected while three are
+accepted; synthetic hashes are **not** real PDF evidence.
+
+For any real run, pin the **expected** PR #16 build commit explicitly:
+
+```sh
+python -B tools/bibliography_accuracy_lab.py --require-real --coverage-gate \
+  --expected-engine-commit ACTUAL_40_HEX_WINDOWS_BUILD_SHA \
+  --goldset LOCAL_GOLDSET.json --predictions LOCAL_PREDICTIONS.json \
+  --report LOCAL_ACCURACY_REPORT.json
+```
+
+The command refuses an invalid expected SHA, a different
+`predictions.engine_commit`, or using this option without `--require-real`.
+Matching is case-insensitive; the real-mode report records the claimed
+`engine_commit` for audit. This guards against scoring stale PR #16
+snapshots under a newer build's label. It does **not** prove the SHA was
+executed or that evidence/PDF digests are authentic. Independently compare
+the SHA with the actual Windows build-info and Actions run, and keep all
+captured records local.
+
+New synthetic contract tests cover the three-SI threshold, missing/invalid/
+stale engine identity, and the real-mode CLI match/mismatch paths. **No
+Windows Qt6/native tests or real-publisher accuracy run has been performed
+in this change.** Run the full Python suite and CTest on the exact commit
+before interpreting any runtime PASS.

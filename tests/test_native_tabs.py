@@ -270,7 +270,7 @@ class NativeTabsContract(unittest.TestCase):
             'LunaEditPaperMemo', 'list->editItem(item);',
             'list->setEditTriggers(QAbstractItemView::NoEditTriggers)',
             'return QRect(content.left(), r.top() + 241, content.width(), 24);',
-            'const QRect citeArea = citationRect(r);',
+            'const QRect citeArea = oneLineTitle ? citationRect(r).translated(0, -19) : citationRect(r);',
             'painter->drawText(citeArea, Qt::AlignLeft | Qt::AlignVCenter,',
             'lastListedAuthor(', '저자 미확인',
         ):
@@ -492,7 +492,10 @@ class NativeTabsContract(unittest.TestCase):
         overlay = (ROOT / 'experiments/native_tabs/prepare.py').read_text(encoding='utf-8')
         self.assertIn('setCornerWidget(corner, Qt::TopLeftCorner)', tabs)
         self.assertIn('setExpanding(false)', tabs)
-        self.assertIn('Qt::ElideMiddle, 156', tabs)
+        self.assertIn('minimumTabSizeHint(int) const override { return {88, 41}; }', tabs)
+        self.assertIn('tabs_->setTabText(index, text)', tabs)
+        self.assertIn('tabs_->setElideMode(Qt::ElideMiddle)', tabs)
+        self.assertIn('tabs_->tabBar()->setAcceptDrops(true)', tabs)
         self.assertIn('row->insertWidget(0, toggle)', library)
         self.assertIn('QTabBar#LunaPdfTabBar::tab', style)
         self.assertIn('painter->fillPath(selectionPath', overlay)

@@ -47,9 +47,16 @@ int main(int argc, char** argv) {
     if (!luna::renameWithoutReplacement(movedPng, png)) return fail("Cannot restore rollback fixture");
     if (luna::movePdfWithThumbnails(pdf, target + QStringLiteral("/missing")).success || read(pdf) != document)
         return fail("Invalid destination changed source");
+    const QString originalMeta=QDir(root).filePath(QStringLiteral("논문 공백.luna-meta.json"));
+    const QString movedMeta=QDir(target).filePath(QStringLiteral("논문 공백.luna-meta.json"));
+    if(!write(originalMeta, QByteArray("{\"schemaVersion\":1}")))
+        return fail("Cannot create portable metadata fixture");
     const auto success = luna::movePdfWithThumbnails(pdf, target);
-    if (!success.success || success.documentPath != movedPdf || QFileInfo::exists(pdf) || QFileInfo::exists(png) || read(movedPdf) != document || read(movedPng) != thumbnail)
-        return fail("Paired move changed bytes or paths");
+    if (!success.success || success.documentPath != movedPdf || QFileInfo::exists(pdf) || QFileInfo::exists(png) ||
+        QFileInfo::exists(originalMeta) || read(movedPdf) != document || read(movedPng) != thumbnail ||
+        read(movedMeta)!=QByteArray("{\"schemaVersion\":1}"))
+        return fail("Paired move changed PDF, thumbnail or MYBOX metadata");
+    QFile::remove(movedMeta); // Isolate the subsequent stale-sidecar test.
     if (!luna::movePdfWithThumbnails(movedPdf, target).success) return fail("Same-directory move failed");
     if (luna::movePdfWithThumbnails(pdf, target).success) return fail("Missing source accepted");
     // A destination orphan thumbnail must never become a different PDF's preview.
@@ -57,6 +64,13 @@ int main(int argc, char** argv) {
     QFile::remove(movedPdf);
     if (luna::movePdfWithThumbnails(pdf, target).success || read(pdf) != document || read(movedPng) != thumbnail)
         return fail("PDF-only move adopted an unrelated destination thumbnail");
+    // A stale MYBOX sidecar blocks importing an unrelated document.
+    const QString copyTarget=QDir(root).filePath(QStringLiteral("copy-target"));
+    if(!QDir().mkpath(copyTarget))return fail("Cannot create copy folder");
+    const QString stale=QDir(copyTarget).filePath(QStringLiteral("논문 공백.luna-meta.json"));
+    if(!write(stale,"unrelated") || luna::copyPdfWithThumbnails(pdf,copyTarget).success ||
+       read(stale)!="unrelated" || !QFileInfo::exists(pdf))
+        return fail("Copy adopted an unrelated MYBOX metadata sidecar");
     // Exercise native Explorer renames with the real OS file identity.
     const QString renamedDir=QDir(root).filePath(QStringLiteral("rename-fixtures"));
     if (!QDir().mkpath(renamedDir)) return fail("Cannot create rename fixture");

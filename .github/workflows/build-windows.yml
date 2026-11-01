@@ -121,7 +121,14 @@ jobs:
       contents: read
       actions: read
     steps:
+      - name: Bootstrap trace before checkout (synthetic metadata only)
+        shell: pwsh
+        run: |
+          $trace = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics'
+          New-Item -ItemType Directory -Path $trace -Force | Out-Null
+          @{ schema = 1; status = 'started'; source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; job = $env:GITHUB_JOB } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $trace 'bootstrap.json')
       - uses: actions/checkout@v4
+        id: checkout
         with:
           persist-credentials: false
       - name: Initialize permanent synthetic build trace
@@ -166,8 +173,12 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "public-gate=${{ steps.public-gate.outcome }};crt-check=${{ steps.crt-check.outcome }}"
-          if ($LASTEXITCODE -ne 0) { throw 'Could not finalize preflight diagnostics' }
+          if (Test-Path tools/build_diagnostics.py) {
+            python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "checkout=${{ steps.checkout.outcome }};public-gate=${{ steps.public-gate.outcome }};crt-check=${{ steps.crt-check.outcome }}"
+            if ($LASTEXITCODE -ne 0) { throw 'Could not finalize preflight diagnostics' }
+          } else {
+            Write-Warning 'Source checkout missing: bootstrap.json and GitHub step logs remain diagnostic evidence.'
+          }
       - name: Upload public preflight diagnostics on success or failure
         if: always()
         uses: actions/upload-artifact@v4
@@ -235,7 +246,14 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-binary-cache
       VCPKG_OVERLAY_PORTS: ${{ github.workspace }}\pdf4qt\vcpkg\overlays\general
     steps:
+      - name: Bootstrap trace before checkout (synthetic metadata only)
+        shell: pwsh
+        run: |
+          $trace = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics'
+          New-Item -ItemType Directory -Path $trace -Force | Out-Null
+          @{ schema = 1; status = 'started'; source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; job = $env:GITHUB_JOB } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $trace 'bootstrap.json')
       - name: Checkout public builder with no retained credentials
+        id: checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -631,7 +649,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload synthetic native UI screenshots
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: LUNA-UI-Synthetic
@@ -652,8 +670,12 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "source=${{ steps.source-check.outcome }};metadata=${{ steps.metadata-test.outcome }};dialog=${{ steps.dialog-test.outcome }};compile=${{ steps.native-compile.outcome }};portable=${{ steps.portable-check.outcome }};native-ui=${{ steps.native-ui.outcome }};tabs=${{ steps.tabs-test.outcome }};installer=${{ steps.installer-test.outcome }}"
-          if ($LASTEXITCODE -ne 0) { throw 'Could not finalize build diagnostics' }
+          if (Test-Path tools/build_diagnostics.py) {
+            python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "checkout=${{ steps.checkout.outcome }};source=${{ steps.source-check.outcome }};metadata=${{ steps.metadata-test.outcome }};dialog=${{ steps.dialog-test.outcome }};compile=${{ steps.native-compile.outcome }};portable=${{ steps.portable-check.outcome }};native-ui=${{ steps.native-ui.outcome }};tabs=${{ steps.tabs-test.outcome }};installer=${{ steps.installer-test.outcome }}"
+            if ($LASTEXITCODE -ne 0) { throw 'Could not finalize build diagnostics' }
+          } else {
+            Write-Warning 'Source checkout missing: bootstrap.json and GitHub step logs remain diagnostic evidence.'
+          }
       - name: Upload permanent Windows failure diagnostics
         if: always()
         uses: actions/upload-artifact@v4

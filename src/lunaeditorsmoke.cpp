@@ -324,6 +324,27 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!waitFor([&] { return pageNumber->value() == 1; })) return fail("Previous page toolbar action failed");
     pageNumber->setValue(2); QMetaObject::invokeMethod(pageNumber,"editingFinished",Qt::DirectConnection);
     if (!waitFor([&] { const auto pages = pdfWidget->getDrawWidget()->getCurrentPages(); return !pages.empty() && pages.front() == 1; })) return fail("Native page entry did not go to page two");
+    checkpoint("Reader phase: inline superscript/subscript native selection and copy order");
+    // Page 2 contains independently typeset raised (sp3) and lowered (CF3)
+    // PDF glyph runs. Ctrl+C must not move '3' to another paragraph.
+    {
+        const pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(1);
+        const auto flows = pdf::PDFTextFlow::createTextFlows(layout, pdf::PDFTextFlow::RemoveSoftHyphen, 1);
+        const QString copied = flows.empty() ? QString() : flows.front().getText();
+        bool raisedGrouped = false, loweredGrouped = false;
+        for (const auto& block : layout.getTextBlocks()) {
+            for (const auto& line : block.getLines()) {
+                QString glyphs;
+                for (const auto& glyph : line.getCharacters()) glyphs.append(glyph.character);
+                if (glyphs.contains(QStringLiteral("C(sp3)-H"))) raisedGrouped = true;
+                if (glyphs.contains(QStringLiteral("CF3-H"))) loweredGrouped = true;
+            }
+        }
+        if (!raisedGrouped || !loweredGrouped ||
+            !copied.contains(QStringLiteral("C(sp3)-H")) ||
+            !copied.contains(QStringLiteral("CF3-H")))
+            return fail("Native inline superscript/subscript lost same-word selection or Ctrl+C reading order");
+    }
     pageNumber->setValue(1); QMetaObject::invokeMethod(pageNumber,"editingFinished",Qt::DirectConnection);
     if (!waitFor([&] { const auto pages = pdfWidget->getDrawWidget()->getCurrentPages(); return !pages.empty() && pages.front() == 0; })) return fail("Native page entry did not return to page one");
     const double zoom = proxy->getZoom();

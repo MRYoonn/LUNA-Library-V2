@@ -286,9 +286,11 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         gold["cases"][1]["source"]["sha256"] = f"{2:064x}"
         gold["cases"][0]["source"]["kind"] = "synthetic"
         audit = lab.audit_goldset_coverage(gold)
-        self.assertEqual(audit["main_by_publisher"]["ACS"], 3)
+        # A synthetic ACS sample cannot count toward the real-PDF quota.
+        self.assertEqual(audit["main_by_publisher"]["ACS"], 2)
         self.assertEqual(audit["main_by_publisher"]["RSC"], 3)
         self.assertEqual(audit["real_pdf_total"], 19)
+        self.assertIn("main_per_publisher", {gap["criterion"] for gap in audit["gaps"]})
 
     def test_coverage_cli_requires_real_and_writes_gap_report(self):
         gold, predictions = sample()

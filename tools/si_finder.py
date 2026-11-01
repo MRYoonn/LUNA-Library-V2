@@ -158,6 +158,7 @@ def lookup_acs_figshare(
         seen: set[int] = set()
         rejected = 0
         failed_details = 0
+        truncated_files = 0
         for summary in found:
             if not isinstance(summary, dict):
                 rejected += 1
@@ -174,7 +175,8 @@ def lookup_acs_figshare(
             except (ValueError, HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
                 failed_details += 1
                 continue
-            if not isinstance(detail, dict) or detail.get("id") != article_id:
+            if (not isinstance(detail, dict) or type(detail.get("id")) is not int
+                    or detail["id"] != article_id):
                 rejected += 1
                 continue
             if normalize_doi(detail.get("resource_doi", "")) != doi:
@@ -189,6 +191,11 @@ def lookup_acs_figshare(
             if not isinstance(files, list):
                 rejected += 1
                 continue
+            # Do not silently claim a complete SI listing when the public
+            # detail record contains more files than this bounded prototype
+            # can display. Retain the first MAX_FILES for user review.
+            if len(files) > MAX_FILES:
+                truncated_files += 1
             for item in files[:MAX_FILES]:
                 if not isinstance(item, dict):
                     continue
@@ -200,13 +207,15 @@ def lookup_acs_figshare(
                 # opens the official landing page for user review in a browser.
                 candidates.append(SiCandidate(article_id, doi, title, filename, landing))
         if candidates:
-            status = "partial" if failed_details or len(found) == MAX_ARTICLES else "candidates"
+            status = "partial" if (failed_details or truncated_files
+                                   or len(found) == MAX_ARTICLES) else "candidates"
         elif rejected or failed_details:
             status = "needs_review"
         else:
             status = "not_found"
         diagnostic = (f"rejected={rejected};detail_failures={failed_details};"
-                      f"search_page_full={int(len(found) == MAX_ARTICLES)}")
+                      f"search_page_full={int(len(found) == MAX_ARTICLES)};"
+                      f"file_lists_truncated={truncated_files}")
         return SiLookupResult(doi, status, tuple(candidates), fallback, diagnostic)
     except (ValueError, HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
         # Never include remote response bodies or local paths in diagnostics.

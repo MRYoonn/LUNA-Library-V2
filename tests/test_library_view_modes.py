@@ -89,6 +89,42 @@ class LibraryModes(unittest.TestCase):
             self.assertIn('assets/icons/ui-'+name+'.svg', whitelist)
             self.assertIn('readerIcon(QStringLiteral("'+name+'"))', self.cpp)
 
+    def test_independent_panel_collapse_controls_remain_reachable(self):
+        for token in (
+            'QStringLiteral("LunaNavigationCollapseButton")',
+            'QStringLiteral("LunaDocumentsCollapseButton")',
+            'QStringLiteral("라이브러리 탐색 패널 접기 / 펼치기")',
+            'QStringLiteral("논문 목록 패널 접기 / 펼치기")',
+            "addIndependentPanelButtons(documentHeader, documentRow);",
+            "addIndependentPanelButtons(corner, row);",
+            "void toggleNavigation()",
+            "void toggleDocuments()",
+            "target->addWidget(toggle)",
+        ):
+            self.assertIn(token, self.cpp, token)
+        self.assertNotIn('QStringLiteral("LunaCombinedPanelToggle")', self.cpp)
+        self.assertIn("navigation_->setVisible(navigation_->isHidden())", self.cpp)
+        self.assertIn("documents_->setVisible(documents_->isHidden())", self.cpp)
+
+    def test_user_configurable_default_opening_zoom_preserves_restored_view(self):
+        for token in (
+            'QStringLiteral("LunaDefaultOpeningZoom")',
+            'QStringLiteral("기본 시작 배율 설정…")',
+            'QStringLiteral("reader/defaultZoomPercent"), 200',
+            "25, 500, 5, &accepted",
+            "proxy->zoom(double(percent) / 100.0)",
+            'if (!editor.property("LunaPreserveReopenView").toBool())',
+            'preferences.sync()',
+        ):
+            self.assertIn(token, self.cpp, token)
+        self.assertIn("c->getPdfWidget()->getDrawWidgetProxy()->zoom(zoom)", self.cpp)
+
+    def test_background_watcher_cannot_restart_incremental_pdf_scan(self):
+        self.assertIn("localSync_->filesChanged = [this] {", self.cpp)
+        self.assertIn("if (folderTimer_->isActive() || allTimer_->isActive()) return;", self.cpp)
+        self.assertIn("refreshFileLists();", self.cpp)
+        self.assertIn("list->count() == 1000 && !library->folderTimer_->isActive()", self.cpp)
+
     def test_wheel_uses_short_animation_but_not_for_touchpad(self):
         for term in (
             "class SmoothLibraryWheel final : public QObject",

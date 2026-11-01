@@ -86,7 +86,7 @@ def verify_landing_candidates(
         if url not in cache:
             if len(cache) >= MAX_LANDINGS:
                 cache[url] = "verification_limit"
-            elif safe_figshare_landing(url) != url:
+            elif safe_figshare_landing(url, candidate.article_id) != url:
                 cache[url] = "unsafe_url"
             else:
                 try:

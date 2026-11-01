@@ -106,6 +106,14 @@ class NativeFileManagementContracts(unittest.TestCase):
         self.assertIn('folder / "lunatrashundo.h"', overlay)
         self.assertIn('folder / "lunalocalsync.h"', overlay)
 
+    def test_mybox_qvariant_values_are_converted_before_qset_lookup(self):
+        # Windows Build #197: QVariantMap::value() returned QVariant, which
+        # cannot be passed directly to QSet<QString>::contains() in Qt 6.
+        self.assertIn("const QString after=it.value().toString();", SYNC)
+        self.assertIn("matched.contains(after)", SYNC)
+        self.assertNotIn("matched.contains(it.value())", SYNC)
+        self.assertIn("duplicates.contains(it.key())", SYNC)
+
     def test_reset_requires_verified_provider_or_local_page_evidence(self):
         self.assertIn("restoreVerifiedOnline(", BIB)
         self.assertIn("restoreFromFirstPage(", BIB)

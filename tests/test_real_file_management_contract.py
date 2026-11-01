@@ -64,6 +64,24 @@ class NativeFileManagementContracts(unittest.TestCase):
         self.assertIn("enqueueImportedMetadata(path, restore)", UI)
         self.assertIn("beginMetadataLookup(identity, doi, restore)", UI)
 
+    def test_folder_counts_and_drag_badge_remain_filesystem_backed(self):
+        for token in (
+            "void refreshPdfCounts(const QString& root)",
+            "QThread::create([root, result]",
+            "result->insert(folder, result->value(folder) + 1)",
+            "model_->refreshPdfCounts(root_);",
+            "countsReady_",
+            "const QRect thumb(r.left() + 11, r.top() + 12, 72, 78)",
+            "void startDrag(Qt::DropActions) override",
+            "QPixmap badge(132, 38)",
+            "drag->setHotSpot(QPoint(13, 18))",
+            "drag->exec(Qt::MoveAction | Qt::CopyAction, Qt::MoveAction)",
+            "tree_->viewport()->setAcceptDrops(true)",
+        ):
+            self.assertIn(token, UI, token)
+        self.assertIn('return QStringLiteral("%1  ·  %2").arg(label).arg(pdfCount(filePath(index)));', UI)
+        self.assertIn('if (parent->objectName() == QStringLiteral("LunaFolderDropTree")', UI)
+
     def test_favorite_smoke_reselects_after_async_folder_reload(self):
         # selectFolder() clears all QListWidgetItem objects. Its previous
         # pointers are invalid, so the smoke must reacquire and select a row.

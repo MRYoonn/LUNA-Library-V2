@@ -561,7 +561,7 @@ jobs:
         run: |
           $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
           if (!(Test-Path $iscc)) {
-            choco install innosetup --version=6.7.1 --yes --no-progress --limit-output
+            choco install innosetup --yes --no-progress --limit-output
             if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
           }
           if (!(Test-Path $iscc)) { throw 'Pinned Inno compiler is unavailable' }

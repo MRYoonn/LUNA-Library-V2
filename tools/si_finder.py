@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 API_ROOT = "https://api.figshare.com/v2"
-DOI_RE = re.compile(r"^10\\.\\d{4,9}/[-._;()/:a-z0-9]+$", re.I)
+DOI_RE = re.compile(r"^10\.\d{4,9}/[-._;()/:a-z0-9]+$", re.I)
 MAX_BYTES = 1024 * 1024
 MAX_ARTICLES = 20
 MAX_FILES = 40
@@ -26,9 +26,9 @@ MAX_FILES = 40
 def normalize_doi(raw: str) -> str:
     if not isinstance(raw, str):
         return ""
-    value = re.sub(r"^doi\\s*:\\s*", "", raw.strip(), flags=re.I).strip()
-    value = re.sub(r"^https?://(?:dx\\.)?doi\\.org/", "", value, flags=re.I)
-    value = re.sub(r"\\s+", "", value).rstrip(".,;:!?]}>\\"'”’")
+    value = re.sub(r"^doi\s*:\s*", "", raw.strip(), flags=re.I).strip()
+    value = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", value, flags=re.I)
+    value = re.sub(r"\s+", "", value).rstrip(".,;:!?]}>\"'”’")
     while value.endswith(")") and value.count(")") > value.count("("):
         value = value[:-1]
     return value.lower() if len(value) <= 220 and DOI_RE.fullmatch(value) else ""
@@ -180,7 +180,7 @@ def lookup_acs_figshare(
                     continue
                 filename = item.get("name")
                 if (not isinstance(filename, str) or not filename or len(filename) > 255
-                        or any(ch in filename for ch in "/\\\\\\r\\n\\0")):
+                        or any(ch in filename for ch in "/\\\r\n\0")):
                     continue
                 # Do not expose unvalidated remote download URLs. Every entry
                 # opens the official landing page for user review in a browser.

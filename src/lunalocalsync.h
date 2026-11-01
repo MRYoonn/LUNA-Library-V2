@@ -156,7 +156,7 @@ public:
         if(worker_) worker_->wait(); // Worker only touches its isolated snapshot.
     }
     std::function<void(const QString&,const QString&)> renamed;
-    std::function<void(const QString&,const QJsonObject&)> remoteChanged;
+    std::function<bool(const QString&,const QJsonObject&)> remoteChanged;
     std::function<QJsonObject(const QString&)> localSnapshot;
     std::function<void()> filesChanged;
     void configure(const QString& root, bool myboxEnabled) {
@@ -331,11 +331,12 @@ public:
                        (local.value("bibliography")!=remote.value("bibliography") ||
                         local.value("memo")!=remote.value("memo") ||
                         local.value("favorite")!=remote.value("favorite"))) {
-                        qWarning("LUNA MYBOX metadata conflict: preserving local edits");
+                        qWarning().noquote() << "LUNA MYBOX metadata conflict: preserving local edits for" << pdf;
                         continue;
                     }
+                    if(remoteChanged && !remoteChanged(pdf,remote)) continue;
                     seen_[sidecar]=digest;
-                    if(remoteChanged) { remoteChanged(pdf,remote); changed=true; }
+                    changed=true;
                     lunaLocalStore().setValue(
                         QStringLiteral("library/mybox/seen/")+lunaPathKey(pdf),
                         QString::fromLatin1(digest.toHex()));

@@ -1,0 +1,85 @@
+"""Synthetic, offline-only tests for the explicitly opt-in SI smoke probe."""
+import contextlib
+from io import StringIO
+import json
+from pathlib import Path
+import sys
+import unittest
+from unittest.mock import Mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+from si_live_probe import inspect_doi, main
+from si_finder import SiCandidate, SiLookupResult, safe_figshare_landing
+
+DOI = "10.1021/acsnano.8b07631"  # Public DOI; no live requests in tests.
+PUBLIC_LANDING = (
+    "https://acs.figshare.com/articles/dataset/"
+    "Extrinsic_and_Dynamic_Edge_States_of_Two-Dimensional_Lead_Halide_Perovskites/7688531"
+)
+
+
+class ProbeTests(unittest.TestCase):
+    def test_public_dataset_landing_shape_is_accepted(self):
+        self.assertEqual(safe_figshare_landing(PUBLIC_LANDING, 7688531), PUBLIC_LANDING)
+        self.assertEqual(safe_figshare_landing(PUBLIC_LANDING, 7688532), "")
+
+    def test_default_mode_never_uses_network(self):
+        finder = Mock(return_value=SiLookupResult(DOI, "offline", (), "https://doi.org/" + DOI))
+        verifier = Mock(side_effect=AssertionError("landing network"))
+        report = inspect_doi(DOI, finder=finder, verifier=verifier)
+        finder.assert_called_once_with(DOI, offline=True)
+        verifier.assert_not_called()
+        self.assertEqual(report["verification_scope"], "metadata_only")
+        self.assertEqual(report["result"]["status"], "offline")
+
+    def test_metadata_live_never_probes_landing(self):
+        source = SiLookupResult(DOI, "candidates", (
+            SiCandidate(7688531, DOI, "Public example", "si.pdf", PUBLIC_LANDING),
+        ), "https://doi.org/" + DOI)
+        finder = Mock(return_value=source)
+        verifier = Mock(side_effect=AssertionError("landing network"))
+        report = inspect_doi(DOI, live=True, finder=finder, verifier=verifier)
+        finder.assert_called_once_with(DOI, offline=False)
+        verifier.assert_not_called()
+        self.assertEqual(report["result"]["candidates"][0]["status"],
+                         "metadata_match_link_unchecked")
+
+    def test_landing_check_requires_explicit_live(self):
+        finder = Mock(side_effect=AssertionError("API network"))
+        with self.assertRaises(ValueError):
+            inspect_doi(DOI, check_landings=True, finder=finder)
+        finder.assert_not_called()
+
+    def test_landing_check_uses_existing_verifier_once(self):
+        source = SiLookupResult(DOI, "candidates", (
+            SiCandidate(7688531, DOI, "Public example", "si.pdf", PUBLIC_LANDING),
+        ), "https://doi.org/" + DOI)
+        checked = SiLookupResult(DOI, "verified", source.candidates,
+                                 source.fallback_url, "landings_checked=1")
+        finder = Mock(return_value=source)
+        verifier = Mock(return_value=checked)
+        report = inspect_doi(DOI, live=True, check_landings=True,
+                             finder=finder, verifier=verifier)
+        verifier.assert_called_once_with(source)
+        self.assertEqual(report["verification_scope"], "landing_html_only")
+        self.assertEqual(report["result"]["diagnostic"], "landings_checked=1")
+
+    def test_404_never_invokes_landing_probe(self):
+        finder = Mock(return_value=SiLookupResult(DOI, "not_found", (), "https://doi.org/" + DOI))
+        verifier = Mock(side_effect=AssertionError("landing network"))
+        report = inspect_doi(DOI, live=True, check_landings=True,
+                             finder=finder, verifier=verifier)
+        self.assertEqual(report["result"]["status"], "not_found")
+        verifier.assert_not_called()
+
+    def test_cli_default_is_offline(self):
+        output = StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main(["--doi", DOI]), 0)
+        data = json.loads(output.getvalue())
+        self.assertEqual(data["result"]["status"], "offline")
+        self.assertEqual(data["verification_scope"], "metadata_only")
+
+
+if __name__ == "__main__":
+    unittest.main()

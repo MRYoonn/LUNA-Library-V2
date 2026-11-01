@@ -28,6 +28,34 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn("if: ${{ !inputs.native_tabs_proof && steps.engine-cache.outputs.cache-hit != 'true' }}", text)
         self.assertIn('Upload LUNA Windows portable artifact\n        if: ${{ !inputs.native_tabs_proof }}', text)
 
+    def test_luna_standalone_identity_and_accessible_upstream_license(self):
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        workflow = (ROOT / '.github/workflows/build-windows.yml').read_text(encoding='utf-8')
+        notice = (ROOT / 'LICENSE_NOTICE.md').read_text(encoding='utf-8')
+        guide = (ROOT / 'USER_GUIDE_KO.md').read_text(encoding='utf-8')
+        # The UI must have its own brand, yet preserve all legally required
+        # third-party attribution in the package and the accessible Help menu.
+        for value in (
+            'LunaAboutApp', 'LUNA Library 정보…',
+            'LunaOpenSourceLicenses', '오픈소스 라이선스…',
+            'help->removeAction(upstream)',
+            'actionGetSource', 'actionBecomeASponsor', 'actionAbout',
+            'LUNA_LICENSE_NOTICE.md', 'PDF4QT_LICENSE.txt',
+            'QStringLiteral("독립 실행형',  # accept adjacent literal form as well
+        ):
+            if value == 'QStringLiteral("독립 실행형':
+                self.assertIn('독립 실행형 Windows PDF 라이브러리', tabs)
+            else:
+                self.assertIn(value, tabs)
+        self.assertIn('QMessageBox dialog(QMessageBox::Information', tabs)
+        self.assertIn('dialog.setDetailedText(', tabs)
+        self.assertIn('Copy-Item \'pdf4qt/LICENSE\' "$output/PDF4QT_LICENSE.txt"', workflow)
+        self.assertIn('Copy-Item \'LICENSE_NOTICE.md\' "$output/LUNA_LICENSE_NOTICE.md"', workflow)
+        self.assertIn('Jakub Melka', notice)
+        self.assertIn('별도의 PDF 뷰어', guide)
+        self.assertNotIn('PDF4QT 페이지 미리보기 모델을 사용할 수 없습니다.', library)
+
     def test_integrated_panels_use_two_real_buttons_not_removed_combined_toggle(self):
         tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')

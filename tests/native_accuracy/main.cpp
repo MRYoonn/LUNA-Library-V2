@@ -31,12 +31,20 @@ int main(int argc, char** argv) {
     paper["authorsSource"] = QStringLiteral("Crossref");
     paper["documentKind"] = QStringLiteral("main_article");
     paper["metadata_status"] = QStringLiteral("complete");
+    paper["field_sources"] = QVariantMap{{QStringLiteral("title"), QStringLiteral("Crossref")},
+                                         {QStringLiteral("authors"), QStringLiteral("Crossref")},
+                                         {QStringLiteral("private_note"), QStringLiteral("should never export")}};
     check(store.save(QStringLiteral("synthetic:one"), paper, false), "seed synthetic record");
     const auto one = luna::Accuracy::captureCase(QStringLiteral("syn-one"), store.record(QStringLiteral("synthetic:one")));
     const auto observed = one.value(QStringLiteral("observed")).toObject();
     check(observed.value(QStringLiteral("terminal_author")).toString() == QStringLiteral("B. Last"), "last listed author");
     check(!one.contains(QStringLiteral("path")) && !one.contains(QStringLiteral("identity")), "no identity/path export");
     check(one.value(QStringLiteral("audit")).toObject().value(QStringLiteral("authorsSource")).toString() == QStringLiteral("Crossref"), "author provenance");
+    const auto sources = one.value(QStringLiteral("audit")).toObject()
+        .value(QStringLiteral("field_sources")).toObject();
+    check(sources.value(QStringLiteral("title")).toString() == QStringLiteral("Crossref"),
+          "per-field provenance");
+    check(!sources.contains(QStringLiteral("private_note")), "reject arbitrary source fields");
 
     // Simulate the legacy ambiguous record-wide manual=true setting without
     // marking the author field as an explicit human edit.

@@ -95,6 +95,28 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         with self.assertRaises(lab.DatasetError):
             lab.score(gold, predictions, require_real=True)
 
+    def test_invalid_goldset_doi_is_rejected_even_if_prediction_matches(self):
+        gold, predictions = sample()
+        gold["cases"][0]["expected"]["doi"] = "not-a-doi"
+        predictions["cases"][0]["observed"]["doi"] = "not-a-doi"
+        with self.assertRaisesRegex(lab.DatasetError, "invalid expected DOI"):
+            lab.score(gold, predictions)
+        # Valid DOI URLs remain legitimate ground-truth labels.
+        gold["cases"][0]["expected"]["doi"] = "https://doi.org/10.1000/synthetic-acs-main"
+        self.assertTrue(lab.score(gold, sample()[1])["pass"])
+
+    def test_invalid_extracted_doi_counts_as_error_not_dataset_failure(self):
+        gold, predictions = sample()
+        predictions["cases"][0]["observed"]["doi"] = "https://doi.org/not-a-doi"
+        predictions["cases"][2]["observed"]["doi"] = "not-a-doi"
+        report = lab.score(gold, predictions)
+        self.assertFalse(report["pass"])
+        self.assertEqual(report["field_scores"]["doi"]["fp"], 2)
+        self.assertEqual(report["field_scores"]["doi"]["fn"], 1)
+        self.assertEqual(sum(e["error"] == "invalid_doi" for e in report["errors"]), 2)
+        self.assertEqual(report["by_publisher_fields"]["ACS"]["doi"]["fp"], 1)
+        self.assertEqual(report["by_publisher_fields"]["RSC"]["doi"]["fp"], 1)
+
     def test_title_chemistry_symbols_not_discarded(self):
         self.assertNotEqual(lab.normalize("title", "C5–C6 coupling"), lab.normalize("title", "C5 C6 coupling"))
         self.assertEqual(lab.normalize("page", "100–108"), lab.normalize("page", "100-108"))

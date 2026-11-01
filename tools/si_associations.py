@@ -38,7 +38,7 @@ def document_id(raw: str) -> str:
 
 def relative_pdf_path(raw: str) -> str:
     """Canonical slash-relative PDF path; no traversal or Windows aliases."""
-    if not isinstance(raw, str) or not raw or len(raw) > 1024 or "\" in raw:
+    if not isinstance(raw, str) or not raw or len(raw) > 1024 or "\\" in raw:
         raise ValueError("invalid_relative_path")
     if any(ord(ch) < 32 for ch in raw) or raw.startswith("/") or _DRIVE.match(raw):
         raise ValueError("invalid_relative_path")

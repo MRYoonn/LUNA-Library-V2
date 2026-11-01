@@ -134,6 +134,35 @@ class LandingVerifierTests(unittest.TestCase):
         self.assertEqual(request.get_header("Range"), "bytes=0-0")
         response.read.assert_not_called()
 
+    def test_mixed_parent_doi_never_probes_or_verifies(self):
+        original = fixture(1)
+        other = SiCandidate(123, "10.1021/jacs.6c99999", "Wrong paper",
+                            "wrong-si.pdf", BASE + "123")
+        source = SiLookupResult(DOI, "candidates", (other,), original.fallback_url)
+        result = verify_landing_candidates(source, lambda _: self.fail("network"))
+        self.assertEqual(result.status, "needs_review")
+        self.assertEqual(result.candidates[0].status, "landing_unchecked_doi_mismatch")
+
+    def test_invalid_parent_doi_never_probes_or_verifies(self):
+        source = SiLookupResult("invalid-doi", "candidates", fixture(1).candidates,
+                                "https://doi.org/invalid-doi")
+        result = verify_landing_candidates(source, lambda _: self.fail("network"))
+        self.assertEqual(result.status, "needs_review")
+        self.assertEqual(result.diagnostic, "invalid_parent_doi")
+        self.assertEqual(result.candidates[0].status,
+                         "landing_unchecked_invalid_parent_doi")
+
+    def test_empty_204_head_does_not_certify_landing(self):
+        response = MagicMock()
+        response.status = 204
+        response.headers = {"Content-Type": "text/html"}
+        response.geturl.return_value = BASE + "123"
+        opener = MagicMock()
+        opener.open.return_value.__enter__.return_value = response
+        with patch("si_landing_verify.build_opener", return_value=opener):
+            self.assertEqual(_request("HEAD", BASE + "123"), "http_unchecked")
+        response.read.assert_not_called()
+
     def test_non_html_never_verified(self):
         response = MagicMock()
         response.status = 200

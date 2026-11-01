@@ -55,5 +55,27 @@ class BuildDiagnosticsContracts(unittest.TestCase):
                 record(root, "start")
 
 
+    def test_workflow_must_capture_first_failure_and_upload_even_if_red(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")
+        smoke = (root / "tools/smoke_windows.py").read_text(encoding="utf-8")
+        for job in ("windows-packaging-preflight:", "  build-windows:"):
+            position = workflow.index(job)
+            bootstrap = workflow.index("Bootstrap trace before checkout", position)
+            checkout = workflow.index("uses: actions/checkout@v4", position)
+            self.assertLess(bootstrap, checkout)
+        for artifact in ("LUNA-Preflight-Diagnostics", "LUNA-Build-Diagnostics"):
+            start = workflow.index("name: " + artifact)
+            self.assertIn("if: always()", workflow[max(0, start - 180):start])
+        for expected in ("luna-native-stdout.log", "luna-native-stderr.log",
+                         "luna-native-failure.json", "luna-smoke-start.json",
+                         "stdout=out, stderr=err", "timeout=45"):
+            self.assertIn(expected, smoke)
+        self.assertIn("if: ${{ always() }}", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotIn("\n  push:", workflow)
+
+
+
 if __name__ == "__main__":
     unittest.main()

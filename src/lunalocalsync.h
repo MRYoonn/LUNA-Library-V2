@@ -289,9 +289,11 @@ public:
                     else active.insert(id,pdf);
                 }
                 for(auto it=active.cbegin();it!=active.cend();++it) {
-                    if(duplicates.contains(it.key()) || matched.contains(it.value())) continue;
-                    const QString before=previous.value(it.key()).toString();
                     const QString after=it.value().toString();
+                    // QVariantMap::value() returns QVariant; a QSet<QString>
+                    // requires the concrete QString, not the boxed variant.
+                    if(duplicates.contains(it.key()) || matched.contains(after)) continue;
+                    const QString before=previous.value(it.key()).toString();
                     if(!before.isEmpty() && before!=after && !QFileInfo::exists(before) &&
                        QFileInfo(before).absolutePath().compare(
                            QFileInfo(after).absolutePath(),Qt::CaseInsensitive)==0 && renamed) {

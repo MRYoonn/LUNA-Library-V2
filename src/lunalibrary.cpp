@@ -3,6 +3,7 @@
 #include "lunalibrary.h"
 #include "lunathumbnailcache.h"
 #include "lunafilemove.h"
+#include "lunatrashundo.h"
 #include "lunadocumentclaim.h"
 #include "lunabibliography.h"
 #include "lunafirstpage.h"
@@ -2179,14 +2180,31 @@ private:
         }
         transferPdfs(paths, destination, true);
     }
-    void trashDocument(const QString& path) {
-        const QFileInfo source(path);
-        if (!source.isFile() || source.isSymLink()) {
-            QMessageBox::warning(this, QStringLiteral("삭제 불가"), QStringLiteral("실제 PDF 파일을 찾을 수 없습니다."));
+    void undoRecentTrash() {
+        if (!recentUndo_.available()) return;
+        QString error;
+        if (!recentUndo_.undo(&error)) {
+            QMessageBox::warning(this, QStringLiteral("삭제 취소 실패"), error);
             return;
         }
+        QSettings store(QSettings::defaultFormat(), QSettings::UserScope,
+                        QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        store.setValue(QStringLiteral("library/favorites"), undoFavorites_);
+        store.setValue(QStringLiteral("library/recent"), undoRecent_);
+        store.sync();
+        if (store.status() != QSettings::NoError)
+            QMessageBox::warning(this, QStringLiteral("복원 완료 · 설정 확인"),
+                QStringLiteral("PDF는 복원했지만 즐겨찾기 설정 저장에 실패했습니다."));
+        favorites_ = QSet<QString>(undoFavorites_.cbegin(), undoFavorites_.cend());
+        undoFavorites_.clear(); undoRecent_.clear();
+        refreshFileLists();
+    }
+    void trashDocument(const QString& path) {
+        const QFileInfo source(path);
+        if (!source.isFile() || source.isSymLink()) return;
         if (QMessageBox::question(this, QStringLiteral("Windows 휴지통으로 이동"),
-            QStringLiteral("PDF와 썸네일을 Windows 휴지통으로 보낼까요?\n%1").arg(source.fileName()),
+            QStringLiteral("PDF와 썸네일을 휴지통으로 보낼까요?\nCtrl+Z로 직전 삭제를 복원할 수 있습니다.\n%1")
+                .arg(source.fileName()),
             QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes) return;
         const QString identity = DocumentClaim::identity(path);
         if ((activateElsewhere && activateElsewhere(path)) ||
@@ -2194,39 +2212,29 @@ private:
             (viewer_->getProgramController()->getDocument() &&
              DocumentClaim::identity(viewer_->getProgramController()->getOriginalFileName()) == identity)) {
             QMessageBox::information(this, QStringLiteral("열린 PDF"),
-                QStringLiteral("이동 중 데이터 손상을 막기 위해 PDF를 닫은 다음 삭제해 주세요."));
+                QStringLiteral("현재 열린 PDF를 닫은 뒤 삭제해 주세요."));
             return;
         }
-        if (!QFile::moveToTrash(source.canonicalFilePath())) {
-            QMessageBox::warning(this, QStringLiteral("휴지통 이동 실패"),
-                QStringLiteral("Windows 휴지통으로 이동하지 못했습니다. 원본 파일은 유지됩니다."));
+        const QStringList oldFavorites = savedPaths(QStringLiteral("library/favorites"));
+        const QStringList oldRecent = savedPaths(QStringLiteral("library/recent"));
+        QString error;
+        if (!recentUndo_.trash(path, &error)) {
+            QMessageBox::warning(this, QStringLiteral("휴지통 이동 실패"), error);
             return;
         }
-        QStringList leftover;
-        for (const QString& ext : {QStringLiteral(".png"), QStringLiteral(".jpg"),
-                                   QStringLiteral(".jpeg")}) {
-            const QString name = QDir(source.absolutePath()).filePath(
-                source.completeBaseName() + QStringLiteral(".luna-thumb") + ext);
-            if (QFileInfo::exists(name) && !QFile::moveToTrash(name)) leftover.append(name);
-        }
-        // Keep bibliography/memo settings for recovery if the user restores
-        // the PDF to the original location through Windows Recycle Bin.
-        QSettings settings(QSettings::defaultFormat(), QSettings::UserScope,
-                           QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
-        for (const QString& key : {QStringLiteral("library/favorites"),
-                                   QStringLiteral("library/recent")}) {
-            QStringList paths = settings.value(key).toStringList();
+        undoFavorites_ = oldFavorites;
+        undoRecent_ = oldRecent;
+        QSettings store(QSettings::defaultFormat(), QSettings::UserScope,
+                        QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        for (const QString& key : {QStringLiteral("library/favorites"), QStringLiteral("library/recent")}) {
+            QStringList paths = store.value(key).toStringList();
             paths.removeAll(path);
-            settings.setValue(key, paths);
+            store.setValue(key, paths);
         }
-        settings.sync();
-        const QStringList paths = settings.value(QStringLiteral("library/favorites")).toStringList();
-        favorites_ = QSet<QString>(paths.cbegin(), paths.cend());
+        store.sync();
+        const QStringList favorites = store.value(QStringLiteral("library/favorites")).toStringList();
+        favorites_ = QSet<QString>(favorites.cbegin(), favorites.cend());
         refreshFileLists();
-        if (!leftover.isEmpty())
-            QMessageBox::warning(this, QStringLiteral("일부 썸네일 삭제 실패"),
-                QStringLiteral("PDF는 휴지통으로 이동했지만 다음 이미지들은 남아 있습니다:\n") +
-                leftover.join(QLatin1Char('\n')));
     }
     void importPdfs() {
         const QStringList files = QFileDialog::getOpenFileNames(this,
@@ -2519,6 +2527,12 @@ private:
         copyFiles->setShortcut(QKeySequence::Copy);
         copyFiles->setShortcutContext(Qt::WidgetWithChildrenShortcut);
         list->addAction(copyFiles);
+        auto* undoTrash = new QAction(QStringLiteral("PDF 삭제 실행 취소 (Ctrl+Z)"), list);
+        undoTrash->setObjectName(QStringLiteral("LunaUndoTrash"));
+        undoTrash->setShortcut(QKeySequence::Undo);
+        undoTrash->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        list->addAction(undoTrash);
+        connect(undoTrash, &QAction::triggered, this, [this] { undoRecentTrash(); });
         connect(copyFiles, &QAction::triggered, this, [this, list] { copySelectedPdfs(list); });
         auto* pasteFiles = new QAction(QStringLiteral("현재 폴더에 PDF 붙여넣기"), list);
         pasteFiles->setObjectName(QStringLiteral("LunaPastePdfs"));
@@ -2551,6 +2565,8 @@ private:
             auto* copyTo = menu.addAction(QStringLiteral("PDF와 썸네일 복사 위치…"));
             auto* move = menu.addAction(QStringLiteral("PDF와 썸네일 이동…"));
             auto* trash = menu.addAction(QStringLiteral("Windows 휴지통으로 삭제…"));
+            auto* undoTrash = menu.addAction(QStringLiteral("직전 삭제 복원 (Ctrl+Z)"));
+            undoTrash->setEnabled(recentUndo_.available());
             trash->setObjectName(QStringLiteral("LunaTrashPdf"));
             auto* chosen = menu.exec(list->viewport()->mapToGlobal(point));
             if (chosen == favorite) toggleFavorite(path);
@@ -2576,6 +2592,7 @@ private:
             }
             else if (chosen == move) moveDocument(path);
             else if (chosen == trash) trashDocument(path);
+            else if (chosen == undoTrash) undoRecentTrash();
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
             const QPoint cursor = list->viewport()->mapFromGlobal(QCursor::pos());
@@ -3109,6 +3126,8 @@ private:
     QSet<QString> datedNames_;
     QHash<QString, QString> memos_;
     QSet<QString> favorites_;
+    luna::RecentTrashUndo recentUndo_;
+    QStringList undoFavorites_, undoRecent_;
     LunaFolderModel* model_ = nullptr;
     QTreeView* tree_ = nullptr;
     QTimer* folderIconPoll_ = nullptr;

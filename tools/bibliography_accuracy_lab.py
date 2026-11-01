@@ -122,6 +122,7 @@ def validate_real_run(gold: dict, predictions: dict) -> None:
             value = evidence.get(field)
             if not isinstance(value, str) or not value.strip():
                 raise DatasetError(f"real run/{ident}: missing nonblank evidence for {field}")
+    labeled = {case["id"]: set(case["expected"]) for case in gold["cases"]}
     for case in predictions["cases"]:
         audit = case.get("audit")
         if not isinstance(audit, dict) or any(
@@ -129,6 +130,24 @@ def validate_real_run(gold: dict, predictions: dict) -> None:
             for key in ("manual_citation_active", "senior_author_override_active")
         ):
             raise DatasetError(f"real run/{case['id']}: native snapshot audit flags required")
+        # A manually pasted citation or senior-author override can change the
+        # displayed card independently of the extraction record. Measure these
+        # in preservation regressions, not in automatic extraction accuracy.
+        if audit["manual_citation_active"] or audit["senior_author_override_active"]:
+            raise DatasetError(f"real run/{case['id']}: active manual card override; use regression-only evidence")
+        sources = audit.get("field_sources", {})
+        if not isinstance(sources, dict):
+            raise DatasetError(f"real run/{case['id']}: invalid field_sources audit")
+        for field in labeled.get(case["id"], ()):
+            native_field = "authors" if field == "terminal_author" else field
+            # The Qt adapter exposes both per-field source maps and selected
+            # legacy *Source fields; check either without trusting record-wide
+            # legacy manual=true (which may be a machine-filled value).
+            if (sources.get(native_field) == "manual" or
+                    audit.get(native_field + "Source") == "manual"):
+                raise DatasetError(
+                    f"real run/{case['id']}: manually sourced {field} cannot score automatic extraction"
+                )
 
 
 def metric(tp: int, other: int) -> float | None:

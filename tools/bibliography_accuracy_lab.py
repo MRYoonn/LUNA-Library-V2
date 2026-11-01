@@ -20,6 +20,7 @@ FIELDS = (
 )
 ID = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
 SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
+DOCUMENT_KINDS = frozenset(("main_article", "supporting_information"))
 DOI = re.compile(r"^10\.\d{4,9}/\S+$", re.I)
 
 
@@ -79,6 +80,8 @@ def validate_cases(doc: dict, kind: str) -> dict[str, dict]:
             # Keep invalid *predictions* scoreable as extraction failures.
             if kind == "goldset" and field == "doi" and canonical and not DOI.fullmatch(canonical):
                 raise DatasetError(f"goldset/{ident}: invalid expected DOI")
+            if kind == "goldset" and field == "document_kind" and canonical and canonical not in DOCUMENT_KINDS:
+                raise DatasetError(f"goldset/{ident}: invalid expected document_kind")
         if kind == "goldset":
             publisher = case.get("publisher")
             if publisher not in ("ACS", "RSC", "Wiley", "Nature", "Elsevier", "Other"):
@@ -228,6 +231,7 @@ def score(gold: dict, predictions: dict, *, require_real: bool = False) -> dict:
                                "expected": case["expected"][field],
                                "observed": observed[ident]["observed"].get(field),
                                "error": "invalid_doi" if field == "doi" and got and not DOI.fullmatch(got)
+                                        else "invalid_document_kind" if field == "document_kind" and got and got not in DOCUMENT_KINDS
                                         else "mismatch" if want and got else "missing" if want else "spurious"})
     def field_row(count: dict) -> dict:
         row = {k: count[k] for k in ("tp", "fp", "fn", "tn", "scored", "unscored")}

@@ -367,3 +367,26 @@ integer and the strict gate must be enabled. Even a strict PASS confirms only
 public metadata identity plus HTTP HTML landing reachability, **not** that an
 individual SI file opens or downloads. Failure remains `미확인` with the
 original DOI fallback; the default offline behavior is unchanged.
+
+## 2026-11-02 — malformed Figshare file entries and moving dependency
+
+- `tools/si_finder.py` now counts malformed file entries in an otherwise
+  DOI-matched article. A mixture of valid and malformed file entries yields
+  `partial` (never `candidates`); an all-malformed list yields
+  `needs_review` (never a false `not_found`). The diagnostic exposes only
+  the count `invalid_file_entries`, not remote file URLs. Two synthetic,
+  offline tests cover both cases. CI evidence must be checked for the exact
+  resulting HEAD; source edits alone are not a PASS.
+- The **current PR #16 head** (as inspected this run) has a
+  `.luna-meta.json` move clause in `src/lunafilemove.h`, unlike the older
+  file inspected when the original Issue #9 blocker was recorded. The
+  dependent SI branch has not been rebased or integrated; the existence of
+  that code in #16 does **not** establish paired-move rollback, case-only
+  rename, cross-volume behavior, or real Windows app acceptance.
+  Do not edit the owner branch here. Recheck Issue #9 native acceptance after
+  the owning change is reviewed, then run independent restart/reconcile tests.
+- A public ACS Figshare HTML landing page for article ID 7688531 was visible
+  through a web reader, but no direct Figshare API response or strict HTTP
+  HEAD/GET result was obtained by the opt-in SI probe. The program must keep
+  its live link verification status unconfirmed; a readable third-party web
+  preview is not an end-to-end probe PASS.

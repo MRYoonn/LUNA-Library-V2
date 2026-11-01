@@ -124,6 +124,28 @@ class NativeFileManagementContracts(unittest.TestCase):
         ):
             self.assertIn(token, (UI + SYNC), token)
 
+    def test_sidecar_sync_reconciliation_yields_between_small_batches(self):
+        # Build #203 timed out inside the native Windows UI smoke. A completed
+        # directory worker must not synchronously publish 1000+ sidecars in a
+        # single Qt GUI callback, or starve folder scans and timeout timers.
+        for token in (
+            "sidecarTimer_.setSingleShot(true)",
+            "processSidecarBatch();",
+            "sidecarTimer_.stop();",
+            "sidecarPaths_=result->paths;",
+            "sidecarTimer_.start(0);",
+            "processed<8 && elapsed.elapsed()<12",
+            "finishScan(sidecarChanged_);",
+            "sidecarChanged_=true;",
+            "if (rescanPending_) {",
+        ):
+            self.assertIn(token, SYNC, token)
+        worker_finish = SYNC.split("connect(worker,&QThread::finished,this,", 1)[1].split(
+            "connect(worker,&QThread::finished,worker,", 1)[0]
+        self.assertNotIn("if(!info.exists()) { publish(pdf); continue; }", worker_finish)
+        self.assertIn("if(!info.exists()) { publish(pdf); continue; }", SYNC)
+        self.assertIn("if (!worker_) busy_ = false;", SYNC)
+
     def test_mybox_qvariant_values_are_converted_before_qset_lookup(self):
         # Windows Build #197: QVariantMap::value() returned QVariant, which
         # cannot be passed directly to QSet<QString>::contains() in Qt 6.

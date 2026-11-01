@@ -1,0 +1,36 @@
+# LUNA ② — Bibliography Accuracy Lab (independent, offline)
+
+This is an **evaluation harness**, not a new DOI parser, metadata fetcher, or PDF reader. It does not call Crossref/OpenAlex, open PDFs, modify QSettings, or claim that the native Windows LUNA application passed. The `*.synthetic.json` files contain **fabricated examples**, not real publisher measurements.
+
+## Run the synthetic contract
+
+```sh
+python -B -m unittest discover -s tests -p 'test_bibliography_accuracy_lab.py' -v
+python -B tools/bibliography_accuracy_lab.py \
+  --goldset tests/fixtures/bibliography_accuracy_goldset.synthetic.json \
+  --predictions tests/fixtures/bibliography_accuracy_predictions.synthetic.json \
+  --report ../luna-accuracy-local-score.json
+```
+
+The `--require-real` flag rejects any synthetic goldset. The report marks non-synthetic results as `provided_real_goldset_not_independently_verified` until an authorized reviewer verifies evidence and the exact application build. Do **not** commit generated score reports, actual PDFs, PDF filenames, personal metadata, QSettings, or research notes.
+
+## Goldset format and evidence policy
+
+Create a **private, local** JSON file with `schema_version: 1`, `kind: "goldset"`, `dataset_id`, and a nonempty `cases` array. Each case has an opaque `id`, `publisher` (`ACS`, `RSC`, `Wiley`, `Nature`, `Elsevier`, or `Other`), `source.kind` (`public` or `permissioned`), a verified `source.sha256` for the PDF, `expected` field values, and `evidence` strings identifying where each nonempty expected value was independently checked (e.g. `page 1 author line`, `publisher landing page`, `SI cover`). Never infer the final author from PDF Info Author alone. Record the **last listed author**, not automatically the corresponding author; explicit senior-author overrides must be reviewed separately.
+
+Fields: `doi`, `title`, `terminal_author`, `journal`, `journal_abbreviation`, `year`, `volume`, `issue`, `page`, `article_number`, `document_kind` (`main_article` or `supporting_information`). Use `null` to assert that a field **must be absent** (e.g. a reference-only DOI in an SI); **omit** a field when ground truth is not known. Do not label an inaccessible field `null`. For publication metadata, compare the official full journal name and abbreviation separately; no unreviewed abbreviation aliases. Pages normalize en/em dashes; chemical formula, stereochemical descriptors and title punctuation remain significant. A wrong nonempty value produces **both** FP and FN; an abstention on known-positive ground truth produces FN; an unexpected value on known-negative ground truth produces FP. Metrics with no positive denominator are `null`, never invented 100%.
+
+A separate private `kind: "predictions"` JSON must use the same `dataset_id` and case IDs, with `observed` fields representing **captured LUNA outputs from a specific build**. Export the actual card/record state from the application using a reviewed read-only adapter; this harness deliberately does not guess what the UI showed. Record the tested commit and build/run identity outside the synthetic fixture. Never claim synthetic snapshots came from the engine.
+
+## Minimum real-paper acceptance matrix (not yet run)
+
+At least 20 **permissioned/public** PDFs, with at least 3 main articles per ACS/RSC/Wiley/Nature/Elsevier (15), at least 3 SI PDFs (including multiple SI and SI with a reference DOI), and at least 2 no-DOI/ambiguous cases. Add explicit cross-provider DOI/title conflicts. Include both page ranges and article numbers, publisher-specific final-author layouts, year-only dates, journal abbreviations, missing metadata, and offline behavior. Every known field needs independent page/publisher evidence; list unknown labels as `unscored`.
+
+Capture read-only before/after snapshots for: stale `QSettings` from PR #13 (both ambiguous legacy `manual` states), explicit user-edited title/author/journal/citation, concurrent edit and refresh, network offline, HTTP 429/404, invalid DOI, reference-only DOI, mismatched Crossref/OpenAlex DOI, restart, PDF rename/move, SI classification, and two simultaneously opened tabs. The optional `regressions` array compares `before` and `after` via `must_preserve`, `must_remain_empty`, and `expected_status`/`actual_status`. It checks only **supplied snapshots**; a synthetic PASS does not prove these events occurred in LUNA.
+
+## Follow-up integration boundary
+
+1. Keep this branch stacked on Draft PR #16, not on `main`; do not modify PDF4QT, reader UI, metadata parsers or another developer's PR.
+2. Add a **read-only Qt/native snapshot exporter** in a separate, reviewed step, or have the Windows owner export sanitized record snapshots manually. Map the final-author display explicitly and preserve per-field provenance.
+3. Run the harness against the 20+ real authorized PDF goldset on Windows at the exact PR #16 commit; report field-wise precision/recall, per-publisher error cases, unknown labels, and reproducible regression failures. Use actual runtime evidence for 429/404 and persisted QSettings, not fabricated pass flags.
+4. Only after those gates pass should the owner consider a merge. No auto-merge, Release, credential use, PDF upload, or automatic CI workflow dispatch.

@@ -97,6 +97,21 @@ def safe_si_filename(value: object) -> bool:
     return True
 
 
+def safe_si_title(value: object) -> str:
+    """Only use bounded printable publisher titles as matching/display evidence.
+
+    Untrusted Figshare JSON can contain objects, invisible bidi controls or
+    unbounded text. Do not stringify arbitrary objects or silently truncate
+    a title into an apparently exact matching key.
+    """
+    if not isinstance(value, str):
+        return ""
+    title = value.strip()
+    if not title or len(title) > 240 or any(not ch.isprintable() for ch in title):
+        return ""
+    return title
+
+
 _last_request_at = 0.0
 
 
@@ -193,6 +208,7 @@ def lookup_acs_figshare(
         detail_rate_limited = 0
         truncated_files = 0
         invalid_file_entries = 0
+        invalid_article_titles = 0
         ambiguous_file_entries = 0
         ambiguous_file_ids = 0
         # Collect numeric file-ID ownership before rejecting unsafe filenames
@@ -240,7 +256,9 @@ def lookup_acs_figshare(
             if not landing:
                 rejected += 1
                 continue
-            title = str(detail.get("title") or "").strip()[:240]
+            title = safe_si_title(detail.get("title"))
+            if not title:
+                invalid_article_titles += 1
             files = detail.get("files")
             if not isinstance(files, list):
                 rejected += 1
@@ -308,13 +326,14 @@ def lookup_acs_figshare(
             # A rejected summary/detail makes the discovered set incomplete.
             # A full first page may conceal more records, even with zero files.
             status = "partial" if (rejected or failed_details or detail_rate_limited or truncated_files
-                                   or invalid_file_entries or ambiguous_file_entries
+                                   or invalid_file_entries or invalid_article_titles or ambiguous_file_entries
                                    or ambiguous_file_ids or cross_article_file_id_entries
                                    or len(found) == MAX_ARTICLES) else "candidates"
         elif detail_rate_limited:
             status = "rate_limited"
         elif (rejected or failed_details or truncated_files or invalid_file_entries
               or ambiguous_file_entries or ambiguous_file_ids
+              or invalid_article_titles
               or cross_article_file_id_entries or len(found) == MAX_ARTICLES):
             status = "needs_review"
         else:
@@ -324,6 +343,7 @@ def lookup_acs_figshare(
                       f"search_page_full={int(len(found) == MAX_ARTICLES)};"
                       f"file_lists_truncated={truncated_files};"
                       f"invalid_file_entries={invalid_file_entries};"
+                      f"invalid_article_titles={invalid_article_titles};"
                       f"ambiguous_file_entries={ambiguous_file_entries};"
                       f"ambiguous_file_ids={ambiguous_file_ids};"
                       f"cross_article_file_id_entries={cross_article_file_id_entries}")

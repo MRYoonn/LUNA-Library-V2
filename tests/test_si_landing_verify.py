@@ -80,6 +80,47 @@ class LandingVerifierTests(unittest.TestCase):
                 self.assertTrue(all(c.status.startswith("landing_unchecked_")
                                     for c in checked.candidates))
 
+    def test_restored_verified_result_offline_revokes_stale_evidence(self):
+        previous = verify_landing_candidates(fixture(1), lambda _: "reachable_html")
+        self.assertEqual(previous.status, "verified")
+        restored = SiLookupResult(DOI, "verified", previous.candidates,
+                                  "https://evil.invalid/stale")
+        offline = verify_landing_candidates(
+            restored, lambda _: self.fail("offline must not probe"), offline=True)
+        self.assertEqual(offline.status, "offline")
+        self.assertEqual(offline.candidates[0].status, "landing_unchecked_offline")
+        self.assertEqual(offline.fallback_url, "https://doi.org/" + DOI)
+        self.assertEqual(restored.candidates[0].status, "landing_verified")
+
+    def test_restored_verified_result_failed_recheck_revokes_evidence(self):
+        previous = verify_landing_candidates(fixture(1), lambda _: "reachable_html")
+        checked = verify_landing_candidates(previous, lambda _: "not_found")
+        self.assertEqual(checked.status, "needs_review")
+        self.assertEqual(checked.candidates[0].status, "landing_unchecked_not_found")
+        self.assertIn("landings_checked=1", checked.diagnostic)
+
+    def test_partial_or_uncertain_restored_results_cannot_become_complete(self):
+        partial = verify_landing_candidates(
+            fixture(1, status="partial"), lambda _: "reachable_html")
+        self.assertEqual(partial.status, "partial_verified")
+        refreshed = verify_landing_candidates(partial, lambda _: "reachable_html")
+        self.assertEqual(refreshed.status, "partial_verified")
+        self.assertIn("search_partial=1", refreshed.diagnostic)
+        uncertain = verify_landing_candidates(fixture(1), lambda _: "not_found")
+        retried = verify_landing_candidates(uncertain, lambda _: "reachable_html")
+        self.assertEqual(retried.status, "partial_verified")
+        offline = verify_landing_candidates(retried, lambda _: self.fail("offline"),
+                                            offline=True)
+        self.assertEqual(offline.status, "offline")
+
+    def test_restored_verified_without_candidates_fails_closed(self):
+        forged = SiLookupResult(DOI, "verified", (),
+                                "https://evil.invalid/forged")
+        result = verify_landing_candidates(forged, lambda _: self.fail("network"))
+        self.assertEqual(result.status, "needs_review")
+        self.assertEqual(result.fallback_url, "https://doi.org/" + DOI)
+        self.assertEqual(result.diagnostic, "verified_without_candidates")
+
     def test_non_candidates_unchanged(self):
         source = fixture(status="rate_limited")
         self.assertIs(verify_landing_candidates(source, lambda _: self.fail("network")), source)

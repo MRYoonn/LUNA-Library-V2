@@ -279,5 +279,51 @@ class LandingVerifierTests(unittest.TestCase):
         self.assertIn("landing_rate_limited=0", result.diagnostic)
 
 
+    def test_foreign_unsafe_filename_never_promotes_even_with_valid_landing(self):
+        # A restored/forged candidate may bypass si_finder sanitization.
+        good = fixture(1).candidates[0]
+        bad = SiCandidate(123, DOI, "Synthetic", "SI／other.pdf", good.landing_url,
+                          file_id=9001)
+        source = SiLookupResult(DOI, "candidates", (bad, good), "https://doi.org/" + DOI)
+        calls = []
+        result = verify_landing_candidates(
+            source, lambda url: calls.append(url) or "reachable_html")
+        self.assertEqual([c.status for c in result.candidates],
+                         ["landing_unchecked_unsafe_filename", "landing_verified"])
+        self.assertEqual(len(calls), 1)
+
+    def test_foreign_duplicate_file_ids_never_reuse_verified_article_landings(self):
+        # Even across two articles, one Figshare file ID cannot be two SI files.
+        entries = (
+            SiCandidate(123, DOI, "Synthetic", "first.pdf", BASE + "123", file_id=8123),
+            SiCandidate(456, DOI, "Synthetic", "second.pdf", BASE + "456", file_id=8123),
+            SiCandidate(789, DOI, "Synthetic", "third.pdf", BASE + "789", file_id=9000),
+        )
+        source = SiLookupResult(DOI, "candidates", entries, "https://doi.org/" + DOI)
+        calls = []
+        result = verify_landing_candidates(
+            source, lambda url: calls.append(url) or "reachable_html")
+        self.assertEqual([c.status for c in result.candidates],
+                         ["landing_unchecked_ambiguous_file_identity",
+                          "landing_unchecked_ambiguous_file_identity",
+                          "landing_verified"])
+        self.assertEqual(calls, [BASE + "789"])
+        self.assertEqual(result.status, "partial_verified")
+
+    def test_foreign_compatibility_aliases_and_invalid_file_id_fail_closed(self):
+        entries = (
+            SiCandidate(123, DOI, "Synthetic", "SI.pdf", BASE + "123", file_id=1),
+            SiCandidate(123, DOI, "Synthetic", "ＳＩ.pdf", BASE + "123", file_id=2),
+            SiCandidate(456, DOI, "Synthetic", "other.pdf", BASE + "456", file_id=True),
+        )
+        source = SiLookupResult(DOI, "candidates", entries, "https://doi.org/" + DOI)
+        result = verify_landing_candidates(source, lambda _: self.fail("network"))
+        self.assertEqual([c.status for c in result.candidates],
+                         ["landing_unchecked_ambiguous_file_identity",
+                          "landing_unchecked_ambiguous_file_identity",
+                          "landing_unchecked_invalid_file_id"])
+        self.assertEqual(result.status, "needs_review")
+
+
 if __name__ == "__main__":
     unittest.main()

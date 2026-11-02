@@ -862,3 +862,41 @@ PDFs, then score with `--require-real --pdf-dir --expected-engine-commit`;
 manual-value protection and physical move/restart. No real extraction
 accuracy is claimed. PR #18 remains Draft; no main/other PR changes,
 auto-merge or release.
+
+### Follow-up 2026-11-03 — opt-in local PDF byte capture helper
+
+**Root cause / reproducible gap:** The previous read-only Qt adapter accepted a
+caller-supplied `source_sha256`. A local driver could accidentally copy the
+goldset digest instead of hashing the PDF whose record was captured, making
+two unrelated files appear correctly bound. Reproduce by providing a fabricated
+matching digest for the wrong PDF: the existing schema checks only compare
+strings, not actual bytes.
+
+**Added (isolated test-only code):**
+`tests/native_accuracy/local_pdf_capture.h` provides
+`captureCaseFromLocalPdf(opaqueId, alreadyLoadedRecord, absolutePdfPath)`.
+It opens an explicit local PDF read-only, checks the PDF header, hashes the
+complete bytes in bounded 1 MiB chunks, and passes the computed SHA256 to the
+existing whitelisted `captureCase`. Missing/non-PDF files and stale paths
+return an empty capture. It never writes a PDF, reads QSettings, fetches DOI
+metadata, exports a filename, or touches the production renderer. The native
+synthetic test writes disposable PDF-like bytes in `QTemporaryDir`, verifies
+hash equality, rename stability, mutation detection and missing/invalid input.
+`tools/preflight_public.py` allowlists only this reviewed source header.
+
+**Important limitations:** The caller must ensure `alreadyLoadedRecord` was
+obtained from the **same opened PDF** and keep the file stable during hashing;
+this helper cannot prove the association or prevent a concurrent replacement.
+It rejects direct file symlinks, but it is not a security boundary against
+untrusted parent directories. A digest match does not establish publisher
+authenticity, accuracy of human gold labels, or actual GUI card display.
+No real or personal PDFs, QSettings, snapshots, or results were uploaded.
+
+**Validation:** Source committed for independent Python/Windows QtCore CI;
+check the exact new HEAD run before reporting PASS. The prior HEAD
+`49ffa153` passed GitHub Actions #41543035855, but that does **not** test this
+new helper. A future Windows owner must explicitly wire this opt-in helper to
+the same already-loaded PR #16 bibliography record, then run
+`--require-real --pdf-dir --expected-engine-commit` against 20+ authorized
+ACS/RSC/Wiley/Nature/Elsevier PDFs and independently verify manual edits,
+offline/429/404, restart/move, and card rendering. Keep PR #18 Draft.

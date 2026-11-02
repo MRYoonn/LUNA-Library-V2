@@ -45,6 +45,25 @@ int main(int argc, char** argv) {
     check(sources.value(QStringLiteral("title")).toString() == QStringLiteral("Crossref"),
           "per-field provenance");
     check(!sources.contains(QStringLiteral("private_note")), "reject arbitrary source fields");
+    check(!one.value(QStringLiteral("audit")).toObject()
+               .value(QStringLiteral("senior_author_override_active")).toBool(),
+          "ordinary last author is not a manual card override");
+    // A manually chosen author index changes labCitation() without a textual
+    // senior_author_override. Never score that card as auto-extracted author.
+    QVariantMap selectedAuthor = paper;
+    selectedAuthor[QStringLiteral("senior_author_index")] = 0;
+    const auto selected = luna::Accuracy::captureCase(QStringLiteral("syn-selected"), selectedAuthor);
+    check(selected.value(QStringLiteral("observed")).toObject()
+              .value(QStringLiteral("terminal_author")).toString() == QStringLiteral("B. Last"),
+          "index selection does not rewrite the last listed author");
+    check(selected.value(QStringLiteral("audit")).toObject()
+              .value(QStringLiteral("senior_author_override_active")).toBool(),
+          "selected senior-author index is a manual card override");
+    selectedAuthor[QStringLiteral("senior_author_index")] = 99;
+    const auto invalidSelection = luna::Accuracy::captureCase(QStringLiteral("syn-invalid-selection"), selectedAuthor);
+    check(!invalidSelection.value(QStringLiteral("audit")).toObject()
+               .value(QStringLiteral("senior_author_override_active")).toBool(),
+          "out-of-range index does not change the card");
 
     // Simulate the legacy ambiguous record-wide manual=true setting without
     // marking the author field as an explicit human edit.

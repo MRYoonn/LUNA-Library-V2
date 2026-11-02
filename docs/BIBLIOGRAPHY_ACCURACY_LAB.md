@@ -603,3 +603,38 @@ ctest --test-dir build/native_accuracy -C Release --output-on-failure
 20+ publisher PDF goldset and field-level precision/recall; opt-in local
 legacy-user-settings regression; real Windows GUI process restart and physical
 PDF move; live Crossref/OpenAlex offline/429/404 tests. Keep PR #18 Draft.
+
+
+## Follow-up — protect scorer inputs during local report generation (2026-11-02)
+
+The offline **accuracy scorer** `tools/bibliography_accuracy_lab.py` previously
+used `Path.write_text()` for `--report`. A mistyped report path equal to
+`--goldset` or `--predictions` could overwrite the original local
+permissioned labels or read-only native snapshots. The separate collection
+audit already had an analogous guard; this follow-up applies it to the
+**scorer**, without changing scoring, extraction, native Qt, or PDF handling.
+
+The scorer now rejects either input-path alias (including relative/resolved
+aliases), rejects report symlinks, and writes a private same-directory
+temporary file before atomic replacement. Failed writes clean up the temp
+file and return exit code 2. Three synthetic subprocess regression tests
+exercise input byte preservation, unrelated symlink target protection, and
+repeatable report replacement with no temp-file leaks.
+
+Run on the exact independent branch:
+
+```sh
+python -B -m unittest discover -s tests -p 'test_bibliography_accuracy_lab.py' -v
+python -B tools/bibliography_accuracy_lab.py \
+  --goldset tests/fixtures/bibliography_accuracy_goldset.synthetic.json \
+  --predictions tests/fixtures/bibliography_accuracy_predictions.synthetic.json
+```
+
+**Validation boundary:** source updates and synthetic tests do not measure
+real publisher precision/recall. Check the exact-head isolated GitHub Actions
+Python and Windows QtCore results before claiming PASS. Still missing:
+20+ authorized/public ACS/RSC/Wiley/Nature/Elsevier PDF labels with independent
+evidence, privacy-reviewed native captures from an exact PR #16 build, real
+Windows GUI/legacy QSettings, and live offline/429/404/restart/move acceptance.
+Never upload local PDF copies, private goldsets, snapshots, reports or settings.
+Keep Draft PR #18; no merge, release, or changes to other PRs.

@@ -726,3 +726,27 @@ and the isolated Windows QtCore CTest job in
 This tests synthetic persisted status, **not** real HTTP 429/404 responses,
 Windows GUI, authorized multi-publisher goldset precision/recall, or actual
 user settings. Those acceptance gates remain open.
+
+## Follow-up 2026-11-03 — composite-provider provenance mismatch
+
+**Cause:** the real-run scorer accepted a populated field when one audit
+channel said `Crossref + OpenAlex` and the other said `pdf_metadata` or
+`first_page_verified`. The mere presence of the composite provider label
+suppressed the existing conflict guard, despite incompatible source claims.
+This could count a disputed title as an automatic-extraction true positive.
+
+**Reproduction (synthetic only):** set
+`audit.field_sources.title="Crossref + OpenAlex"` and
+`audit.titleSource="pdf_metadata"` on a fabricated real-mode prediction.
+The previous scorer accepted this combination. The isolated scorer now rejects
+it as `conflicting automatic provenance for title`, while accepting a
+composite provider paired with `Crossref`, `OpenAlex`, or the same composite
+label. The added regression tests cover all six combinations.
+
+Run `python -B -m unittest discover -s tests -p 'test_bibliography_accuracy_lab.py' -v`
+and inspect the **exact new-head** Python/Windows CI. No actual PDF, network
+response, user QSettings or application UI was exercised by this change.
+Next: collect >=20 distinct authorized/public publisher PDFs and independently
+review field labels; capture actual PR #16 read-only snapshots at the verified
+Windows build SHA; test live 429/404, legacy settings and GUI/move/restart
+separately. Keep PR #18 Draft and do not merge or release.

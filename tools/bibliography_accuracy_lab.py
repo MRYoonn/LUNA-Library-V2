@@ -498,6 +498,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="require --require-real and >=20 diverse verified-label PDF cases")
     parser.add_argument("--field-coverage-gate", action="store_true",
                         help="require --coverage-gate and labeled positive examples for every field")
+    parser.add_argument("--pdf-dir", type=Path,
+                        help="optional local <sha256>.pdf integrity gate; requires --require-real, never uploads PDFs")
     args = parser.parse_args(argv)
     # Both inputs may contain private labels and native snapshots. Never
     # truncate either one through an accidental --report alias.
@@ -514,6 +516,13 @@ def main(argv: list[str] | None = None) -> int:
             raise DatasetError("--coverage-gate requires --require-real")
         if args.expected_engine_commit and not args.require_real:
             raise DatasetError("--expected-engine-commit requires --require-real")
+        if args.pdf_dir is not None:
+            if not args.require_real:
+                raise DatasetError("--pdf-dir requires --require-real")
+            if args.pdf_dir.is_symlink() or not args.pdf_dir.is_dir():
+                raise DatasetError("--pdf-dir must be an existing non-symlink directory")
+            if args.report is not None and args.report.resolve().is_relative_to(args.pdf_dir.resolve()):
+                raise DatasetError("report path must be outside the private PDF directory")
         gold = load_json(args.goldset)
         predictions = load_json(args.predictions)
         if args.expected_engine_commit:
@@ -529,6 +538,14 @@ def main(argv: list[str] | None = None) -> int:
             labels = audit_field_label_coverage(gold)
             result["field_label_audit"] = labels
             result["pass"] = result["pass"] and labels["ready"]
+        if args.pdf_dir is not None:
+            # Reuse the independent read-only audit; no PDF bytes or original
+            # filenames enter the report. This verifies hash/header only, NOT
+            # publisher authenticity, label accuracy, or Windows execution.
+            from bibliography_goldset_audit import audit_local_pdfs
+            integrity = audit_local_pdfs(validate_cases(gold, "goldset"), args.pdf_dir)
+            result["pdf_integrity_audit"] = integrity
+            result["pass"] = result["pass"] and integrity["ready"]
     except DatasetError as exc:
         print(f"[BLOCK] {exc}", file=sys.stderr)
         return 2

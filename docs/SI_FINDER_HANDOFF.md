@@ -436,3 +436,24 @@ original DOI fallback; the default offline behavior is unchanged.
   No actual user PDF, real Windows LUNA integration, or ACS/Figshare live
   metadata/landing was tested by this patch. Keep links unconfirmed, PR #17
   Draft, and no merge/release.
+
+## Follow-up: association identity parity gate (2026-11-02)
+
+- Reused the existing QtCore `SiIdentity::validId` UUIDv4 contract rather than
+  adding a new DOI extractor or changing the reader. The local Python
+  `AssociationIndex` now rejects UUIDv1/v5/nil at insertion **and** JSON
+  import, so a forged/legacy ID cannot be linked successfully in Python and
+  then fail native relocation or sidecar verification.
+- Reject Windows `COM¹`/`LPT²` device aliases and invisible Unicode
+  control/format characters in relative PDF paths, while retaining ordinary
+  Unicode paper filenames. JSON boolean `version: true` is not schema v1.
+- Three synthetic regression cases cover native-identity parity, path
+  validation and strict schema typing. No private PDFs, QSettings or
+  credentials are used. Python CI and Windows/Linux Qt6 results must be
+  checked at the exact commit before claiming PASS.
+- **Integration caveat:** the current SI branch still contains the older
+  `src/lunafilemove.h`; latest Draft #16 has since added a
+  `.luna-meta.json` move clause. Do not overwrite #16 or merge it here.
+  After its owner completes native Windows rollback/restart acceptance, test
+  the stacked integration with real disposable synthetic PDFs and sidecars.
+  The SI link UI remains disabled until that evidence exists.

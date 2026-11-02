@@ -569,3 +569,37 @@ into unrelated local research files and avoids a truncated report after a
 failed write. Synthetic CLI regressions cover the symlink refusal, repeated
 report generation and temporary-file cleanup. This is **not** a PDF goldset
 accuracy measurement and does not validate actual publisher evidence.
+
+
+## Follow-up: actual process-boundary restart regression (2026-11-02)
+
+The isolated QtCore test now starts **a second OS process** of its own test
+executable, pointing QSettings IniFormat UserScope at the same disposable
+`QTemporaryDir`. The child loads the *physically moved* synthetic PDF's
+bibliography by its destination identity, checks manual title provenance and
+`needs_review`, checks the moved thumbnail exists, and verifies that a
+stale-dialog human title and background Crossref journal both survive a
+process restart. It also reloads the synthetic `rate_limited` diagnostic
+and confirms it remains `partial`, not `complete`.
+
+Previously the test only created another `Bibliography` object in the same
+process; that could not distinguish disk persistence from in-process Qt
+settings caching. The child uses no user QSettings, private PDF or network.
+The test does **not** establish real Windows GUI restart behavior, HTTP 429
+responses, or that `.luna-meta.json` moves with the PDF (it currently does
+not). It only verifies already-saved synthetic records across an actual
+process boundary.
+
+Run on the exact branch commit:
+
+```sh
+python -B -m unittest discover -s tests -p 'test_accuracy_snapshot_source_contract.py' -v
+cmake -S tests/native_accuracy -B build/native_accuracy -DCMAKE_BUILD_TYPE=Release
+cmake --build build/native_accuracy --config Release
+ctest --test-dir build/native_accuracy -C Release --output-on-failure
+```
+
+**Acceptance pending:** verify exact-head Python/Windows QtCore CI; authorized
+20+ publisher PDF goldset and field-level precision/recall; opt-in local
+legacy-user-settings regression; real Windows GUI process restart and physical
+PDF move; live Crossref/OpenAlex offline/429/404 tests. Keep PR #18 Draft.

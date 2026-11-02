@@ -765,3 +765,47 @@ separately. Keep PR #18 Draft and do not merge or release.
 - **Files:** `tools/bibliography_accuracy_lab.py`, `tests/test_bibliography_accuracy_lab.py`. No metadata fetcher, reader, QSettings, PDF4QT, or other PR touched.
 - **Prior verified CI:** [#41514606504](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41514606504) reported Python and Windows QtCore success for the **previous** `80faae5c` HEAD, not for these new commits.
 - **Next exact action:** check the new branch-head Python/Windows CI jobs for the added DOI test; fix any failure before claiming PASS. Then obtain 20+ independently reviewed authorized/public PDFs, capture native read-only snapshots on Windows at a pinned PR #16 SHA, and separately verify real HTTP 429/404, existing user-like QSettings, file move/restart, and card display. No real accuracy numbers are available yet.
+
+### Follow-up 2026-11-03 — opt-in local PDF byte-integrity gate
+
+**Gap:** The existing `--require-real` scorer checked a declared 64-hex PDF
+SHA256 string, but never read the corresponding PDF bytes. A fabricated or
+stale digest could therefore accompany a numerically passing accuracy report.
+The separate goldset audit already supported a local, read-only hash/header
+check; this follow-up **reuses** that function instead of implementing a
+second PDF reader or changing the production metadata engine.
+
+Use `--pdf-dir` with `--require-real` to require locally staged files
+named `<sha256>.pdf`. The scorer now includes `pdf_integrity_audit` in
+its report and returns **FAIL (exit 1)** for missing, tampered, unreadable or
+unsafe files. It blocks `--pdf-dir` without real mode, nonexistent/symlink
+directories, and report paths inside the PDF directory (**exit 2**).
+The report includes only opaque case IDs and reason codes, not private file
+paths, PDF bytes or SHA256 values. Both inputs remain untouched.
+
+```sh
+python -B tools/bibliography_accuracy_lab.py --require-real \
+  --expected-engine-commit YOUR_EXACT_40_HEX_SHA \
+  --goldset LOCAL_GOLDSET.json --predictions LOCAL_SNAPSHOT.json \
+  --pdf-dir LOCAL_PRIVATE_HASH_NAMED_PDFS --report LOCAL_SCORE.json
+```
+
+**Synthetic reproduction:** the added tests create seven distinct fake
+PDF-header byte streams and fabricated evidence in a disposable directory.
+With zero staged files, expect `pdf_integrity_audit.ready=false`, exit 1.
+With all matching hashes, expect the integrity subcheck to pass; after
+tampering with one file, expect `sha256_mismatch`, exit 1. CLI tests
+also cover unsafe report/directory options. This is **not** real publisher
+PDF extraction or independently authenticated labels. A successful hash
+check proves only that the declared bytes match the staged files; it does
+not establish the publisher, correctness of gold labels, or a Windows run.
+
+Changed: `tools/bibliography_accuracy_lab.py`,
+`tests/test_bibliography_accuracy_lab.py`, this document. Prior exact-head
+CI [#41523997677](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41523997677)
+was **SUCCESS** for `a61df5ea`; new-HEAD Python/Windows jobs must be
+checked independently. Next: independently label 20+ authorized/public
+publisher PDFs, verify their bytes privately, capture PR #16 native snapshots
+at an exact Windows build SHA, then test real HTTP 429/404, QSettings and
+GUI file-move/restart. Do not commit any real PDF, report, or user settings.
+Keep Draft PR #18; no merge or release.

@@ -198,6 +198,31 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         })
         self.assertFalse(lab.score(gold, predictions)["pass"])
 
+    def test_preserved_boolean_type_drift_is_not_a_false_pass(self):
+        # Python bool is an int subclass: False == 0 and True == 1.
+        # Real Qt/QSettings snapshots must preserve the VALUE AND its type.
+        for before, after in ((False, 0), (True, 1), (0, False), (1, True)):
+            with self.subTest(before=before, after=after):
+                row = {"id": "synthetic-typed-manual-flag",
+                       "before": {"manual": before},
+                       "after": {"manual": after},
+                       "must_preserve": ["manual"]}
+                report = lab.score_regressions([row])
+                self.assertEqual(report["passed"], 0)
+                self.assertEqual(report["failed"], 1)
+                self.assertEqual(report["failures"], [{
+                    "case_id": "synthetic-typed-manual-flag",
+                    "field": "manual",
+                    "reason": "changed_protected_value",
+                }])
+        for value in (False, True, 0, 1):
+            with self.subTest(unchanged=value):
+                row = {"id": "synthetic-unchanged-manual-flag",
+                       "before": {"manual": value},
+                       "after": {"manual": value},
+                       "must_preserve": ["manual"]}
+                self.assertEqual(lab.score_regressions([row])["passed"], 1)
+
     def test_status_only_regression_is_explicit_and_scoreable(self):
         gold, predictions = sample()
         predictions["regressions"].append({

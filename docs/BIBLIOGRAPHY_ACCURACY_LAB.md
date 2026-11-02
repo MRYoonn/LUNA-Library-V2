@@ -701,3 +701,28 @@ publisher extraction engine are untouched.
 **Exact-HEAD CI must be checked** for Python and Windows QtCore before
 calling this fix verified. Actual publisher precision/recall, Windows GUI,
 live 429/404 and private user settings remain unverified.
+
+## Follow-up 2026-11-03 — fresh-process offline/429/404 persistence
+
+The prior fixture-only repair at `195510d5477a8566e84c3745bb59978f750c2c9e`
+passed both isolated jobs in Actions run
+[#41487332871](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41487332871).
+That PASS belongs to the **previous** commit, not this change.
+
+The QtCore synthetic regression already exercised `recordLookupFailure` for
+`offline`, `rate_limited` (HTTP 429), and `not_found` (HTTP 404)
+in the original process, but the child-process persistence assertion covered
+only 429. The fresh OS process now reloads **all three** cases from the
+isolated on-disk QSettings INI and checks the exact diagnostic, non-complete
+status (`offline` or `partial`), and unchanged original title. The Python
+source contract checks that this native regression is present. No production
+metadata engine, PDF reader, or user QSettings was modified.
+
+Reproduce with the existing
+`python -B -m unittest discover -s tests -p 'test_accuracy_snapshot_source_contract.py' -v`
+and the isolated Windows QtCore CTest job in
+`.github/workflows/bibliography-accuracy-lab.yml`.
+**The new exact-HEAD CI result must be checked before declaring PASS.**
+This tests synthetic persisted status, **not** real HTTP 429/404 responses,
+Windows GUI, authorized multi-publisher goldset precision/recall, or actual
+user settings. Those acceptance gates remain open.

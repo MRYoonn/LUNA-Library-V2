@@ -62,6 +62,24 @@ int main(int argc, char** argv) {
               QStringLiteral("rate_limited"), "fresh process retains 429 diagnostic");
         check(limited.value(QStringLiteral("metadata_status")).toString() ==
               QStringLiteral("partial"), "fresh process does not claim 429 complete");
+        // The legacy migration matrix is reloaded from disk in this fresh
+        // OS process, not merely from a second in-process Qt object.
+        for (int variant = 0; variant < 4; ++variant) {
+            const QString identity = QStringLiteral("synthetic:legacy-matrix:") + QString::number(variant);
+            const QVariantMap record = freshStore.record(identity);
+            const auto snapshot = luna::Accuracy::captureCase(
+                QStringLiteral("syn-legacy-restart-") + QString::number(variant), record);
+            const QString actual = snapshot.value(QStringLiteral("observed")).toObject()
+                .value(QStringLiteral("terminal_author")).toString();
+            check(variant == 2 ? actual == QStringLiteral("John J. Molloy") : actual.isEmpty(),
+                  "fresh process legacy author migration matrix");
+        }
+        check(freshStore.record(QStringLiteral("synthetic:manual-empty-author"))
+                  .value(QStringLiteral("authorsSource")).toString() == QStringLiteral("manual"),
+              "fresh process preserves deliberate empty manual author");
+        check(freshStore.record(QStringLiteral("synthetic:manual-single-author"))
+                  .value(QStringLiteral("authors")).toString() == QStringLiteral("Plato"),
+              "fresh process preserves one-word manual author");
         return 0;
     }
     QTemporaryDir root;
@@ -126,6 +144,73 @@ int main(int argc, char** argv) {
     check(hidden.value(QStringLiteral("observed")).toObject().contains(QStringLiteral("terminal_author")) &&
           hidden.value(QStringLiteral("observed")).toObject().value(QStringLiteral("terminal_author")).isNull(),
           "suppressed legacy author must not reappear");
+
+    // PR #13 legacy migration matrix: old record-wide manual/source flags
+    // were sometimes written by automation and do NOT prove a human author
+    // edit. Preserve a recoverable copy without exporting an invented author.
+    for (int variant = 0; variant < 4; ++variant) {
+        const QString identity = QStringLiteral("synthetic:legacy-matrix:") + QString::number(variant);
+        const QString legacyDigest = QString::fromLatin1(
+            QCryptographicHash::hash(identity.toUtf8(), QCryptographicHash::Sha256).toHex());
+        const bool oldManualFlag = (variant % 2) != 0;
+        const bool verifiedTerminalEvidence = variant >= 2;
+        const QString legacyAuthor = verifiedTerminalEvidence
+            ? QStringLiteral("John J. Molloy") : QStringLiteral("Hao Fang");
+        QVariantMap entry{{QStringLiteral("authors"), legacyAuthor},
+                          {QStringLiteral("manual"), oldManualFlag},
+                          {QStringLiteral("source"), QStringLiteral("Manual")}};
+        if (verifiedTerminalEvidence)
+            entry[QStringLiteral("authorEvidence")] = QStringLiteral("first-page-terminal-and");
+        settings.setValue(QStringLiteral("library/bibliography/") + legacyDigest, entry);
+    }
+    settings.sync();
+    check(settings.status() == QSettings::NoError, "legacy migration matrix saved");
+    for (int variant = 0; variant < 4; ++variant) {
+        const QString identity = QStringLiteral("synthetic:legacy-matrix:") + QString::number(variant);
+        const QVariantMap restoredLegacy = store.record(identity);
+        const auto capturedLegacy = luna::Accuracy::captureCase(
+            QStringLiteral("syn-legacy-matrix-") + QString::number(variant), restoredLegacy);
+        const QString actualAuthor = capturedLegacy.value(QStringLiteral("observed")).toObject()
+            .value(QStringLiteral("terminal_author")).toString();
+        if (variant == 2) {
+            check(actualAuthor == QStringLiteral("John J. Molloy"),
+                  "verified first-page terminal author survives legacy migration");
+            check(restoredLegacy.value(QStringLiteral("authorsSource")).toString() ==
+                  QStringLiteral("first_page_verified"), "verified legacy provenance restored");
+        } else {
+            check(actualAuthor.isEmpty(),
+                  "legacy false manual flag still suppresses unverified author");
+            check(restoredLegacy.value(QStringLiteral("legacyAuthors")).toString() ==
+                  (variant >= 2 ? QStringLiteral("John J. Molloy") : QStringLiteral("Hao Fang")),
+                  "unverified legacy author preserved only as recovery data");
+        }
+    }
+
+    // A human's deliberately empty author and a one-word manual author must
+    // remain protected, even if a later first-page worker proposes a name.
+    const QString emptyManualId = QStringLiteral("synthetic:manual-empty-author");
+    const QVariantMap emptyManual{{QStringLiteral("authors"), QString()},
+                                  {QStringLiteral("authorsSource"), QStringLiteral("manual")}};
+    check(store.save(emptyManualId, emptyManual, false), "seed deliberate empty manual author");
+    check(!store.enrichFromFirstPage(emptyManualId,
+          QVariantMap{{QStringLiteral("authors"), QStringLiteral("John J. Molloy")},
+                      {QStringLiteral("authorEvidence"), QStringLiteral("first-page-terminal-and")}}),
+          "deliberately empty manual author rejects automatic overwrite");
+    check(store.record(emptyManualId).value(QStringLiteral("authorsSource")).toString() ==
+          QStringLiteral("manual"), "empty manual author provenance retained");
+    check(luna::Accuracy::captureCase(QStringLiteral("syn-manual-empty"), store.record(emptyManualId))
+              .value(QStringLiteral("observed")).toObject()
+              .value(QStringLiteral("terminal_author")).isNull(),
+          "empty manual author captured as explicit null");
+    const QString singleManualId = QStringLiteral("synthetic:manual-single-author");
+    check(store.save(singleManualId,
+          QVariantMap{{QStringLiteral("authors"), QStringLiteral("Plato")},
+                      {QStringLiteral("authorsSource"), QStringLiteral("manual")}}, false),
+          "seed one-word manual author");
+    check(luna::Accuracy::captureCase(QStringLiteral("syn-manual-single"), store.record(singleManualId))
+              .value(QStringLiteral("observed")).toObject()
+              .value(QStringLiteral("terminal_author")).toString() == QStringLiteral("Plato"),
+          "one-word human author remains visible");
 
     paper["authors"] = QStringLiteral("Corrected, User Last");
     paper["authorsSource"] = QStringLiteral("manual");

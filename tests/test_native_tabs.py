@@ -641,8 +641,14 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('button->setDefaultAction(action)', library)
         self.assertIn('navigationToggle->click()', library)
         self.assertIn('documentsToggle->click()', library)
-        self.assertIn('Collapsing library navigation also hid the paper list', library)
-        self.assertIn('Collapsing paper list also hid library navigation', library)
+        # The native smoke must enforce collapsed-panel independence plus
+        # recoverability from the reader edge, not match removed message text.
+        self.assertIn('Collapsing library navigation hid papers or lost restore rail', library)
+        self.assertIn('Both collapsed panels lost edge restore controls', library)
+        self.assertIn('Edge navigation restore unexpectedly expanded papers', library)
+        self.assertIn('Both panels did not restore independently', library)
+        self.assertIn('restoreNav->click()', library)
+        self.assertIn('restoreDocs->click()', library)
         self.assertIn('QTabBar#LunaPdfTabBar::tab', style)
         self.assertIn('painter->fillPath(selectionPath', overlay)
         self.assertIn('PDFTextSelectionPainter selectionPainter(&m_textSelection)', overlay)

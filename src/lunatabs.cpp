@@ -158,6 +158,7 @@ public:
         tabs_->setTabsClosable(true); tabs_->setDocumentMode(true); tabs_->setMovable(true);
         tabs_->setElideMode(Qt::ElideMiddle);
         tabs_->tabBar()->setObjectName(QStringLiteral("LunaPdfTabBar"));
+        tabs_->tabBar()->setDrawBase(false); // Qt native tab-base draws the unwanted dark top rule.
         tabs_->tabBar()->setExpanding(false);
         tabs_->tabBar()->setUsesScrollButtons(true);
         tabs_->setAcceptDrops(true);

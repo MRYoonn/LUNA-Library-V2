@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 import json
 from pathlib import PurePosixPath
 import re
+import unicodedata
 from uuid import UUID
 
 try:
@@ -40,27 +41,34 @@ def document_id(raw: str) -> str:
     return str(value)
 
 
+def _path_identity_key(path: str) -> str:
+    """Conservative Windows/UI comparison; compatibility aliases cannot coexist."""
+    return unicodedata.normalize("NFKC", path).casefold()
+
+
 def relative_pdf_path(raw: str) -> str:
     """Canonical slash-relative PDF path; no traversal or Windows aliases."""
-    if not isinstance(raw, str) or not raw or len(raw) > 1024 or "\\" in raw:
+    if not isinstance(raw, str) or not raw or len(raw) > 1024:
         raise ValueError("invalid_relative_path")
-    if any(not ch.isprintable() for ch in raw) or raw.startswith("/") or _DRIVE.match(raw):
-        raise ValueError("invalid_relative_path")
-    parts = raw.split("/")
-    # Windows cannot represent these path components even when the path is
-    # otherwise relative. Reject them before a user-confirmed link is stored:
-    # an impossible filename must not survive as a misleading SI association.
-    if any(p in ("", ".", "..") or len(p) > 255 or p.endswith((" ", "."))
-           or any(ch in '<>:"|?*' for ch in p) for p in parts):
-        raise ValueError("invalid_relative_path")
-    # Windows also aliases "CON .pdf" to CON, and COM¹/LPT² to devices.
-    if any(p.split(".", 1)[0].rstrip(" ").upper() in _RESERVED_DEVICES for p in parts):
-        raise ValueError("invalid_relative_path")
+    # NFKC may turn apparently harmless Unicode into Windows separators,
+    # reserved device names or dot segments. Validate BOTH representations
+    # before recording an opt-in local association.
+    for candidate in (raw, unicodedata.normalize("NFKC", raw)):
+        if (not candidate or "\\" in candidate or candidate.startswith("/")
+                or _DRIVE.match(candidate)
+                or any(not ch.isprintable() for ch in candidate)):
+            raise ValueError("invalid_relative_path")
+        parts = candidate.split("/")
+        if any(p in ("", ".", "..") or len(p) > 255 or p.endswith((" ", "."))
+               or any(ch in '<>:"|?*' for ch in p) for p in parts):
+            raise ValueError("invalid_relative_path")
+        if any(p.split(".", 1)[0].rstrip(" ").upper() in _RESERVED_DEVICES
+               for p in parts):
+            raise ValueError("invalid_relative_path")
     path = str(PurePosixPath(raw))
     if not path.lower().endswith(".pdf"):
         raise ValueError("not_pdf")
     return path
-
 
 @dataclass(frozen=True)
 class LocalDocument:
@@ -101,7 +109,7 @@ class AssociationIndex:
             return  # idempotent re-index, never implicitly rename or copy
         if len(self.documents) >= MAX_DOCUMENTS:
             raise ValueError("document_limit")
-        if any(d.relative_path.casefold() == path.casefold() for d in self.documents.values()):
+        if any(_path_identity_key(d.relative_path) == _path_identity_key(path) for d in self.documents.values()):
             raise ValueError("path_collision")
         self.documents[id] = new
 
@@ -133,7 +141,7 @@ class AssociationIndex:
         doc = self.documents.get(id)
         if doc is None or doc.relative_path != old:
             raise ValueError("stale_move")
-        if any(other_id != id and other.relative_path.casefold() == new.casefold()
+        if any(other_id != id and _path_identity_key(other.relative_path) == _path_identity_key(new)
                for other_id, other in self.documents.items()):
             raise ValueError("path_collision")
         self.documents[id] = LocalDocument(id, doc.kind, new, doc.doi)

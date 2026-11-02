@@ -89,24 +89,29 @@ def verify_landing_candidates(
     # says verified/partial_verified; an explicit offline or failed recheck
     # must revoke that evidence. Uncertain restored states may be retried, but
     # cannot be promoted to a complete listing without fresh finder evidence.
-    refreshable = ("candidates", "partial", "verified", "partial_verified",
-                   "needs_review", "offline")
-    if result.status not in refreshable:
-        return result
-    if not result.candidates:
-        if result.status in ("verified", "partial_verified"):
-            doi = normalize_doi(result.doi)
-            fallback = ("https://doi.org/" + doi
-                        if doi and doi == result.doi and doi.startswith("10.1021/") else "")
-            return replace(result, status="needs_review", fallback_url=fallback,
-                           diagnostic="verified_without_candidates")
-        return result
-    # The finder normally supplies a canonical DOI resolver, but restored or
-    # foreign results may contain an arbitrary fallback URL. Never pass that
-    # untrusted URL through to the UI, including in offline/error paths.
+    # A restored lookup result is untrusted even when it has no candidates.
+    # Canonicalize fallback for EVERY status, including not_found/429/offline:
+    # otherwise a forged external URL can survive without a landing probe.
     doi = normalize_doi(result.doi)
     valid_parent = bool(doi and doi == result.doi and doi.startswith("10.1021/"))
     fallback = "https://doi.org/" + doi if valid_parent else ""
+    refreshable = ("candidates", "partial", "verified", "partial_verified",
+                   "needs_review", "offline")
+    if result.status not in refreshable:
+        if result.candidates:
+            # Provider errors and unsupported/unknown lookup states cannot
+            # carry independently verified SI entries. Never probe or preserve
+            # stale landing_verified evidence from an inconsistent snapshot.
+            return replace(result, status="needs_review", fallback_url=fallback,
+                           candidates=tuple(replace(c, status="landing_unchecked_untrusted_lookup_status")
+                                            for c in result.candidates),
+                           diagnostic="untrusted_lookup_status")
+        return replace(result, fallback_url=fallback)
+    if not result.candidates:
+        if result.status in ("verified", "partial_verified"):
+            return replace(result, status="needs_review", fallback_url=fallback,
+                           diagnostic="verified_without_candidates")
+        return replace(result, fallback_url=fallback)
     if offline or os.environ.get("LUNA_SI_OFFLINE") == "1":
         # An offline check must not preserve a stale/forged landing_verified
         # status from a restored candidate. It has made no HTTP request.

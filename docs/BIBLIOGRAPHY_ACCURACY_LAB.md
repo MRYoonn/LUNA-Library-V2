@@ -530,3 +530,32 @@ passing for this change. Run the isolated workflow and then real Windows
 regressions with disposable settings. Authorized multi-publisher PDF goldset
 and field-wise extraction accuracy are still outstanding. Keep Draft #18;
 do not merge, release, or modify the reader/metadata engine.
+
+## Follow-up 2026-11-02 — fix Windows native test failure; expose sidecar gap
+
+The previous exact-HEAD isolated run
+[Actions #41425360560](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41425360560)
+had **Python PASS but Windows QtCore FAIL** at
+`physical move rejects occupied metadata destination`. Inspection of
+`src/lunafilemove.h::movePdfWithThumbnails` shows that the production helper
+handles the PDF and `.luna-thumb.png/.jpg/.jpeg` only; it does **not**
+move or check `.luna-meta.json`. The prior synthetic test incorrectly
+asserted a feature not present in that helper. This is not a compiler failure.
+
+The corrected independent test now injects a **thumbnail** destination
+collision (supported by the helper), verifies that no source bytes are
+changed, then verifies successful PDF+thumbnail move and bibliography
+`relocate()` persistence. It explicitly checks that the fabricated
+`.luna-meta.json` **remains at the source** and is absent at the target.
+This is a **known sidecar integration gap**, not an accepted metadata-sidecar
+move. The earlier physical-move section's assertion that all three files
+move is superseded by this finding.
+
+Do **not** change production `lunafilemove.h` or another developer's PR
+from this independent branch. The owner of Issue #9 must decide whether
+`.luna-meta.json` is a supported persisted artifact and, if so, implement
+an atomic sidecar-aware move in the main file-management workstream.
+Meanwhile the independent regression must report the limitation accurately.
+New branch CI must pass Python and Windows QtCore before this fix is
+called verified. Real user QSettings, Windows GUI, process restart and
+publisher PDF accuracy remain unverified.

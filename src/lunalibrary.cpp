@@ -3300,7 +3300,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         restoreRail->setVisible(showNav || showPapers);
         if (showNav || showPapers) {
             restoreRail->adjustSize();
-            restoreRail->move(8, window.menuBar()->height() + 49);
+            restoreRail->move(8, window.menuBar()->height() + 95);
             restoreRail->raise();
         }
     };

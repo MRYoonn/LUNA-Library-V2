@@ -3840,6 +3840,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (!wait([&] { return library->model_->countsAvailable(); }, 10000))
         return fail("Asynchronous folder PDF counts were not delivered");
     const QString countRoot = library->root_;
+    QString childFolderPath;
     const int baselineCount = library->model_->pdfCount(countRoot);
     if (baselineCount < 1) return fail("Root folder PDF count excluded its local document");
     {
@@ -3847,6 +3848,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         if (!subfolder.isValid() ||
             !QFile::copy(path, QDir(subfolder.path()).filePath(QStringLiteral("nested.pdf"))))
             return fail("Nested PDF count fixture could not be created");
+        childFolderPath = subfolder.path();
         checkpoint("count-child");
         library->model_->refreshPdfCounts(countRoot);
         if (!wait([&] { return library->model_->countsAvailable() &&
@@ -3857,7 +3859,8 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     checkpoint("count-deleted");
     library->model_->refreshPdfCounts(countRoot);
     if (!wait([&] { return library->model_->countsAvailable() &&
-        library->model_->pdfCount(countRoot) == baselineCount; }, 10000))
+        library->model_->pdfCount(countRoot) == baselineCount &&
+        library->model_->pdfCount(childFolderPath) == 0; }, 10000))
         return fail("Folder count did not recover after child PDF removal");
     checkpoint("count-recovered");
     if (!wait([&] { return window.isEnabled() && window.getProgramController()->canClose(); }))

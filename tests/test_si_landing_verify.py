@@ -106,6 +106,48 @@ class LandingVerifierTests(unittest.TestCase):
             self.assertEqual(official_landing_status(BASE + "123"), "reachable_html")
             self.assertEqual([call.args[0] for call in req.call_args_list], ["HEAD", "GET"])
 
+    def test_head_200_html_is_not_enough_without_get(self):
+        # An HTML HEAD can succeed even when the actual page GET is blocked.
+        with patch("si_landing_verify._request",
+                   side_effect=["reachable_html", "http_unchecked"]) as req:
+            self.assertEqual(official_landing_status(BASE + "123"), "http_unchecked")
+            self.assertEqual([call.args[0] for call in req.call_args_list],
+                             ["HEAD", "GET"])
+        source = fixture(1)
+        with patch("si_landing_verify._request",
+                   side_effect=["reachable_html", "http_unchecked"]):
+            result = verify_landing_candidates(source, official_landing_status)
+        self.assertEqual(result.status, "needs_review")
+        self.assertEqual(result.candidates[0].status, "landing_unchecked_http_unchecked")
+
+    def test_head_and_bounded_get_html_both_required_for_verification(self):
+        with patch("si_landing_verify._request",
+                   side_effect=["reachable_html", "reachable_html"]) as req:
+            self.assertEqual(official_landing_status(BASE + "123"), "reachable_html")
+            self.assertEqual([call.args[0] for call in req.call_args_list],
+                             ["HEAD", "GET"])
+
+    def test_head_404_does_not_attempt_get(self):
+        with patch("si_landing_verify._request", return_value="not_found") as req:
+            self.assertEqual(official_landing_status(BASE + "123"), "not_found")
+            req.assert_called_once_with("HEAD", BASE + "123")
+
+    def test_get_429_after_successful_head_stops_other_landings(self):
+        source = SiLookupResult(DOI, "candidates", tuple(
+            SiCandidate(article_id, DOI, "Synthetic", f"si{article_id}.pdf",
+                        BASE + str(article_id))
+            for article_id in (123, 456)
+        ), "https://doi.org/" + DOI)
+        with patch("si_landing_verify._request",
+                   side_effect=["reachable_html", "rate_limited"]) as req:
+            result = verify_landing_candidates(source, official_landing_status)
+        self.assertEqual([call.args[0] for call in req.call_args_list],
+                         ["HEAD", "GET"])
+        self.assertEqual(result.status, "needs_review")
+        self.assertTrue(all(c.status == "landing_unchecked_rate_limited"
+                            for c in result.candidates))
+        self.assertIn("landings_checked=1", result.diagnostic)
+
     def test_redirect_never_promotes(self):
         with patch("si_landing_verify._request", return_value="redirect_unchecked"):
             self.assertEqual(official_landing_status(BASE + "123"), "redirect_unchecked")

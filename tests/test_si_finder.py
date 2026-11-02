@@ -103,6 +103,34 @@ class SiFinderTests(unittest.TestCase):
         result = lookup_acs_figshare(DOI, api)
         self.assertEqual([c.filename for c in result.candidates], ["good-si.pdf"])
 
+    def test_unsafe_public_filenames_cannot_be_offered_as_local_si_labels(self):
+        # Figshare JSON is untrusted display data. Windows reserved names,
+        # control/format characters and path-special characters must not be
+        # mistaken for safe local SI filenames.
+        invalid = (
+            "CON.pdf", "nul.txt", "COM1.pdf", "LPT9.xlsx", "COM¹.txt",
+            "NUL .pdf", "si:evil.pdf", "bad|name.zip", "bad?.cif",
+            "trailing.pdf.", "trailing.pdf ", " leading.pdf",
+            "si\\tname.pdf", "si\\x1bname.pdf", "report\\u202e.pdf",
+            "si\\u200b.pdf", ".", "..",
+        )
+        files = [{"name": name} for name in invalid] + [
+            {"name": "한국어_SI_ΔE.pdf"}, {"name": "supporting-info.cif"},
+        ]
+        result = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=files)}))
+        self.assertEqual(result.status, "partial")
+        self.assertEqual([c.filename for c in result.candidates],
+                         ["한국어_SI_ΔE.pdf", "supporting-info.cif"])
+        self.assertIn(f"invalid_file_entries={len(invalid)}", result.diagnostic)
+
+    def test_only_unsafe_public_filenames_require_review(self):
+        files = [{"name": name} for name in ("CON.pdf", "a\\u202eb.pdf", "si:1.pdf")]
+        result = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=files)}))
+        self.assertEqual((result.status, result.candidates), ("needs_review", ()))
+        self.assertIn("invalid_file_entries=3", result.diagnostic)
+
     def test_missing_resource_doi_is_not_a_match(self):
         api = FakeApi(details={123: article(123, doi="")})
         self.assertEqual(lookup_acs_figshare(DOI, api).status, "needs_review")

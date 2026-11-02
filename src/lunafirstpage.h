@@ -108,8 +108,16 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
     }
     if (evidence.isEmpty() && !Metadata::acceptableIdentity(candidates)) return {};
     if(const auto* info=document.getInfo(); info && Bibliography::credibleTitle(info->title)) {
-        evidence["title"]=info->title.simplified();
-        evidence["titleSource"]=QStringLiteral("pdf_metadata");
+        const QString pdfTitle=info->title.simplified();
+        // PDF Info /Title can be a stale Word or publisher export name.
+        // Keep a strongly identified printed title if they disagree.
+        if (evidence.value("title").toString().isEmpty() ||
+            Metadata::compatibleTitle(evidence.value("title").toString(),pdfTitle)) {
+            evidence["title"]=pdfTitle;
+            evidence["titleSource"]=QStringLiteral("pdf_metadata");
+        } else {
+            evidence["titleStatus"]=QStringLiteral("needs_review");
+        }
     }
     const auto author=Bibliography::firstPageLastAuthor(first);
     if(!author.isEmpty()) {

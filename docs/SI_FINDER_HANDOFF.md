@@ -720,3 +720,9 @@ Next: confirm exact-code CI for `ce4f1c7e`; then run an opt-in, public DOI
 probe on a permitted network with official endpoints. Never infer individual
 SI-file accessibility from an HTML landing. Do not modify main, PDF4QT,
 PR #13/#15/#16, or the Issue #9 file mover.
+
+CI follow-up (exact source/test commit `ce4f1c7e`):
+[SI isolated Actions #41433812741](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41433812741)
+completed **SUCCESS**: Python/offline/privacy, Linux Qt6 identity and Windows
+Qt6 identity/move suites all passed. This validates synthetic contracts only;
+it is not a live ACS/Figshare or Windows application integration result.

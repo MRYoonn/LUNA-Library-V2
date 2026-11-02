@@ -405,3 +405,20 @@ files. Actual 20+ PDF goldset collection, independent page/publisher evidence,
 native prediction capture, and real Windows GUI/network/move/restart acceptance
 remain outstanding. Do not run this tool against the user's original library
 files automatically or upload any local artifacts.
+
+## Follow-up 2026-11-02 — protected-value snapshot completeness
+
+The offline regression scorer now requires a `must_preserve` field to exist
+in **both** `before` and `after` snapshots. Previously, an explicit
+`before: {"doi": null}` compared equal to a missing `after.doi` through
+`after.get("doi")`, falsely passing a manual-value preservation test.
+Missing snapshots now emit `missing_asserted_field`; present but changed
+values still emit `changed_protected_value`. Synthetic tests cover explicit
+null, blank string, empty list, missing before/after keys, and a changed
+protected value, including the top-level `pass` result.
+
+This is a **contract correction only**. No user QSettings, real PDFs, network
+429/404, Windows GUI, or physical file relocation was exercised by this
+change. Verify exact-HEAD isolated Python and Windows QtCore CI before
+claiming PASS. Then collect permissioned/public publisher goldset PDFs and
+read-only native snapshots; keep all private artifacts local.

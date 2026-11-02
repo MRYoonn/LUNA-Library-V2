@@ -157,6 +157,50 @@ class GoldsetCollectionAuditTests(unittest.TestCase):
             self.assertEqual(input_path.read_text(encoding="utf-8"), gold)
 
 
+    def test_report_symlink_cannot_overwrite_unrelated_private_file(self):
+        # This is a synthetic local file, not a user's real research document.
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            gold_path = base / "synthetic-gold.json"
+            gold_path.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+            private_target = base / "unrelated-private-notes.txt"
+            private_target.write_text("keep original bytes", encoding="utf-8")
+            report_link = base / "audit-report.json"
+            try:
+                report_link.symlink_to(private_target)
+            except (OSError, NotImplementedError):
+                self.skipTest("local symlinks unavailable")
+            process = subprocess.run(
+                [sys.executable, "-B", str(TOOL), "--goldset", str(gold_path),
+                 "--report", str(report_link)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(process.returncode, 2, process.stderr)
+            self.assertIn("refusing symlink report path", process.stderr)
+            self.assertEqual(private_target.read_text(encoding="utf-8"),
+                             "keep original bytes")
+            self.assertTrue(report_link.is_symlink())
+            self.assertEqual(list(base.glob(".luna-goldset-audit-*.tmp")), [])
+
+    def test_report_output_has_no_leftover_temporary_files(self):
+        gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            gold_path = base / "synthetic-gold.json"
+            report_path = base / "audit-report.json"
+            gold_path.write_text(json.dumps(gold), encoding="utf-8")
+            for _ in range(2):
+                process = subprocess.run(
+                    [sys.executable, "-B", str(TOOL), "--goldset", str(gold_path),
+                     "--report", str(report_path)],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(process.returncode, 1, process.stderr)
+                self.assertEqual(json.loads(report_path.read_text(encoding="utf-8"))
+                                 ["assessment"],
+                                 "goldset_collection_readiness_only_not_extraction_accuracy")
+                self.assertEqual(list(base.glob(".luna-goldset-audit-*.tmp")), [])
+
     def test_private_local_pdf_hash_match_is_not_extraction_accuracy(self):
         gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
         case = copy.deepcopy(gold["cases"][0])

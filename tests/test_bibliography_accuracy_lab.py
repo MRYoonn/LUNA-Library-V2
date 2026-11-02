@@ -805,7 +805,7 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         gold, predictions = sample()
         pdf_bytes = {}
         for index, case in enumerate(gold["cases"]):
-            content = b"%PDF-1.4\\nsynthetic-integrity-only-" + str(index).encode() + b"\\n%%EOF\\n"
+            content = b"%PDF-1.4\nsynthetic-integrity-only-" + str(index).encode() + b"\n%%EOF\n"
             digest = hashlib.sha256(content).hexdigest()
             case["source"] = {"kind": "public", "sha256": digest}
             case["evidence"] = {field: "fabricated test label" for field in case["expected"]}
@@ -843,7 +843,7 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
             self.assertEqual(result["pdf_integrity_audit"]["hash_matched"], len(pdf_bytes))
             self.assertEqual(result["assessment"], "provided_real_goldset_not_independently_verified")
             digest = next(iter(pdf_bytes))
-            (pdf_dir / (digest + ".pdf")).write_bytes(b"%PDF-1.4\\ntampered\\n%%EOF\\n")
+            (pdf_dir / (digest + ".pdf")).write_bytes(b"%PDF-1.4\ntampered\n%%EOF\n")
             mismatch = subprocess.run(cmd, capture_output=True, text=True, check=False)
             self.assertEqual(mismatch.returncode, 1, mismatch.stderr)
             result = json.loads(report.read_text(encoding="utf-8"))

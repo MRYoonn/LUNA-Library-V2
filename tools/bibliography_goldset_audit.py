@@ -96,8 +96,15 @@ def inventory(gold: dict, pdf_dir: Path | None = None) -> dict:
         # The ordinary schema permits blank positive evidence and does not
         # require evidence for explicit null (verified absence). A collection
         # audit must NOT declare readiness for either missing justification.
-        if case["source"]["sha256"].lower() == "0" * 64:
+        digest = case["source"]["sha256"].lower()
+        if digest == "0" * 64:
             evidence_gaps.append({"case_id": ident, "criterion": "placeholder_pdf_sha256"})
+        first_case = seen_pdf_hashes.setdefault(digest, ident)
+        if first_case != ident:
+            evidence_gaps.append({
+                "case_id": ident, "criterion": "duplicate_pdf_sha256",
+                "other_case_id": first_case,
+            })
         evidence = case["evidence"]
         for field in FIELDS:
             if field not in case["expected"]:

@@ -276,6 +276,28 @@ class NativeTabsContract(unittest.TestCase):
         self.assertLess(workflow.index("python tools/apply_overlay.py pdf4qt"),
                         workflow.index("python -B experiments/native_tabs/prepare.py pdf4qt"))
 
+    def test_move_uses_fresh_pdf_a_card_after_memo_and_search(self):
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        # Windows #229 proved a *different* paper was moved after the memo
+        # edit: sourceOpenAtMove=false, original A still present, Moved/A absent.
+        # A card's QRect saved before memo/search is never a valid move target.
+        old = 'integrationClick(host, list->viewport(), card.center(), true)'
+        self.assertNotIn(old, tabs)
+        for token in (
+            'moveList = integrationList(host, files[0], &movePaper)',
+            'moveList->scrollToItem(movePaper, QAbstractItemView::PositionAtCenter)',
+            'const QPoint movePoint = moveList->visualItemRect(movePaper).center()',
+            'moveList->itemAt(movePoint) == movePaper',
+            'DocumentClaim::identity(movePaper->data(Qt::UserRole).toString())',
+            'result["moveClickedExpectedCard"] = movingExpectedCard',
+            'integrationRequire(movingExpectedCard, "Move target changed after memo/list refresh")',
+            'integrationClick(host, moveList->viewport(), movePoint, true)',
+            'integrationRequire(moveReopened, "PDF move did not reopen the same A tab")',
+        ):
+            self.assertIn(token, tabs, token)
+        self.assertLess(tabs.index('moveList = integrationList(host, files[0], &movePaper)'),
+                        tabs.index('integrationClick(host, moveList->viewport(), movePoint, true)'))
+
     def test_page_entry_smoke_uses_real_qt_input_and_verifies_navigation(self):
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
         # Windows #226 reached scroll 586/586 and displayed pages 1+2.

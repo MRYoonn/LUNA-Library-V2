@@ -537,3 +537,34 @@ landing accessibility remains unverified.
   repin/re-run the contract; then verify real Windows app movement/rename,
   failed rollback and local association persistence with approved disposable
   files. Live ACS/Figshare API/landing remains unverified.
+
+
+## 2026-11-02 — duplicate SI filenames within one Figshare article
+
+The public Figshare detail `files` array may contain multiple entries with
+the same filename (including Windows case-insensitive or Unicode NFKC-equivalent
+names). The current display model identifies a candidate by article + filename;
+it does **not** expose or verify a stable per-file ID. Offering both entries as
+separate SI1/SI2 candidates could therefore misidentify the local attachment.
+
+- `tools/si_finder.py` now suppresses **all** same-article ambiguous filename
+  entries, not merely the second one. Comparison is per article using Unicode
+  NFKC + casefold, so unrelated articles may still display the same filename.
+- Remaining unambiguous files are retained but the lookup becomes `partial`;
+  an all-ambiguous result becomes `needs_review`, never `not_found`.
+  The diagnostic includes `ambiguous_file_entries`. No remote download URLs
+  are surfaced and no local associations are created.
+- `tests/test_si_finder.py` adds three offline synthetic regressions: duplicate
+  case/Unicode labels, all-ambiguous listing, and distinct-article same-name
+  labels. **Do not claim a pass until exact-code-head CI completes.**
+- PR #16 advanced from pinned move-helper commit `a001ba96` to
+  `ce5e64b4` (10 commits); compare shows only library UI/tabs/tests and
+  `src/lunalocalsync.h` changed, not `src/lunafilemove.h`. The pinned
+  native move contract remains a historical check, not latest-HEAD app
+  acceptance. Draft PR #17 remains diverged/non-mergeable against its base.
+
+Next: check offline/Qt CI for the new code commit; then add an optional
+**verified Figshare file ID** to the display model only after validating the
+official metadata contract with a real permitted ACS DOI. Until then,
+ambiguous names must remain unconfirmed. Live ACS/Figshare HTTP access,
+production UI wiring and actual Windows user-library moves remain unverified.

@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
+import tempfile
 import unicodedata
 from collections import defaultdict
 from pathlib import Path
@@ -471,6 +473,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--field-coverage-gate", action="store_true",
                         help="require --coverage-gate and labeled positive examples for every field")
     args = parser.parse_args(argv)
+    # Both inputs may contain private labels and native snapshots. Never
+    # truncate either one through an accidental --report alias.
+    if args.report is not None and args.report.resolve() in (
+        args.goldset.resolve(), args.predictions.resolve()
+    ):
+        print("[BLOCK] report path would overwrite input goldset or predictions",
+              file=sys.stderr)
+        return 2
     try:
         if args.field_coverage_gate and not args.coverage_gate:
             raise DatasetError("--field-coverage-gate requires --coverage-gate")
@@ -498,7 +508,25 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     output = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.report:
-        args.report.write_text(output, encoding="utf-8")
+        # Use a private, same-directory temporary file and atomic replacement.
+        # A symlink output must never redirect the report into unrelated data.
+        temporary_report = None
+        try:
+            if args.report.is_symlink():
+                raise OSError("refusing symlink report path")
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=args.report.parent,
+                prefix=".luna-bibliography-score-", suffix=".tmp", delete=False,
+            ) as stream:
+                temporary_report = Path(stream.name)
+                stream.write(output)
+            os.replace(temporary_report, args.report)
+        except OSError as exc:
+            print(f"[BLOCK] cannot write report: {exc}", file=sys.stderr)
+            return 2
+        finally:
+            if temporary_report is not None:
+                temporary_report.unlink(missing_ok=True)
     else:
         print(output, end="")
     print(f"[{'PASS' if result['pass'] else 'FAIL'}] {result['assessment']}: "

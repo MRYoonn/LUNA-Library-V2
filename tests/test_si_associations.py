@@ -137,7 +137,8 @@ class AssociationTests(unittest.TestCase):
 
     def test_windows_superscript_device_and_invisible_path_blocked(self):
         for unsafe in ("COM¹.pdf", "Chem/LPT².pdf", "Chem/COM³.txt.pdf",
-                       "Chem/hidden\\u202e.pdf", "Chem/hidden\\u200b.pdf"):
+                       "Chem/hidden" + chr(0x202e) + ".pdf",
+                       "Chem/hidden" + chr(0x200b) + ".pdf"):
             with self.subTest(path=unsafe), self.assertRaises(ValueError):
                 relative_pdf_path(unsafe)
         self.assertEqual(relative_pdf_path("Chem/실험_α.pdf"), "Chem/실험_α.pdf")

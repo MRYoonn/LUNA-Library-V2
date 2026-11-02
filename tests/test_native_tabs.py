@@ -627,7 +627,7 @@ class NativeTabsContract(unittest.TestCase):
         self.assertNotIn('setCornerWidget(corner, Qt::TopLeftCorner)', tabs)
         self.assertIn('tabs_->setCornerWidget(addCorner, Qt::TopRightCorner)', tabs)
         self.assertIn('controls->hide();', library)
-        self.assertIn('restoreRail->move(8, window.menuBar()->height() + 49)', library)
+        self.assertIn('restoreRail->move(8, window.menuBar()->height() + 95)', library)
         self.assertIn('setExpanding(false)', tabs)
         self.assertIn('minimumTabSizeHint(int) const override { return {88, 41}; }', tabs)
         self.assertIn('tabs_->setTabText(index, text)', tabs)

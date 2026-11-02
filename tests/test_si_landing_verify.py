@@ -399,5 +399,47 @@ class LandingVerifierTests(unittest.TestCase):
         self.assertEqual(result.status, "needs_review")
 
 
+    def test_provider_error_snapshot_cannot_preserve_verified_si(self):
+        # A restored/foreign result may claim both a failed lookup and a
+        # previously verified SI. Neither a reachable page nor a stale flag
+        # can prove a file under that contradictory provider status.
+        stale = SiCandidate(123, DOI, "Synthetic", "si.pdf", BASE + "123",
+                            status="landing_verified")
+        for status in ("not_found", "rate_limited", "provider_unavailable",
+                       "unsupported_publisher", "unexpected_status"):
+            with self.subTest(status=status):
+                source = SiLookupResult(DOI, status, (stale,),
+                                        "https://evil.invalid/forged")
+                result = verify_landing_candidates(
+                    source, lambda _: self.fail("untrusted snapshot must not probe"))
+                self.assertEqual(result.status, "needs_review")
+                self.assertEqual(result.candidates[0].status,
+                                 "landing_unchecked_untrusted_lookup_status")
+                self.assertEqual(result.fallback_url, "https://doi.org/" + DOI)
+                self.assertEqual(result.diagnostic, "untrusted_lookup_status")
+                self.assertEqual(source.candidates[0].status, "landing_verified")
+
+    def test_empty_provider_error_snapshot_never_exposes_foreign_fallback(self):
+        for status in ("not_found", "rate_limited", "provider_unavailable",
+                       "offline", "needs_review", "candidates"):
+            with self.subTest(status=status):
+                source = SiLookupResult(DOI, status, (),
+                                        "https://evil.invalid/forged")
+                result = verify_landing_candidates(
+                    source, lambda _: self.fail("no candidates must not probe"))
+                self.assertEqual(result.status, status)
+                self.assertEqual(result.fallback_url, "https://doi.org/" + DOI)
+                self.assertEqual(source.fallback_url, "https://evil.invalid/forged")
+
+    def test_invalid_doi_error_snapshot_cannot_offer_a_fallback(self):
+        source = SiLookupResult("invalid-doi", "provider_unavailable", (),
+                                "https://evil.invalid/forged")
+        result = verify_landing_candidates(
+            source, lambda _: self.fail("no candidates must not probe"))
+        self.assertEqual(result.status, "provider_unavailable")
+        self.assertEqual(result.fallback_url, "")
+
+
+
 if __name__ == "__main__":
     unittest.main()

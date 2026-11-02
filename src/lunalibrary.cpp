@@ -1118,7 +1118,10 @@ public:
             const QString date = openedDates_.value(openedDateKey(path));
             if (!date.isEmpty()) rememberDateAlias(path, date);
         }
-        setMinimumWidth(432);
+        // Do not pin the dock's initial two-pane minimum in QMainWindow's
+        // cached dock layout. QSplitter already carries both child minima;
+        // updateMinimum() adjusts the active content constraint on collapse.
+        setMinimumWidth(0);
         auto* layout = new QHBoxLayout(this);
         layout->setContentsMargins(7, 7, 0, 7);
         split_ = new QSplitter(Qt::Horizontal, this);
@@ -1700,17 +1703,44 @@ public:
     void updateMinimum() {
         const bool hasNavigation = !navigation_->isHidden();
         const bool hasDocuments = !documents_->isHidden();
+        const bool both = hasNavigation && hasDocuments;
+        const bool any = hasNavigation || hasDocuments;
+        const int target = both ? 562 : (hasNavigation ? 270 : 240);
         setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12);
-        // QDockWidget derives constraints from its content, not the dock itself.
-        setMaximumWidth(hasNavigation && hasDocuments ? 850 : 290);
+        setMaximumWidth(both ? 850 : 290);
+        if (layout()) layout()->invalidate();
         updateGeometry();
         if (auto* dock = qobject_cast<QDockWidget*>(parentWidget())) {
-            dock->setVisible(hasNavigation || hasDocuments);
-            if (hasNavigation || hasDocuments)
-                if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget()))
-                    main->resizeDocks({dock},
-                        {hasNavigation && hasDocuments ? 562 : (hasNavigation ? 270 : 240)},
-                        Qt::Horizontal);
+            dock->setVisible(any);
+            if (!any) return;
+            // Build #227: content=290, dock=432 and dock.max=432. Qt's
+            // QMainWindow dock area held the INITIAL two-pane 432px minimum
+            // even after the QSplitter hid navigation. Refresh the dock's
+            // own bounds as well as its content before resizing.
+            dock->setMinimumWidth(1);
+            dock->setMaximumWidth(both ? 850 : 300);
+            dock->updateGeometry();
+            if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget())) {
+                if (main->layout()) main->layout()->activate();
+                main->resizeDocks({dock}, {target}, Qt::Horizontal);
+                // A dock-area layout request can land after the click event.
+                // Refitting on the next event cycle ensures the narrower
+                // content constraints win over the old two-pane allocation.
+                QTimer::singleShot(0, dock, [dock, target, both] {
+                    if (!dock->isVisible() || !dock->widget()) return;
+                    const bool nowNavigation = !dock->widget()->findChild<QWidget*>(
+                        QStringLiteral("LunaNavigation"))->isHidden();
+                    const bool nowDocuments = !dock->widget()->findChild<QWidget*>(
+                        QStringLiteral("LunaDocuments"))->isHidden();
+                    if ((nowNavigation && nowDocuments) != both) return;
+                    dock->setMinimumWidth(1);
+                    dock->setMaximumWidth(both ? 850 : 300);
+                    if (auto* window = qobject_cast<QMainWindow*>(dock->parentWidget())) {
+                        if (window->layout()) window->layout()->activate();
+                        window->resizeDocks({dock}, {target}, Qt::Horizontal);
+                    }
+                });
+            }
         }
     }
     void toggleNavigation() { savePanelState(); navigation_->setVisible(navigation_->isHidden()); updateMinimum(); }

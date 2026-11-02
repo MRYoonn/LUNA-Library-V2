@@ -457,3 +457,30 @@ original DOI fallback; the default offline behavior is unchanged.
   After its owner completes native Windows rollback/restart acceptance, test
   the stacked integration with real disposable synthetic PDFs and sidecars.
   The SI link UI remains disabled until that evidence exists.
+
+
+## Follow-up: Windows-compatible local SI paths (2026-11-02)
+
+The association index previously accepted Windows-impossible components such
+as `SI?.pdf`, `Bad?Folder/SI.pdf`, `CON .pdf`, and overlong filename
+components. These could be persisted in a confirmed Main↔SI link despite
+being impossible to restore or move on Windows. The isolated
+`relative_pdf_path` contract now rejects forbidden Windows characters,
+components longer than 255 code points, and reserved device aliases with
+spaces before the extension. The same validation applies to imported state
+and to post-move reconciliation through the existing `relocate` API.
+
+Two synthetic regression tests cover direct path validation, non-mutating
+failed relocations, and hostile JSON import. No DOI extractor, UI, file move,
+PDF bytes, QSettings or other PR branch was changed.
+
+**Validation:** Changes committed to the dedicated PR #17 branch; full
+exact-HEAD Python tests, public privacy gate and Windows/Linux Qt CI are
+pending verification. Do not infer a PASS from the existence of test code.
+The source PR #16 has metadata sidecar move support, but its real Windows
+rollback and application integration remain separate acceptance gates.
+
+**Next:** Check exact-HEAD CI for the new regression, investigate any failure,
+then test the actual PR #16 paired move/rollback and restart behavior with
+synthetic Windows fixtures before enabling linked moves. Public ACS/Figshare
+landing accessibility remains unverified.

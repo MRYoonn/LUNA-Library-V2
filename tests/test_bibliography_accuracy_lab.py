@@ -74,6 +74,38 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         self.assertTrue(result["pass"])
         self.assertGreater(result["field_scores"]["issue"]["unscored"], 0)
 
+    def test_missing_known_negative_snapshot_is_not_a_true_negative(self):
+        # Fabricated gold labels: an absent key is not an observed null.
+        gold, predictions = sample()
+        self.assertTrue(lab.score(gold, predictions)["pass"])
+        si = next(c for c in predictions["cases"] if c["id"] == "syn-rsc-si")
+        self.assertIsNone(si["observed"]["doi"])
+        del si["observed"]["doi"]
+        report = lab.score(gold, predictions)
+        self.assertFalse(report["pass"])
+        self.assertEqual(report["field_scores"]["doi"]["tn"], 1)
+        self.assertEqual(report["field_scores"]["doi"]["missing_snapshot"], 1)
+        self.assertEqual(report["by_publisher_fields"]["RSC"]["doi"]["missing_snapshot"], 1)
+        self.assertIn({"case_id": "syn-rsc-si", "publisher": "RSC",
+                       "field": "doi", "expected": None, "observed": None,
+                       "error": "missing_snapshot_field"}, report["errors"])
+        si["observed"]["doi"] = None
+        self.assertTrue(lab.score(gold, predictions)["pass"])
+        # Empty strings are explicit captured absence too, not omitted keys.
+        si["observed"]["doi"] = ""
+        self.assertTrue(lab.score(gold, predictions)["pass"])
+
+    def test_missing_negative_article_number_blocks_false_acs_tn(self):
+        gold, predictions = sample()
+        acs = next(c for c in predictions["cases"] if c["id"] == "syn-acs-main")
+        self.assertIsNone(acs["observed"]["article_number"])
+        del acs["observed"]["article_number"]
+        report = lab.score(gold, predictions)
+        self.assertFalse(report["pass"])
+        row = report["by_publisher_fields"]["ACS"]["article_number"]
+        self.assertEqual((row["tn"], row["missing_snapshot"], row["scored"]), (0, 1, 1))
+        self.assertEqual(report["errors"][0]["error"], "missing_snapshot_field")
+
     def test_preserved_manual_field_failure_is_detected(self):
         gold, predictions = sample()
         predictions["regressions"][5]["after"]["authors"] = "Auto Replaced"

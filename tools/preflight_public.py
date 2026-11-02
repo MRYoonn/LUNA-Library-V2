@@ -77,6 +77,8 @@ APPROVED = {
     "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunabibliography.h", "src/lunafirstpage.h", "src/lunathumbnailcache.h",
     "src/lunametadataengine.h", "src/lunametadatafetch.h", "src/lunatitleextractor.h",
     "tests/test_title_extractor_contract.py",
+    "tests/test_folder_count_verifier.py",
+    "tools/verify_folder_counts.py",
     "tests/native_metadata/CMakeLists.txt", "tests/native_metadata/main.cpp",
     "tests/native_dialog/thumbnails.cpp",
     "src/lunafilemove.h", "src/lunatrashundo.h", "src/lunalocalsync.h", "tests/native_dialog/filemoves.cpp",

@@ -716,5 +716,74 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
 
 
+
+    def test_score_report_cannot_overwrite_either_private_input(self):
+        # Synthetic files only. The scorer must preserve both input byte streams.
+        gold, predictions = sample()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            gold_path = root / "goldset.json"
+            predictions_path = root / "predictions.json"
+            gold_path.write_text(json.dumps(gold), encoding="utf-8")
+            predictions_path.write_text(json.dumps(predictions), encoding="utf-8")
+            originals = {p: p.read_bytes() for p in (gold_path, predictions_path)}
+            for target in (gold_path, predictions_path):
+                with self.subTest(target=target.name):
+                    process = subprocess.run(
+                        [sys.executable, "-B", str(TOOL), "--goldset", str(gold_path),
+                         "--predictions", str(predictions_path), "--report", str(target)],
+                        capture_output=True, text=True, check=False,
+                    )
+                    self.assertEqual(process.returncode, 2, process.stderr)
+                    self.assertIn("overwrite input goldset or predictions", process.stderr)
+                    self.assertEqual({p: p.read_bytes() for p in originals}, originals)
+            self.assertEqual(list(root.glob(".luna-bibliography-score-*.tmp")), [])
+
+    def test_score_report_symlink_does_not_follow_private_target(self):
+        gold, predictions = sample()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            gold_path, predictions_path = root / "gold.json", root / "observed.json"
+            gold_path.write_text(json.dumps(gold), encoding="utf-8")
+            predictions_path.write_text(json.dumps(predictions), encoding="utf-8")
+            unrelated = root / "unrelated-private-notes.txt"
+            unrelated.write_bytes(b"keep synthetic private notes")
+            report_link = root / "score.json"
+            try:
+                report_link.symlink_to(unrelated)
+            except (OSError, NotImplementedError):
+                self.skipTest("local symlinks unavailable")
+            process = subprocess.run(
+                [sys.executable, "-B", str(TOOL), "--goldset", str(gold_path),
+                 "--predictions", str(predictions_path), "--report", str(report_link)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(process.returncode, 2, process.stderr)
+            self.assertIn("refusing symlink report path", process.stderr)
+            self.assertEqual(unrelated.read_bytes(), b"keep synthetic private notes")
+            self.assertTrue(report_link.is_symlink())
+            self.assertEqual(list(root.glob(".luna-bibliography-score-*.tmp")), [])
+
+    def test_score_report_atomic_replacement_and_no_temp_leaks(self):
+        gold, predictions = sample()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            gold_path, predictions_path = root / "gold.json", root / "observed.json"
+            report_path = root / "score.json"
+            gold_path.write_text(json.dumps(gold), encoding="utf-8")
+            predictions_path.write_text(json.dumps(predictions), encoding="utf-8")
+            for _ in range(2):
+                process = subprocess.run(
+                    [sys.executable, "-B", str(TOOL), "--goldset", str(gold_path),
+                     "--predictions", str(predictions_path), "--report", str(report_path)],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(process.returncode, 0, process.stderr)
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                self.assertTrue(report["pass"])
+                self.assertEqual(report["assessment"], "synthetic_harness_only")
+                self.assertEqual(list(root.glob(".luna-bibliography-score-*.tmp")), [])
+
+
 if __name__ == "__main__":
     unittest.main()

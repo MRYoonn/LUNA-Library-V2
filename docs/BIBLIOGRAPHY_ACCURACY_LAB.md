@@ -369,3 +369,39 @@ remain outstanding. Keep Draft and do not merge/release.
 ## Isolated stale-editor and invalid-DOI regression (2026-11-02)
 
 `tests/native_accuracy/main.cpp` now exercises the existing `Bibliography::saveEdits` implementation against disposable QtCore `QSettings`. It opens a synthetic edit snapshot, applies a later background journal/volume update, saves only the human-edited title, and checks that provider fields/provenance survive. It also submits a malformed manual DOI together with a title edit and verifies that **neither** field nor the status is partially persisted; a new `Bibliography` object reads the durable result. These are isolated persistence-contract tests, **not** an actual concurrent Windows GUI, provider HTTP request, or real PDF run. Keep any user settings, PDFs and raw snapshots outside GitHub.
+
+
+## Follow-up: opt-in local PDF integrity gate (2026-11-02)
+
+The existing collection audit checks **declared** SHA256/evidence only. It can
+now optionally compare each non-synthetic case against a locally staged file,
+without reading PDF text, uploading files, or revealing original filenames.
+
+Stage **copies** of authorized/public PDFs outside the repository in a private
+directory. Name each copy `<source.sha256>.pdf` (64 hex characters from its
+goldset record). Never commit that directory, the source PDFs, or reports.
+Run:
+
+```sh
+python -B tools/bibliography_goldset_audit.py \
+  --goldset /private/local/goldset.json \
+  --pdf-dir /private/local/pdf-copies \
+  --report /private/local/collection-audit.json
+```
+
+The additive `pdf_integrity_audit` reports only opaque case IDs and reasons:
+`missing`, `unsafe_file`, `unreadable`, `invalid_pdf_header`,
+`sha256_mismatch`, or a count of `hash_match_pdf_header`. Symlinks are
+rejected; files are hashed in chunks. A provided PDF directory makes overall
+collection `ready` require every declared real PDF to match its hash and have
+a PDF header. Without `--pdf-dir`, integrity is `not_checked`, and the old
+`ready` remains **metadata collection readiness only**, never a verified
+publisher/accuracy claim.
+
+Hash/header checks **cannot** authenticate a publisher, establish permission
+to use a PDF, prove that a PDF parses correctly, or verify its field labels.
+The tests use fabricated byte streams with a PDF header, not real publisher
+files. Actual 20+ PDF goldset collection, independent page/publisher evidence,
+native prediction capture, and real Windows GUI/network/move/restart acceptance
+remain outstanding. Do not run this tool against the user's original library
+files automatically or upload any local artifacts.

@@ -81,3 +81,9 @@ headers, size memory, zoom menu visibility, automatic update toggle) have
 using the commit containing this workflow. Earlier historical builds do not
 retroactively acquire these diagnostics. No workflow is triggered automatically:
 the repository remains manual-only, and draft PRs are not merged automatically.
+
+## Manager 8 — folder-count semantic gate (2026-11-03)
+
+The prior Windows run #232 (41536324680, commit abec694) failed after a successful product compile: the native smoke expected an ancestor count to grow when a nested PDF was added. The current product specification is **direct child PDFs only**, so the prior assertion was inconsistent with the design. A later source change corrected the assertion but has not received a Windows full-build pass.
+
+The public Windows preflight now runs `tools/verify_folder_counts.py` before expensive PDF4QT compilation. It fails closed if direct-only counting, nonrecursive selected-folder listing, recursive All Documents, stale-worker protection, or the native child add/delete checks disappear. Its synthetic-only JSON is retained with `LUNA-Preflight-Diagnostics` on success or failure. The native smoke additionally waits for the deleted child folder count to return to zero. This guard is **source-level**, not evidence of Windows execution or publisher-PDF accuracy. Keep all related changes in Draft until full exact-SHA Windows validation.

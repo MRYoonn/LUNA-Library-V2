@@ -107,7 +107,9 @@ inline QVariantMap infer(const QList<Line>& source, double pageHeight) {
         if (other.score < best.score-8) break;
         if (other.title!=best.title &&
             !other.title.startsWith(best.title) &&
-            !best.title.startsWith(other.title))
+            !best.title.startsWith(other.title) &&
+            !other.title.endsWith(best.title) &&
+            !best.title.endsWith(other.title))
             return {{"titleCandidate",best.title},{"titleConfidence",best.score},
                     {"titleStatus",QStringLiteral("needs_review")}};
     }

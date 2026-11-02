@@ -854,3 +854,6 @@ unverified. No production merge/release is authorized.
 - `tests/test_si_landing_verify.py` adds three synthetic offline regression cases, including an unsafe compatibility separator, two articles sharing one file ID, and Unicode-equivalent SI names with a Boolean file ID. Source commit `f54cc622`, test commit `48c63c7a`.
 - New exact-code CI: https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41470938573 — **queued at writing; PASS not yet claimed**. Prior green CI #41459077944 does not cover this revision.
 - No live ACS/Figshare API, HTML landing, or individual SI file has been verified reachable. Production Windows UI association, paired move/restart and PR #16 integration remain unverified. PR #17 remains Draft; no main, renderer, PDF4QT, other PR, auto-merge or Release changes.
+
+
+**Exact-code CI result (2026-11-03):** [SI isolated #41470938573](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41470938573) **SUCCESS** on source/test commit `48c63c7a`: public privacy gate PASS; **144/144** offline synthetic Python tests PASS (including all three new restored-candidate guards); Linux Qt6 standalone identity/move PASS; Windows Qt6 standalone identity/move PASS. Documentation-only commits do not change the tested source. No live ACS/Figshare or installed Windows LUNA GUI verification is implied.

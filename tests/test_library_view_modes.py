@@ -120,6 +120,7 @@ class LibraryModes(unittest.TestCase):
             'for (const auto& path : paths) trashDocument(path, true)',
             'else if (chosen == trash) trashSelectedDocuments(list, path)',
             'item && item->isSelected()',
+            'void mouseReleaseEvent(QMouseEvent* e) override',
         ):
             self.assertIn(token, self.cpp, token)
 

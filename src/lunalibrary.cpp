@@ -1149,6 +1149,7 @@ public:
         nav->setSpacing(0);
         auto* libraryHeader = new QWidget(navigation_);
         libraryHeader->setFixedHeight(48);
+        libraryHeader->setObjectName(QStringLiteral("LunaLibraryHeader"));
         auto* libraryHeaderLayout = new QHBoxLayout(libraryHeader);
         libraryHeaderLayout->setContentsMargins(7, 0, 0, 0);
         libraryHeaderLayout->setSpacing(9);
@@ -1434,6 +1435,7 @@ public:
         docs->setSpacing(0);
         auto* heading = new QWidget(documents_);
         auto* headingLayout = new QVBoxLayout(heading);
+        heading->setObjectName(QStringLiteral("LunaPaperHeader"));
         headingLayout->setContentsMargins(8, 0, 8, 0);
         headingLayout->setSpacing(0);
         auto* title = new QLabel(QStringLiteral("논문 목록"), heading);
@@ -3260,27 +3262,53 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
                     QStringLiteral("설정을 저장하지 못했습니다. 다시 시도해 주세요."));
         });
     }
-    // Separate always-reachable controls: hiding one panel must never hide
-    // the other. Keep both toggles in the reader header even when a pane is
-    // collapsed, so it can be restored without opening the View menu.
-    auto addIndependentPanelButtons = [folders, documents](QWidget* owner,
-                                                            QHBoxLayout* target) {
-        for (const auto& entry : QList<QPair<QAction*, QString>>{
-                 {folders, QStringLiteral("LunaNavigationCollapseButton")},
-                 {documents, QStringLiteral("LunaDocumentsCollapseButton")}}) {
-            auto* toggle = new QToolButton(owner);
-            toggle->setObjectName(entry.second);
-            toggle->setDefaultAction(entry.first);
-            toggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
-            toggle->setIconSize(QSize(19, 19));
-            toggle->setFixedSize(31, 30);
-            toggle->setAccessibleName(entry.first == folders
-                ? QStringLiteral("라이브러리 탐색 패널 접기 / 펼치기")
-                : QStringLiteral("논문 목록 패널 접기 / 펼치기"));
-            toggle->setToolTip(toggle->accessibleName());
-            target->addWidget(toggle);
+    // Collapse buttons belong to the panel they operate, not to PDF tabs.
+    auto panelButton = [](QWidget* parent, QAction* action, const QString& name) {
+        auto* button = new QToolButton(parent);
+        button->setObjectName(name);
+        button->setDefaultAction(action);
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        button->setIconSize(QSize(18, 18));
+        button->setFixedSize(29, 29);
+        button->setAccessibleName(action->text() + QStringLiteral(" 접기 / 펼치기"));
+        button->setToolTip(button->accessibleName());
+        return button;
+    };
+    auto* libraryHeading = library->findChild<QWidget*>(QStringLiteral("LunaLibraryHeader"));
+    auto* paperHeading = library->findChild<QHBoxLayout*>(QStringLiteral("LunaPaperHeadingLayout"));
+    if (libraryHeading && paperHeading) {
+        libraryHeading->layout()->addWidget(panelButton(libraryHeading, folders,
+            QStringLiteral("LunaNavigationCollapseButton")));
+        paperHeading->addWidget(panelButton(paperHeading->parentWidget(), documents,
+            QStringLiteral("LunaDocumentsCollapseButton")));
+    }
+    // Show a compact restore rail at the reader's LEFT EDGE only when a
+    // panel is collapsed. The actual PDF tab strip remains PDF-only.
+    auto* restoreRail = new QWidget(&window);
+    restoreRail->setObjectName(QStringLiteral("LunaPanelRestoreRail"));
+    auto* restoreRow = new QHBoxLayout(restoreRail);
+    restoreRow->setContentsMargins(3, 2, 3, 2); restoreRow->setSpacing(2);
+    auto* restoreNav = panelButton(restoreRail, folders, QStringLiteral("LunaNavigationRestoreButton"));
+    auto* restoreDocs = panelButton(restoreRail, documents, QStringLiteral("LunaDocumentsRestoreButton"));
+    restoreRow->addWidget(restoreNav); restoreRow->addWidget(restoreDocs);
+    auto syncRestore = [=, &window] {
+        const auto* nav = library->findChild<QWidget*>(QStringLiteral("LunaNavigation"));
+        const auto* papers = library->findChild<QWidget*>(QStringLiteral("LunaDocuments"));
+        const bool showNav = nav && nav->isHidden() && !focus->isChecked();
+        const bool showPapers = papers && papers->isHidden() && !focus->isChecked();
+        restoreNav->setVisible(showNav); restoreDocs->setVisible(showPapers);
+        restoreRail->setVisible(showNav || showPapers);
+        if (showNav || showPapers) {
+            restoreRail->adjustSize();
+            restoreRail->move(8, window.menuBar()->height() + 49);
+            restoreRail->raise();
         }
     };
+    for (auto* action : {folders, documents, focus})
+        QObject::connect(action, &QAction::triggered, restoreRail,
+            [=, &window] { QTimer::singleShot(0, &window, syncRestore); });
+    restoreRail->hide();
+
     // One filename search field in the paper panel; no duplicate toolbar row.
     auto* globalSearch = library->searchEdit();
     auto* search = new QAction(QStringLiteral("라이브러리 검색"), &window);
@@ -3299,9 +3327,9 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         globalSearch->setFocus();
         globalSearch->selectAll();
     });
-    if (auto* pdfBar = sessionShell ? nullptr : window.findChild<QToolBar*>(QStringLiteral("mainToolBar"))) {
-        window.insertToolBar(pdfBar, controls);
-    } else window.addToolBar(Qt::TopToolBarArea, controls);
+    // Empty native QToolBar left a dark top rule above the PDF tabs.
+    // Actions remain in View and panel headers, but no toolbar is docked.
+    controls->hide();
     const QList<QPair<QString, QString>> menus = {
         {QStringLiteral("menuFile"), QStringLiteral("파일")}, {QStringLiteral("menuEdit"), QStringLiteral("편집")},
         {QStringLiteral("menuView"), QStringLiteral("보기")}, {QStringLiteral("menuGoTo"), QStringLiteral("이동")},
@@ -3349,7 +3377,6 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         documentTitle->setMinimumWidth(0);
         documentTitle->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         documentRow->addWidget(documentTitle, 1);
-        addIndependentPanelButtons(documentHeader, documentRow);
         QObject::connect(&window, &QWidget::windowTitleChanged, documentTitle, [&viewer, documentTitle] {
             QTimer::singleShot(0, documentTitle, [&viewer, documentTitle] {
                 const QString file = viewer.getProgramController()->getOriginalFileName();
@@ -3365,12 +3392,9 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     }
     if (sessionShell) {
         auto* frame = new QWidget(&window); frame->setObjectName(QStringLiteral("LunaPdfFrame"));
-        auto* layout = new QVBoxLayout(frame); layout->setContentsMargins(0, 7, 7, 7); layout->setSpacing(0);
-        auto* corner = new QWidget(frame); corner->setObjectName(QStringLiteral("LunaTabCorner"));
-        auto* row = new QHBoxLayout(corner); row->setContentsMargins(0, 0, 4, 0);
-        addIndependentPanelButtons(corner, row);
-        corner->show();
-        layout->addWidget(corner); window.setCentralWidget(frame);
+        auto* layout = new QVBoxLayout(frame);
+        layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(0);
+        window.setCentralWidget(frame);
     }
     QObject::connect(&window, &QWidget::windowTitleChanged, &window,
         [&window](const QString& title) {

@@ -178,6 +178,7 @@ public:
     std::function<bool(const QString&,const QJsonObject&)> remoteChanged;
     std::function<QJsonObject(const QString&)> localSnapshot;
     std::function<void()> filesChanged;
+    std::function<void(const QString&)> metadataChanged;
     void configure(const QString& root, bool myboxEnabled) {
         root_ = QFileInfo(root).canonicalFilePath();
         mybox_ = myboxEnabled && !root_.isEmpty();
@@ -430,7 +431,7 @@ private:
             }
             if(remoteChanged && !remoteChanged(pdf,remote)) continue;
             seen_[sidecar]=digest;
-            sidecarChanged_=true;
+            if(metadataChanged) metadataChanged(pdf);
             lunaLocalStore().setValue(
                 QStringLiteral("library/mybox/seen/")+lunaPathKey(pdf),
                 QString::fromLatin1(digest.toHex()));

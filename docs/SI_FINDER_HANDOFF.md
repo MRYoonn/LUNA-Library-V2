@@ -484,3 +484,35 @@ rollback and application integration remain separate acceptance gates.
 then test the actual PR #16 paired move/rollback and restart behavior with
 synthetic Windows fixtures before enabling linked moves. Public ACS/Figshare
 landing accessibility remains unverified.
+
+
+## Follow-up: native PR16 paired-move/rollback consumer contract (2026-11-02)
+
+- Added standalone QtCore test `tests/native_si_move/` on the SI branch. It consumes
+  **pinned PR #16 commit `a001ba96f1f05ae282c6168340d5bdb5964aed25`** in a
+  *separate read-only checkout*, rather than copying/editing PR #16's
+  `src/lunafilemove.h` or merging other branches. It also consumes this
+  branch's `src/lunasiidentity.h`. The pinned commit must be reviewed and
+  advanced explicitly when the owner changes the move implementation.
+- Synthetic native fixtures exercise: destination metadata collision/no
+  overwrite; PDF failure after sidecars move and full rollback; forced metadata
+  rollback failure with stranded sidecar location reported; successful
+  PDF+thumbnail+UUID sidecar move; a fresh child process reading the same
+  document UUID; and a copied PDF receiving **no inherited UUID sidecar**.
+  All files are disposable synthetic bytes. No private PDFs, QSettings, PDF4QT,
+  API calls, or SI downloads are involved.
+- CI `.github/workflows/si-isolated.yml` runs the same native consumer contract
+  on Windows MSVC/Qt6 and Ubuntu Qt6. This is **not** an end-to-end production
+  LUNA GUI or actual Windows Explorer rename test. PR #16 already has a native
+  file-move test; this specifically covers metadata rollback and restart
+  identity, which that test did not establish.
+- At authoring time the new exact-HEAD CI run
+  https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41386229703
+  was **QUEUED**. Do not mark these new native assertions PASS until the
+  run completes. If it fails, inspect its specific job logs and fix this
+  isolated harness; do not edit the move owner.
+- Even if green, linked move remains **not integrated**: real user-library
+  migration, Explorer rename, Windows cross-volume failure, crash/power-loss,
+  SMB/network filesystem, and association-store-to-native-UI binding still
+  require separate acceptance. Live ACS/Figshare landing/file reachability
+  is also unverified. Keep Draft; no merge/release.

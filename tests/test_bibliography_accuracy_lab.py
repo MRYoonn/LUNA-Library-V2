@@ -515,6 +515,30 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         audit["field_sources"]["title"] = "Crossref + OpenAlex"
         self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
 
+    def test_real_mode_composite_provider_cannot_mask_pdf_provenance(self):
+        # Fabricated labels and hashes: a scorer contract, NOT real PDF evidence.
+        gold, predictions = sample()
+        for index, case in enumerate(gold["cases"]):
+            case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            case["evidence"] = {field: "fabricated contract evidence"
+                                for field in case["expected"]}
+        predictions["engine_commit"] = "b" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        seed_synthetic_audit(predictions)
+        audit = predictions["cases"][0]["audit"]
+        audit["field_sources"]["title"] = "Crossref + OpenAlex"
+        for unrelated in ("pdf_metadata", "first_page_verified", "pdf_front_matter"):
+            audit["titleSource"] = unrelated
+            with self.subTest(unrelated=unrelated):
+                with self.assertRaisesRegex(
+                    lab.DatasetError, "conflicting automatic provenance for title"
+                ):
+                    lab.score(gold, predictions, require_real=True)
+        for compatible in ("Crossref", "OpenAlex", "Crossref + OpenAlex"):
+            audit["titleSource"] = compatible
+            with self.subTest(compatible=compatible):
+                self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
+
     def test_coverage_gate_synthetic_is_never_real(self):
         gold, _ = sample()
         audit = lab.audit_goldset_coverage(gold)

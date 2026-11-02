@@ -16,7 +16,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 try:
     from tools.si_finder import SiLookupResult, normalize_doi, safe_figshare_landing, safe_si_filename, safe_si_title
 except ImportError:
-    from si_finder import SiLookupResult, normalize_doi, safe_figshare_landing, safe_si_filename
+    from si_finder import SiLookupResult, normalize_doi, safe_figshare_landing, safe_si_filename, safe_si_title
 
 MAX_LANDINGS = 8
 HTML_TYPES = frozenset(("text/html", "application/xhtml+xml"))

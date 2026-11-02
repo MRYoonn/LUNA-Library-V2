@@ -3840,34 +3840,31 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     }
     auto* navigationToggle = window.findChild<QToolButton*>(QStringLiteral("LunaNavigationCollapseButton"));
     auto* documentsToggle = window.findChild<QToolButton*>(QStringLiteral("LunaDocumentsCollapseButton"));
-    if (!navigationToggle || !documentsToggle || !navigationToggle->isVisible() ||
-        !documentsToggle->isVisible() || navigationToggle->icon().isNull() ||
-        documentsToggle->icon().isNull())
-        return fail("Independent library/paper collapse controls are missing");
+    auto* restoreNav = window.findChild<QToolButton*>(QStringLiteral("LunaNavigationRestoreButton"));
+    auto* restoreDocs = window.findChild<QToolButton*>(QStringLiteral("LunaDocumentsRestoreButton"));
+    auto* restoreRail = window.findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail"));
+    if (!navigationToggle || !documentsToggle || !restoreNav || !restoreDocs || !restoreRail ||
+        !navigationToggle->isVisible() || !documentsToggle->isVisible() ||
+        navigationToggle->parentWidget()->objectName() != QStringLiteral("LunaLibraryHeader") ||
+        documentsToggle->parentWidget()->objectName() != QStringLiteral("LunaPaperHeader"))
+        return fail("Independent controls missing from panel headers");
     navigationToggle->click();
     QCoreApplication::processEvents();
-    if (!navigation->isHidden() || documents->isHidden() || dock->isHidden())
-        return fail("Collapsing library navigation also hid the paper list");
-    navigationToggle->click();
-    QCoreApplication::processEvents();
-    if (navigation->isHidden() || documents->isHidden())
-        return fail("Independent navigation restore failed");
+    if (!navigation->isHidden() || documents->isHidden() || dock->isHidden() ||
+        !restoreNav->isVisible() || !restoreRail->isVisible())
+        return fail("Collapsing library navigation hid papers or lost restore rail");
     documentsToggle->click();
+    QCoreApplication::processEvents();
+    if (!dock->isHidden() || !restoreNav->isVisible() || !restoreDocs->isVisible())
+        return fail("Both collapsed panels lost edge restore controls");
+    restoreNav->click();
     QCoreApplication::processEvents();
     if (navigation->isHidden() || !documents->isHidden() || dock->isHidden())
-        return fail("Collapsing paper list also hid library navigation");
-    navigationToggle->click();
+        return fail("Edge navigation restore unexpectedly expanded papers");
+    restoreDocs->click();
     QCoreApplication::processEvents();
-    if (!dock->isHidden() || !navigationToggle->isVisible() || !documentsToggle->isVisible())
-        return fail("Independent panel restore controls disappeared when both were collapsed");
-    documentsToggle->click();
-    QCoreApplication::processEvents();
-    if (dock->isHidden() || !navigation->isHidden() || documents->isHidden())
-        return fail("Restoring paper list unexpectedly expanded library navigation");
-    navigationToggle->click();
-    QCoreApplication::processEvents();
-    if (dock->isHidden() || navigation->isHidden() || documents->isHidden())
-        return fail("Both independent library panels failed to restore");
+    if (dock->isHidden() || navigation->isHidden() || documents->isHidden() || restoreRail->isVisible())
+        return fail("Both panels did not restore independently");
     // Exercise the real viewport crop and asynchronous hover in the temporary
     // synthetic library. Nothing here reads or modifies a user's library.
     auto* library = dynamic_cast<LibraryPanel*>(dock->widget());

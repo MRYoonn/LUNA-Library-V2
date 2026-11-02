@@ -57,11 +57,24 @@ int main(int argc, char** argv) {
               "fresh process preserves background journal");
         check(dialog.value(QStringLiteral("titleSource")).toString() ==
               QStringLiteral("manual"), "fresh process retains dialog provenance");
-        const QVariantMap limited = freshStore.record(QStringLiteral("synthetic:failure:rate_limited"));
-        check(limited.value(QStringLiteral("metadata_last_error")).toString() ==
-              QStringLiteral("rate_limited"), "fresh process retains 429 diagnostic");
-        check(limited.value(QStringLiteral("metadata_status")).toString() ==
-              QStringLiteral("partial"), "fresh process does not claim 429 complete");
+        // Verify all provider failure classes after an actual process restart.
+        // A fresh QSettings reader must not turn cached offline/429/404 records
+        // into successful or complete metadata without a new provider result.
+        for (const QString& failure : {QStringLiteral("offline"),
+                                       QStringLiteral("rate_limited"),
+                                       QStringLiteral("not_found")}) {
+            const QVariantMap persistedFailure = freshStore.record(
+                QStringLiteral("synthetic:failure:") + failure);
+            check(persistedFailure.value(QStringLiteral("metadata_last_error")).toString() == failure,
+                  "fresh process retains offline/429/404 diagnostic");
+            const QString expectedStatus = failure == QStringLiteral("offline")
+                ? QStringLiteral("offline") : QStringLiteral("partial");
+            check(persistedFailure.value(QStringLiteral("metadata_status")).toString() == expectedStatus,
+                  "fresh process does not claim offline/429/404 complete");
+            check(persistedFailure.value(QStringLiteral("title")).toString() ==
+                  QStringLiteral("Initial Synthetic Title"),
+                  "fresh process retains original title after provider failure");
+        }
         // The legacy migration matrix is reloaded from disk in this fresh
         // OS process, not merely from a second in-process Qt object.
         for (int variant = 0; variant < 4; ++variant) {

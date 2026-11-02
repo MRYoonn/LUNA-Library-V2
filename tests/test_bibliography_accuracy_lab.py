@@ -809,6 +809,7 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
             digest = hashlib.sha256(content).hexdigest()
             case["source"] = {"kind": "public", "sha256": digest}
             case["evidence"] = {field: "fabricated test label" for field in case["expected"]}
+            predictions["cases"][index]["source_sha256"] = digest
             pdf_bytes[digest] = content
         predictions["engine_commit"] = "a" * 40
         predictions["capture_kind"] = "qt_record_snapshot_read_only"
@@ -850,6 +851,64 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
             self.assertEqual(result["pdf_integrity_audit"]["hash_matched"], len(pdf_bytes) - 1)
             self.assertIn("sha256_mismatch",
                           {entry["reason"] for entry in result["pdf_integrity_audit"]["issues"]})
+
+    def test_real_pdf_binding_rejects_swapped_missing_and_invalid_snapshots(self):
+        # Fabricated contract values only. An opaque ID is not sufficient to
+        # establish which PDF supplied a Qt record snapshot.
+        gold, predictions = sample()
+        for index, case in enumerate(gold["cases"]):
+            digest = f"{index + 1:064x}"
+            case["source"] = {"kind": "public", "sha256": digest}
+            case["evidence"] = {field: "synthetic contract evidence"
+                                for field in case["expected"]}
+            predictions["cases"][index]["source_sha256"] = digest
+        predictions["engine_commit"] = "a" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        seed_synthetic_audit(predictions)
+        self.assertTrue(lab.score(gold, predictions, require_real=True,
+                                  require_source_binding=True)["pass"])
+        with self.assertRaisesRegex(lab.DatasetError, "requires --require-real"):
+            lab.score(gold, predictions, require_source_binding=True)
+        first, second = predictions["cases"][:2]
+        first["source_sha256"], second["source_sha256"] = (
+            second["source_sha256"], first["source_sha256"])
+        with self.assertRaisesRegex(lab.DatasetError, "capture PDF binding mismatch") as error:
+            lab.score(gold, predictions, require_real=True, require_source_binding=True)
+        self.assertNotIn(first["source_sha256"], str(error.exception))
+        first["source_sha256"], second["source_sha256"] = (
+            second["source_sha256"], first["source_sha256"])
+        del first["source_sha256"]
+        with self.assertRaisesRegex(lab.DatasetError, "missing or invalid capture PDF binding"):
+            lab.score(gold, predictions, require_real=True, require_source_binding=True)
+        first["source_sha256"] = "not-a-sha"
+        with self.assertRaisesRegex(lab.DatasetError, "missing or invalid capture PDF binding"):
+            lab.score(gold, predictions, require_real=True, require_source_binding=True)
+
+    def test_pdf_dir_cli_blocks_unbound_snapshot_before_integrity_report(self):
+        gold, predictions = sample()
+        for index, case in enumerate(gold["cases"]):
+            case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            case["evidence"] = {field: "synthetic contract evidence"
+                                for field in case["expected"]}
+        predictions["engine_commit"] = "a" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        seed_synthetic_audit(predictions)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            pdf_dir = root / "local-only"
+            pdf_dir.mkdir()
+            gold_path, pred_path, report = (root / name for name in
+                                           ("gold.json", "pred.json", "score.json"))
+            gold_path.write_text(json.dumps(gold), encoding="utf-8")
+            pred_path.write_text(json.dumps(predictions), encoding="utf-8")
+            run = subprocess.run(
+                [sys.executable, "-B", str(TOOL), "--goldset", str(gold_path),
+                 "--predictions", str(pred_path), "--require-real",
+                 "--pdf-dir", str(pdf_dir), "--report", str(report)],
+                capture_output=True, text=True, check=False)
+            self.assertEqual(run.returncode, 2, run.stderr)
+            self.assertIn("missing or invalid capture PDF binding", run.stderr)
+            self.assertFalse(report.exists())
 
     def test_real_mode_pdf_bytes_gate_rejects_unsafe_cli_paths(self):
         gold, predictions = sample()

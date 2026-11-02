@@ -110,6 +110,27 @@ class GoldsetCollectionAuditTests(unittest.TestCase):
                        "criterion": "missing_nonblank_field_evidence",
                        "field": "title"}, report["evidence_audit"]["gaps"])
 
+    def test_repeated_real_pdf_hash_blocks_collection_readiness(self):
+        # The same bytes must not inflate publisher or field denominators.
+        gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        first = copy.deepcopy(gold["cases"][0])
+        first["id"] = "synthetic-repeated-a"
+        first["source"] = {"kind": "public", "sha256": "f" * 64}
+        first["evidence"] = {
+            field: "fabricated independent label" for field in first["expected"]
+        }
+        second = copy.deepcopy(first)
+        second["id"] = "synthetic-repeated-b"
+        gold["cases"] = [first, second]
+        process, report = run_audit(gold)
+        self.assertEqual(process.returncode, 1, process.stderr)
+        self.assertFalse(report["evidence_audit"]["ready"])
+        self.assertIn({
+            "case_id": second["id"], "criterion": "duplicate_pdf_sha256",
+            "other_case_id": first["id"],
+        }, report["evidence_audit"]["gaps"])
+        self.assertNotIn("f" * 64, json.dumps(report["evidence_audit"]))
+
     def test_placeholder_hash_is_not_evidence_ready(self):
         gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
         case = copy.deepcopy(gold["cases"][0])

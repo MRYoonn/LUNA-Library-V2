@@ -70,6 +70,51 @@ class GoldsetCollectionAuditTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertIn("missing evidence", process.stderr)
 
+    def test_explicit_null_requires_independent_absence_evidence(self):
+        gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        case = copy.deepcopy(gold["cases"][0])
+        case["id"] = "synthetic-null-evidence-contract"
+        case["source"] = {"kind": "public", "sha256": "c" * 64}
+        case["evidence"] = {field: "synthetic review label"
+                            for field in case["expected"]}
+        case["expected"]["doi"] = None
+        case["evidence"].pop("doi", None)
+        gold["cases"] = [case]
+        process, report = run_audit(gold)
+        self.assertEqual(process.returncode, 1, process.stderr)
+        self.assertFalse(report["ready"])
+        self.assertEqual(report["evidence_audit"]["gaps"], [{
+            "case_id": case["id"],
+            "criterion": "missing_nonblank_field_evidence", "field": "doi",
+        }])
+
+    def test_blank_positive_evidence_cannot_pass_collection_audit(self):
+        gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        case = copy.deepcopy(gold["cases"][0])
+        case["source"] = {"kind": "permissioned", "sha256": "d" * 64}
+        case["evidence"] = {field: "synthetic review label"
+                            for field in case["expected"]}
+        case["evidence"]["title"] = "  "
+        gold["cases"] = [case]
+        process, report = run_audit(gold)
+        self.assertEqual(process.returncode, 1, process.stderr)
+        self.assertIn({"case_id": case["id"],
+                       "criterion": "missing_nonblank_field_evidence",
+                       "field": "title"}, report["evidence_audit"]["gaps"])
+
+    def test_placeholder_hash_is_not_evidence_ready(self):
+        gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        case = copy.deepcopy(gold["cases"][0])
+        case["source"] = {"kind": "public", "sha256": "0" * 64}
+        case["evidence"] = {field: "synthetic review label"
+                            for field in case["expected"]}
+        gold["cases"] = [case]
+        process, report = run_audit(gold)
+        self.assertEqual(process.returncode, 1, process.stderr)
+        self.assertEqual(report["evidence_audit"]["gaps"], [{
+            "case_id": case["id"], "criterion": "placeholder_pdf_sha256",
+        }])
+
     def test_invalid_json_is_not_a_ready_report(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "invalid.json"

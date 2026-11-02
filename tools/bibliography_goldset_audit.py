@@ -26,10 +26,26 @@ def inventory(gold: dict) -> dict:
     unknown_cases = []
     unknown_by_publisher = defaultdict(Counter)
     synthetic_ids = []
+    evidence_gaps = []
     for ident, case in sorted(cases.items()):
         if case["source"]["kind"] == "synthetic":
             synthetic_ids.append(ident)
             continue
+        # The ordinary schema permits blank positive evidence and does not
+        # require evidence for explicit null (verified absence). A collection
+        # audit must NOT declare readiness for either missing justification.
+        if case["source"]["sha256"].lower() == "0" * 64:
+            evidence_gaps.append({"case_id": ident, "criterion": "placeholder_pdf_sha256"})
+        evidence = case["evidence"]
+        for field in FIELDS:
+            if field not in case["expected"]:
+                continue  # Unknown label; no invented evidence required.
+            value = evidence.get(field)
+            if not isinstance(value, str) or not value.strip():
+                evidence_gaps.append({
+                    "case_id": ident, "criterion": "missing_nonblank_field_evidence",
+                    "field": field,
+                })
         unknown = sorted(set(FIELDS) - set(case["expected"]))
         if unknown:
             unknown_cases.append({
@@ -41,9 +57,10 @@ def inventory(gold: dict) -> dict:
         "schema_version": 1,
         "dataset_id": gold["dataset_id"],
         "assessment": "goldset_collection_readiness_only_not_extraction_accuracy",
-        "ready": coverage["ready"] and labels["ready"],
+        "ready": coverage["ready"] and labels["ready"] and not evidence_gaps,
         "coverage_audit": coverage,
         "field_label_audit": labels,
+        "evidence_audit": {"ready": not evidence_gaps, "gaps": evidence_gaps},
         "unknown_cases": unknown_cases,
         "unknown_by_publisher": {
             publisher: {field: counts[field] for field in FIELDS}

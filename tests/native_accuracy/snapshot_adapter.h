@@ -23,12 +23,16 @@ inline QJsonObject captureCase(const QString& opaqueId, const QVariantMap& visib
                             "year", "volume", "issue", "page", "article_number"}) {
         const QString field = QString::fromLatin1(key);
         const QString value = visibleRecord.value(field).toString().trimmed();
-        if (!value.isEmpty()) observed.insert(field, value);
+        // Explicit null means this whitelisted field was captured and absent.
+        // Omitting it would let the scorer falsely count a known-negative
+        // gold label as a true negative without any native observation.
+        observed.insert(field, value.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(value));
     }
     const QString kind = visibleRecord.value(QStringLiteral("documentKind")).toString();
-    if (kind == QStringLiteral("main_article") ||
-        kind == QStringLiteral("supporting_information"))
-        observed.insert(QStringLiteral("document_kind"), kind);
+    // Preserve invalid nonempty classifications for the scorer to flag;
+    // never silently convert an unexpected native value into a missing key.
+    observed.insert(QStringLiteral("document_kind"),
+                    kind.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(kind));
 
     // Match the last LISTED author, not a user-selected senior-author override.
     // Only use authors when Bibliography::record() left that field visible;
@@ -43,7 +47,8 @@ inline QJsonObject captureCase(const QString& opaqueId, const QVariantMap& visib
         else
             terminal = authors.section(QLatin1Char(','), -1).trimmed();
     }
-    if (!terminal.isEmpty()) observed.insert(QStringLiteral("terminal_author"), terminal);
+    observed.insert(QStringLiteral("terminal_author"),
+                    terminal.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(terminal));
 
     QJsonObject audit;
     for (const char* key : {"metadata_status", "authorsSource",

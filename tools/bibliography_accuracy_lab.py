@@ -215,9 +215,21 @@ def score(gold: dict, predictions: dict, *, require_real: bool = False) -> dict:
                 by_publisher_fields[publisher][field]["unscored"] += 1
                 continue
             want = normalize(field, case["expected"][field])
-            got = normalize(field, observed[ident]["observed"].get(field))
+            observed_fields = observed[ident]["observed"]
+            got = normalize(field, observed_fields.get(field))
             stats[field]["scored"] += 1
             by_publisher_fields[publisher][field]["scored"] += 1
+            # An omitted snapshot key is not evidence that an absent field
+            # was actually checked. In particular, a missing SI DOI must
+            # never inflate true negatives or produce a false PASS.
+            if field not in observed_fields and not want:
+                stats[field]["missing_snapshot"] += 1
+                by_publisher_fields[publisher][field]["missing_snapshot"] += 1
+                by_publisher[publisher]["errors"] += 1
+                errors.append({"case_id": ident, "publisher": publisher, "field": field,
+                               "expected": case["expected"][field], "observed": None,
+                               "error": "missing_snapshot_field"})
+                continue
             if want == got:
                 outcome = "tp" if want else "tn"
                 stats[field][outcome] += 1
@@ -237,7 +249,7 @@ def score(gold: dict, predictions: dict, *, require_real: bool = False) -> dict:
                                         else "invalid_document_kind" if field == "document_kind" and got and got not in DOCUMENT_KINDS
                                         else "mismatch" if want and got else "missing" if want else "spurious"})
     def field_row(count: dict) -> dict:
-        row = {k: count[k] for k in ("tp", "fp", "fn", "tn", "scored", "unscored")}
+        row = {k: count[k] for k in ("tp", "fp", "fn", "tn", "scored", "unscored", "missing_snapshot")}
         row["precision"] = metric(count["tp"], count["fp"])
         row["recall"] = metric(count["tp"], count["fn"])
         return row

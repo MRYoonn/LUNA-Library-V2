@@ -27,10 +27,10 @@ class TitleExtractorContracts(unittest.TestCase):
         self.assertEqual(self.title.count('QString::fromUtf8(\n        R"('), 3)
         # Check syntax of all three C++ raw patterns with Python's built-in
         # engine; normalize PCRE2 Unicode classes used inside character sets.
-        patterns = re.findall(r'R"\\((.*?)\\)"', self.title, flags=re.S)
+        patterns = re.findall(r'R"\((.*?)\)"', self.title, flags=re.S)
         self.assertEqual(len(patterns), 3)
-        normalized = [p.replace(r'\\p{Lu}', 'A-Z').replace(r'\\p{Ll}', 'a-z')
-                        .replace(r'\\p{M}', '') for p in patterns]
+        normalized = [p.replace(r'\p{Lu}', 'A-Z').replace(r'\p{Ll}', 'a-z')
+                        .replace(r'\p{M}', '') for p in patterns]
         compiled = [re.compile(p, re.I) for p in normalized]
         self.assertTrue(compiled[0].search("Introduction"))
         self.assertTrue(compiled[1].search("Department of Chemistry"))

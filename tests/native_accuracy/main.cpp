@@ -116,6 +116,20 @@ int main(int argc, char** argv) {
     const auto observed = one.value(QStringLiteral("observed")).toObject();
     check(observed.value(QStringLiteral("terminal_author")).toString() == QStringLiteral("B. Last"), "last listed author");
     check(!one.contains(QStringLiteral("path")) && !one.contains(QStringLiteral("identity")), "no identity/path export");
+    check(!one.contains(QStringLiteral("source_sha256")),
+          "unbound snapshot does not invent PDF digest");
+    const QString captureDigest = QString(64, QLatin1Char('a'));
+    const auto boundCase = luna::Accuracy::captureCase(
+        QStringLiteral("syn-bound"), paper, captureDigest.toUpper());
+    check(boundCase.value(QStringLiteral("source_sha256")).toString() == captureDigest,
+          "synthetic capture-time PDF digest is normalized");
+    check(luna::Accuracy::captureCase(QStringLiteral("syn-invalid-hash"), paper,
+                                     QStringLiteral("invalid")).isEmpty(),
+          "invalid capture-time PDF digest rejected");
+    check(luna::Accuracy::captureCase(QStringLiteral("syn-zero-hash"), paper,
+                                     QString(64, QLatin1Char('0'))).isEmpty(),
+          "placeholder capture-time PDF digest rejected");
+
     check(one.value(QStringLiteral("audit")).toObject().value(QStringLiteral("authorsSource")).toString() == QStringLiteral("Crossref"), "author provenance");
     const auto sources = one.value(QStringLiteral("audit")).toObject()
         .value(QStringLiteral("field_sources")).toObject();

@@ -568,3 +568,11 @@ Next: check offline/Qt CI for the new code commit; then add an optional
 official metadata contract with a real permitted ACS DOI. Until then,
 ambiguous names must remain unconfirmed. Live ACS/Figshare HTTP access,
 production UI wiring and actual Windows user-library moves remain unverified.
+
+
+## Follow-up — documented Figshare public file ID (2026-11-02)
+
+- Official Figshare PublicFilePresenter specifies a numeric `id` alongside `name` and `download_url`: https://docs.figshare.com/old_docs/api/presenters/file/ . The independent finder now carries an optional `file_id` in each display candidate. This is **public metadata only**, not a verified reachable file or authorization to download it. No binary URLs are exposed or requested.
+- A missing file ID remains `null` for display-only compatibility; malformed/boolean/negative IDs are rejected, and repeated IDs within one article suppress all colliding entries. Casefold/NFKC filename ambiguity protection remains active even when IDs differ. Any omission/collision yields `partial` or `needs_review`, not a false complete SI listing.
+- Added three **synthetic offline** tests for valid/missing IDs, invalid types, and repeated IDs. Live ACS/Figshare metadata and landing-page reachability remain **unverified**; this change does not activate local SI auto-linking, UI integration, or file moves.
+- Next: verify exact-HEAD Python/privacy and Windows/Linux QtCore CI; then run an explicitly authorized public ACS DOI live metadata + strict landing check (no PDF download). Review PR #16's latest move helper before any actual Windows integration. Keep PR #17 Draft; no main/other PR edits, merge or Release.

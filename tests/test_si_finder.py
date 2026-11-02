@@ -169,6 +169,54 @@ class SiFinderTests(unittest.TestCase):
         self.assertEqual({c.article_id for c in result.candidates}, {123, 456})
         self.assertIn("ambiguous_file_entries=0", result.diagnostic)
 
+    def test_documented_figshare_file_ids_remain_unverified_display_metadata(self):
+        # The official PublicFilePresenter carries a numeric id. The
+        # untrusted download_url is never exposed or fetched.
+        files = [
+            {"name": "SI1.pdf", "id": 3000002,
+             "download_url": "https://example.invalid/do-not-fetch"},
+            {"name": "SI2.cif", "id": 3000003},
+            {"name": "legacy.txt"},  # No durable per-file identity.
+        ]
+        result = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=files)}))
+        self.assertEqual(result.status, "candidates")
+        self.assertEqual([c.file_id for c in result.candidates],
+                         [3000002, 3000003, None])
+        self.assertTrue(all(c.status == "metadata_match_link_unchecked"
+                            for c in result.candidates))
+        self.assertNotIn("example.invalid", json.dumps(result.to_dict()))
+
+    def test_invalid_figshare_file_ids_fail_closed(self):
+        bad_ids = (True, False, 0, -1, "3000002", 1.5, 10**15, None)
+        files = [{"name": f"bad{i}.pdf", "id": value}
+                 for i, value in enumerate(bad_ids)]
+        files.append({"name": "good.pdf", "id": 42})
+        result = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=files)}))
+        self.assertEqual(result.status, "partial")
+        self.assertEqual([(c.filename, c.file_id) for c in result.candidates],
+                         [("good.pdf", 42)])
+        self.assertIn("invalid_file_entries=8", result.diagnostic)
+
+    def test_duplicate_figshare_file_ids_block_both_entries(self):
+        files = [
+            {"name": "first.pdf", "id": 321},
+            {"name": "second.cif", "id": 321},
+            {"name": "third.pdf", "id": 322},
+        ]
+        result = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=files)}))
+        self.assertEqual(result.status, "partial")
+        self.assertEqual([(c.filename, c.file_id) for c in result.candidates],
+                         [("third.pdf", 322)])
+        self.assertIn("ambiguous_file_ids=2", result.diagnostic)
+        self.assertIn("ambiguous_file_entries=0", result.diagnostic)
+        all_bad = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=files[:2])}))
+        self.assertEqual((all_bad.status, all_bad.candidates),
+                         ("needs_review", ()))
+
     def test_missing_resource_doi_is_not_a_match(self):
         api = FakeApi(details={123: article(123, doi="")})
         self.assertEqual(lookup_acs_figshare(DOI, api).status, "needs_review")

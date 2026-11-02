@@ -132,6 +132,9 @@ class SiCandidate:
     landing_url: str
     # An exact metadata DOI match is NOT proof the landing page is reachable.
     status: str = "metadata_match_link_unchecked"
+    # Figshare's documented PublicFilePresenter.id, not a verified download
+    # link or permission to associate a local file. None means display-only.
+    file_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -179,6 +182,7 @@ def lookup_acs_figshare(
         truncated_files = 0
         invalid_file_entries = 0
         ambiguous_file_entries = 0
+        ambiguous_file_ids = 0
         for summary in found:
             if not isinstance(summary, dict):
                 rejected += 1
@@ -216,35 +220,47 @@ def lookup_acs_figshare(
             # can display. Retain the first MAX_FILES for user review.
             if len(files) > MAX_FILES:
                 truncated_files += 1
-            # A filename is only a display key in the current model (there
-            # is no verified per-file identity). Two files on one article with
-            # the same Windows/Unicode-compatible name cannot be distinguished
-            # safely as SI1 versus SI2. Suppress BOTH ambiguous entries and
-            # require review instead of silently choosing the first.
-            valid_names = []
+            # Figshare documents a numeric PublicFilePresenter.id. Preserve
+            # it as evidence for display/review, but never infer that the file
+            # URL was opened or that a local SI is linked. Older/partial
+            # metadata without an id remains display-only (file_id=None).
+            valid_entries: list[tuple[str, int | None]] = []
             for item in files[:MAX_FILES]:
                 if not isinstance(item, dict) or not safe_si_filename(item.get("name")):
                     invalid_file_entries += 1
                     continue
-                valid_names.append(item["name"])
-            keys = [unicodedata.normalize("NFKC", name).casefold()
-                    for name in valid_names]
-            counts = Counter(keys)
-            ambiguous_file_entries += sum(counts[key] > 1 for key in keys)
-            for filename, key in zip(valid_names, keys):
-                if counts[key] > 1:
+                file_id = item.get("id")
+                if "id" in item and (type(file_id) is not int or
+                                     not (0 < file_id < 10**15)):
+                    invalid_file_entries += 1
                     continue
-                # Do not expose unvalidated remote download URLs. Every entry
-                # opens the official landing page for user review in a browser.
-                candidates.append(SiCandidate(article_id, doi, title, filename, landing))
+                valid_entries.append((item["name"], file_id))
+            keys = [unicodedata.normalize("NFKC", name).casefold()
+                    for name, _ in valid_entries]
+            name_counts = Counter(keys)
+            id_counts = Counter(file_id for _, file_id in valid_entries
+                                if file_id is not None)
+            # Suppress BOTH entries for either a Windows/Unicode-equivalent
+            # filename or a reused numeric file ID in the same article.
+            ambiguous_file_entries += sum(name_counts[key] > 1 for key in keys)
+            ambiguous_file_ids += sum(file_id is not None and id_counts[file_id] > 1
+                                      for _, file_id in valid_entries)
+            for (filename, file_id), key in zip(valid_entries, keys):
+                if name_counts[key] > 1 or (file_id is not None and id_counts[file_id] > 1):
+                    continue
+                # Never expose download_url: only the official article landing
+                # is offered, with reachability still unverified.
+                candidates.append(SiCandidate(article_id, doi, title, filename, landing,
+                                              file_id=file_id))
         if candidates:
             # A rejected summary/detail makes the discovered set incomplete.
             # A full first page may conceal more records, even with zero files.
             status = "partial" if (rejected or failed_details or truncated_files
                                    or invalid_file_entries or ambiguous_file_entries
-                                   or len(found) == MAX_ARTICLES) else "candidates"
+                                   or ambiguous_file_ids or len(found) == MAX_ARTICLES) else "candidates"
         elif (rejected or failed_details or truncated_files or invalid_file_entries
-              or ambiguous_file_entries or len(found) == MAX_ARTICLES):
+              or ambiguous_file_entries or ambiguous_file_ids
+              or len(found) == MAX_ARTICLES):
             status = "needs_review"
         else:
             status = "not_found"
@@ -252,7 +268,8 @@ def lookup_acs_figshare(
                       f"search_page_full={int(len(found) == MAX_ARTICLES)};"
                       f"file_lists_truncated={truncated_files};"
                       f"invalid_file_entries={invalid_file_entries};"
-                      f"ambiguous_file_entries={ambiguous_file_entries}")
+                      f"ambiguous_file_entries={ambiguous_file_entries};"
+                      f"ambiguous_file_ids={ambiguous_file_ids}")
         return SiLookupResult(doi, status, tuple(candidates), fallback, diagnostic)
     except (ValueError, HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
         # Never include remote response bodies or local paths in diagnostics.

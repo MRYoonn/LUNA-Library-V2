@@ -255,6 +255,21 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('checked("actionCreateTextHighlight")', adapter)
         self.assertIn('checked("actionStickyNoteComment")', adapter)
 
+    def test_pinned_editor_page_commit_survives_focus_out(self):
+        overlay = (ROOT / 'tools/apply_overlay.py').read_text(encoding='utf-8')
+        # Windows #223: editingFinished emitted twice while the Qt editor
+        # moved focus BEFORE reading the requested page number.
+        self.assertIn('"Pdf4QtLibGui/pdfeditormainwindow.cpp": "b12ac782fdf8a7f5dde892c90a7f5c5bfd50a20b"', overlay)
+        self.assertIn("native_editor = root / \"Pdf4QtLibGui/pdfeditormainwindow.cpp\"", overlay)
+        self.assertIn("native_after = replace_exact(native_before", overlay)
+        self.assertIn("const int requestedPage = m_pageNumberSpinBox->value() - 1;", overlay)
+        self.assertIn("const QSignalBlocker noFocusOutReentry(m_pageNumberSpinBox);", overlay)
+        self.assertIn("m_programController->getPdfWidget()->getDrawWidgetProxy()->goToPage(requestedPage);", overlay)
+        self.assertIn('native_editor.write_bytes(native_after.encode("utf-8")', overlay)
+        # Native PDF editor must still be compiled, not bypassed.
+        workflow = (ROOT / '.github/workflows/build-windows.yml').read_text(encoding='utf-8')
+        self.assertIn("python tools/apply_overlay.py pdf4qt", workflow)
+
     def test_page_entry_smoke_uses_real_qt_input_and_verifies_navigation(self):
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
         # Run #222: setValue + forced editingFinished can race with native

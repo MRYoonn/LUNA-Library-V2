@@ -941,6 +941,15 @@ class PaperFileList final : public QListWidget {
 public:
     using QListWidget::QListWidget;
 protected:
+    void mousePressEvent(QMouseEvent* e) override {
+        if (e->button() == Qt::RightButton) {
+            if (auto* item = itemAt(e->position().toPoint()); item && item->isSelected()) {
+                e->accept();
+                return;
+            }
+        }
+        QListWidget::mousePressEvent(e);
+    }
     QMimeData* mimeData(const QList<QListWidgetItem*>& items) const override {
         auto* data = new QMimeData;
         QList<QUrl> urls;

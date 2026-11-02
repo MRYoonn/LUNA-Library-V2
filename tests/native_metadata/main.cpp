@@ -2,6 +2,7 @@
 #include "../../src/lunametadataengine.h"
 #include "../../src/lunametadatafetch.h"
 #include "../../src/lunabibliography.h"
+#include "../../src/lunatitleextractor.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QSettings>
@@ -41,6 +42,78 @@ int main(int argc,char** argv){
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,root.path());
 
+    checkpoint("layout-title-no-doi");
+    const QList<TitleExtraction::Line> paperCover = {
+        {QStringLiteral("Journal of the American Chemical Society"),45,37,9},
+        {QStringLiteral("Research Article"),52,67,9},
+        {QStringLiteral("Visible-Light-Driven C5 Functionalization of"),86,140,18},
+        {QStringLiteral("Thiouracils through Radical Addition"),86,165,17},
+        {QStringLiteral("Alice Chen, Bob White and Daniel Green"),84,205,9},
+        {QStringLiteral("Department of Chemistry"),85,235,9},
+        {QStringLiteral("Abstract"),85,291,9},
+        {QStringLiteral("We studied radical reaction pathways."),85,315,9}
+    };
+    const auto titleEvidence = TitleExtraction::infer(paperCover,792);
+    expect(titleEvidence.value("title").toString() ==
+           QStringLiteral("Visible-Light-Driven C5 Functionalization of Thiouracils through Radical Addition"),
+           "DOI-less scientific cover title captured");
+    expect(titleEvidence.value("titleSource").toString()==QStringLiteral("first_page_layout"),
+           "first-page title source is explicit and not fake Crossref");
+    expect(titleEvidence.value("titleConfidence").toInt()>=86,
+           "auto title requires strong relative typography");
+    expect(TitleExtraction::infer({
+        {QStringLiteral("Supporting Information"),20,30,11},
+        {QStringLiteral("A Photocatalytic Synthesis of Heterocycles"),40,150,19},
+        {QStringLiteral("Supplementary experiments and characterization"),40,220,9},
+        {QStringLiteral("Department of Chemistry"),40,245,9}
+    },792).isEmpty(), "SI parent article title cannot be assigned to the SI PDF");
+    expect(TitleExtraction::infer({
+        {QStringLiteral("Introduction to Radical Addition Chemistry"),60,100,9},
+        {QStringLiteral("We discuss experiments and the product distribution."),60,135,9},
+        {QStringLiteral("The synthetic methods were studied."),60,171,9},
+        {QStringLiteral("The reaction was performed at room temperature."),60,205,9}
+    },792).isEmpty(), "body/Introduction cannot be promoted to a title");
+    const auto ambiguous = TitleExtraction::infer({
+        {QStringLiteral("Publishing header"),40,40,9},
+        {QStringLiteral("Photoredox Functionalization of Heteroarenes"),82,140,18},
+        {QStringLiteral("Chemoselective Catalytic Radical Transformations"),82,300,18},
+        {QStringLiteral("Authors and affiliations"),40,390,9},
+        {QStringLiteral("Summary of experimental procedures"),40,425,9}
+    },792);
+    expect(ambiguous.value("title").toString().isEmpty() &&
+           ambiguous.value("titleStatus").toString()==QStringLiteral("needs_review"),
+           "competing title headings must not autosave");
+    const auto chemistry = TitleExtraction::infer({
+        {QStringLiteral("Journal header text"),20,30,9},
+        {QStringLiteral("β-C–H and α-C–C Activation in Thiouracils"),60,140,19},
+        {QStringLiteral("Alice Brown and Alice Green"),60,200,9},
+        {QStringLiteral("Department of Chemistry"),60,250,9},
+        {QStringLiteral("Abstract"),60,300,9}
+    },792);
+    expect(chemistry.value("title").toString().contains(QStringLiteral("β-C–H")) &&
+           chemistry.value("title").toString().contains(QStringLiteral("α-C–C")),
+           "chemistry glyphs in printed title must be preserved");
+    Bibliography titleStore;
+    const QString titleIdentity=QStringLiteral("synthetic:title:no-doi");
+    expect(titleStore.enrichFromFirstPage(titleIdentity,titleEvidence),
+           "verified geometry title saved without DOI");
+    expect(titleStore.record(titleIdentity).value("title").toString()==titleEvidence.value("title").toString(),
+           "saved geometry title is readable offline");
+    expect(titleStore.record(titleIdentity).value("titleSource").toString()==QStringLiteral("first_page_layout"),
+           "geometry title provenance survives persistence");
+    const QString manualIdentity=QStringLiteral("synthetic:title:manual");
+    expect(titleStore.saveEdits(manualIdentity,{},{{"title",QStringLiteral("My corrected article title")}}),
+           "manual title before automatic scan");
+    expect(!titleStore.enrichFromFirstPage(manualIdentity,titleEvidence) &&
+           titleStore.record(manualIdentity).value("title").toString()==QStringLiteral("My corrected article title"),
+           "manual title must never be overwritten by new extractor");
+    const QString staleIdentity=QStringLiteral("synthetic:title:stale-info");
+    expect(titleStore.enrichFromFirstPage(staleIdentity,
+        {{"title",QStringLiteral("Publisher PDF export title")},{"titleSource",QStringLiteral("pdf_metadata")}}),
+        "legacy embedded title saved");
+    expect(titleStore.enrichFromFirstPage(staleIdentity,titleEvidence) &&
+           titleStore.record(staleIdentity).value("title").toString()==titleEvidence.value("title").toString(),
+           "strong printed title corrects a conflicting machine-owned PDF metadata title");
     checkpoint("doi-evidence");
     const auto docs=collectCandidates({QStringLiteral(
         "Title of paper\nDOI: https://doi.org/10.1021/jacs.4c05881\nAuthors")},

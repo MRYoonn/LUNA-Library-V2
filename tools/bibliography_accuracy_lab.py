@@ -296,7 +296,12 @@ def score_regressions(regressions: object) -> dict:
         if not preserve and not empty and "expected_status" not in case:
             raise DatasetError(f"regression/{ident}: no assertions to verify")
         for field in preserve:
-            if field not in before or before[field] != after.get(field):
+            # An absent snapshot field is not proof that a protected value
+            # survived. In particular, before[field] == None used to match
+            # after.get(field) when the after key was never captured.
+            if field not in before or field not in after:
+                failures.append({"case_id": ident, "field": field, "reason": "missing_asserted_field"})
+            elif before[field] != after[field]:
                 failures.append({"case_id": ident, "field": field, "reason": "changed_protected_value"})
         for field in empty:
             # An omitted snapshot key is not evidence that a field was empty.

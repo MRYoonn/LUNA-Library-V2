@@ -559,3 +559,13 @@ Meanwhile the independent regression must report the limitation accurately.
 New branch CI must pass Python and Windows QtCore before this fix is
 called verified. Real user QSettings, Windows GUI, process restart and
 publisher PDF accuracy remain unverified.
+
+## Follow-up: private audit report output safety (synthetic verification)
+
+The opt-in `--report` output now refuses a symlink destination and writes through
+an access-restricted temporary file in the destination directory, followed by
+an atomic replacement. This prevents accidentally following a report symlink
+into unrelated local research files and avoids a truncated report after a
+failed write. Synthetic CLI regressions cover the symlink refusal, repeated
+report generation and temporary-file cleanup. This is **not** a PDF goldset
+accuracy measurement and does not validate actual publisher evidence.

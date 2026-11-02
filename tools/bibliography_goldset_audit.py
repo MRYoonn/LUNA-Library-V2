@@ -71,8 +71,9 @@ def audit_local_pdfs(cases: dict, pdf_dir: Path | None) -> dict:
 def inventory(gold: dict, pdf_dir: Path | None = None) -> dict:
     """List unknown labels per opaque case before any native snapshot exists.
 
-    This inventories *declared* metadata only. It does not authenticate PDFs,
-    hashes, publisher evidence, or engine output.
+    By default this inventories declared metadata only. With --pdf-dir it
+    checks local bytes against declared hashes, never publisher authenticity,
+    field evidence, or engine output.
     """
     cases = validate_cases(gold, "goldset")
     coverage = audit_goldset_coverage(gold)
@@ -133,7 +134,11 @@ def inventory(gold: dict, pdf_dir: Path | None = None) -> dict:
             for publisher, counts in sorted(unknown_by_publisher.items())
         },
         "synthetic_case_ids_excluded": synthetic_ids,
-        "warning": "Declared hashes/evidence are not independently authenticated; no PDFs or native records were read.",
+        "warning": (
+            "Local PDF bytes matched against declared SHA256/header only; publisher evidence and native records remain unverified."
+            if pdf_dir is not None else
+            "Declared hashes/evidence are not independently authenticated; no PDFs or native records were read."
+        ),
     }
 
 

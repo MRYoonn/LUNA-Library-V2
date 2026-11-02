@@ -89,6 +89,21 @@ class LibraryModes(unittest.TestCase):
             self.assertIn('assets/icons/ui-'+name+'.svg', whitelist)
             self.assertIn('readerIcon(QStringLiteral("'+name+'"))', self.cpp)
 
+    def test_paper_only_window_can_shrink_without_hidden_navigation_minimum(self):
+        self.assertIn('split_->setChildrenCollapsible(true);', self.cpp)
+        self.assertIn('setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12)', self.cpp)
+        self.assertIn('{hasNavigation && hasDocuments ? 562 : (hasNavigation ? 270 : 240)}', self.cpp)
+        self.assertIn('navigation_->setVisible(navigation_->isHidden())', self.cpp)
+        self.assertIn('documents_->setVisible(documents_->isHidden())', self.cpp)
+
+    def test_paper_header_and_pdf_tabs_share_top_alignment_and_no_native_tab_rule(self):
+        tabs = (ROOT/'src/lunatabs.cpp').read_text(encoding='utf-8')
+        self.assertIn('layout->setContentsMargins(7, 7, 0, 7)', self.cpp)
+        self.assertIn('layout->setContentsMargins(0, 7, 0, 0); layout->setSpacing(0)', self.cpp)
+        self.assertIn('tabs_->tabBar()->setDrawBase(false)', tabs)
+        self.assertIn('QTabBar#LunaPdfTabBar { background:#F3F6FB; border:0; border-top:0; }', self.qss)
+        self.assertNotIn('setCornerWidget(corner, Qt::TopLeftCorner)', tabs)
+
     def test_independent_panel_collapse_controls_remain_reachable(self):
         for token in (
             'QStringLiteral("LunaNavigationCollapseButton")',

@@ -1148,7 +1148,7 @@ public:
         nav->setContentsMargins(10, 0, 10, 12);
         nav->setSpacing(0);
         auto* libraryHeader = new QWidget(navigation_);
-        libraryHeader->setFixedHeight(48);
+        libraryHeader->setFixedHeight(41);
         libraryHeader->setObjectName(QStringLiteral("LunaLibraryHeader"));
         auto* libraryHeaderLayout = new QHBoxLayout(libraryHeader);
         libraryHeaderLayout->setContentsMargins(7, 0, 0, 0);
@@ -1441,7 +1441,7 @@ public:
         auto* title = new QLabel(QStringLiteral("논문 목록"), heading);
         title->setObjectName(QStringLiteral("LunaLibraryTitle"));
         title->setFont(headingFont);
-        title->setFixedHeight(48);
+        title->setFixedHeight(41);
         title->setMinimumWidth(0);
         title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         auto* titleRow = new QHBoxLayout;

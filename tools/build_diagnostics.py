@@ -71,6 +71,43 @@ def record(output: Path, phase: str, *, status: str = "unknown",
     temporary.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n",
                          encoding="utf-8")
     temporary.replace(source)
+    if phase == "finish":
+        failed = [name for name, outcome in document["gates"].items()
+                  if outcome == "failure"]
+        run = str(document["run_id"])
+        url = ("https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/" + run
+               if run.isdecimal() else "Local synthetic run")
+        lines = [
+            "# LUNA Build Error Analysis",
+            "",
+            f"- Build run: {run}",
+            f"- Source SHA: `{document['source_sha']}`",
+            f"- Status: **{document['status']}**",
+            f"- First failed gate: **{failed[0] if failed else 'none recorded'}**",
+            f"- Workflow logs: {url}",
+            "",
+            "## Gate evidence",
+            "",
+        ]
+        lines += [f"- {name}: {outcome}" for name, outcome in document["gates"].items()]
+        lines += [
+            "",
+            "## Root cause and corrective action",
+            "",
+            ("The exact root cause is **not established** by gate status alone. "
+             "Inspect the linked workflow job logs and native UI artifact; "
+             "do not infer a cause or mark a fix verified without a new Windows run."
+             if document["status"] != "success" else
+             "All recorded gates completed without a failure."),
+            "",
+            "## Evidence retention",
+            "",
+            "This Markdown file is included in the build diagnostic artifact. "
+            "On CI failure a copy is also posted as a GitHub issue for durable review.",
+            "",
+        ]
+        report = output / "failure-analysis.md"
+        report.write_text("\n".join(lines), encoding="utf-8")
     return document
 
 

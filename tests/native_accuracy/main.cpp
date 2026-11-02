@@ -140,7 +140,14 @@ int main(int argc, char** argv) {
           == QStringLiteral("manual"), "restart preserves field provenance");
     check(restored.value(QStringLiteral("metadata_status")).toString()
           == QStringLiteral("needs_review"), "restart preserves conflict status");
-    check(reopened.record(moveSource).isEmpty(), "restart does not resurrect old path identity");
+    // record() adds an in-memory legacy authorsSource marker even when no
+    // stored record exists; inspect the actual persistent key instead.
+    const QString oldMoveDigest = QString::fromLatin1(
+        QCryptographicHash::hash(moveSource.toUtf8(), QCryptographicHash::Sha256).toHex());
+    QSettings persisted(QSettings::IniFormat, QSettings::UserScope,
+                        QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+    check(!persisted.contains(QStringLiteral("library/bibliography/") + oldMoveDigest),
+          "restart does not retain old persistent identity");
 
     const QString occupied = QStringLiteral("synthetic:occupied-target");
     check(store.save(occupied, movable, false), "seed collision target");

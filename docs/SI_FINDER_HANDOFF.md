@@ -835,3 +835,14 @@ Windows native paired-move tests, and user-PC restart are verified.
 Verification gate: `python -B -m unittest discover -s tests -p 'test_si_*.py' -v`,
 `python -B tools/preflight_public.py`, and exact-commit Linux/Windows Qt CI.
 Live ACS/Figshare link and SI-file access remain unverified. Keep PR #17 Draft.
+
+**Exact-code CI result:** [SI isolated #41459077944](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41459077944)
+completed SUCCESS for source/test commit `89cfb80e`: 141/141 offline
+synthetic Python tests and privacy gate PASS; Linux Qt6 and Windows Qt6
+standalone identity/paired-move jobs PASS. The earlier
+[#41458891613](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41458891613)
+failed one new test because NFKC introduced a slash not blocked by the first
+patch; `89cfb80e` explicitly rejects this and passed the replacement run.
+These are isolated tests, not Windows LUNA GUI acceptance. Real ACS/Figshare
+metadata API, landing-page availability and individual SI file access remain
+unverified. No production merge/release is authorized.

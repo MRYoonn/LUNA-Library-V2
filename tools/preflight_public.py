@@ -9,9 +9,21 @@ ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
     "assets/folder_icons/README.md",
     "assets/folder_icons/svg_bundle.b85",
+    "assets/symbol_icons/README.md",
+    "assets/symbol_icons/svg_bundle.part1.b85",
+    "assets/symbol_icons/svg_bundle.part2.b85",
+    "assets/symbol_icons/svg_bundle.part3.b85",
+    "assets/symbol_icons/svg_bundle.part4.b85",
+    "tests/test_symbol_icons.py",
     "tools/compare_ui_reference.py",
+    "BUILD_DIAGNOSTICS.md",
+    "tools/probe_native_crash_windows.py",
+    "tools/build_diagnostics.py",
+    "tests/test_build_diagnostics.py",
     ".gitattributes",
     "assets/icons/ui-library.svg",
+    "assets/icons/ui-list-mode.svg",
+    "assets/icons/ui-card-mode.svg",
     "tools/capture_ui_reference_windows.mjs",
     'design/REFERENCE.md',
     'design/LUNA_Library_UI_v0.9.1_OneLineMemo.html',
@@ -54,6 +66,7 @@ APPROVED = {
     "experiments/native_tabs/run_windows.py", "experiments/native_tabs/README.md",
     "experiments/native_tabs/HANDOFF_KO.md",
     "tests/test_native_tabs.py",
+    "tests/test_library_view_modes.py",
     "tests/native_dialog/windows_job.py",
     "src/lunapagegrid.h", "tests/native_dialog/pagegrid.cpp",
     "experiments/tab_host/main.cpp", "experiments/tab_host/CMakeLists.txt",
@@ -62,17 +75,22 @@ APPROVED = {
     "USER_GUIDE_KO.md",
     ".github/workflows/build-windows.yml",
     "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunabibliography.h", "src/lunafirstpage.h", "src/lunathumbnailcache.h",
+    "src/lunametadataengine.h", "src/lunametadatafetch.h",
+    "tests/native_metadata/CMakeLists.txt", "tests/native_metadata/main.cpp",
     "tests/native_dialog/thumbnails.cpp",
-    "src/lunafilemove.h", "tests/native_dialog/filemoves.cpp",
+    "src/lunafilemove.h", "src/lunatrashundo.h", "src/lunalocalsync.h", "tests/native_dialog/filemoves.cpp",
     "src/lunadocumentclaim.h", "tests/native_dialog/documentclaims.cpp",
     "tools/probe_documents_windows.py",
     "tools/probe_research_windows.py",
-    "tools/apply_overlay.py", "tools/preflight_public.py",
+    "tools/apply_overlay.py", "tools/patch_script_text_layout.py", "tools/preflight_public.py",
+    "tests/test_script_selection_patch.py",
     "tests/test_public_gate.py",
     "tests/test_citation_contract.py",
+    "tests/test_real_file_management_contract.py",
     "tests/test_updater.py", "tools/prepare_release.py",
     "src/lunaupdater.h", "tools/LUNA-Update.ps1",
     ".github/workflows/draft-release.yml",
+    "tools/LUNA-Library-Setup.iss", "tests/test_installer_contract.py",
     "tools/verify_portable.py", "tests/test_portable.py",
     "tools/smoke_windows.py",
     "tools/stage_msvc_runtime.ps1",
@@ -84,6 +102,8 @@ APPROVED = {
 }
 APPROVED_BINARY = {'assets/icons/LUNA-Moon.ico': '5c1dec76af47b7c37e3d41e5fb05d62a02783f4f4af0247503096feb4cd7b51f', 'assets/icons/LUNA-Moon.png': '2d08386badd6d1d3a80f6d53213ccc53296fb46590a6c45b734a83e457aba4c3'}
 APPROVED.update(APPROVED_BINARY)
+# Keep the default cap; allow a tightly scoped larger Qt UI source after review.
+SOURCE_SIZE_CAPS = {"src/lunalibrary.cpp": 242_000}
 FORBIDDEN = [
     ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)),
     ("phone", re.compile(r"(?<!\d)01[016789][-. ]?\d{3,4}[-. ]?\d{4}(?!\d)")),
@@ -112,7 +132,7 @@ def check(root=ROOT):
         if name not in APPROVED:
             errors.append("Unexpected potentially private file: " + name)
             continue
-        if path.stat().st_size > 200_000:
+        if path.stat().st_size > SOURCE_SIZE_CAPS.get(name, 200_000):
             errors.append("Unexpected file size: " + name)
             continue
         if name in APPROVED_BINARY:

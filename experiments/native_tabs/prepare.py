@@ -125,6 +125,28 @@ bool PDFProgramController::askForSaveDocumentBeforeClose()
     replace('Pdf4QtLibGui/pdfeditormainwindow.cpp',
         '        if (!m_programController->isFactorySettingsBeingRestored())',
         '        if (isWindow() && !m_programController->isFactorySettingsBeingRestored())')
+    # The page-number entry handler must read the committed value BEFORE
+    # moving focus away from the QSpinBox. Focus-out can re-enter its
+    # editingFinished signal and overwrite the value (#223). Apply this only
+    # after replace() verified the unmodified pinned upstream Editor source.
+    native_editor = 'Pdf4QtLibGui/pdfeditormainwindow.cpp'
+    replace(native_editor, '#include <QSpinBox>',
+            '#include <QSpinBox>\n#include <QSignalBlocker>')
+    replace(native_editor,
+        '    if (m_pageNumberSpinBox->hasFocus())\n'
+        '    {\n'
+        '        m_programController->getPdfWidget()->setFocus();\n'
+        '    }\n\n'
+        '    m_programController->getPdfWidget()->getDrawWidgetProxy()->goToPage(m_pageNumberSpinBox->value() - 1);',
+        '    // Read the requested page before changing focus, which may\n'
+        '    // synchronously trigger editingFinished a second time.\n'
+        '    const int requestedPage = m_pageNumberSpinBox->value() - 1;\n'
+        '    if (m_pageNumberSpinBox->hasFocus())\n'
+        '    {\n'
+        '        const QSignalBlocker noFocusOutReentry(m_pageNumberSpinBox);\n'
+        '        m_programController->getPdfWidget()->setFocus();\n'
+        '    }\n\n'
+        '    m_programController->getPdfWidget()->getDrawWidgetProxy()->goToPage(requestedPage);')
     # Qt::Popup is a top-level window: move() takes global screen coordinates.
     replace('Pdf4QtLibWidgets/sources/pdfwidgettool.cpp',
         '        QPoint topRightParent = m_parentDialog->mapFromGlobal(topRight);\n', '')

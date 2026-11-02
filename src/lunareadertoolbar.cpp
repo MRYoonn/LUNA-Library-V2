@@ -560,7 +560,14 @@ private:
         if (!clean.isEmpty()) {
             const pdf::PDFObjectReference ref = modifier.getBuilder()->createAnnotationHighlight(
                 page->getPageReference(), clean, color_);
-            modifier.getBuilder()->setAnnotationOpacity(ref, 0.36);
+            // PDF highlight rectangles are FILLED paths. The upstream builder
+            // writes /CA (stroke) and /ca (fill) separately into the appearance
+            // stream's graphics state. Setting only /CA leaves /ca=1.0, so a
+            // fresh highlight renders at full saturation until save/reopen.
+            // Keep both at 36%: the on-screen preview must match the saved PDF.
+            constexpr pdf::PDFReal kHighlightOpacity = 0.36;
+            modifier.getBuilder()->setAnnotationOpacity(ref, kHighlightOpacity);
+            modifier.getBuilder()->setAnnotationFillOpacity(ref, kHighlightOpacity);
             modifier.getBuilder()->updateAnnotationAppearanceStreams(ref);
         }
         modifier.markAnnotationsChanged();
@@ -1528,8 +1535,23 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
             for (const auto& previous : occupied) if (previous.intersects(rect)) return fail("Toolbar controls overlap");
             occupied.append(rect);
         }
-        auto* toggle = window.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
-        if (!toggle || !toggle->isVisible()) return fail("Library collapse button hidden by overflow");
+        // Panel controls belong to their own visible headings, not the
+        // native PDF toolbar or the tab strip. Restore lives at reader edge.
+        auto* navigationToggle = window.findChild<QToolButton*>(QStringLiteral("LunaNavigationCollapseButton"));
+        auto* documentsToggle = window.findChild<QToolButton*>(QStringLiteral("LunaDocumentsCollapseButton"));
+        auto* restoreRail = window.findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail"));
+        if (!navigationToggle || !documentsToggle || !restoreRail ||
+            navigationToggle->icon().isNull() || documentsToggle->icon().isNull())
+            return fail("Independent pane-heading collapse buttons missing");
+        for (const auto& expected : QList<QPair<QToolButton*, QString>>{
+                 {navigationToggle, QStringLiteral("LunaLibraryHeader")},
+                 {documentsToggle, QStringLiteral("LunaPaperHeader")}}) {
+            auto* header = expected.first->parentWidget();
+            if (!header || header->objectName() != expected.second ||
+                !header->rect().contains(expected.first->geometry()))
+                return fail("Panel heading control is clipped or detached");
+        }
+        if (restoreRail->isVisible()) return fail("Restore rail visible while both panels are open");
         if (auto* more = bar->findChild<QToolButton*>(QStringLiteral("qt_toolbar_ext_button")))
             if (more->isVisible()) for (const auto& rect : occupied)
                 if (more->geometry().intersects(rect)) return fail("Toolbar overflow button overlaps a control");

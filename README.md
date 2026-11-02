@@ -1,6 +1,6 @@
 # LUNA Library V2
 
-**PDF4QT 기반 Windows용 LUNA Library** — 2열 인터페이스 (왼쪽 폴더/PDF 목록, 오른쪽 PDF 본문)
+**LUNA Library — 독립 실행형 Windows PDF 라이브러리**. PDF 열람·주석·논문 관리용 자체 인터페이스와 다중 탭을 제공하며 별도의 PDF 뷰어 설치 없이 실행한다. 서드파티 엔진의 라이선스와 출처는 아래 저작권 및 `LICENSE_NOTICE.md`에서 명시한다.
 
 This is a **public source-only build repository**. It does not store, synchronize or receive your PDF files, annotations, research notes, cloud credentials or local databases.
 
@@ -187,6 +187,13 @@ PDF4QT의 저장 확인을 유지한다. 동기화 폴더에서는 두 PC가 같
 
 ## MYBOX 로컬 폴더 동기화 준비
 
+MYBOX 전용 버튼은 없습니다. 기존 라이브러리 폴더 지정에서 MYBOX가
+동기화 중인 로컬 폴더를 선택하면 PDF와 `.luna-meta.json` 메타데이터
+파일이 동반 저장됩니다. 탐색기에서 같은 폴더의 PDF 파일명만 변경하면
+Windows 파일 ID 및 폴더 변경 감지를 이용해 썸네일 파일명도 갱신합니다.
+설치형 `LUNA-Library-Setup.exe`는 성공한 Windows 빌드의
+`LUNA-Windows-Installer` 아티팩트로 별도 제공됩니다.
+
 파일 구조는 같은 폴더의 `paper.pdf`와 `paper.luna-thumb.png`이다.
 하이라이트·메모는 사용자가 저장한 PDF 안에 들어간다. 베타 개발 브랜치에서는
 논문 목록의 우클릭 메뉴로 현재 PDF 화면을 크롭해 썸네일을 지정하고,
@@ -195,7 +202,8 @@ PDF와 썸네일을 같은 드라이브의 다른 폴더로 함께 이동할 수
 부분 실패 시 되돌리기를 시도하고, 복원이 불가능한 썸네일의 보존 위치를 알린다.
 열린 PDF 이동은 기존 저장 확인 후 문서를 닫고 새 경로로 다시 연다.
 이 기능들의 Windows 통합 검증은 진행 중이며, 베타 완료를 뜻하지 않는다.
-외부 탐색기에서 PDF만 이동했을 때 썸네일을 자동 추적하지 않는다.
+외부 탐색기에서 같은 폴더 안 PDF 이름을 바꾸면 썸네일을 함께 추적하되,
+다른 폴더나 드라이브로 이동한 파일은 동일성을 임의로 추론하지 않는다.
 북마크 JSON은 사용자가 명시적으로 내보낸 별도 파일이다.
 창 크기·최근 열람·즐겨찾기 등 QSettings는 PC별로 유지하며 공유 SQLite를 만들지 않는다.
 
@@ -209,6 +217,16 @@ MYBOX API·로그인·토큰 처리나 GitHub를 이용한 PDF 동기화는 추�
 ## 개인정보 보호
 
 공개 저장소에는 사용자 PDF, 실제 논문 기록, 메모, 썸네일, SQLite DB, API 키, MYBOX 인증정보, 로컬 사용자 경로, 기존 비공개 LUNA/Recall 소스를 **절대 업로드하지 않는다**. 의심이 생기면 빌드 및 공개 작업을 중단한다. 자세한 내용은 [SECURITY_POLICY.md](SECURITY_POLICY.md).
+
+## 배포 정책 — 포터블 우선
+
+기본 Windows 빌드는 전체 네이티브 UI/주석·다중 탭/창 수명 검증을 거친
+`LUNA-Windows-Portable.zip`만 배포 대상으로 만든다. 사용자는 전체 ZIP을 압축 해제하고
+`LUNA.exe`를 실행한다. 별도 설치 프로그램이나 원본 PDF 뷰어 설치는 필요 없다.
+설치형 빌드·설치/제거 검증 코드는 보존하되 수동 `build_installer` 선택 시에만 실행한다.
+포터블 업데이트는 승인된 GitHub Release와 무결성 검증을 전제로 하며,
+PDF·메모·썸네일·주석은 업데이트로 변경하지 않는다. 공개 Release 없이 자동 업데이트를
+제공한다고 주장하지 않는다.
 
 ## 저작권
 

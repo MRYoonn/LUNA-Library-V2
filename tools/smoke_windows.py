@@ -11,6 +11,7 @@ import struct
 import sys
 import tempfile
 import json
+import time
 
 
 def synthetic_pdf(page_count: int = 1, *, bibliography_author: str | None = None) -> bytes:
@@ -33,7 +34,13 @@ def synthetic_pdf(page_count: int = 1, *, bibliography_author: str | None = None
     ]
     if page_count >= 2:
         objects[1] = b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>"
-        second = b"BT /F1 18 Tf 40 160 Td (Second synthetic page) Tj ET\n"
+        second = (b"BT /F1 18 Tf 40 160 Td (Second synthetic page) Tj ET\n"
+                  # Separate PDF text runs with deliberate text rise and a
+                  # smaller font reproduce journal superscripts/subscripts.
+                  b"BT /F1 16 Tf 40 112 Td (C\\(sp) Tj /F1 10 Tf 6 Ts (3) Tj "
+                  b"0 Ts /F1 16 Tf (\\)-H) Tj ET\n"
+                  b"BT /F1 16 Tf 40 82 Td (CF) Tj /F1 10 Tf -4 Ts (3) Tj "
+                  b"0 Ts /F1 16 Tf (-H) Tj ET\n")
         objects.extend([
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] "
             b"/Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>",
@@ -92,12 +99,42 @@ def run(package: Path, screenshots_directory: Path | None = None,
         pdf.write_bytes(synthetic_pdf(2))
         subprocess.run([str(executable), "--version"], cwd=folder, env=child_env,
                        check=True, timeout=20)
+        # Capture stderr/stdout from the very first GUI instruction, even
+        # if the native smoke hangs before creating its own result marker.
+        native_stdout = folder / "native-stdout.log"
+        native_stderr = folder / "native-stderr.log"
+        started = time.monotonic()
+        if screenshots_directory is not None:
+            screenshots_directory.mkdir(parents=True, exist_ok=True)
+            (screenshots_directory / "luna-smoke-start.json").write_text(
+                json.dumps({"schema": 1, "event": "started", "mode":
+                            "layout" if layout_only else "full", "scale": scale,
+                            "source_sha": os.getenv("GITHUB_SHA", "local"),
+                            "run_id": os.getenv("GITHUB_RUN_ID", "local")},
+                           indent=2), encoding="utf-8")
         try:
-            subprocess.run([str(executable), "--luna-smoke-report", str(report),
-                            *(["--luna-layout-only"] if layout_only else []), str(pdf)],
-                           cwd=folder, env=child_env, check=True, timeout=45)
+            with native_stdout.open("wb") as out, native_stderr.open("wb") as err:
+                subprocess.run([str(executable), "--luna-smoke-report", str(report),
+                                *(["--luna-layout-only"] if layout_only else []), str(pdf)],
+                               cwd=folder, env=child_env, check=True, timeout=45,
+                               stdout=out, stderr=err)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-            detail = report.read_text(encoding="utf-8")[:512] if report.is_file() else "No native diagnostic"
+            detail = report.read_text(encoding="utf-8", errors="replace")[:512] if report.is_file() else "No native diagnostic"
+            # Keep the last C++ checkpoint when the Windows GUI times out
+            # before it can write its final success or failure marker.
+            stage_file = Path(str(report) + ".stage.txt")
+            if stage_file.is_file():
+                stage = stage_file.read_text(encoding="utf-8", errors="replace").strip()[:220]
+                detail += f" | Last native stage: {stage}"
+                if screenshots_directory is not None:
+                    screenshots_directory.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(stage_file, screenshots_directory / "luna-native-last-stage.txt")
+            print_probe = Path(str(report) + ".print-probe.txt")
+            if print_probe.is_file():
+                detail += " | " + print_probe.read_text(encoding="utf-8", errors="replace")[:400].strip()
+                if screenshots_directory is not None:
+                    screenshots_directory.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(print_probe, screenshots_directory / "luna-print-probe.txt")
             failure_image = Path(str(report) + ".failure.png")
             if screenshots_directory is not None and failure_image.is_file():
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
@@ -108,13 +145,40 @@ def run(package: Path, screenshots_directory: Path | None = None,
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 for suffix, name in ((".memo.png", "luna-paper-memo.png"),
                                      (".pages.png", "luna-page-grid.png"),
-                                     (".hover.png", "luna-thumbnail-hover.png"),
                                      (".desktop.png", "luna-windows-desktop.png")):
                     capture = Path(str(report) + suffix)
                     if capture.is_file():
                         shutil.copyfile(capture, screenshots_directory / name)
             status = f"exit {error.returncode}" if isinstance(error, subprocess.CalledProcessError) else "timed out"
+            stage = (Path(str(report) + ".stage.txt").read_text(
+                encoding="utf-8", errors="replace")[:220]
+                if Path(str(report) + ".stage.txt").is_file() else "not-created")
+            stderr_tail = native_stderr.read_bytes()[-16000:].decode("utf-8", errors="replace")
+            detail += (" | stderr tail: " + stderr_tail[-500:]) if stderr_tail else ""
+            if screenshots_directory is not None:
+                (screenshots_directory / "luna-native-stdout.log").write_bytes(
+                    native_stdout.read_bytes()[-65536:])
+                (screenshots_directory / "luna-native-stderr.log").write_bytes(
+                    native_stderr.read_bytes()[-65536:])
+                (screenshots_directory / "luna-native-failure.json").write_text(
+                    json.dumps({"schema": 1, "status": status, "last_native_stage": stage,
+                                "elapsed_seconds": round(time.monotonic() - started, 2),
+                                "mode": "layout" if layout_only else "full",
+                                "scale": scale, "source_sha": os.getenv("GITHUB_SHA", "local"),
+                                "run_id": os.getenv("GITHUB_RUN_ID", "local")},
+                               indent=2), encoding="utf-8")
             raise RuntimeError(f"Native smoke {status}: {detail}") from error
+        if screenshots_directory is not None:
+            (screenshots_directory / "luna-native-stdout.log").write_bytes(
+                native_stdout.read_bytes()[-65536:])
+            (screenshots_directory / "luna-native-stderr.log").write_bytes(
+                native_stderr.read_bytes()[-65536:])
+            (screenshots_directory / "luna-native-success.json").write_text(
+                json.dumps({"schema": 1, "status": "native-exit-zero",
+                            "elapsed_seconds": round(time.monotonic() - started, 2),
+                            "mode": "layout" if layout_only else "full",
+                            "source_sha": os.getenv("GITHUB_SHA", "local")},
+                           indent=2), encoding="utf-8")
         memo_capture = Path(str(report) + ".memo.png")
         if not layout_only and screenshots_directory is not None and memo_capture.is_file():
             screenshots_directory.mkdir(parents=True, exist_ok=True)
@@ -150,12 +214,11 @@ def run(package: Path, screenshots_directory: Path | None = None,
             if screenshots_directory is not None:
                 screenshots_directory.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(pages, screenshots_directory / "luna-page-grid.png")
+            # The paper-list hover popup was removed intentionally.
+            # Reject obsolete output rather than requiring it.
             hover = Path(str(report) + ".hover.png")
-            if not hover.is_file() or not hover.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
-                raise RuntimeError("Native thumbnail hover capture missing")
-            if screenshots_directory is not None:
-                screenshots_directory.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(hover, screenshots_directory / "luna-thumbnail-hover.png")
+            if hover.exists():
+                raise RuntimeError("Removed thumbnail hover popup generated a capture")
             desktop = Path(str(report) + ".desktop.png")
             if not desktop.is_file() or not desktop.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
                 raise RuntimeError("Actual Windows shell icon review capture missing")
@@ -177,7 +240,7 @@ def run(package: Path, screenshots_directory: Path | None = None,
         print("[NOTICE] Per-process Qt scaling; physical monitor / OS per-monitor DPI changes remain separate checks.")
         return
     print("[PASS] Native library search, favorites, recent history, panel visibility and PDF reopen")
-    print("[PASS] Native viewport crop/cancel, atomic PNG sidecar, asynchronous hover, 165ms fade and screen bounds")
+    print("[PASS] Native viewport crop/cancel, atomic PNG sidecar and no secondary thumbnail hover popup")
     print("[PASS] Continuous layout at 200% and exact 1366x768 / 1920x1080 Qt layout captures")
     print("[PASS] Native text selection, highlight drag, sticky note, Save As and annotation disk round trip")
     print("[PASS] Original synthetic PDF bytes preserved; note contents and highlight color survive reopen")

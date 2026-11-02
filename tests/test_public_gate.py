@@ -24,6 +24,30 @@ class PublicGate(unittest.TestCase):
         with (self.root / "assets/icons/LUNA-Moon.ico").open("ab") as stream:
             stream.write(b"unexpected")
         self.assertTrue(any("Unapproved icon" in e for e in check(self.root)))
+    def test_scoped_lunalibrary_size_limit(self):
+        source = self.root / "src/lunalibrary.cpp"
+        self.assertLessEqual(source.stat().st_size, 242_000)
+        with source.open("ab") as stream:
+            stream.write(b" " * 40_000)
+        self.assertTrue(any("Unexpected file size: src/lunalibrary.cpp" in e
+                            for e in check(self.root)))
+
+    def test_large_ui_source_keeps_lf_on_windows(self):
+        # Git for Windows defaults to CRLF on some runners. That adds one byte
+        # per source line and previously pushed lunalibrary.cpp past 240 KB.
+        attributes = (self.root / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn("src/lunalibrary.cpp text eol=lf", attributes)
+        source = (self.root / "src/lunalibrary.cpp").read_bytes()
+        self.assertNotIn(b"\r\n", source)
+        self.assertLessEqual(len(source), 242_000)
+
+    def test_default_size_limit_still_blocks_other_files(self):
+        source = self.root / "README.md"
+        with source.open("ab") as stream:
+            stream.write(b" " * 210_000)
+        self.assertTrue(any("Unexpected file size: README.md" in e
+                            for e in check(self.root)))
+
     def test_pdf_file_blocked(self):
         (self.root / "private.pdf").write_bytes(b"%PDF-1.7 synthetic test")
         self.assertTrue(any("Unexpected" in e for e in check(self.root)))
@@ -52,7 +76,13 @@ class PublicGate(unittest.TestCase):
         self.assertTrue(any("secrets" in e.lower() for e in check(self.root)))
     def test_pdf4qt_commit_hash_pinned(self):
         self.assertEqual(len(PIN), 40)
-        self.assertEqual(len(BLOBS), 2)
+        # The standalone overlay pins two entrypoint files. Native-session
+        # prepare.py independently verifies the pristine upstream Editor before
+        # applying the page-entry fix, preventing conflicting source patches.
+        self.assertEqual(set(BLOBS), {
+            "Pdf4QtEditor/main.cpp",
+            "Pdf4QtEditor/CMakeLists.txt",
+        })
         self.assertTrue(all(len(v) == 40 for v in BLOBS.values()))
 
 if __name__ == "__main__":

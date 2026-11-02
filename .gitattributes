@@ -1,2 +1,5 @@
 # Preserve the exact approved attachment bytes on Windows checkouts.
 design/LUNA_Library_UI_v0.9.1_OneLineMemo.html -text
+
+# Keep reviewed C++ source size stable on Windows (CRLF adds >4 KB).
+src/lunalibrary.cpp text eol=lf

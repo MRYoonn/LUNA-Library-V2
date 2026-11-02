@@ -72,6 +72,20 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
         }
         if (sidecar.exists()) moves.append({sidecar.absoluteFilePath(), QDir(targetRoot).filePath(name)});
     }
+    // MYBOX portable citation/memo sidecar follows a physical MOVE.
+    const QString metadataName=source.completeBaseName()+QStringLiteral(".luna-meta.json");
+    const QFileInfo metadata(QDir(originalRoot).filePath(metadataName));
+    const QFileInfo targetMetadata(QDir(targetRoot).filePath(metadataName));
+    if(targetMetadata.exists() || targetMetadata.isSymLink()) {
+        result.error=QStringLiteral("대상 폴더에 같은 이름의 메타데이터가 있어 이동하지 않았습니다.");
+        return result;
+    }
+    if(metadata.isSymLink() || (metadata.exists() && !metadata.isFile())) {
+        result.error=QStringLiteral("메타데이터 연결 파일은 이동하지 않습니다.");
+        return result;
+    }
+    if(metadata.isFile()) moves.append({metadata.canonicalFilePath(),
+                                      QDir(targetRoot).filePath(metadataName)});
     moves.append({source.canonicalFilePath(), QDir(targetRoot).filePath(source.fileName())});
     for (const auto& pair : moves) {
         const QFileInfo target(pair.second);
@@ -98,4 +112,72 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
     result.documentPath = moves.last().second;
     return result;
 }
+
+struct FileCopyResult {
+    bool success = false;
+    QString documentPath;
+    QString error;
+};
+
+// Copy the actual PDF and its user-cropped thumbnail sidecars. The destination
+// must be empty; on any copy failure remove only files created by this attempt.
+inline FileCopyResult copyPdfWithThumbnails(const QString& path, const QString& directory) {
+    FileCopyResult result;
+    const QFileInfo source(path), folder(directory);
+    if (!source.isFile() || source.isSymLink() ||
+        source.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0 ||
+        !folder.isDir() || folder.isSymLink()) {
+        result.error = QStringLiteral("일반 PDF 파일과 대상 폴더가 필요합니다.");
+        return result;
+    }
+    const QString targetRoot = folder.canonicalFilePath();
+    const QString originalRoot = source.canonicalPath();
+    if (targetRoot.isEmpty() || originalRoot.isEmpty() || targetRoot == originalRoot) {
+        result.error = QStringLiteral("같은 폴더로 복사할 수 없습니다.");
+        return result;
+    }
+    QList<QPair<QString, QString>> copies;
+    copies.append(qMakePair(source.canonicalFilePath(),
+                           QDir(targetRoot).filePath(source.fileName())));
+    for (const QString& ext : {QStringLiteral(".png"), QStringLiteral(".jpg"),
+                               QStringLiteral(".jpeg")}) {
+        const QString name = source.completeBaseName() + QStringLiteral(".luna-thumb") + ext;
+        const QFileInfo sidecar(QDir(originalRoot).filePath(name));
+        if (sidecar.isSymLink() || (sidecar.exists() && !sidecar.isFile())) {
+            result.error = QStringLiteral("썸네일이 일반 파일이 아닙니다.");
+            return result;
+        }
+        if (sidecar.isFile())
+            copies.append(qMakePair(sidecar.absoluteFilePath(),
+                                    QDir(targetRoot).filePath(name)));
+    }
+    // Copies get a NEW portable document UUID when LUNA publishes metadata.
+    // Never adopt a pre-existing destination sidecar from an unrelated paper.
+    const QFileInfo targetMetadata(QDir(targetRoot).filePath(
+        source.completeBaseName()+QStringLiteral(".luna-meta.json")));
+    if (targetMetadata.exists() || targetMetadata.isSymLink()) {
+        result.error=QStringLiteral("대상 폴더에 같은 이름의 서지정보 파일이 있습니다.");
+        return result;
+    }
+    for (const auto& pair : copies) {
+        const QFileInfo destination(pair.second);
+        if (destination.exists() || destination.isSymLink()) {
+            result.error = QStringLiteral("대상 폴더에 이미 같은 이름이 있습니다: ") + pair.second;
+            return result;
+        }
+    }
+    QStringList created;
+    for (const auto& pair : copies) {
+        if (!QFile::copy(pair.first, pair.second)) {
+            for (const QString& item : created) QFile::remove(item);
+            result.error = QStringLiteral("파일 복사 실패 (원본 보존): ") + pair.second;
+            return result;
+        }
+        created.append(pair.second);
+    }
+    result.success = true;
+    result.documentPath = copies.first().second;
+    return result;
+}
+
 } // namespace luna

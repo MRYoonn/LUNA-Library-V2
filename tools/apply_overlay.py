@@ -19,7 +19,7 @@ BLOBS = {
 }
 CMAKE_ADDITION = """
 # LUNA_LIBRARY_V2_TARGET_BEGIN
-add_executable(LUNA luna_main.cpp lunalibrary.cpp lunareadertoolbar.cpp lunaeditorsmoke.cpp lunatabs.cpp luna_icon.rc app.qrc luna_resources.qrc luna_folder_icons.qrc)
+add_executable(LUNA luna_main.cpp lunalibrary.cpp lunareadertoolbar.cpp lunaeditorsmoke.cpp lunatabs.cpp luna_icon.rc app.qrc luna_resources.qrc luna_folder_icons.qrc luna_symbol_icons.qrc)
 target_link_libraries(LUNA PRIVATE Pdf4QtLibCore Pdf4QtLibWidgets Pdf4QtLibGui
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::PrintSupport Qt6::Network Qt6::Svg)
 if(MSVC)
@@ -263,6 +263,8 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "lunalibrary.cpp": (own / "lunalibrary.cpp").read_bytes(),
         folder / "lunafirstpage.h": (own / "lunafirstpage.h").read_bytes(),
         folder / "lunabibliography.h": (own / "lunabibliography.h").read_bytes(),
+        folder / "lunametadataengine.h": (own / "lunametadataengine.h").read_bytes(),
+        folder / "lunametadatafetch.h": (own / "lunametadatafetch.h").read_bytes(),
         folder / "lunaupdater.h": (own / "lunaupdater.h").read_bytes(),
         folder / "lunareadertoolbar.cpp": (own / "lunareadertoolbar.cpp").read_bytes(),
         folder / "lunareadertoolbar.h": (own / "lunareadertoolbar.h").read_bytes(),
@@ -271,6 +273,8 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "lunaeditorsmoke.h": (own / "lunaeditorsmoke.h").read_bytes(),
         folder / "lunathumbnailcache.h": (own / "lunathumbnailcache.h").read_bytes(),
         folder / "lunafilemove.h": (own / "lunafilemove.h").read_bytes(),
+        folder / "lunatrashundo.h": (own / "lunatrashundo.h").read_bytes(),
+        folder / "lunalocalsync.h": (own / "lunalocalsync.h").read_bytes(),
         folder / "lunadocumentclaim.h": (own / "lunadocumentclaim.h").read_bytes(),
         folder / "lunasavedialog.h": (own / "lunasavedialog.h").read_bytes(),
         folder / "lunalibrary.h": (own / "lunalibrary.h").read_bytes(),
@@ -312,6 +316,33 @@ def apply(root: Path, dry_run=False) -> None:
     files[folder / "luna_folder_icons.qrc"] = (
         '<RCC><qresource prefix="/luna/folders">' + ''.join(qrc_entries) +
         '</qresource></RCC>\n').encode("utf-8")
+    # Original user-supplied colour symbols. Four transport-safe segments
+    # reconstruct ONE checked, deterministic 40-SVG dictionary.
+    symbol_root = own.parent / "assets/symbol_icons"
+    symbol_encoded = "".join(
+        (symbol_root / f"svg_bundle.part{i}.b85").read_text(encoding="ascii").strip()
+        for i in range(1, 5))
+    symbol_raw = zlib.decompress(base64.b85decode(symbol_encoded))
+    if hashlib.sha256(symbol_raw).hexdigest() != "025b271e0c08746f1edac3fffa6d07fcf68fd91438b1caefe69bc519ecfa9e73":
+        raise ValueError("Approved LUNA 40-symbol SVG bundle checksum mismatch")
+    symbols = json.loads(symbol_raw)
+    symbol_ids = ("star heart crown gem flame sparkles bookmark pin flag trophy "
+                  "book flask atom microscope graduation lightbulb puzzle target network brain "
+                  "check clock timer calendar hourglass refresh archive inbox send layers "
+                  "moon sun coffee palette leaf gift smile music camera rocket").split()
+    if set(symbols) != set(symbol_ids):
+        raise ValueError("Invalid LUNA symbol membership: expected exactly 40 approved SVGs")
+    symbol_qrc = []
+    for symbol_id in symbol_ids:
+        filename = f"symbol_{symbol_id}.svg"
+        content = symbols[symbol_id]
+        if not content.startswith("<?xml") or "<svg " not in content or "<script" in content.lower():
+            raise ValueError("Invalid approved LUNA symbol SVG: " + symbol_id)
+        files[folder / filename] = content.encode("utf-8")
+        symbol_qrc.append(f'<file alias="{symbol_id}.svg">{filename}</file>')
+    files[folder / "luna_symbol_icons.qrc"] = (
+        '<RCC><qresource prefix="/luna/symbols">' +
+        ''.join(symbol_qrc) + '</qresource></RCC>\n').encode("utf-8")
     if "LUNA_LIBRARY_V2_TARGET_BEGIN" in cmake.read_text(encoding="utf-8"):
         raise ValueError("LUNA target already applied; stopped")
     for path, data in files.items():

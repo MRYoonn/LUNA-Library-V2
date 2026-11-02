@@ -28,6 +28,92 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn("if: ${{ !inputs.native_tabs_proof && steps.engine-cache.outputs.cache-hit != 'true' }}", text)
         self.assertIn('Upload LUNA Windows portable artifact\n        if: ${{ !inputs.native_tabs_proof }}', text)
 
+    def test_luna_standalone_identity_and_accessible_upstream_license(self):
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        workflow = (ROOT / '.github/workflows/build-windows.yml').read_text(encoding='utf-8')
+        notice = (ROOT / 'LICENSE_NOTICE.md').read_text(encoding='utf-8')
+        guide = (ROOT / 'USER_GUIDE_KO.md').read_text(encoding='utf-8')
+        # The UI must have its own brand, yet preserve all legally required
+        # third-party attribution in the package and the accessible Help menu.
+        for value in (
+            'LunaAboutApp', 'LUNA Library 정보…',
+            'LunaOpenSourceLicenses', '오픈소스 라이선스…',
+            'help->removeAction(upstream)',
+            'actionGetSource', 'actionBecomeASponsor', 'actionAbout',
+            'LUNA_LICENSE_NOTICE.md', 'PDF4QT_LICENSE.txt',
+        ):
+            self.assertIn(value, tabs)
+        self.assertIn('독립 실행형 Windows PDF 라이브러리', tabs)
+        self.assertIn('QMessageBox dialog(QMessageBox::Information', tabs)
+        self.assertIn('dialog.setDetailedText(', tabs)
+        self.assertIn('Copy-Item \'pdf4qt/LICENSE\' "$output/PDF4QT_LICENSE.txt"', workflow)
+        self.assertIn('Copy-Item \'LICENSE_NOTICE.md\' "$output/LUNA_LICENSE_NOTICE.md"', workflow)
+        self.assertIn('Jakub Melka', notice)
+        self.assertIn('별도의 PDF 뷰어', guide)
+        self.assertNotIn('PDF4QT 페이지 미리보기 모델을 사용할 수 없습니다.', library)
+
+    def test_integrated_panels_use_two_real_buttons_not_removed_combined_toggle(self):
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        reader = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
+        # Build #205's native probe failed because the old single-button test
+        # persisted after the UI had gained two independently collapsible panes.
+        for source in (tabs, library, reader):
+            self.assertNotIn('QStringLiteral("LunaCombinedPanelToggle")', source)
+        for token in (
+            'phase("ten real independent library/paper panel toggle cycles")',
+            'QStringLiteral("LunaNavigationCollapseButton")',
+            'QStringLiteral("LunaDocumentsCollapseButton")',
+            'QStringLiteral("LunaNavigationRestoreButton")',
+            'QStringLiteral("LunaDocumentsRestoreButton")',
+            'QStringLiteral("LunaLibraryHeader")',
+            'QStringLiteral("LunaPaperHeader")',
+            'QStringLiteral("LunaPanelRestoreRail")',
+            'integrationPanelClick(host, navigationToggle)',
+            'integrationPanelClick(host, documentsToggle)',
+            'integrationPanelClick(host, navRestore)',
+            'integrationPanelClick(host, docsRestore)',
+            'result["tenIndependentPanelToggleCycles"] = true;',
+        ):
+            self.assertIn(token, tabs, token)
+        self.assertIn('for (int turn = 0; turn < 10; ++turn)', tabs)
+        self.assertEqual(tabs.count('integrationPanelClick(host, navigationToggle)'), 1)
+        self.assertEqual(tabs.count('integrationPanelClick(host, documentsToggle)'), 1)
+        self.assertIn('panelButton(libraryHeading, folders,', library)
+        self.assertIn('paperHeading->addWidget(panelButton(', library)
+        self.assertIn('!host.findChild<QWidget*>(QStringLiteral("LunaTabCorner"))', tabs)
+        self.assertIn('PDF tab top rule or paper/PDF header vertical alignment regressed', tabs)
+        self.assertIn('Header navigation collapse did not release narrow paper-only width', tabs)
+        self.assertIn('libraryDock->width() <= 300', tabs)
+
+    def test_build_206_native_memo_re_resolves_replaced_cards_and_checks_disk(self):
+        # Build #206: QSettings and the screenshot contained the entered memo,
+        # but a previously captured QListWidgetItem* failed the assertion.
+        # Require a fresh, displayed card plus durable local persistence.
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        self.assertIn('auto liveMemo = [&](const QString& expected)', tabs)
+        start = tabs.index('auto liveMemo = [&](const QString& expected)')
+        end = tabs.index('auto openContextMemo = [&]', start)
+        section = tabs[start:end]
+        for contract in (
+            'integrationList(host, files[0], &currentCard)',
+            'paper = currentCard;',
+            'QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256)',
+            'saved.value(QStringLiteral("library/memos/") + key)',
+            'currentCard->data(Qt::UserRole + 4).toString() == expected',
+            'currentCard->toolTip().contains(expected)',
+            'result["memoCommitDiagnostics"]',
+            '"modelMatches", modelMatches',
+            '"localSettingsMatch", diskMatches',
+        ):
+            self.assertIn(contract, section, contract)
+        self.assertIn('integrationWait([&] { return liveMemo(QStringLiteral("초기 메모")); })', tabs)
+        self.assertIn('integrationWait([&] { return liveMemo(memo); })', tabs)
+        self.assertNotIn('return paper->data(Qt::UserRole + 4).toString() == QStringLiteral("초기 메모");', tabs)
+        self.assertIn('const QPoint currentMemoLocation(liveCard.left() + 160,', tabs)
+        self.assertIn('integrationClick(host, list->viewport(), currentMemoLocation, true)', tabs)
+
     def test_selection_first_highlight_and_freetext_contract(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
@@ -100,7 +186,16 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('setHighlightArmed(false);\n        selectText(); // Remain in ordinary native text selection after the click.', adapter)
         self.assertIn('selectionEnd_ = end;', adapter)
         self.assertNotIn('if (ready && highlightArmed_) applyHighlight();', adapter)
-        self.assertIn('setAnnotationOpacity(ref, 0.36)', adapter)
+        self.assertIn('constexpr pdf::PDFReal kHighlightOpacity = 0.36;', adapter)
+        self.assertIn('setAnnotationOpacity(ref, kHighlightOpacity)', adapter)
+        self.assertIn('setAnnotationFillOpacity(ref, kHighlightOpacity)', adapter)
+        self.assertLess(adapter.index('setAnnotationOpacity(ref, kHighlightOpacity)'),
+                        adapter.index('setAnnotationFillOpacity(ref, kHighlightOpacity)'))
+        self.assertLess(adapter.index('setAnnotationFillOpacity(ref, kHighlightOpacity)'),
+                        adapter.index('updateAnnotationAppearanceStreams(ref)'))
+        self.assertIn('getFillOpacity()', smoke)
+        self.assertIn('getStrokeOpacity()', smoke)
+        self.assertIn('Native highlight fill opacity must match its saved appearance', smoke)
         self.assertIn('setAnnotationQuadPoints(edit.ref, edit.remainder)', adapter)
         self.assertIn('const bool sameColor', adapter)
         self.assertIn('const auto& quads = old->getHiglightArea().getQuadrilaterals()', adapter)
@@ -159,6 +254,70 @@ class NativeTabsContract(unittest.TestCase):
         # The PDF4QT native tools stay intact for backwards-compatible Insert menus.
         self.assertIn('checked("actionCreateTextHighlight")', adapter)
         self.assertIn('checked("actionStickyNoteComment")', adapter)
+
+    def test_pinned_editor_page_commit_survives_focus_out(self):
+        overlay = (ROOT / 'tools/apply_overlay.py').read_text(encoding='utf-8')
+        native = (ROOT / 'experiments/native_tabs/prepare.py').read_text(encoding='utf-8')
+        workflow = (ROOT / '.github/workflows/build-windows.yml').read_text(encoding='utf-8')
+        # Run #225: a second pristine-upstream check rejected earlier edits.
+        # Only native-session prepare.py may patch the Editor, AFTER its
+        # replace() function validates the pinned unmodified original.
+        self.assertNotIn('native_editor.write_bytes(', overlay)
+        self.assertNotIn('"Pdf4QtLibGui/pdfeditormainwindow.cpp":', overlay)
+        self.assertIn("native_editor = 'Pdf4QtLibGui/pdfeditormainwindow.cpp'", native)
+        self.assertIn("replace(native_editor, '#include <QSpinBox>'", native)
+        self.assertIn("const int requestedPage = m_pageNumberSpinBox->value() - 1;", native)
+        self.assertIn("const QSignalBlocker noFocusOutReentry(m_pageNumberSpinBox);", native)
+        self.assertIn("m_programController->getPdfWidget()->getDrawWidgetProxy()->goToPage(requestedPage);", native)
+        self.assertLess(native.index("replace('Pdf4QtLibGui/pdfeditormainwindow.cpp',"),
+                        native.index("replace(native_editor, '#include <QSpinBox>'"))
+        self.assertIn("python tools/apply_overlay.py pdf4qt", workflow)
+        self.assertIn("python -B experiments/native_tabs/prepare.py pdf4qt", workflow)
+        self.assertLess(workflow.index("python tools/apply_overlay.py pdf4qt"),
+                        workflow.index("python -B experiments/native_tabs/prepare.py pdf4qt"))
+
+    def test_move_uses_fresh_pdf_a_card_after_memo_and_search(self):
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        # Windows #229 proved a *different* paper was moved after the memo
+        # edit: sourceOpenAtMove=false, original A still present, Moved/A absent.
+        # A card's QRect saved before memo/search is never a valid move target.
+        old = 'integrationClick(host, list->viewport(), card.center(), true)'
+        self.assertNotIn(old, tabs)
+        for token in (
+            'moveList = integrationList(host, files[0], &movePaper)',
+            'moveList->scrollToItem(movePaper, QAbstractItemView::PositionAtCenter)',
+            'const QPoint movePoint = moveList->visualItemRect(movePaper).center()',
+            'moveList->itemAt(movePoint) == movePaper',
+            'DocumentClaim::identity(movePaper->data(Qt::UserRole).toString())',
+            'result["moveClickedExpectedCard"] = movingExpectedCard',
+            'integrationRequire(movingExpectedCard, "Move target changed after memo/list refresh")',
+            'integrationClick(host, moveList->viewport(), movePoint, true)',
+            'integrationRequire(moveReopened, "PDF move did not reopen the same A tab")',
+        ):
+            self.assertIn(token, tabs, token)
+        self.assertLess(tabs.index('moveList = integrationList(host, files[0], &movePaper)'),
+                        tabs.index('integrationClick(host, moveList->viewport(), movePoint, true)'))
+
+    def test_page_entry_smoke_uses_real_qt_input_and_verifies_navigation(self):
+        smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
+        # Windows #226 reached scroll 586/586 and displayed pages 1+2.
+        # Continuous mode may show a sliver of page 1 above page 2.
+        # Assert page 2 is actually visible and the viewport moved, not that
+        # page 2 is the FIRST intersecting page.
+        for token in (
+            'pageNumber->setFocus(Qt::OtherFocusReason)',
+            'pageEditor->setText(QStringLiteral("2"))',
+            'key(pageNumber, Qt::Key_Return, Qt::NoModifier)',
+            '&QSpinBox::editingFinished',
+            'pageEntryCommits > 0',
+            'std::find(pages.begin(), pages.end(), pdf::PDFInteger(1)) != pages.end()',
+            'vertical->value() > beforePageEntryScroll',
+            'Native page entry did not go to page two: commits=%1',
+        ):
+            self.assertIn(token, smoke, token)
+        self.assertNotIn('pages.front() == 1', smoke)
+        self.assertIn('#include <algorithm>', smoke)
+        self.assertNotIn('pageNumber->setValue(2); QMetaObject::invokeMethod(pageNumber,"editingFinished"', smoke)
 
     def test_saved_annotation_reopen_checks_real_pdf_and_not_ui_action_state(self):
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
@@ -250,8 +409,13 @@ class NativeTabsContract(unittest.TestCase):
 
     def test_selection_overlay_keeps_native_text_and_bridges_visual_word_gaps(self):
         source = (ROOT / 'tools/apply_performance.py').read_text(encoding='utf-8')
-        # Pinned PDF4QT painter only: do not change PDF text extraction.
-        self.assertIn('a50aeb3ca241f41bd54c4d9d49bd5682f1bed2b8', source)
+        # The exact pinned Git blob is verified through the shared guard,
+        # including the separately verified inline-script patch.
+        self.assertIn('verify_pinned_text_layout(normalized)', source)
+        self.assertIn('PINNED_BLOB_SHA1', source)
+        self.assertIn('git_blob_sha(upstream.encode(\'utf-8\')) != PINNED_BLOB_SHA1', source)
+        from tools.patch_script_text_layout import PINNED_BLOB_SHA1
+        self.assertEqual(PINNED_BLOB_SHA1, 'a50aeb3ca241f41bd54c4d9d49bd5682f1bed2b8')
         self.assertIn('LunaSelectionBand', source)
         self.assertIn('const qreal gap = qMax(0.0', source)
         self.assertIn('gap <= qMin(48.0, 2.1 * h)', source)
@@ -264,13 +428,28 @@ class NativeTabsContract(unittest.TestCase):
         self.assertNotIn('getTextFromSelection(', source)
         ast.parse(source)
 
+    def test_native_print_probe_cancels_only_owned_dialogs_not_titles(self):
+        smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
+        runner = (ROOT / 'tools/smoke_windows.py').read_text(encoding='utf-8')
+        self.assertIn('GetWindowThreadProcessId(candidate, &process)', smoke)
+        self.assertIn('thread != state.guiThread', smoke)
+        self.assertIn('GetWindow(candidate, GW_OWNER)', smoke)
+        self.assertIn('lstrcmpW(windowClass, L"#32770") != 0', smoke)
+        self.assertIn('MAKEWPARAM(IDCANCEL, BN_CLICKED)', smoke)
+        self.assertIn('PostMessageW(candidate, WM_CLOSE, 0, 0)', smoke)
+        self.assertIn('if (!owned && IsWindowEnabled(state.owner)) return TRUE;', smoke)
+        self.assertNotIn('lstrcmpW(title, L"Print")', smoke)
+        self.assertNotIn('MAKEWPARAM(IDOK,', smoke)
+        self.assertIn('.print-probe.txt', smoke)
+        self.assertIn('luna-print-probe.txt', runner)
+
     def test_card_author_and_memo_context_only_without_tags(self):
         source = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
         for token in (
             'LunaEditPaperMemo', 'list->editItem(item);',
             'list->setEditTriggers(QAbstractItemView::NoEditTriggers)',
-            'return QRect(content.left(), r.top() + 241, content.width(), 24);',
-            'const QRect citeArea = citationRect(r);',
+            'return QRect(content.left(), titleRect(r).bottom() + 7, content.width(), 24);',
+            'const QRect citeArea = oneLineTitle ? citationRect(r).translated(0, -19) : citationRect(r);',
             'painter->drawText(citeArea, Qt::AlignLeft | Qt::AlignVCenter,',
             'lastListedAuthor(', '저자 미확인',
         ):
@@ -297,17 +476,17 @@ class NativeTabsContract(unittest.TestCase):
             'static QRect titleRect(const QRect& r)',
             'static QRect citationRect(const QRect& r)',
             'static QRect memoRect(const QRect& r)',
-            'return QRect(content.left(), r.top() + 14, content.width(), 164);',
-            'return QRect(content.left(), r.top() + 190, content.width(), 45);',
-            'return QRect(content.left(), r.top() + 241, content.width(), 24);',
-            'return QRect(content.left(), r.top() + 280, content.width(), 26);',
+            'return QRect(content.left(), r.top() + 14, content.width(), height);',
+            'return QRect(content.left(), thumbnailRect(r).bottom() + 13, content.width(), 45);',
+            'return QRect(content.left(), titleRect(r).bottom() + 7, content.width(), 24);',
+            'return QRect(content.left(), citationRect(r).bottom() + 16, content.width(), 26);',
             'titleFont.setWeight(QFont::Bold);',
             'for (int row = 0; row < 2; ++row)',
             'title.mid(line.textStart()).trimmed()',
             'titleMetrics.elidedText(visibleText, Qt::ElideRight, heading.width())',
             'luna::Bibliography::lastListedAuthor(',
             'QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, citeArea.width())',
-            'painter->drawLine(content.left(), r.top() + 272, content.right(), r.top() + 272)',
+            'painter->drawLine(content.left(), memoRect(r).top() - 8, content.right(), memoRect(r).top() - 8)',
             'readerIcon(QStringLiteral("memo-inline"))',
             'const QRect favorite = favoriteRect(r);',
             'const QSize fitted = image.size().scaled(frame.size(), Qt::KeepAspectRatio)',
@@ -323,8 +502,8 @@ class NativeTabsContract(unittest.TestCase):
             self.assertNotIn(forbidden, source)
         self.assertIn('card.height() == 322 && list->viewMode() == QListView::ListMode', tabs)
         self.assertIn('card.top() + 293', tabs)
-        self.assertIn('headingFont.setPixelSize(20)', source)
-        self.assertIn('QLabel#LunaLibraryTitle { color:@NAVY@; font-family:"Malgun Gothic"; font-size:20px;', stylesheet)
+        self.assertIn('headingFont.setPixelSize(18)', source)
+        self.assertIn('QLabel#LunaLibraryTitle { color:@NAVY@; font-family:"Malgun Gothic"; font-size:18px;', stylesheet)
         self.assertIn('brandFont.setPixelSize(20)', source)
         self.assertIn('list->setEditTriggers(QAbstractItemView::NoEditTriggers)', source)
         self.assertIn('list->editItem(item);', source)
@@ -384,7 +563,9 @@ class NativeTabsContract(unittest.TestCase):
             'Folder icon reset altered PDF or thumbnail files',
         ):
             self.assertIn(token, library)
-        self.assertIn('luna_folder_icons.qrc)', overlay)
+        self.assertIn('luna_folder_icons.qrc luna_symbol_icons.qrc)', overlay)
+        self.assertIn("'<RCC><qresource prefix=\"/luna/folders\">'", overlay)
+        self.assertIn("'<RCC><qresource prefix=\"/luna/symbols\">'", overlay)
         self.assertIn('b85decode(encoded)', overlay)
         self.assertIn('MYBOX', guide)
         self.assertIn('LUNA.folder.json', guide)
@@ -400,7 +581,17 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('Accidental left click opened memo editor', tabs)
         self.assertIn('openContextMemo()', tabs)
         self.assertIn('LunaEditPaperMemo', tabs)
-        self.assertIn('integrationClick(host, list->viewport(), memoLocation, true)', tabs)
+        # The live paper list can rebuild while sidecars sync. Resolve its
+        # current card/viewport before the real Win32 right-click instead of
+        # requiring the removed stale card-coordinate expression.
+        self.assertIn('integrationList(host, files[0], &currentCard)', tabs)
+        self.assertIn('const QRect liveCard = list->visualItemRect(paper);', tabs)
+        self.assertIn('list->viewport()->rect().contains(currentMemoLocation)', tabs)
+        self.assertIn('integrationClick(host, list->viewport(), currentMemoLocation, true)', tabs)
+        self.assertIn('integrationType(QStringLiteral("초기 메모")) && integrationKey(VK_RETURN)', tabs)
+        self.assertIn('return liveMemo(QStringLiteral("초기 메모"));', tabs)
+        self.assertIn('liveMemo(memo)', tabs)
+        self.assertIn('localSettingsMatch', tabs)
         self.assertNotIn('Inline memo editor did not focus', tabs)
         self.assertNotIn('Memo edit mouse input failed', tabs)
         self.assertIn('menu.addAction(QStringLiteral("메모 편집…"))', library)
@@ -419,6 +610,24 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('if (complete) selectActiveCard();', scan)
         self.assertEqual(scan.count('selectActiveCard();'), 1)
         self.assertIn('list->count() == 1000 && !library->folderTimer_->isActive(); }, 15000', library)
+        # #232: selected parent and count badges exclude nested PDFs;
+        # All Documents still enumerates nested 1000-PDF fixtures.
+        self.assertIn('library->model_->pdfCount(countRoot) == baselineCount &&', library)
+        self.assertIn('library->model_->pdfCount(subfolder.path()) == 1', library)
+        self.assertIn('Child PDF changed parent direct count or missed child count', library)
+        self.assertIn('checkpoint("scan-parent-direct")', library)
+        self.assertIn('Parent folder included child PDFs', library)
+        self.assertIn('library->scanAll();', library)
+        self.assertIn('library->allPdfs_->count() == 1001 &&', library)
+        self.assertIn('All Documents missed nested 1000 PDFs', library)
+        self.assertIn('Parent folder omitted its own local PDF', library)
+        self.assertIn('Library did not recover after nested 1000-PDF directory removal', library)
+        self.assertNotIn('Parent folder did not include the 1000 child PDFs', library)
+        self.assertNotIn('Child PDF did not increment its own folder and every ancestor', library)
+        self.assertLess(
+            library.index('return fail("Parent folder included child PDFs")'),
+            library.index('return fail("Library did not recover after nested 1000-PDF directory removal")')
+        )
         self.assertIn('longestGuiGapMs=%4 beats=%5', library)
         self.assertIn('if (longestGap > 1000)', library)
         self.assertIn('searchMs > 1000', library)
@@ -490,10 +699,31 @@ class NativeTabsContract(unittest.TestCase):
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
         style = (ROOT / 'src/lunalibrary.qss').read_text(encoding='utf-8')
         overlay = (ROOT / 'experiments/native_tabs/prepare.py').read_text(encoding='utf-8')
-        self.assertIn('setCornerWidget(corner, Qt::TopLeftCorner)', tabs)
+        self.assertNotIn('setCornerWidget(corner, Qt::TopLeftCorner)', tabs)
+        self.assertIn('tabs_->setCornerWidget(addCorner, Qt::TopRightCorner)', tabs)
+        self.assertIn('controls->hide();', library)
+        self.assertIn('restoreRail->move(8, window.menuBar()->height() + 95)', library)
         self.assertIn('setExpanding(false)', tabs)
-        self.assertIn('Qt::ElideMiddle, 156', tabs)
-        self.assertIn('row->insertWidget(0, toggle)', library)
+        self.assertIn('minimumTabSizeHint(int) const override { return {88, 41}; }', tabs)
+        self.assertIn('tabs_->setTabText(index, text)', tabs)
+        self.assertIn('tabs_->setElideMode(Qt::ElideMiddle)', tabs)
+        self.assertIn('tabs_->tabBar()->setAcceptDrops(true)', tabs)
+        # Header buttons collapse panes; the hidden pane has a reader-edge restore button.
+        self.assertIn('LunaNavigationCollapseButton', library)
+        self.assertIn('LunaDocumentsCollapseButton', library)
+        self.assertIn('LunaNavigationRestoreButton', library)
+        self.assertIn('LunaDocumentsRestoreButton', library)
+        self.assertIn('button->setDefaultAction(action)', library)
+        self.assertIn('navigationToggle->click()', library)
+        self.assertIn('documentsToggle->click()', library)
+        # The native smoke must enforce collapsed-panel independence plus
+        # recoverability from the reader edge, not match removed message text.
+        self.assertIn('Collapsing library navigation hid papers or lost restore rail', library)
+        self.assertIn('Both collapsed panels lost edge restore controls', library)
+        self.assertIn('Edge navigation restore unexpectedly expanded papers', library)
+        self.assertIn('Both panels did not restore independently', library)
+        self.assertIn('restoreNav->click()', library)
+        self.assertIn('restoreDocs->click()', library)
         self.assertIn('QTabBar#LunaPdfTabBar::tab', style)
         self.assertIn('painter->fillPath(selectionPath', overlay)
         self.assertIn('PDFTextSelectionPainter selectionPainter(&m_textSelection)', overlay)

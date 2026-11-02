@@ -48,6 +48,7 @@
 #include <QScreen>
 #include <QIcon>
 #include <functional>
+#include <algorithm>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
 #include <atomic>
@@ -60,24 +61,50 @@ namespace {
 #ifdef Q_OS_WIN
 struct PrintCancellation {
     DWORD process;
+    DWORD guiThread;
+    HWND owner;
     std::atomic_bool seen{false};
+    std::atomic_int ownedDialogs{0};
+    std::atomic_int cancelRequests{0};
 };
 
-BOOL CALLBACK cancelNativePrintWindow(HWND window, LPARAM parameter) {
+BOOL CALLBACK cancelNativePrintWindow(HWND candidate, LPARAM parameter) {
     auto& state = *reinterpret_cast<PrintCancellation*>(parameter);
     DWORD process = 0;
-    GetWindowThreadProcessId(window, &process);
-    if (process != state.process || !IsWindowVisible(window)) return TRUE;
-    wchar_t windowClass[32] = {}, title[128] = {};
-    GetClassNameW(window, windowClass, 32); GetWindowTextW(window, title, 128);
-    // The hosted Windows image is English. Never send Print/OK or touch
-    // another process; only cancel our own standard Windows Print dialog.
-    if (lstrcmpW(windowClass, L"#32770") || lstrcmpW(title, L"Print")) return TRUE;
-    HWND cancel = GetDlgItem(window, IDCANCEL);
-    if (cancel && IsWindowEnabled(cancel) && PostMessageW(window, WM_COMMAND,
-        MAKEWPARAM(IDCANCEL, BN_CLICKED), reinterpret_cast<LPARAM>(cancel))) {
+    const DWORD thread = GetWindowThreadProcessId(candidate, &process);
+    if (process != state.process || thread != state.guiThread ||
+        candidate == state.owner || !IsWindowVisible(candidate)) return TRUE;
+    wchar_t windowClass[32] = {};
+    GetClassNameW(candidate, windowClass, 32);
+    // The Windows PrintDlgEx title is not guaranteed to equal "Print":
+    // printer drivers and system languages can change it. Match the native
+    // dialog class AND the disabled LUNA owner instead, never a title.
+    if (lstrcmpW(windowClass, L"#32770") != 0) return TRUE;
+    bool owned = false;
+    for (HWND parent = GetWindow(candidate, GW_OWNER); parent;
+         parent = GetWindow(parent, GW_OWNER)) {
+        if (parent == state.owner || GetAncestor(parent, GA_ROOT) == state.owner) {
+            owned = true;
+            break;
+        }
+    }
+    // Qt's native print host may omit the direct owner chain. A disabled
+    // main window and matching GUI thread identify its modal child safely.
+    if (!owned && IsWindowEnabled(state.owner)) return TRUE;
+    ++state.ownedDialogs;
+    const HWND cancel = GetDlgItem(candidate, IDCANCEL);
+    if (cancel && IsWindowEnabled(cancel)) {
+        if (PostMessageW(candidate, WM_COMMAND,
+                         MAKEWPARAM(IDCANCEL, BN_CLICKED),
+                         reinterpret_cast<LPARAM>(cancel))) {
+            ++state.cancelRequests;
+            state.seen = true;
+        }
+    } else if (PostMessageW(candidate, WM_CLOSE, 0, 0)) {
+        // WM_CLOSE is cancellation for dialog windows with no IDCANCEL
+        // control; NEVER send IDOK/Print or any physical print command.
+        ++state.cancelRequests;
         state.seen = true;
-        return FALSE;
     }
     return TRUE;
 }
@@ -322,8 +349,62 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     }
     click(action("actionGoToPreviousPage"));
     if (!waitFor([&] { return pageNumber->value() == 1; })) return fail("Previous page toolbar action failed");
-    pageNumber->setValue(2); QMetaObject::invokeMethod(pageNumber,"editingFinished",Qt::DirectConnection);
-    if (!waitFor([&] { const auto pages = pdfWidget->getDrawWidget()->getCurrentPages(); return !pages.empty() && pages.front() == 1; })) return fail("Native page entry did not go to page two");
+    // Exercise the actual QSpinBox edit/Return path (PDF4QT connects editingFinished
+    // to goToPage). Setting a value and invoking the signal directly is not a
+    // faithful user input and can race with page-change UI synchronization.
+    pageNumber->setFocus(Qt::OtherFocusReason);
+    QCoreApplication::processEvents();
+    pageNumber->selectAll();
+    auto* pageEditor = pageNumber->findChild<QLineEdit*>();
+    if (!pageEditor || !pageNumber->isEnabled())
+        return fail("Native page entry editor missing or disabled");
+    pageEditor->setText(QStringLiteral("2"));
+    const int beforePageEntryScroll = vertical->value();
+    int pageEntryCommits = 0;
+    const auto pageEntryConnection = QObject::connect(pageNumber, &QSpinBox::editingFinished,
+        &window, [&] { ++pageEntryCommits; });
+    key(pageNumber, Qt::Key_Return, Qt::NoModifier);
+    QObject::disconnect(pageEntryConnection);
+    // In continuous layout PDF4QT returns *all* intersecting pages in order.
+    // A page-2 jump can legitimately leave a sliver of page 1 visible; its
+    // first visible page (and spin-box display) can therefore still be 1.
+    // Require actual viewport movement AND page 2 in the viewport instead.
+    if (!waitFor([&] {
+        const auto pages = pdfWidget->getDrawWidget()->getCurrentPages();
+        return pageEntryCommits > 0 &&
+               std::find(pages.begin(), pages.end(), pdf::PDFInteger(1)) != pages.end() &&
+               vertical->value() > beforePageEntryScroll;
+    })) {
+        const auto pages = pdfWidget->getDrawWidget()->getCurrentPages();
+        QStringList displayed;
+        for (const auto page : pages) displayed.append(QString::number(page + 1));
+        error = QStringLiteral("Native page entry did not go to page two: commits=%1 spin=%2 visible=%3 scroll=%4 -> %5 max=%6 enabled=%7")
+            .arg(pageEntryCommits).arg(pageNumber->value()).arg(displayed.join(QLatin1Char(',')))
+            .arg(beforePageEntryScroll).arg(vertical->value()).arg(vertical->maximum())
+            .arg(pageNumber->isEnabled());
+        return false;
+    }
+    checkpoint("Reader phase: inline superscript/subscript native selection and copy order");
+    // Page 2 contains independently typeset raised (sp3) and lowered (CF3)
+    // PDF glyph runs. Ctrl+C must not move '3' to another paragraph.
+    {
+        const pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(1);
+        const auto flows = pdf::PDFTextFlow::createTextFlows(layout, pdf::PDFTextFlow::RemoveSoftHyphen, 1);
+        const QString copied = flows.empty() ? QString() : flows.front().getText();
+        bool raisedGrouped = false, loweredGrouped = false;
+        for (const auto& block : layout.getTextBlocks()) {
+            for (const auto& line : block.getLines()) {
+                QString glyphs;
+                for (const auto& glyph : line.getCharacters()) glyphs.append(glyph.character);
+                if (glyphs.contains(QStringLiteral("C(sp3)-H"))) raisedGrouped = true;
+                if (glyphs.contains(QStringLiteral("CF3-H"))) loweredGrouped = true;
+            }
+        }
+        if (!raisedGrouped || !loweredGrouped ||
+            !copied.contains(QStringLiteral("C(sp3)-H")) ||
+            !copied.contains(QStringLiteral("CF3-H")))
+            return fail("Native inline superscript/subscript lost same-word selection or Ctrl+C reading order");
+    }
     pageNumber->setValue(1); QMetaObject::invokeMethod(pageNumber,"editingFinished",Qt::DirectConnection);
     if (!waitFor([&] { const auto pages = pdfWidget->getDrawWidget()->getCurrentPages(); return !pages.empty() && pages.front() == 0; })) return fail("Native page entry did not return to page one");
     const double zoom = proxy->getZoom();
@@ -464,6 +545,7 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     if (!waitFor([&] { return annotations(pdf::AnnotationType::Highlight) == 1 && select->isChecked(); }))
         return fail("Selection-then-color did not write native highlight and return to SelectText");
     bool greenWritten = false;
+    bool matchingOpacity = false;
     for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
         if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
         const auto components = item.annotation->getColor();
@@ -471,8 +553,14 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
             std::abs(components[0] - 163.0 / 255.0) < 0.02 &&
             std::abs(components[1] - 230.0 / 255.0) < 0.02 &&
             std::abs(components[2] - 164.0 / 255.0) < 0.02;
+        // The PDF appearance stream paints filled highlight paths. Prior
+        // versions wrote /CA=0.36 but omitted /ca, so the unsaved highlight
+        // looked fully saturated while the reopened annotation looked pale.
+        matchingOpacity = std::abs(item.annotation->getStrokeOpacity() - 0.36) < 0.001 &&
+            std::abs(item.annotation->getFillOpacity() - 0.36) < 0.001;
     }
     if (!greenWritten) return fail("Drag highlight color not written to native PDF annotation");
+    if (!matchingOpacity) return fail("Native highlight fill opacity must match its saved appearance");
     QRectF initialGreenBounds;
     for (const auto& item : pdfWidget->getAnnotationManager()->getPageAnnotations(0).annotations) {
         if (item.annotation->getType() != pdf::AnnotationType::Highlight) continue;
@@ -1170,13 +1258,26 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         // QPrintDialog::exec uses PrintDlgEx directly on Windows, bypassing
         // QDialog::exec and QApplication::activeModalWidget(). Its native
         // modal loop also need not dispatch a Qt timer. Cancel from Win32.
-        PrintCancellation cancellation{GetCurrentProcessId()};
+        const HWND printOwner = reinterpret_cast<HWND>(window.winId());
+        PrintCancellation cancellation{GetCurrentProcessId(),
+                                      GetWindowThreadProcessId(printOwner, nullptr),
+                                      printOwner};
         std::atomic_bool finished{false};
         std::thread cancelPrint([&] {
-            for (int i = 0; i < 200 && !finished; ++i) {
+            // Keep cancelling while the native modal loop is active; a
+            // single posted IDCANCEL may be consumed before initialization.
+            for (int i = 0; i < 300 && !finished; ++i) {
                 EnumWindows(cancelNativePrintWindow, reinterpret_cast<LPARAM>(&cancellation));
-                if (cancellation.seen) break;
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            // Persist a small native diagnostic for a timed-out smoke run.
+            // The synthetic CI artifact contains no private PDF content.
+            QFile diagnostic(reportPath + QStringLiteral(".print-probe.txt"));
+            if (diagnostic.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                diagnostic.write(QStringLiteral("ownedDialogs=%1 cancelRequests=%2 seen=%3 finished=%4\n")
+                    .arg(cancellation.ownedDialogs.load())
+                    .arg(cancellation.cancelRequests.load())
+                    .arg(cancellation.seen.load()).arg(finished.load()).toUtf8());
             }
         });
         key(widget,Qt::Key_P,Qt::ControlModifier);

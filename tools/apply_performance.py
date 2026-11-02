@@ -3,6 +3,52 @@ import sys
 from pathlib import Path
 
 
+def verify_pinned_text_layout(normalized: bytes) -> str:
+    """Accept exact pinned PDF4QT OR its independently SHA-verified script patch.
+
+    The script correction is applied earlier in the Windows workflow. Reversing
+    exactly its three known edits must reproduce the pinned upstream blob.
+    Unrecognized source changes always fail closed.
+    """
+    import hashlib
+    # Both supported invocations must resolve the same pinned patch module:
+    #   python tools/apply_performance.py ...  (script: sys.path[0] == tools/)
+    #   from tools.apply_performance import ...  (package: repo on sys.path)
+    if __package__:
+        from .patch_script_text_layout import (
+            PINNED_BLOB_SHA1, INTRO, HELPER, BEFORE_LINE, AFTER_LINE,
+            BEFORE_SPACE, AFTER_SPACE, MARKER,
+        )
+    else:
+        from patch_script_text_layout import (
+            PINNED_BLOB_SHA1, INTRO, HELPER, BEFORE_LINE, AFTER_LINE,
+            BEFORE_SPACE, AFTER_SPACE, MARKER,
+        )
+
+    def git_blob_sha(payload: bytes) -> str:
+        return hashlib.sha1(
+            b'blob ' + str(len(payload)).encode('ascii') + b'\0' + payload
+        ).hexdigest()
+
+    if b'\r' in normalized:
+        raise ValueError('Unnormalized PDFTextLayout line endings')
+    if git_blob_sha(normalized) == PINNED_BLOB_SHA1:
+        return normalized.decode('utf-8')
+
+    source = normalized.decode('utf-8')
+    if source.count(MARKER) != 1:
+        raise ValueError('Unrecognized pinned PDFTextLayout source; refuse selection display patch')
+    for exact in (HELPER, AFTER_LINE, AFTER_SPACE):
+        if source.count(exact) != 1:
+            raise ValueError('Unexpected script-patched PDFTextLayout modifications')
+    upstream = source.replace(HELPER, '', 1).replace(AFTER_LINE, BEFORE_LINE, 1).replace(
+        AFTER_SPACE, BEFORE_SPACE, 1
+    )
+    if upstream.count(INTRO) != 1 or git_blob_sha(upstream.encode('utf-8')) != PINNED_BLOB_SHA1:
+        raise ValueError('Script-patched PDFTextLayout does not reverse to pinned upstream')
+    return source
+
+
 def apply(root):
     header = (Path(__file__).resolve().parents[1] / 'src/lunaperformance.h').read_bytes()
     def patch(relative, replacements):
@@ -72,10 +118,7 @@ void PDFDrawWidget::resizeEvent'''),
     selection_path = root / 'Pdf4QtLibCore/sources/pdftextlayout.cpp'
     raw = selection_path.read_bytes()
     normalized = raw.replace(b'\r\n', b'\n')
-    blob = hashlib.sha1(b'blob ' + str(len(normalized)).encode() + b'\0' + normalized).hexdigest()
-    if blob != 'a50aeb3ca241f41bd54c4d9d49bd5682f1bed2b8':
-        raise ValueError('Unrecognized pinned PDFTextLayout source; refuse selection display patch')
-    source = normalized.decode('utf-8')
+    source = verify_pinned_text_layout(normalized)
     # PDF4QT's rectangle selection considers every rotated block separately.
     # On journal proofs, a diagonal ARTICLE IN PRESS watermark intersects
     # horizontal paragraphs and is unintentionally selected/copied as text.

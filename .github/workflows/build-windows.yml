@@ -1,4 +1,4 @@
-name: LUNA Library V2 - PDF4QT Windows Portable
+name: LUNA Library V2 - Windows Portable
 
 # Manual builds only. No private data, secrets, or untrusted PR execution.
 on:
@@ -24,6 +24,10 @@ on:
         description: 'Experimental host only: successful full Beta Windows source run ID'
         type: string
         default: ''
+      build_installer:
+        description: 'Optional legacy installer investigation only; disabled for portable-first distribution'
+        type: boolean
+        default: false
       research_pdf_probe:
         description: 'Optional precise public research PDF glyph/selection check (not a core Beta gate)'
         type: boolean
@@ -120,11 +124,26 @@ jobs:
     permissions:
       contents: read
       actions: read
+      issues: write
     steps:
+      - name: Bootstrap trace before checkout (synthetic metadata only)
+        shell: pwsh
+        run: |
+          $trace = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics'
+          New-Item -ItemType Directory -Path $trace -Force | Out-Null
+          @{ schema = 1; status = 'started'; source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; job = $env:GITHUB_JOB } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $trace 'bootstrap.json')
       - uses: actions/checkout@v4
+        id: checkout
         with:
           persist-credentials: false
+      - name: Initialize permanent synthetic build trace
+        shell: pwsh
+        run: |
+          python -B tools/build_diagnostics.py start --output "$env:RUNNER_TEMP/luna-build-diagnostics"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not initialize build diagnostics' }
+
       - name: Public source gate and regression tests
+        id: public-gate
         shell: pwsh
         run: |
           python -B tools/preflight_public.py
@@ -134,6 +153,7 @@ jobs:
           python -B tests/native_dialog/windows_job.py
           if ($LASTEXITCODE -ne 0) { throw "Synthetic Windows process containment failed" }
       - name: Validate official x64 CRT staging on the actual Windows image
+        id: crt-check
         shell: pwsh
         run: |
           $output = Join-Path $env:RUNNER_TEMP 'luna-crt-preflight'
@@ -153,6 +173,45 @@ jobs:
         shell: pwsh
         run: |
           & ./tools/probe_print_windows.ps1 -Package "$env:RUNNER_TEMP/luna-verified-reader"
+
+      - name: Finalize public preflight diagnostic record
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path tools/build_diagnostics.py) {
+            python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "checkout=${{ steps.checkout.outcome }};public-gate=${{ steps.public-gate.outcome }};crt-check=${{ steps.crt-check.outcome }}"
+            if ($LASTEXITCODE -ne 0) { throw 'Could not finalize preflight diagnostics' }
+          } else {
+            $trace = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics'
+            New-Item -ItemType Directory -Force -Path $trace | Out-Null
+            @(
+              '# LUNA Build Error Analysis',
+              "- Run: $env:GITHUB_RUN_ID",
+              "- Source SHA: $env:GITHUB_SHA",
+              '- Cause not established: checkout/source diagnostics unavailable.',
+              "- Job logs: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            ) | Set-Content -Encoding utf8 (Join-Path $trace 'failure-analysis.md')
+            Write-Warning 'Source checkout missing; bootstrap and minimal analysis preserved.'
+          }
+      - name: Preserve failed preflight analysis in a GitHub issue
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $analysis = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics/failure-analysis.md'
+          if (Test-Path $analysis) {
+            gh issue create --title "LUNA Preflight #$env:GITHUB_RUN_NUMBER - failure analysis" --body-file $analysis
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'Issue archival failed; preflight artifact retained' }
+          }
+      - name: Upload public preflight diagnostics on success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-Preflight-Diagnostics
+          path: ${{ runner.temp }}/luna-build-diagnostics/
+          if-no-files-found: warn
+          retention-days: 90
 
   native-probes:
     needs: windows-packaging-preflight
@@ -200,6 +259,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      issues: write
     if: ${{ !inputs.production_paper_capture && !inputs.packaging_preflight_only && !inputs.native_probes_only && !inputs.tab_host_source_run }}
     runs-on: windows-2022
     timeout-minutes: 180
@@ -212,12 +272,26 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-binary-cache
       VCPKG_OVERLAY_PORTS: ${{ github.workspace }}\pdf4qt\vcpkg\overlays\general
     steps:
+      - name: Bootstrap trace before checkout (synthetic metadata only)
+        shell: pwsh
+        run: |
+          $trace = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics'
+          New-Item -ItemType Directory -Path $trace -Force | Out-Null
+          @{ schema = 1; status = 'started'; source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; job = $env:GITHUB_JOB } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $trace 'bootstrap.json')
       - name: Checkout public builder with no retained credentials
+        id: checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
+      - name: Initialize permanent synthetic build trace
+        shell: pwsh
+        run: |
+          python -B tools/build_diagnostics.py start --output "$env:RUNNER_TEMP/luna-build-diagnostics"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not initialize build diagnostics' }
+
       - name: Fail-closed public security checks
+        id: source-check
         shell: pwsh
         run: |
           python tools/preflight_public.py
@@ -251,8 +325,12 @@ jobs:
         run: |
           python tools/apply_overlay.py pdf4qt --dry-run
           if ($LASTEXITCODE -ne 0) { throw "Source pin mismatch" }
+          python tools/patch_script_text_layout.py pdf4qt --dry-run
+          if ($LASTEXITCODE -ne 0) { throw "Pinned text layout mismatch" }
           python tools/apply_overlay.py pdf4qt
           if ($LASTEXITCODE -ne 0) { throw "LUNA patch failed" }
+          python tools/patch_script_text_layout.py pdf4qt
+          if ($LASTEXITCODE -ne 0) { throw "LUNA superscript/subscript selection patch failed" }
 
       - name: Apply opt-in native session proof
         shell: pwsh
@@ -344,7 +422,28 @@ jobs:
           cache: 'false'
           aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
 
+      - name: Test LUNA metadata Qt native contracts (no network)
+        id: metadata-test
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'luna-metadata-build'
+          cmake -S tests/native_metadata -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw "Metadata Qt test CMake configuration failed" }
+          cmake --build $probe --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Metadata Qt native compilation failed" }
+          # Native Qt fatal assertions on Windows can exit 0xC0000409;
+          # send Qt diagnostics to stderr and print the exact named failing
+          # assertion/checkpoint rather than suppressing the test output.
+          $env:QT_FORCE_STDERR_LOGGING = '1'
+          ctest --test-dir $probe -C Release --output-on-failure --verbose
+          if ($LASTEXITCODE -ne 0) {
+            $report = Join-Path $probe 'Testing/Temporary/LastTest.log'
+            if (Test-Path $report) { Get-Content $report -Tail 120 }
+            throw "Metadata Qt native contract test failed; inspect LUNA_METADATA_TEST_FAILED above"
+          }
+
       - name: Test native Save As dialog before compiling the PDF engine
+        id: dialog-test
         shell: pwsh
         run: |
           $env:QT_FORCE_STDERR_LOGGING = '1'
@@ -370,6 +469,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
 
       - name: Compile source and install DLLs
+        id: native-compile
         shell: pwsh
         run: |
           cmake --build pdf4qt/build --config Release --parallel 4
@@ -394,6 +494,10 @@ jobs:
           $output = Join-Path $env:GITHUB_WORKSPACE 'LUNA-Windows-Portable'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
           Copy-Item -Path "$bin/*" -Destination $output -Recurse -Force
+          # Standalone LUNA uses embedded moon resources, not the upstream
+          # Windows Store tiles. Remove these obsolete branding assets only.
+          if (Test-Path "$output/assets") { Remove-Item -LiteralPath "$output/assets" -Recurse -Force }
+          if (Test-Path "$output/AppxManifest.xml") { Remove-Item -LiteralPath "$output/AppxManifest.xml" -Force }
           Get-ChildItem -LiteralPath $output -Filter '*.exe' -File | Where-Object { $_.Name -ne 'LUNA.exe' } | Remove-Item
           Copy-Item 'pdf4qt/LICENSE' "$output/PDF4QT_LICENSE.txt"
           Copy-Item 'pdf4qt/3rdparty_licenses' "$output/third_party_licenses" -Recurse
@@ -444,6 +548,7 @@ jobs:
           retention-days: 14
 
       - name: Verify portable package layout
+        id: portable-check
         shell: pwsh
         run: |
           python -B tools/verify_portable.py LUNA-Windows-Portable
@@ -472,12 +577,32 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native before/after performance benchmark failed' }
 
       - name: Independent document windows and native annotation round trip
+        id: native-ui
         shell: pwsh
         run: |
           python -B tools/probe_documents_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui"
           if ($LASTEXITCODE -ne 0) { throw "Native UI or annotation round trip failed" }
 
+      # Only a failed native UI run triggers this Microsoft-signed debugger.
+      # It cannot turn the preceding failure into a success.
+      - name: Capture crash-only synthetic Windows stack (CDB)
+        if: ${{ failure() && steps.native-ui.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'luna-ui/native-crash-replay'
+          New-Item -ItemType Directory -Force $evidence | Out-Null
+          try {
+            . ./tools/Luna-Crash-Tools.ps1
+            $cdb = Get-LunaCdb
+            python -B tools/probe_native_crash_windows.py LUNA-Windows-Portable "$evidence" --debugger "$cdb"
+            if ($LASTEXITCODE -ne 0) { throw 'CDB crash replay failed; original smoke remains failed' }
+          } catch {
+            $_.Exception.Message | Set-Content -Encoding utf8 (Join-Path $evidence 'debugger-unavailable.txt')
+            Write-Warning 'Crash replay unavailable. Original native failure is still fatal.'
+          }
+
       - name: Production native tabs, library and fresh-process memo restoration
+        id: tabs-test
         if: ${{ !inputs.native_tabs_proof }}
         shell: pwsh
         run: |
@@ -532,8 +657,57 @@ jobs:
           if ($nativeTests -lt 1) { throw 'Empty native Qt test scope' }
           @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ userPcRepeatedCtrlW = 'User confirmed 30 closes on Windows 10 at 30e2a01; current CI legacy-layout disposal regression passed under CDB/page heap'; pythonTests = $pythonTests; nativeQtTests = $nativeTests; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; nativeTabBibliographyIsolation = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; publicMainAndSiBibliography = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
+      - name: Verify tagged portable release manifest and file hashes (offline)
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'luna-update-release-probe'
+          python -B -m tools.prepare_release --portable LUNA-Windows-Portable --destination "$probe" --tag v0.0.0.1 --source-run $env:GITHUB_RUN_ID --commit $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Versioned updater manifest packaging failed' }
+          python -B -c "import json,zipfile,hashlib,sys,pathlib; p=pathlib.Path(sys.argv[1]); m=json.loads((p/'LUNA-Release.json').read_text()); z=zipfile.ZipFile(p/'LUNA-Windows-Portable.zip'); assert m['schema']==2 and len(m['files'])==len(z.namelist()); assert json.loads(z.read('build-info.json'))['version']=='v0.0.0.1'; assert all(hashlib.sha256(z.read(f['path'])).hexdigest()==f['sha256'] for f in m['files']); print('[PASS] Versioned updater ZIP and per-file manifest') " "$probe"
+          if ($LASTEXITCODE -ne 0) { throw 'Versioned updater manifest content mismatch' }
+
+      - name: Build and smoke-test per-user LUNA Setup EXE (optional, paused)
+        id: installer-test
+        if: ${{ !inputs.native_tabs_proof && inputs.build_installer }}
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress --limit-output
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+          if (!(Test-Path $iscc)) { throw 'Pinned Inno compiler is unavailable' }
+          & $iscc 'tools/LUNA-Library-Setup.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'LUNA installer compilation failed' }
+          $setup = Join-Path $env:GITHUB_WORKSPACE 'LUNA-Windows-Installer/LUNA-Library-Setup.exe'
+          if (!(Test-Path $setup)) { throw 'Installer output missing' }
+          $destination = Join-Path $env:RUNNER_TEMP 'luna-install-smoke'
+          & $setup /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$destination"
+          if ($LASTEXITCODE -ne 0) { throw 'Silent installer failed' }
+          $installed = Join-Path $destination 'LUNA.exe'
+          if (!(Test-Path $installed)) { throw 'Installed LUNA.exe missing' }
+          $expected = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash
+          $actual = (Get-FileHash $installed -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { throw 'Installer changed verified executable bytes' }
+          $uninstaller = @(Get-ChildItem $destination -Filter 'unins*.exe' -File)
+          if ($uninstaller.Count -ne 1) { throw 'Uninstaller missing or ambiguous' }
+          & $uninstaller[0].FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          if ($LASTEXITCODE -ne 0 -or (Test-Path $installed)) { throw 'Silent uninstall did not remove app binaries' }
+          Get-FileHash $setup -Algorithm SHA256 | Format-List
+          Write-Host '[PASS] Setup EXE verified against portable, installed and uninstalled'
+
+      - name: Upload LUNA Windows installer artifact (optional, paused)
+        if: ${{ !inputs.native_tabs_proof && inputs.build_installer }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-Windows-Installer
+          path: LUNA-Windows-Installer/LUNA-Library-Setup.exe
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Upload synthetic native UI screenshots
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: LUNA-UI-Synthetic
@@ -549,6 +723,45 @@ jobs:
           path: LUNA-Windows-Portable/
           retention-days: 7
           if-no-files-found: error
+
+      - name: Finalize Windows build diagnostic record
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path tools/build_diagnostics.py) {
+            python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "checkout=${{ steps.checkout.outcome }};source=${{ steps.source-check.outcome }};metadata=${{ steps.metadata-test.outcome }};dialog=${{ steps.dialog-test.outcome }};compile=${{ steps.native-compile.outcome }};portable=${{ steps.portable-check.outcome }};native-ui=${{ steps.native-ui.outcome }};tabs=${{ steps.tabs-test.outcome }};installer=${{ steps.installer-test.outcome }}"
+            if ($LASTEXITCODE -ne 0) { throw 'Could not finalize build diagnostics' }
+          } else {
+            $trace = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics'
+            New-Item -ItemType Directory -Force -Path $trace | Out-Null
+            @(
+              '# LUNA Build Error Analysis',
+              "- Run: $env:GITHUB_RUN_ID",
+              "- Source SHA: $env:GITHUB_SHA",
+              '- Cause not established: checkout/source diagnostics unavailable.',
+              "- Job logs: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            ) | Set-Content -Encoding utf8 (Join-Path $trace 'failure-analysis.md')
+            Write-Warning 'Source checkout missing; bootstrap and minimal analysis preserved.'
+          }
+      - name: Preserve failed build analysis in a GitHub issue
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $analysis = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics/failure-analysis.md'
+          if (Test-Path $analysis) {
+            gh issue create --title "LUNA Build #$env:GITHUB_RUN_NUMBER - failure analysis" --body-file $analysis
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'Could not archive failed run in GitHub Issues; artifact remains available' }
+          }
+      - name: Upload permanent Windows failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-Build-Diagnostics
+          path: ${{ runner.temp }}/luna-build-diagnostics/
+          if-no-files-found: warn
+          retention-days: 90
 
   tab-host-experiment:
     needs: windows-packaging-preflight

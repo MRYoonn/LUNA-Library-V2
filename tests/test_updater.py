@@ -50,9 +50,17 @@ class ReleaseUpdateTests(unittest.TestCase):
         dst = self.root / "dist"
         manifest = prepare(self.portable, dst, "v0.9.1.134", self.run, self.commit)
         zip_file = dst / "LUNA-Windows-Portable.zip"
+        self.assertEqual(manifest["schema"], 2)
         self.assertEqual(manifest["sha256"], hashlib.sha256(zip_file.read_bytes()).hexdigest())
         self.assertEqual(json.loads((dst / "LUNA-Release.json").read_text()), manifest)
         with zipfile.ZipFile(zip_file) as z:
+            info = json.loads(z.read("build-info.json"))
+            self.assertEqual(info["version"], "v0.9.1.134")
+            self.assertEqual(len(manifest["files"]), len(z.namelist()))
+            for record in manifest["files"]:
+                payload = z.read(record["path"])
+                self.assertEqual(len(payload), record["size"])
+                self.assertEqual(hashlib.sha256(payload).hexdigest(), record["sha256"])
             names = z.namelist()
             self.assertIn("LUNA.exe", names)
             self.assertIn("LUNA-Update.ps1", names)
@@ -76,13 +84,72 @@ class ReleaseUpdateTests(unittest.TestCase):
         self.assertIn("QMessageBox::question", header)
         self.assertIn("QCoreApplication::aboutToQuit", header)
         self.assertIn('QStringLiteral("updater/lastCheckedUtc")', header)
-        self.assertIn("$previous | Wait-Process -Timeout", script)
+        self.assertIn("$previousProcess | Wait-Process -Timeout", script)
         self.assertIn("Get-Process -Id $WaitPid -ErrorAction SilentlyContinue", script)
         self.assertIn("Get-FileHash", script)
-        self.assertIn("Archive traversal blocked", script)
+        self.assertIn("Unsafe package path", script)
         self.assertIn("rollback", script.lower())
-        self.assertIn("user PDFs", script)
+        self.assertIn("User PDFs", script)
         self.assertNotIn("Remove-Item -LiteralPath $install", script)
+
+    def test_automatic_update_check_can_be_toggled_without_unattended_install(self):
+        source = (ROOT / "src/lunaupdater.h").read_text(encoding="utf-8")
+        shell = (ROOT / "src/lunatabs.cpp").read_text(encoding="utf-8")
+        for token in (
+            'QStringLiteral("LunaAutoUpdateCheck")',
+            'QStringLiteral("updater/autoCheckEnabled")',
+            'automatic_->setCheckable(true)',
+            'automatic_->setChecked(',
+            'if (!explicitRequest && !automatic_->isChecked()) return;',
+            'QAction* automaticAction() const',
+            'QMessageBox::question(&shell_, QStringLiteral("LUNA 업데이트")',
+        ):
+            self.assertIn(token, source)
+        self.assertIn('help->addAction(updater_->automaticAction())', shell)
+        self.assertIn('updater_->check(false);', shell)
+
+    def test_updater_stages_before_closing_and_requires_healthy_restart(self):
+        header = (ROOT / "src/lunaupdater.h").read_text(encoding="utf-8")
+        script = (ROOT / "tools/LUNA-Update.ps1").read_text(encoding="utf-8")
+        self.assertIn('QStringLiteral("Stage")', header)
+        self.assertIn('void stage(const QString& expectedTag)', header)
+        self.assertIn('shell_.close(); // Existing PDF unsaved-change prompts still apply.', header)
+        self.assertLess(header.index('void stage(const QString& expectedTag)'),
+                        header.index('static QString installDir()'))
+        self.assertIn('stageToken_', header)
+        self.assertIn('startup.ok', header)
+        self.assertIn('LUNA_UPDATE_ACK_TOKEN', header)
+        for gate in ("Validate-Zip", "Verify-Payload", "Stage-Path",
+                     "Get-Manifest", "Undo-Copy", "New-Stage", "Apply-Stage",
+                     "backup-complete"):
+            self.assertIn(gate, script)
+        self.assertIn("Verify-Payload $payload $manifest", script)
+        self.assertIn("Verify-Payload (Join-Path $work 'payload') $manifest", script)
+        self.assertIn("LUNA still running; files untouched", script)
+        self.assertIn("ZIP contains symlink", script)
+        self.assertIn("Staged file digest mismatch", script)
+        self.assertIn("Package attempts to replace user data", script)
+        self.assertIn("Get-CimInstance Win32_Process", script)
+        self.assertIn("startup.ok", script)
+        self.assertIn("function Recover-Stage", script)
+        self.assertIn("Assert-Safe-Target", script)
+        self.assertIn("'Recover' { Recover-Stage }", script)
+        self.assertIn("recovery.ps1", script)
+        self.assertIn("state = 'applying'", script)
+        self.assertIn("Recovery backup incomplete", script)
+        self.assertIn("no rollback while it is running", script)
+        self.assertNotIn("Remove-Item -LiteralPath $install", script)
+
+    def test_no_replacement_of_exe_during_download(self):
+        script = (ROOT / "tools/LUNA-Update.ps1").read_text(encoding="utf-8")
+        # Check/Stage must never mutate installed program files; Apply is
+        # the only mode allowed to copy into the install directory.
+        stage = script.split("function New-Stage", 1)[1].split("function Check-Release", 1)[0]
+        self.assertIn("Copy-Item -LiteralPath $PSCommandPath", stage)
+        self.assertNotIn("Copy-Item -LiteralPath $file", stage)
+        self.assertNotIn("Remove-Item -LiteralPath $install", stage)
+        self.assertIn("if (!$available)", stage)
+        self.assertIn("files", (ROOT / "tools/prepare_release.py").read_text(encoding="utf-8"))
 
     def test_release_gate_is_manual_and_draft_only(self):
         yml = (ROOT / ".github/workflows/draft-release.yml").read_text(encoding="utf-8")

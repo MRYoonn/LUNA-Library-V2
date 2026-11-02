@@ -115,7 +115,7 @@ protected:
         Q_UNUSED(index);
         return {218, 41};
     }
-    QSize minimumTabSizeHint(int index) const override { return tabSizeHint(index); }
+    QSize minimumTabSizeHint(int) const override { return {88, 41}; }
 };
 class PdfTabs final : public QTabWidget {
 public:
@@ -158,30 +158,32 @@ public:
         tabs_->setTabsClosable(true); tabs_->setDocumentMode(true); tabs_->setMovable(true);
         tabs_->setElideMode(Qt::ElideMiddle);
         tabs_->tabBar()->setObjectName(QStringLiteral("LunaPdfTabBar"));
+        tabs_->tabBar()->setDrawBase(false); // Qt native tab-base draws the unwanted dark top rule.
         tabs_->tabBar()->setExpanding(false);
         tabs_->tabBar()->setUsesScrollButtons(true);
+        tabs_->setAcceptDrops(true);
+        tabs_->tabBar()->setAcceptDrops(true);
         auto* initial = createEditor();
         performanceEvent("native-shell-before-library", performanceNow());
         installLibraryShell(*this, *initial);
+        // Restore controls belong to the left end of the PDF tab strip,
+        // not a floating overlay in the middle of the reader.
+        if (auto* rail = findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail")))
+            tabs_->setCornerWidget(rail, Qt::TopLeftCorner);
         performanceEvent("native-shell-after-library", performanceNow());
         auto* frame = centralWidget();
-        auto* corner = findChild<QWidget*>(QStringLiteral("LunaTabCorner"));
-        if (corner) { frame->layout()->removeWidget(corner); tabs_->setCornerWidget(corner, Qt::TopLeftCorner); }
         static_cast<QVBoxLayout*>(frame->layout())->addWidget(tabs_);
         unattachedTabs.release(); // The shell's central frame now owns the tabs.
         open_ = new QAction(QStringLiteral("PDF 열기…"), this); open_->setObjectName(QStringLiteral("LunaOpenDocuments"));
         open_->setShortcut(QKeySequence(QStringLiteral("Ctrl+O"))); addAction(open_);
         open_->setToolTip(QStringLiteral("여러 PDF를 탭으로 열기 (Ctrl+O)"));
         connect(open_, &QAction::triggered, this, [this] { chooseFiles(); });
-        if (corner) {
-            auto* addCorner = new QWidget(tabs_);
-            auto* addRow = new QHBoxLayout(addCorner); addRow->setContentsMargins(0, 0, 4, 0);
-            auto* plus = new QToolButton(addCorner); plus->setObjectName(QStringLiteral("LunaNewTab")); plus->setIcon(readerIcon(QStringLiteral("add")));
-            plus->setAccessibleName(QStringLiteral("새 PDF 탭 열기")); plus->setToolTip(QStringLiteral("새 PDF 탭 열기")); plus->setFixedSize(43, 41);
-            addRow->addWidget(plus); tabs_->setCornerWidget(addCorner, Qt::TopRightCorner);
-            connect(plus, &QToolButton::clicked, open_, &QAction::trigger);
-            corner->setVisible(findChild<QAction*>(QStringLiteral("LunaFocusMode"))->isChecked());
-        }
+        auto* addCorner = new QWidget(tabs_);
+        auto* addRow = new QHBoxLayout(addCorner); addRow->setContentsMargins(0, 0, 4, 0);
+        auto* plus = new QToolButton(addCorner); plus->setObjectName(QStringLiteral("LunaNewTab")); plus->setIcon(readerIcon(QStringLiteral("add")));
+        plus->setAccessibleName(QStringLiteral("새 PDF 탭 열기")); plus->setToolTip(QStringLiteral("새 PDF 탭 열기")); plus->setFixedSize(43, 41);
+        addRow->addWidget(plus); tabs_->setCornerWidget(addCorner, Qt::TopRightCorner);
+        connect(plus, &QToolButton::clicked, open_, &QAction::trigger);
         quit_ = new QAction(QStringLiteral("끝내기"), this); quit_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q"))); addAction(quit_);
         connect(quit_, &QAction::triggered, this, [this] { trace("shell-quit-action"); close(); });
         for (const auto& route : {qMakePair("actionSave", "Ctrl+S"), qMakePair("actionSave_As", "Ctrl+Shift+S"),
@@ -202,6 +204,15 @@ public:
         QTimer::singleShot(12000, updater_, [this] {
             if (updater_ && !closing_) updater_->check(false);
         });
+        // Long-running lab sessions also re-check periodically. The
+        // controller itself enforces a 24-hour interval after a valid result;
+        // offline checks may retry without interrupting the PDF reader.
+        auto* updatePoll = new QTimer(this);
+        updatePoll->setInterval(60 * 60 * 1000);
+        connect(updatePoll, &QTimer::timeout, this, [this] {
+            if (updater_ && !closing_) updater_->check(false);
+        });
+        updatePoll->start();
         setLibraryDocumentRouter(*this, [this](const QString& path) { open(path, "library-open"); },
             [this](const QString& path) {
                 auto* existing = find(path);
@@ -348,6 +359,8 @@ private:
     Editor* createEditor() {
         PerformanceSpan span("editor-create");
         auto* editor = new Editor(tabs_); editor->setWindowFlags(Qt::Widget);
+        editor->setAcceptDrops(true);
+        editor->getProgramController()->getPdfWidget()->getDrawWidget()->getWidget()->setAcceptDrops(true);
         const int serial = property("LunaEditorCreations").toInt() + 1; setProperty("LunaEditorCreations", serial); editor->setProperty("LunaEditorSerial", serial);
         connect(editor, &QObject::destroyed, this, [this, serial] { setProperty("LunaLastDestroyedEditor", serial); trace("editor-destroyed"); });
         editor->setAttribute(Qt::WA_DeleteOnClose, false); editor->setAttribute(Qt::WA_QuitOnClose, false); editor->installEventFilter(this);
@@ -367,6 +380,9 @@ private:
         PerformanceSpan span("editor-ui-bind");
         performanceEvent("native-editor-before-reader-prepare", performanceNow());
         prepareReaderSession(*editor, *this);
+        if (auto* view = editor->findChild<QMenu*>(QStringLiteral("menuView")))
+            if (auto* zoom = findChild<QAction*>(QStringLiteral("LunaDefaultOpeningZoom")))
+                if (!view->actions().contains(zoom)) view->addAction(zoom);
         performanceEvent("native-editor-after-reader-prepare", performanceNow());
         if (auto* bar = editor->findChild<QToolBar*>(QStringLiteral("mainToolBar"))) bar->hide();
         editor->statusBar()->hide();
@@ -460,10 +476,54 @@ private:
                 if (popup->isVisible() && popup->windowFlags().testFlag(Qt::Popup)) popup->reject();
         bindLibraryEditor(*this, *editor);
         menuBar()->clear(); for (auto* action : editor->menuBar()->actions()) menuBar()->addAction(action);
-        if (updater_) {
-            if (auto* help = editor->findChild<QMenu*>(QStringLiteral("menuHelp"))) {
-                if (!help->actions().contains(updater_->action())) help->addAction(updater_->action());
+        if (auto* help = editor->findChild<QMenu*>(QStringLiteral("menuHelp"))) {
+            // The LUNA shell owns the user-facing identity. Keep third-party
+            // licenses accessible, but do not open the PDF engine's About,
+            // sponsorship or upstream source screens as the app's own brand.
+            for (const char* name : {"actionGetSource", "actionBecomeASponsor", "actionAbout"})
+                if (auto* upstream = editor->findChild<QAction*>(QString::fromLatin1(name)))
+                    help->removeAction(upstream);
+            auto* about = findChild<QAction*>(QStringLiteral("LunaAboutApp"));
+            if (!about) {
+                about = new QAction(QStringLiteral("LUNA Library 정보…"), this);
+                about->setObjectName(QStringLiteral("LunaAboutApp"));
+                connect(about, &QAction::triggered, this, [this] {
+                    QMessageBox::information(this, QStringLiteral("LUNA Library"),
+                        QStringLiteral("LUNA Library\n\n"
+                            "독립 실행형 Windows PDF 라이브러리 및 논문 관리 프로그램입니다.\n"
+                            "LUNA 자체 인터페이스와 문서 관리 기능을 제공합니다.\n"
+                            "PDF 처리에는 제3자 오픈소스 구성요소가 포함되어 있으며, "
+                            "도움말의 오픈소스 라이선스에서 확인할 수 있습니다."));
+                });
             }
+            auto* notices = findChild<QAction*>(QStringLiteral("LunaOpenSourceLicenses"));
+            if (!notices) {
+                notices = new QAction(QStringLiteral("오픈소스 라이선스…"), this);
+                notices->setObjectName(QStringLiteral("LunaOpenSourceLicenses"));
+                connect(notices, &QAction::triggered, this, [this] {
+                    const QDir app(QCoreApplication::applicationDirPath());
+                    QFile notice(app.filePath(QStringLiteral("LUNA_LICENSE_NOTICE.md")));
+                    QFile license(app.filePath(QStringLiteral("PDF4QT_LICENSE.txt")));
+                    if (!notice.open(QIODevice::ReadOnly) || !license.open(QIODevice::ReadOnly)) {
+                        QMessageBox::warning(this, QStringLiteral("오픈소스 라이선스"),
+                            QStringLiteral("라이선스 고지 파일이 누락됐습니다. LUNA 전체 패키지를 다시 확인해 주세요."));
+                        return;
+                    }
+                    QMessageBox dialog(QMessageBox::Information, QStringLiteral("오픈소스 라이선스"),
+                        QStringLiteral("LUNA에서 사용한 제3자 구성요소의 저작권 및 라이선스 고지입니다."),
+                        QMessageBox::Ok, this);
+                    dialog.setDetailedText(QString::fromUtf8(notice.readAll()) +
+                        QStringLiteral("\n\n----- Original license -----\n") +
+                        QString::fromUtf8(license.readAll()));
+                    dialog.exec();
+                });
+            }
+            if (!help->actions().contains(about)) help->addAction(about);
+            if (!help->actions().contains(notices)) help->addAction(notices);
+            if (updater_ && !help->actions().contains(updater_->action()))
+                help->addAction(updater_->action());
+            if (updater_ && !help->actions().contains(updater_->automaticAction()))
+                help->addAction(updater_->automaticAction());
         }
         bindCommonReaderToolbar(*this, *editor);
         editor->getProgramController()->getPdfWidget()->setFocus(); updateTitle(editor);
@@ -478,8 +538,9 @@ private:
         const int index = tabs_->indexOf(editor); if (index >= 0) {
             // Keep tabs compact even when a single PDF has an extremely long filename.
             // The full filename remains available in the tooltip and window title.
-            const QString label = tabs_->tabBar()->fontMetrics().elidedText(text, Qt::ElideMiddle, 156);
-            tabs_->setTabText(index, label); tabs_->setTabToolTip(index, display);
+            // Store the full title; the Qt tab bar elides it to its ACTUAL
+            // current width as more papers open (Chrome-style compression).
+            tabs_->setTabText(index, text); tabs_->setTabToolTip(index, display);
             for (auto side : {QTabBar::LeftSide, QTabBar::RightSide})
                 if (auto* button = qobject_cast<QAbstractButton*>(tabs_->tabBar()->tabButton(index, side)))
                     button->setEnabled(!s->identity.isEmpty() && !s->loading && c->canClose() && editor->isEnabled());
@@ -555,12 +616,32 @@ private:
             static_cast<QCloseEvent*>(event)->ignore(); QPointer<Editor> guarded(editor);
             QTimer::singleShot(0, this, [this, guarded] { if (guarded) closeTab(tabs_->indexOf(guarded)); }); return true;
         }
-        if (event->type() == QEvent::DragEnter || event->type() == QEvent::Drop) {
-            auto* widget = qobject_cast<QWidget*>(object); if (!widget || widget->window() != this) return false;
-            auto* drop = static_cast<QDropEvent*>(event); const auto urls = drop->mimeData()->urls(); if (urls.isEmpty()) return false;
-            for (const auto& url : urls) if (!url.isLocalFile() || QFileInfo(url.toLocalFile()).suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive)) return false;
-            if (event->type() == QEvent::Drop) for (const auto& url : urls) open(url.toLocalFile(), "drop");
-            drop->acceptProposedAction(); return true;
+        if (event->type() == QEvent::DragEnter ||
+            event->type() == QEvent::DragMove || event->type() == QEvent::Drop) {
+            auto* widget = qobject_cast<QWidget*>(object);
+            if (!widget || widget->window() != this) return false;
+            // The folder tree owns file moves/copies. The global PDF opener
+            // must never consume its DragEnter/DragMove/Drop events.
+            for (auto* parent = widget; parent; parent = parent->parentWidget())
+                if (parent->objectName() == QStringLiteral("LunaFolderDropTree") ||
+                    parent->objectName() == QStringLiteral("LunaFolderDocumentsButton"))
+                    return false;
+            auto* drop = static_cast<QDropEvent*>(event);
+            const auto urls = drop->mimeData()->urls();
+            if (urls.isEmpty()) return false;
+            for (const auto& url : urls) {
+                if (!url.isLocalFile()) return false;
+                const QFileInfo file(url.toLocalFile());
+                if (!file.isFile() || file.isSymLink() ||
+                    file.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
+                    return false;
+            }
+            if (event->type() == QEvent::Drop)
+                for (const auto& url : urls) open(url.toLocalFile(), "drop");
+            // Opening an external PDF never moves the source file.
+            drop->setDropAction(Qt::CopyAction);
+            drop->accept();
+            return true;
         }
         return QMainWindow::eventFilter(object, event);
     }
@@ -841,6 +922,10 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(brand && qAbs(brand->mapTo(menu, brand->rect().center()).y() - menu->rect().center().y()) <= 1, "Brand icon/text is not vertically centered with menus");
         }
         auto* library = host.findChild<QWidget*>(QStringLiteral("LunaLibraryPanel")); integrationRequire(library, "Shared library missing");
+        auto* paperTop = host.findChild<QWidget*>(QStringLiteral("LunaPaperHeader"));
+        integrationRequire(paperTop && !tabs->tabBar()->drawBase() &&
+            qAbs(paperTop->mapTo(&host, QPoint()).y() - tabs->tabBar()->mapTo(&host, QPoint()).y()) <= 8,
+            "PDF tab top rule or paper/PDF header vertical alignment regressed");
         for (auto* widget : library->findChildren<QWidget*>()) integrationRequire(!widget->inherits("QProgressBar"), "Disk usage progress widget remains in the library");
         for (auto* label : library->findChildren<QLabel*>()) integrationRequire(!label->text().contains(QStringLiteral("디스크 사용 공간")) && !label->text().contains(QStringLiteral("저장 공간 정보 없음")), "Disk usage label remains in the library");
         result["menuGlyphAndBrandVerticalCenters"] = centers; result["diskUsageUiAbsent"] = true;
@@ -970,7 +1055,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 auto* scroll = widget->getVerticalScrollbar(); scroll->setValue(scroll->maximum() / 3);
                 scrollPositions.append(scroll->value()); zoomValues.append(zoom);
                 const QRect tab = tabs->tabBar()->tabRect(tabs->indexOf(editor));
-                integrationRequire(tab.width() >= 135 && tab.width() <= 240 && tab.height() == 41, "Whole tab bounds exceed compact design");
+                integrationRequire(tab.width() >= 88 && tab.width() <= 240 && tab.height() == 41, "Responsive tabs exceeded compact size bounds");
             }
             for (int turn = 0; turn < 10; ++turn) for (int i = 0; i < documents.size(); ++i) {
                 tabs->setCurrentWidget(documents[i]); QCoreApplication::processEvents();
@@ -980,8 +1065,10 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(isolatedBibliography(), "Repeated tab switches changed another paper's author");
             auto* tabBar = tabs->tabBar();
             integrationRequire(tabBar->usesScrollButtons() && tabBar->elideMode() == Qt::ElideMiddle, "Tab scroll/elision mode changed");
-            bool scrolling = false; for (auto* button : tabBar->findChildren<QToolButton*>()) scrolling |= button->isVisible();
-            integrationRequire(scrolling && tabs->tabText(4).contains(QChar(0x2026)), "Long tabs did not elide and scroll");
+            integrationRequire(tabBar->tabRect(4).width() >= 88 &&
+                tabBar->tabRect(4).width() <= 218 &&
+                !tabs->tabText(4).isEmpty() && !tabs->tabToolTip(4).isEmpty(),
+                "Responsive tab title sizing or full tooltip missing");
             QToolTip::hideText();
             integrationRequire(integrationMove(host, tabBar, tabBar->tabRect(4).center()) && integrationWait([&] { return QToolTip::isVisible() && QToolTip::text() == tabs->tabToolTip(4); }), "Actual tab hover did not show full filename tooltip");
             QToolTip::hideText();
@@ -996,15 +1083,71 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(extra[2] && host.closeTab(tabs->indexOf(extra[2])) && host.documentCount() == 2, "Extra-tab cleanup damaged original documents");
             tabs->setCurrentWidget(a); pa->zoom(1.25); pb->zoom(1.5);
             result["fiveTabsBoundedElidedTooltipScrollAndIndependentViews"] = true;
+            phase("ten real independent library/paper panel toggle cycles");
             focus->setChecked(false);
-            auto* toggle = host.findChild<QToolButton*>(QStringLiteral("LunaCombinedPanelToggle"));
-            integrationRequire(toggle, "Combined panel button missing");
+            auto* navigationToggle = host.findChild<QToolButton*>(QStringLiteral("LunaNavigationCollapseButton"));
+            auto* documentsToggle = host.findChild<QToolButton*>(QStringLiteral("LunaDocumentsCollapseButton"));
+            auto* navRestore = host.findChild<QToolButton*>(QStringLiteral("LunaNavigationRestoreButton"));
+            auto* docsRestore = host.findChild<QToolButton*>(QStringLiteral("LunaDocumentsRestoreButton"));
+            auto* navigationPanel = host.findChild<QWidget*>(QStringLiteral("LunaNavigation"));
+            auto* documentsPanel = host.findChild<QWidget*>(QStringLiteral("LunaDocuments"));
+            auto* libraryDock = host.findChild<QDockWidget*>(QStringLiteral("LunaLibraryDock"));
+            auto* navHeader = host.findChild<QWidget*>(QStringLiteral("LunaLibraryHeader"));
+            auto* paperHeader = host.findChild<QWidget*>(QStringLiteral("LunaPaperHeader"));
+            auto* restoreRail = host.findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail"));
+            integrationRequire(navigationToggle && documentsToggle && navRestore && docsRestore &&
+                               navigationPanel && documentsPanel && libraryDock && navHeader &&
+                               paperHeader && restoreRail,
+                               "Independent pane-header controls or edge restore rail missing");
+            integrationRequire(navigationToggle->parentWidget() == navHeader &&
+                               documentsToggle->parentWidget() == paperHeader &&
+                               !navigationToggle->icon().isNull() && !documentsToggle->icon().isNull() &&
+                               !host.findChild<QWidget*>(QStringLiteral("LunaTabCorner")),
+                               "Panel buttons leaked into PDF-only tab header");
+            auto buttonsVisible = [&] {
+                return (navigationPanel->isHidden() ? navRestore->isVisible() : navigationToggle->isVisible()) &&
+                       (documentsPanel->isHidden() ? docsRestore->isVisible() : documentsToggle->isVisible()) &&
+                       (navigationPanel->isHidden() || documentsPanel->isHidden() ? restoreRail->isVisible() : !restoreRail->isVisible());
+            };
+            integrationRequire(buttonsVisible() && !navigationPanel->isHidden() &&
+                               !documentsPanel->isHidden() && libraryDock->isVisible(),
+                               "Initial pane header geometry invalid");
             for (int turn = 0; turn < 10; ++turn) {
-                integrationRequire(!focus->isChecked() && !focus->property("lunaCollapsed").toBool() && !toggle->icon().isNull() && integrationPanelClick(host, toggle) && integrationWait([&] { return focus->isChecked() && toggle->isVisible() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8; }), "Real collapse click failed");
-                integrationRequire(focus->property("lunaCollapsed").toBool() && !toggle->icon().isNull() && qAbs(toggle->mapTo(&host, QPoint()).x() - host.centralWidget()->x()) <= 8, "Restore button moved away from left edge");
-                integrationRequire(integrationPanelClick(host, toggle) && integrationWait([&] { return !focus->isChecked(); }), "Real expand click failed");
+                const bool paperOnlyNarrow = integrationPanelClick(host, navigationToggle) &&
+                    integrationWait([&] { return navigationPanel->isHidden() &&
+                        !documentsPanel->isHidden() && libraryDock->isVisible() &&
+                        libraryDock->width() <= 300 && buttonsVisible(); });
+                result["paperOnlyDockGeometry"] = QJsonObject{
+                    {"cycle", turn}, {"dockWidth", libraryDock->width()},
+                    {"dockMinWidth", libraryDock->minimumWidth()},
+                    {"dockMinHint", libraryDock->minimumSizeHint().width()},
+                    {"dockSizeHint", libraryDock->sizeHint().width()},
+                    {"dockMaxWidth", libraryDock->maximumWidth()},
+                    {"contentWidth", libraryDock->widget()->width()},
+                    {"contentMinWidth", libraryDock->widget()->minimumWidth()},
+                    {"contentMinHint", libraryDock->widget()->minimumSizeHint().width()},
+                    {"contentMaxWidth", libraryDock->widget()->maximumWidth()},
+                    {"navigationHidden", navigationPanel->isHidden()},
+                    {"documentsHidden", documentsPanel->isHidden()},
+                    {"restoreButtonsVisible", buttonsVisible()}};
+                integrationRequire(paperOnlyNarrow,
+                    "Header navigation collapse did not release narrow paper-only width");
+                integrationRequire(integrationPanelClick(host, documentsToggle) &&
+                    integrationWait([&] { return navigationPanel->isHidden() &&
+                        documentsPanel->isHidden() && libraryDock->isHidden() && buttonsVisible(); }),
+                    "Both collapsed: left-edge restore rail disappeared");
+                integrationRequire(integrationPanelClick(host, navRestore) &&
+                    integrationWait([&] { return !navigationPanel->isHidden() &&
+                        documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
+                    "Left-edge navigation restore failed");
+                integrationRequire(integrationPanelClick(host, docsRestore) &&
+                    integrationWait([&] { return !navigationPanel->isHidden() &&
+                        !documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
+                    "Left-edge paper-list restore failed");
+                integrationRequire(!focus->isChecked(),
+                    "Panel controls unexpectedly activated focus mode");
             }
-            result["tenRealPanelToggleCyclesPinnedLeft"] = true;
+            result["tenIndependentPanelToggleCycles"] = true;
             auto collapse = [&] {
                 focus->setChecked(true);
                 host.resize(host.screen()->availableGeometry().size() - QSize(24, 48)); host.move(8, 8);
@@ -1181,7 +1324,51 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 !list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor")),
                 "Accidental left click opened memo editor");
             QLineEdit* edit = nullptr;
+            // Folder/sidecar discovery may replace QListWidgetItem instances
+            // asynchronously. Re-resolve the visible card on every assertion;
+            // never trust a QListWidgetItem* captured before the edit.
+            auto liveMemo = [&](const QString& expected) {
+                QListWidgetItem* currentCard = nullptr;
+                QListWidget* currentList = integrationList(host, files[0], &currentCard);
+                if (!currentList || !currentCard || !currentList->isVisible()) {
+                    result["memoCommitDiagnostics"] = QJsonObject{
+                        {"cardFound", bool(currentCard)},
+                        {"listVisible", currentList && currentList->isVisible()}};
+                    return false;
+                }
+                list = currentList;
+                paper = currentCard;
+                const QString path = currentCard->data(Qt::UserRole).toString();
+                const QString key = QString::fromLatin1(
+                    QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex());
+                QSettings saved(QSettings::defaultFormat(), QSettings::UserScope,
+                                QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+                const bool modelMatches = currentCard->data(Qt::UserRole + 4).toString() == expected;
+                const bool tipMatches = currentCard->toolTip().contains(expected);
+                const bool diskMatches = saved.value(QStringLiteral("library/memos/") + key).toString() == expected;
+                // Only booleans: no personal file paths or memo content in a
+                // public native diagnostic. This also distinguishes a stale
+                // list pointer from a genuinely failed persistence write.
+                result["memoCommitDiagnostics"] = QJsonObject{
+                    {"cardFound", true}, {"listVisible", true},
+                    {"modelMatches", modelMatches}, {"tipMatches", tipMatches},
+                    {"localSettingsMatch", diskMatches},
+                    {"editorOpen", bool(list->findChild<QLineEdit*>(
+                        QStringLiteral("LunaPaperMemoEditor")))}};
+                return modelMatches && tipMatches && diskMatches;
+            };
             auto openContextMemo = [&] {
+                QListWidgetItem* currentCard = nullptr;
+                QListWidget* currentList = integrationList(host, files[0], &currentCard);
+                if (!currentList || !currentCard) return false;
+                list = currentList;
+                paper = currentCard;
+                list->scrollToItem(paper);
+                QCoreApplication::processEvents();
+                const QRect liveCard = list->visualItemRect(paper);
+                const QPoint currentMemoLocation(liveCard.left() + 160, liveCard.top() + 293);
+                if (liveCard.height() != 322 ||
+                    !list->viewport()->rect().contains(currentMemoLocation)) return false;
                 bool chosen = false;
                 QTimer menuPicker;
                 QObject::connect(&menuPicker, &QTimer::timeout, &host, [&] {
@@ -1197,7 +1384,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                     }
                 });
                 menuPicker.start(25);
-                const bool clicked = integrationClick(host, list->viewport(), memoLocation, true);
+                const bool clicked = integrationClick(host, list->viewport(), currentMemoLocation, true);
                 const bool focused = clicked && integrationWait([&] {
                     edit = list->findChild<QLineEdit*>(QStringLiteral("LunaPaperMemoEditor"));
                     return chosen && edit && edit->hasFocus();
@@ -1207,13 +1394,17 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             };
             integrationRequire(openContextMemo(), "Right-click paper memo context menu did not focus editor");
             integrationRequire(integrationType(QStringLiteral("초기 메모")) && integrationKey(VK_RETURN), "Real memo typing/Enter failed");
-            integrationRequire(integrationWait([&] { return paper->data(Qt::UserRole + 4).toString() == QStringLiteral("초기 메모"); }), "Memo Enter did not persist");
+            integrationRequire(integrationWait([&] { return liveMemo(QStringLiteral("초기 메모")); }),
+                               "Memo Enter did not persist in live card, tooltip and local settings");
             integrationRequire(openContextMemo(), "Right-click memo edit did not reopen");
             integrationRequire(integrationKey('A', true) && integrationType(memo), "Memo replacement input failed");
             auto* query = host.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch")); integrationRequire(integrationClick(host, query, query->rect().center()), "Memo focus-out click failed");
-            integrationRequire(integrationWait([&] { return paper->data(Qt::UserRole + 4).toString() == memo; }) && paper->toolTip().contains(memo), "Memo focus-out did not save with full tooltip");
+            integrationRequire(integrationWait([&] { return liveMemo(memo); }),
+                               "Memo focus-out did not persist in live card, tooltip and local settings");
             integrationRequire(integrationType(QStringLiteral("724")), "Memo search keyboard input failed");
-            integrationRequire(integrationWait([&] { return query->text() == QStringLiteral("724"); }) && !paper->isHidden(), "Paper memo search excluded A"); query->clear();
+            integrationRequire(integrationWait([&] { return query->text() == QStringLiteral("724") &&
+                liveMemo(memo) && !paper->isHidden(); }),
+                               "Paper memo search excluded the persisted A card"); query->clear();
             integrationRequire(host.screen()->grabWindow(0).save(report + ".memo.png"), "Could not capture integrated memo");
             const QByteArray originalThumb = integrationBytes(thumbnail); const QString moved = QFileInfo(files[0]).absolutePath() + "/Moved"; QDir().mkpath(moved);
             bool menuChosen = false; QTimer moveUi;
@@ -1221,10 +1412,53 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) integrationDirectory(dialog, moved);
                 else if (!menuChosen) if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget()))
                     for (auto* action : menu->actions()) if (action->text().startsWith(QStringLiteral("PDF와 썸네일 이동"))) { menuChosen = true; menu->setActiveAction(action); integrationKey(VK_RETURN); break; }
-            }); moveUi.start(30);
-            integrationRequire(integrationClick(host, list->viewport(), card.center(), true), "Real move context-menu mouse input failed");
+            });
+            // The memo edits and live metadata refresh above may replace list
+            // items and move their rows. The old 'card' rect was captured
+            // before those operations and can right-click a different PDF.
+            QListWidgetItem* movePaper = nullptr;
+            QListWidget* moveList = integrationList(host, files[0], &movePaper);
+            integrationRequire(moveList && movePaper && moveList->isVisible(),
+                "A card missing before real move input");
+            moveList->scrollToItem(movePaper, QAbstractItemView::PositionAtCenter);
+            QCoreApplication::processEvents();
+            moveList = integrationList(host, files[0], &movePaper);
+            integrationRequire(moveList && movePaper, "A card replaced during move setup");
+            const QPoint movePoint = moveList->visualItemRect(movePaper).center();
+            const bool movingExpectedCard =
+                moveList->viewport()->rect().contains(movePoint) &&
+                moveList->itemAt(movePoint) == movePaper &&
+                DocumentClaim::identity(movePaper->data(Qt::UserRole).toString()) ==
+                    DocumentClaim::identity(files[0]);
+            result["moveClickedExpectedCard"] = movingExpectedCard;
+            integrationRequire(movingExpectedCard, "Move target changed after memo/list refresh");
+            moveUi.start(30);
+            integrationRequire(integrationClick(host, moveList->viewport(), movePoint, true),
+                "Real move context-menu mouse input failed");
             const QString movedPdf = moved + "/A.pdf", movedThumb = moved + "/A.luna-thumb.png";
-            integrationRequire(integrationWait([&] { return QFileInfo::exists(movedPdf) && ready(a) && !a->property("LunaMoveRestorePending").toBool() && DocumentClaim::identity(a->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(movedPdf); }), "PDF move did not reopen the same A tab"); moveUi.stop();
+            const bool moveReopened = integrationWait([&] {
+                return QFileInfo::exists(movedPdf) && ready(a) &&
+                    !a->property("LunaMoveRestorePending").toBool() &&
+                    DocumentClaim::identity(a->getProgramController()->getOriginalFileName()) ==
+                    DocumentClaim::identity(movedPdf);
+            });
+            moveUi.stop();
+            result["pairedMoveDiagnostics"] = QJsonObject{
+                {"menuChosen", menuChosen},
+                {"movedPdfExists", QFileInfo::exists(movedPdf)},
+                {"originalPdfExists", QFileInfo::exists(files[0])},
+                {"thumbnailMoved", QFileInfo::exists(movedThumb)},
+                {"editorReady", ready(a)},
+                {"editorHasDocument", bool(a->getProgramController()->getDocument())},
+                {"moveRestorePending", a->property("LunaMoveRestorePending").toBool()},
+                {"sourceOpenAtMove", a->property("LunaMoveSourceOpened").toBool()},
+                {"fileMoveSucceeded", a->property("LunaMoveFileSucceeded").toBool()},
+                {"claimAccepted", a->property("LunaMoveClaimAccepted").toBool()},
+                {"controllerPathIdentity", DocumentClaim::identity(a->getProgramController()->getOriginalFileName())},
+                {"expectedPathIdentity", DocumentClaim::identity(movedPdf)},
+                {"tabCount", host.documentCount()}};
+            write();
+            integrationRequire(moveReopened, "PDF move did not reopen the same A tab");
             integrationRequire(menuChosen && !QFileInfo::exists(files[0]) && !QFileInfo::exists(thumbnail) && integrationBytes(movedPdf) == savedA && integrationBytes(movedThumb) == originalThumb && host.documentCount() == 1, "Paired move lost bytes or duplicated the tab");
             QTimer selectMoved; QObject::connect(&selectMoved, &QTimer::timeout, &host, [&] { if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) integrationDirectory(dialog, moved); });
             selectMoved.start(30); location->click(); selectMoved.stop();

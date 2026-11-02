@@ -58,6 +58,19 @@ class SnapshotSourceContract(unittest.TestCase):
         self.assertIn('synthetic-paper.luna-meta.json', native)
         self.assertIn('synthetic-paper.luna-thumb.png', native)
 
+    def test_fresh_process_restart_checks_real_qsettings_disk_state(self):
+        native = NATIVE.read_text(encoding="utf-8")
+        self.assertIn("#include <QProcess>", native)
+        self.assertIn("--verify-fresh-process", native)
+        self.assertIn("freshProcess.waitForStarted(10000)", native)
+        self.assertIn("freshProcess.waitForFinished(15000)", native)
+        self.assertIn("freshProcess.exitCode() == 0", native)
+        self.assertIn("fresh process reads moved PDF bibliography", native)
+        self.assertIn("fresh process retains manual provenance", native)
+        self.assertIn("fresh process retains 429 diagnostic", native)
+        self.assertIn("QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsRoot)", native)
+        self.assertIn("QTemporaryDir root", native)
+
     def test_native_regressions_seed_isolated_settings(self):
         code = NATIVE.read_text(encoding="utf-8")
         for expected in ('QTemporaryDir', 'Hao Fang', 'legacy author must not reappear',

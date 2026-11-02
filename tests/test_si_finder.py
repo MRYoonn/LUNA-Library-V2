@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from si_finder import (API_ROOT, lookup_acs_figshare, normalize_doi,
-                       safe_figshare_landing, official_json)
+                       safe_figshare_landing, safe_si_filename, official_json)
 
 DOI = "10.1021/jacs.6c01234"  # Synthetic test identifier; not a real paper.
 
@@ -102,6 +102,33 @@ class SiFinderTests(unittest.TestCase):
             {"name": "evil\\name.pdf"}, {"name": "line\n.pdf"}])})
         result = lookup_acs_figshare(DOI, api)
         self.assertEqual([c.filename for c in result.candidates], ["good-si.pdf"])
+
+    def test_nfkc_filename_normalization_must_remain_windows_safe(self):
+        # Compatibility forms can normalize into path separators, reserved
+        # devices, or a forbidden trailing dot despite safe-looking originals.
+        unsafe = (
+            "SI／appendix.pdf", "SI＼appendix.pdf", "SI：appendix.pdf",
+            "SI？appendix.pdf", "SI﹨appendix.pdf", "ＣＯＮ.pdf",
+            "ＮＵＬ.txt", "data．",
+        )
+        for name in unsafe:
+            with self.subTest(name=name):
+                self.assertFalse(safe_si_filename(name))
+        self.assertTrue(safe_si_filename("한국어_ΔE.cif"))
+        self.assertTrue(safe_si_filename("Ｋ-structure.cif"))
+
+    def test_nfkc_unsafe_file_is_not_a_local_matching_candidate(self):
+        files = [
+            {"name": "SI／other.pdf", "id": 401},
+            {"name": "ＣＯＮ.pdf", "id": 402},
+            {"name": "normal-Δ.cif", "id": 403},
+        ]
+        result = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=files)}))
+        self.assertEqual(result.status, "partial")
+        self.assertEqual([(c.filename, c.file_id) for c in result.candidates],
+                         [("normal-Δ.cif", 403)])
+        self.assertIn("invalid_file_entries=2", result.diagnostic)
 
     def test_unsafe_public_filenames_cannot_be_offered_as_local_si_labels(self):
         # Figshare JSON is untrusted display data. Windows reserved names,

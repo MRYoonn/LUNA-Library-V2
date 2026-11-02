@@ -47,6 +47,39 @@ class LandingVerifierTests(unittest.TestCase):
         with patch.dict(os.environ, {"LUNA_SI_OFFLINE": "1"}):
             self.assertEqual(verify_landing_candidates(fixture(), forbidden).status, "offline")
 
+    def test_restored_untrusted_fallback_is_canonicalized_after_probe(self):
+        source = SiLookupResult(DOI, "candidates", fixture(1).candidates,
+                                "https://evil.invalid/phishing")
+        checked = verify_landing_candidates(source, lambda _: "not_found")
+        self.assertEqual(checked.status, "needs_review")
+        self.assertEqual(checked.fallback_url, "https://doi.org/" + DOI)
+        self.assertEqual(checked.candidates[0].status, "landing_unchecked_not_found")
+        self.assertEqual(source.fallback_url, "https://evil.invalid/phishing")
+
+    def test_offline_restored_verified_candidate_is_reset_without_network(self):
+        stale = SiCandidate(123, DOI, "Synthetic", "si.pdf", BASE + "123",
+                            status="landing_verified")
+        source = SiLookupResult(DOI, "candidates", (stale,),
+                                "https://evil.invalid/phishing")
+        result = verify_landing_candidates(source, lambda _: self.fail("network"),
+                                           offline=True)
+        self.assertEqual(result.status, "offline")
+        self.assertEqual(result.candidates[0].status, "landing_unchecked_offline")
+        self.assertEqual(result.fallback_url, "https://doi.org/" + DOI)
+        self.assertEqual(source.candidates[0].status, "landing_verified")
+
+    def test_invalid_parent_has_no_untrusted_fallback_even_offline(self):
+        source = SiLookupResult("invalid-doi", "candidates", fixture(1).candidates,
+                                "https://evil.invalid/phishing")
+        for offline in (False, True):
+            with self.subTest(offline=offline):
+                checked = verify_landing_candidates(
+                    source, lambda _: self.fail("network"), offline=offline)
+                self.assertEqual(checked.fallback_url, "")
+                self.assertEqual(checked.status, "offline" if offline else "needs_review")
+                self.assertTrue(all(c.status.startswith("landing_unchecked_")
+                                    for c in checked.candidates))
+
     def test_non_candidates_unchanged(self):
         source = fixture(status="rate_limited")
         self.assertIs(verify_landing_candidates(source, lambda _: self.fail("network")), source)

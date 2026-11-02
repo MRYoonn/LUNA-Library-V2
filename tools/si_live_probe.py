@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import unicodedata
 
 try:
     from tools.si_finder import (lookup_acs_figshare, normalize_doi, safe_figshare_landing,
@@ -56,6 +57,36 @@ def _verified_identity(candidate: dict, doi: str) -> bool:
                  (type(file_id) is int and 0 < file_id < 10**15)))
 
 
+
+def _verified_collection(candidates: object, doi: str) -> bool:
+    """Fail closed on duplicate SI identities in restored acceptance reports.
+
+    The finder and landing verifier already reject ambiguous file identities.
+    Recheck at the CLI boundary because externally assembled reports can claim
+    verified without having passed those earlier gates.
+    """
+    if not isinstance(candidates, list) or not candidates:
+        return False
+    seen_names: set[tuple[int, str]] = set()
+    seen_file_ids: set[int] = set()
+    for candidate in candidates:
+        if (not isinstance(candidate, dict)
+                or candidate.get("status") != "landing_verified"
+                or not _verified_identity(candidate, doi)):
+            return False
+        name_key = (candidate["article_id"],
+                    unicodedata.normalize("NFKC", candidate["filename"]).casefold())
+        if name_key in seen_names:
+            return False
+        seen_names.add(name_key)
+        file_id = candidate.get("file_id")
+        if file_id is not None:
+            if file_id in seen_file_ids:
+                return False
+            seen_file_ids.add(file_id)
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--doi", required=True, help="One public ACS article DOI")
@@ -83,10 +114,9 @@ def main(argv: list[str] | None = None) -> int:
         accepted = (report["verification_scope"] == "landing_html_only"
                     and bool(doi) and doi.startswith("10.1021/")
                     and result.get("doi") == doi
+                    and result.get("fallback_url") == "https://doi.org/" + doi
                     and result["status"] == "verified"
-                    and isinstance(candidates, list) and bool(candidates)
-                    and all(isinstance(c, dict) and c.get("status") == "landing_verified"
-                            and _verified_identity(c, doi) for c in candidates)
+                    and _verified_collection(candidates, doi)
                     and (args.expected_article_id is None or
                          any(c["article_id"] == args.expected_article_id for c in candidates)))
         report["landing_http_gate"] = "pass" if accepted else "fail"

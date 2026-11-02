@@ -860,7 +860,7 @@ public:
         return pdfCounts_.value(QDir::cleanPath(folder).toCaseFolded(), 0);
     }
     bool countsAvailable() const { return countsReady_; }
-    // One bounded-background scan aggregates each PDF into all ancestors.
+    // Count PDF files in each directory without adding descendants.
     // Never enumerate filesystem contents from data()/paint(), which would
     // make expanding a folder block the Qt UI and the PDF reader.
     void refreshPdfCounts(const QString& root) {
@@ -880,7 +880,7 @@ public:
         }
         if (role == Qt::DisplayRole && index.isValid() && index.column() == 0 && isDir(index) && countsReady_) {
             const QString label = QFileSystemModel::data(index, role).toString();
-            // Each count includes descendants; the actual filename/path stays unchanged.
+            // Folder badge counts PDFs directly inside that folder.
             return QStringLiteral("%1  ·  %2").arg(label).arg(pdfCount(filePath(index)));
         }
         return QFileSystemModel::data(index, role);

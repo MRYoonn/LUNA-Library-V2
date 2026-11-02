@@ -809,3 +809,56 @@ publisher PDFs, verify their bytes privately, capture PR #16 native snapshots
 at an exact Windows build SHA, then test real HTTP 429/404, QSettings and
 GUI file-move/restart. Do not commit any real PDF, report, or user settings.
 Keep Draft PR #18; no merge or release.
+
+
+### Follow-up 2026-11-03 — capture-time PDF identity binding
+
+**Root cause:** The earlier `--pdf-dir` integrity check proved that the
+goldset-declared PDF bytes existed locally, but the scorer joined the native
+prediction to those bytes using only an opaque case ID. Two independently
+captured snapshots could be swapped between cases while all goldset PDF hashes
+still matched. This was a **measurement-identity gap**, not a defect in the
+production DOI/Crossref/OpenAlex extractor.
+
+**Fix:** With `--require-real --pdf-dir`, each prediction case must now
+include a 64-hex `source_sha256` matching that case's goldset
+`source.sha256`. Missing, malformed, or mismatched bindings block the
+report with exit code **2**; neither hashes nor private paths appear in error
+messages. The standalone QtCore `captureCase(opaqueId, visibleRecord,
+localPdfSha256)` accepts an optional caller-supplied hash, rejects invalid or
+all-zero values, and emits a lowercase `source_sha256` without reading any
+PDF or touching production QSettings. Legacy synthetic two-argument calls
+remain supported. The local driver must independently hash the **exact PDF
+opened for the captured record** at capture time; copying the goldset digest
+without measuring that PDF defeats the purpose. Neither hash matching nor
+this binding authenticates publisher identity or independently verifies
+human gold labels.
+
+**Synthetic reproduction:** Construct two goldset cases with distinct
+fabricated PDF hashes and otherwise correct observed fields. Swap their
+`source_sha256` values while keeping case IDs unchanged. Previously the
+`--pdf-dir` integrity check could pass; now the scorer blocks with
+`capture PDF binding mismatch`. Missing or malformed bindings also block.
+The Python regression checks all three, the native QtCore harness checks
+optional/invalid digest handling, and source-contract tests check the
+pure read-only adapter.
+
+**Changed:** `tools/bibliography_accuracy_lab.py`,
+`tests/native_accuracy/snapshot_adapter.h`,
+`tests/native_accuracy/main.cpp`,
+`tests/test_bibliography_accuracy_lab.py`,
+`tests/test_accuracy_snapshot_source_contract.py`, and this handoff.
+Previous exact-HEAD GitHub Actions
+[#41534233194](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41534233194)
+was **SUCCESS** for `77b9c3bf` (Python and Windows QtCore), **not** for this
+change. Check new exact-HEAD CI before claiming PASS.
+
+**Next exact steps:** (1) Check Python/Windows QtCore CI at the new commit,
+repair any failure; (2) implement/review a local-only driver that hashes
+the actual authorized PDF while capturing PR #16's record and supplies
+`source_sha256`; (3) independently label 20+ ACS/RSC/Wiley/Nature/Elsevier
+PDFs, then score with `--require-real --pdf-dir --expected-engine-commit`;
+(4) separately validate real HTTP 429/404, legacy QSettings, Windows GUI,
+manual-value protection and physical move/restart. No real extraction
+accuracy is claimed. PR #18 remains Draft; no main/other PR changes,
+auto-merge or release.

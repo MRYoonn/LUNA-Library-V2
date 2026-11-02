@@ -338,3 +338,30 @@ positive value or an explicit null. The CLI also refuses `--report` when the
 resolved output path is the input goldset, preventing accidental destruction of
 private source labels. Two synthetic-only regression tests cover these guards.
 Neither check authenticates publisher PDFs or measures LUNA extraction quality.
+
+## Follow-up — native persistence and failure regression (2026-11-02)
+
+The isolated `tests/native_accuracy/main.cpp` now exercises **real QtCore
+`Bibliography` storage operations** against a disposable `QTemporaryDir`
+QSettings root. It does not read personal settings, PDF files, or network data.
+
+Synthetic native assertions cover:
+- An explicit `saveEdits` title correction retains `titleSource=manual` when a
+  DOI-matched Crossref-shaped response has a conflicting title; the record is
+  marked `needs_review` instead of silently overwriting the human value.
+- `recordLookupFailure` for `offline`, `rate_limited` (HTTP 429 equivalent)
+  and `not_found` (HTTP 404 equivalent) keeps original bibliography fields
+  and records non-success status. These are **injected status codes**, not live
+  HTTP transport tests.
+- `relocate` preserves manually edited title, provenance and review status
+  across a **new Bibliography instance** (restart simulation); the old identity
+  no longer resolves in the new instance. A pre-existing destination record
+  blocks relocation without overwriting either record.
+
+These are **bibliography record identity** tests, not physical PDF/sidecar
+file moves, rollback, Windows GUI card checks or a real process restart.
+The isolated Windows QtCore workflow is the required compile/CTest gate at
+the exact commit. Until it finishes successfully, the added assertions are
+**source-only and unverified**. Real 20+ publisher goldset, live HTTP
+responses, legacy personal QSettings, and the production PDF move integration
+remain outstanding. Keep Draft and do not merge/release.

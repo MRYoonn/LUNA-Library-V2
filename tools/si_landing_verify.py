@@ -89,6 +89,8 @@ def verify_landing_candidates(
                        diagnostic="invalid_parent_doi")
     cache: dict[str, str] = {}
     checked = []
+    probes_sent = 0
+    throttled = False
     for candidate in result.candidates:
         url = candidate.landing_url
         # Validate the candidate-to-landing identity on EVERY item, including
@@ -99,18 +101,27 @@ def verify_landing_candidates(
             code = "unsafe_url"
         else:
             if url not in cache:
-                if len(cache) >= MAX_LANDINGS:
+                if throttled:
+                    # Respect provider back-pressure across distinct landings.
+                    # Previously later URLs were still probed after HTTP 429.
+                    cache[url] = "rate_limited"
+                elif probes_sent >= MAX_LANDINGS:
                     cache[url] = "verification_limit"
                 else:
+                    probes_sent += 1
                     try:
                         response = probe(url)
-                    except (HTTPError, URLError, TimeoutError, OSError, ValueError):
+                    except HTTPError as exc:
+                        response = "rate_limited" if exc.code == 429 else "network_unchecked"
+                    except (URLError, TimeoutError, OSError, ValueError):
                         response = "network_unchecked"
                     cache[url] = response if response in (
                         "reachable_html", "redirect_unchecked", "rate_limited",
                         "not_found", "non_html", "http_unchecked",
                         "network_unchecked", "head_unsupported", "unsafe_url"
                     ) else "network_unchecked"
+                    if cache[url] == "rate_limited":
+                        throttled = True
             code = cache[url]
         status = "landing_verified" if code == "reachable_html" else "landing_unchecked_" + code
         checked.append(replace(candidate, status=status))
@@ -118,5 +129,6 @@ def verify_landing_candidates(
     all_verified = verified == len(checked) and result.status == "candidates"
     overall = "verified" if all_verified else "partial_verified" if verified else "needs_review"
     return replace(result, status=overall, candidates=tuple(checked),
-                   diagnostic=f"landings_checked={min(len(cache), MAX_LANDINGS)};"
-                              f"landing_entries_verified={verified};search_partial={int(result.status == 'partial')}")
+                   diagnostic=f"landings_checked={probes_sent};"
+                              f"landing_entries_verified={verified};search_partial={int(result.status == 'partial')};"
+                              f"landing_rate_limited={int(throttled)}")

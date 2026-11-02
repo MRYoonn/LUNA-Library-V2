@@ -365,3 +365,7 @@ the exact commit. Until it finishes successfully, the added assertions are
 **source-only and unverified**. Real 20+ publisher goldset, live HTTP
 responses, legacy personal QSettings, and the production PDF move integration
 remain outstanding. Keep Draft and do not merge/release.
+
+## Isolated stale-editor and invalid-DOI regression (2026-11-02)
+
+`tests/native_accuracy/main.cpp` now exercises the existing `Bibliography::saveEdits` implementation against disposable QtCore `QSettings`. It opens a synthetic edit snapshot, applies a later background journal/volume update, saves only the human-edited title, and checks that provider fields/provenance survive. It also submits a malformed manual DOI together with a title edit and verifies that **neither** field nor the status is partially persisted; a new `Bibliography` object reads the durable result. These are isolated persistence-contract tests, **not** an actual concurrent Windows GUI, provider HTTP request, or real PDF run. Keep any user settings, PDFs and raw snapshots outside GitHub.

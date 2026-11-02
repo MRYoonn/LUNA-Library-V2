@@ -179,6 +179,7 @@ def lookup_acs_figshare(
         seen: set[int] = set()
         rejected = 0
         failed_details = 0
+        detail_rate_limited = 0
         truncated_files = 0
         invalid_file_entries = 0
         ambiguous_file_entries = 0
@@ -200,7 +201,17 @@ def lookup_acs_figshare(
             seen.add(article_id)
             try:
                 detail = request_json("GET", f"{API_ROOT}/articles/{article_id}", None)
-            except (ValueError, HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
+            except HTTPError as exc:
+                if exc.code == 429:
+                    # Stop immediately on the provider's back-pressure signal.
+                    # Continuing to request later article details can worsen
+                    # throttling and must not turn an incomplete lookup into
+                    # a definitive "not_found".
+                    detail_rate_limited = 1
+                    break
+                failed_details += 1
+                continue
+            except (ValueError, URLError, TimeoutError, OSError, json.JSONDecodeError):
                 failed_details += 1
                 continue
             if (not isinstance(detail, dict) or type(detail.get("id")) is not int
@@ -276,10 +287,12 @@ def lookup_acs_figshare(
         if candidates:
             # A rejected summary/detail makes the discovered set incomplete.
             # A full first page may conceal more records, even with zero files.
-            status = "partial" if (rejected or failed_details or truncated_files
+            status = "partial" if (rejected or failed_details or detail_rate_limited or truncated_files
                                    or invalid_file_entries or ambiguous_file_entries
                                    or ambiguous_file_ids or cross_article_file_id_entries
                                    or len(found) == MAX_ARTICLES) else "candidates"
+        elif detail_rate_limited:
+            status = "rate_limited"
         elif (rejected or failed_details or truncated_files or invalid_file_entries
               or ambiguous_file_entries or ambiguous_file_ids
               or cross_article_file_id_entries or len(found) == MAX_ARTICLES):
@@ -287,6 +300,7 @@ def lookup_acs_figshare(
         else:
             status = "not_found"
         diagnostic = (f"rejected={rejected};detail_failures={failed_details};"
+                      f"detail_rate_limited={detail_rate_limited};"
                       f"search_page_full={int(len(found) == MAX_ARTICLES)};"
                       f"file_lists_truncated={truncated_files};"
                       f"invalid_file_entries={invalid_file_entries};"

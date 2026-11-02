@@ -17,6 +17,14 @@ class TitleExtractorContracts(unittest.TestCase):
         cls.model = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
         cls.native = (ROOT / "tests/native_metadata/main.cpp").read_text(encoding="utf-8")
 
+    def test_msvc_compatible_regex_literals(self):
+        # QStringLiteral macro concatenates UTF-16 literal tokens; it cannot
+        # directly wrap the C++ raw R"(pattern)" spelling (Build #217 C2059).
+        self.assertNotIn('QStringLiteral(\n        R"(', self.title)
+        for key in ('bad', 'affiliation', 'authorList'):
+            self.assertIn('QRegularExpression ' + key + '(QString::fromUtf8(\n        R"(', self.title)
+        self.assertEqual(self.title.count('QString::fromUtf8(\n        R"('), 3)
+
     def test_windows_overlay_includes_new_title_header(self):
         overlay = (ROOT / "tools/apply_overlay.py").read_text(encoding="utf-8")
         workflow = (ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")

@@ -204,9 +204,9 @@ int main(int argc, char** argv) {
     const QString targetPdf = QDir(physicalTarget).filePath(pdfName);
     const QString targetThumb = QDir(physicalTarget).filePath(thumbName);
     const QString targetMeta = QDir(physicalTarget).filePath(metaName);
-    const QByteArray pdfBytes("%PDF-1.4\\n% fabricated fixture, not a publisher PDF\\n");
+    const QByteArray pdfBytes("%PDF-1.4\n% fabricated fixture, not a publisher PDF\n");
     const QByteArray thumbBytes("fabricated-thumbnail-bytes");
-    const QByteArray metaBytes("{\\"synthetic\\":true}");
+    const QByteArray metaBytes(R"({"synthetic":true})");
     const auto writeFixture = [](const QString& path, const QByteArray& bytes) {
         QFile file(path);
         return file.open(QIODevice::WriteOnly | QIODevice::NewOnly) &&

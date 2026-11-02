@@ -190,10 +190,17 @@ def validate_real_run(gold: dict, predictions: dict) -> None:
                     )
                 # Crossref and OpenAlex can legitimately be combined, but
                 # contradictory single-provider claims need human review.
-                if len(set(provenance)) > 1 and "crossref + openalex" not in provenance:
-                    raise DatasetError(
-                        f"real run/{case['id']}: conflicting automatic provenance for {field}"
-                    )
+                if len(set(provenance)) > 1:
+                    # A composite provider source can coexist with either of
+                    # its two providers, but NOT with PDF metadata or first-
+                    # page provenance. Previously the mere presence of the
+                    # composite label masked those unrelated source conflicts.
+                    provider_sources = {"crossref", "openalex", "crossref + openalex"}
+                    if ("crossref + openalex" not in provenance
+                            or any(value not in provider_sources for value in provenance)):
+                        raise DatasetError(
+                            f"real run/{case['id']}: conflicting automatic provenance for {field}"
+                        )
 
 
 def metric(tp: int, other: int) -> float | None:

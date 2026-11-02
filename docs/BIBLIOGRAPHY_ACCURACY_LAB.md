@@ -750,3 +750,10 @@ Next: collect >=20 distinct authorized/public publisher PDFs and independently
 review field labels; capture actual PR #16 read-only snapshots at the verified
 Windows build SHA; test live 429/404, legacy settings and GUI/move/restart
 separately. Keep PR #18 Draft and do not merge or release.
+
+### Follow-up 2026-11-03 — real-mode evidence placeholder gate
+
+- `--require-real` now rejects explicit `TBD`, `TODO`, `N/A`, `unknown`, `pending`, `placeholder`, `unverified`, and `-` evidence markers (case/outer-whitespace insensitive) for both positive fields and independently verified absence (`null`) labels. Previously such markers could satisfy the nonblank evidence check and yield a misleading real-mode structural PASS.
+- The scorer and read-only goldset inventory share the same placeholder policy; no production DOI engine, PDF4QT, QSettings or private files were changed.
+- Added fabricated-contract regression cases for positive title and null SI DOI evidence. **CI on the new exact HEAD is required**; no actual multi-publisher PDF precision/recall or Windows GUI validation is claimed.
+- Next: check exact-commit Python and Windows QtCore workflow results; if green, collect authorized/public 20+ PDF goldset, run private local hash/header audit and native snapshot capture, then report real field-wise metrics only with independently reviewed labels.

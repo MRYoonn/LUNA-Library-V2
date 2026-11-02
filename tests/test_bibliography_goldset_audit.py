@@ -1,5 +1,6 @@
 """Synthetic-only CLI tests; never a measurement of LUNA PDF accuracy."""
 import copy
+import hashlib
 import json
 import subprocess
 import sys
@@ -12,14 +13,21 @@ TOOL = ROOT / "tools" / "bibliography_goldset_audit.py"
 FIXTURE = ROOT / "tests" / "fixtures" / "bibliography_accuracy_goldset.synthetic.json"
 
 
-def run_audit(gold):
+def run_audit(gold, pdf_files=None):
     with tempfile.TemporaryDirectory() as folder:
         path = Path(folder) / "fabricated-goldset.json"
         report = Path(folder) / "fabricated-report.json"
         path.write_text(json.dumps(gold), encoding="utf-8")
+        cmd = [sys.executable, "-B", str(TOOL), "--goldset", str(path),
+               "--report", str(report)]
+        if pdf_files is not None:
+            pdf_dir = Path(folder) / "private-pdfs"
+            pdf_dir.mkdir()
+            for digest, content in pdf_files.items():
+                (pdf_dir / (digest + ".pdf")).write_bytes(content)
+            cmd += ["--pdf-dir", str(pdf_dir)]
         process = subprocess.run(
-            [sys.executable, "-B", str(TOOL), "--goldset", str(path),
-             "--report", str(report)],
+            cmd,
             capture_output=True, text=True, check=False,
         )
         result = json.loads(report.read_text(encoding="utf-8")) if report.exists() else None
@@ -147,6 +155,83 @@ class GoldsetCollectionAuditTests(unittest.TestCase):
             self.assertEqual(process.returncode, 2, process.stderr)
             self.assertIn("overwrite input goldset", process.stderr)
             self.assertEqual(input_path.read_text(encoding="utf-8"), gold)
+
+
+    def test_private_local_pdf_hash_match_is_not_extraction_accuracy(self):
+        gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        case = copy.deepcopy(gold["cases"][0])
+        payload = b"%PDF-1.7\\nsynthetic hash test only\\n%%EOF\\n"
+        digest = hashlib.sha256(payload).hexdigest()
+        case["source"] = {"kind": "public", "sha256": digest}
+        case["evidence"] = {field: "synthetic review label"
+                            for field in case["expected"]}
+        gold["cases"] = [case]
+        process, report = run_audit(gold, {digest: payload})
+        self.assertEqual(process.returncode, 1, process.stderr)
+        self.assertEqual(report["pdf_integrity_audit"], {
+            "status": "checked", "ready": True, "total": 1,
+            "hash_matched": 1, "issues": [],
+        })
+        self.assertFalse(report["ready"])  # Still below 20-PDF coverage.
+        self.assertIn("not_extraction_accuracy", report["assessment"])
+
+    def test_local_pdf_missing_mismatch_and_invalid_header_are_reported(self):
+        gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        case = copy.deepcopy(gold["cases"][0])
+        payload = b"%PDF-1.7\\nsynthetic correct\\n%%EOF\\n"
+        digest = hashlib.sha256(payload).hexdigest()
+        case["source"] = {"kind": "permissioned", "sha256": digest}
+        case["evidence"] = {field: "synthetic review label"
+                            for field in case["expected"]}
+        gold["cases"] = [case]
+        for files, reason in (
+            ({}, "missing"),
+            ({digest: b"%PDF-1.7\\nwrong bytes"}, "sha256_mismatch"),
+            ({digest: b"not a PDF"}, "invalid_pdf_header"),
+        ):
+            with self.subTest(reason=reason):
+                process, report = run_audit(gold, files)
+                self.assertEqual(process.returncode, 1, process.stderr)
+                integrity = report["pdf_integrity_audit"]
+                self.assertFalse(integrity["ready"])
+                self.assertEqual(integrity["hash_matched"], 0)
+                self.assertEqual(integrity["issues"], [{
+                    "case_id": case["id"], "reason": reason,
+                }])
+                self.assertNotIn("private-pdfs", json.dumps(report))
+
+    def test_local_pdf_symlink_is_rejected_without_path_leak(self):
+        gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        case = copy.deepcopy(gold["cases"][0])
+        payload = b"%PDF-1.7\\nsynthetic symlink target\\n%%EOF\\n"
+        digest = hashlib.sha256(payload).hexdigest()
+        case["source"] = {"kind": "public", "sha256": digest}
+        case["evidence"] = {field: "synthetic review label"
+                            for field in case["expected"]}
+        gold["cases"] = [case]
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            target = base / "private-original.pdf"
+            target.write_bytes(payload)
+            pdf_dir = base / "pdfs"
+            pdf_dir.mkdir()
+            try:
+                (pdf_dir / (digest + ".pdf")).symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest("local symlinks unavailable")
+            path = base / "gold.json"
+            path.write_text(json.dumps(gold), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, "-B", str(TOOL), "--goldset", str(path),
+                 "--pdf-dir", str(pdf_dir)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            audit = json.loads(result.stdout)["pdf_integrity_audit"]
+            self.assertEqual(audit["issues"], [{
+                "case_id": case["id"], "reason": "unsafe_file",
+            }])
+            self.assertNotIn(str(target), result.stdout)
 
     def test_invalid_json_is_not_a_ready_report(self):
         with tempfile.TemporaryDirectory() as folder:

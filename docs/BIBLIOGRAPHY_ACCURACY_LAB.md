@@ -424,6 +424,24 @@ native prediction capture, and real Windows GUI/network/move/restart acceptance
 remain outstanding. Do not run this tool against the user's original library
 files automatically or upload any local artifacts.
 
+## Follow-up 2026-11-03 — duplicate PDF sample protection
+
+The read-only goldset inventory now marks a repeated non-synthetic
+`source.sha256` as `duplicate_pdf_sha256`, naming only the two opaque case
+IDs. The real-run accuracy scorer also rejects the repeated digest before
+calculating precision/recall. Without this guard, one physical PDF could be
+counted multiple times as independent publisher evidence and inflate both
+coverage and accuracy denominators. Synthetic fixtures remain excluded from
+the real-PDF uniqueness check. The report never prints source digests or
+local PDF paths for this error.
+
+Two new synthetic-only regressions cover the inventory and real-run rejection.
+No actual ACS/RSC/Wiley/Nature/Elsevier PDF, native Windows capture or personal
+QSettings was used. Verify exact-HEAD Python and Windows QtCore CI; a green
+synthetic test is **not** a real publisher precision/recall measurement.
+Next collect >=20 **distinct** authorized/public PDFs, independently verify
+field evidence, and score read-only PR #16 snapshots at the exact build SHA.
+
 ## Follow-up 2026-11-02 — protected-value snapshot completeness
 
 The offline regression scorer now requires a `must_preserve` field to exist

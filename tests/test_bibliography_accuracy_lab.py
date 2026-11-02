@@ -1,5 +1,6 @@
 """Offline synthetic harness tests; NOT LUNA extraction accuracy measurements."""
 import copy
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -796,6 +797,84 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
             result = json.loads(report.read_text(encoding="utf-8"))
             self.assertEqual(result["engine_commit"], "a" * 40)
             self.assertEqual(result["assessment"], "provided_real_goldset_not_independently_verified")
+
+
+    def test_real_mode_opt_in_pdf_bytes_gate_detects_missing_tampered_and_matched(self):
+        # Fake PDF-header bytes ONLY: exercises the integrity contract, not
+        # publisher provenance, a PDF parser, or native extraction accuracy.
+        gold, predictions = sample()
+        pdf_bytes = {}
+        for index, case in enumerate(gold["cases"]):
+            content = b"%PDF-1.4\\nsynthetic-integrity-only-" + str(index).encode() + b"\\n%%EOF\\n"
+            digest = hashlib.sha256(content).hexdigest()
+            case["source"] = {"kind": "public", "sha256": digest}
+            case["evidence"] = {field: "fabricated test label" for field in case["expected"]}
+            pdf_bytes[digest] = content
+        predictions["engine_commit"] = "a" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        seed_synthetic_audit(predictions)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            pdf_dir = root / "local-only"
+            pdf_dir.mkdir()
+            goldfile, predfile, report = (root / name for name in
+                                          ("gold.json", "pred.json", "score.json"))
+            goldfile.write_text(json.dumps(gold), encoding="utf-8")
+            predfile.write_text(json.dumps(predictions), encoding="utf-8")
+            cmd = [sys.executable, "-B", str(TOOL), "--goldset", str(goldfile),
+                   "--predictions", str(predfile), "--require-real",
+                   "--pdf-dir", str(pdf_dir), "--report", str(report)]
+            missing = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            self.assertEqual(missing.returncode, 1, missing.stderr)
+            result = json.loads(report.read_text(encoding="utf-8"))
+            self.assertFalse(result["pass"])
+            self.assertEqual(result["pdf_integrity_audit"]["hash_matched"], 0)
+            self.assertEqual({entry["reason"] for entry in result["pdf_integrity_audit"]["issues"]},
+                             {"missing"})
+            self.assertNotIn(str(pdf_dir), json.dumps(result))
+            self.assertNotIn(next(iter(pdf_bytes)), json.dumps(result))
+            for digest, content in pdf_bytes.items():
+                (pdf_dir / (digest + ".pdf")).write_bytes(content)
+            matched = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            self.assertEqual(matched.returncode, 0, matched.stderr)
+            result = json.loads(report.read_text(encoding="utf-8"))
+            self.assertTrue(result["pass"])
+            self.assertTrue(result["pdf_integrity_audit"]["ready"])
+            self.assertEqual(result["pdf_integrity_audit"]["hash_matched"], len(pdf_bytes))
+            self.assertEqual(result["assessment"], "provided_real_goldset_not_independently_verified")
+            digest = next(iter(pdf_bytes))
+            (pdf_dir / (digest + ".pdf")).write_bytes(b"%PDF-1.4\\ntampered\\n%%EOF\\n")
+            mismatch = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            self.assertEqual(mismatch.returncode, 1, mismatch.stderr)
+            result = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(result["pdf_integrity_audit"]["hash_matched"], len(pdf_bytes) - 1)
+            self.assertIn("sha256_mismatch",
+                          {entry["reason"] for entry in result["pdf_integrity_audit"]["issues"]})
+
+    def test_real_mode_pdf_bytes_gate_rejects_unsafe_cli_paths(self):
+        gold, predictions = sample()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            goldfile, predfile = root / "gold.json", root / "pred.json"
+            goldfile.write_text(json.dumps(gold), encoding="utf-8")
+            predfile.write_text(json.dumps(predictions), encoding="utf-8")
+            pdf_dir = root / "local-only"
+            pdf_dir.mkdir()
+            cmd = [sys.executable, "-B", str(TOOL), "--goldset", str(goldfile),
+                   "--predictions", str(predfile), "--pdf-dir", str(pdf_dir)]
+            no_real = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            self.assertEqual(no_real.returncode, 2)
+            self.assertIn("--pdf-dir requires --require-real", no_real.stderr)
+            nested_report = pdf_dir / "private-report.json"
+            unsafe = subprocess.run(cmd + ["--require-real", "--report", str(nested_report)],
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(unsafe.returncode, 2)
+            self.assertIn("report path must be outside", unsafe.stderr)
+            self.assertFalse(nested_report.exists())
+            invalid = subprocess.run(cmd[:-1] + [str(goldfile), "--require-real"],
+                                     capture_output=True, text=True, check=False)
+            self.assertEqual(invalid.returncode, 2)
+            self.assertIn("existing non-symlink directory", invalid.stderr)
 
     def test_cli_exit_codes_and_local_report(self):
         gold = FIXTURES / "bibliography_accuracy_goldset.synthetic.json"

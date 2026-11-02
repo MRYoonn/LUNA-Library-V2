@@ -407,6 +407,32 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         si["source"]["sha256"] = f"{si_index + 1:064x}"
         self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
 
+    def test_real_mode_rejects_placeholder_evidence_for_positive_and_null_labels(self):
+        # Fabricated fixtures only: placeholder strings are not independently
+        # reviewed evidence, even if the observed value happens to match.
+        gold, predictions = sample()
+        for index, case in enumerate(gold["cases"]):
+            case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
+            case["evidence"] = {field: "fabricated contract evidence"
+                                for field in case["expected"]}
+        predictions["engine_commit"] = "b" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        seed_synthetic_audit(predictions)
+        self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
+        main = gold["cases"][0]
+        si = next(case for case in gold["cases"] if case["id"] == "syn-rsc-si")
+        for case, field in ((main, "title"), (si, "doi")):
+            original = case["evidence"][field]
+            for placeholder in ("TBD", " n/A ", "Unverified", "pending", "unknown"):
+                with self.subTest(field=field, placeholder=placeholder):
+                    case["evidence"][field] = placeholder
+                    with self.assertRaisesRegex(
+                        lab.DatasetError, f"placeholder evidence for {field}"
+                    ):
+                        lab.score(gold, predictions, require_real=True)
+            case["evidence"][field] = original
+        self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
+
     def test_real_mode_rejects_manual_card_override_contamination(self):
         # Fabricated public-kind metadata: tests only the scorer contract.
         gold, predictions = sample()

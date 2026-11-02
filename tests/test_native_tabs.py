@@ -610,14 +610,22 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('if (complete) selectActiveCard();', scan)
         self.assertEqual(scan.count('selectActiveCard();'), 1)
         self.assertIn('list->count() == 1000 && !library->folderTimer_->isActive(); }, 15000', library)
-        # Recursive folder selection must include nested PDFs while present,
-        # then fully recover once the temporary child directory is removed.
-        self.assertIn('list->count() == 1001 &&', library)
-        self.assertIn('Parent folder did not include the 1000 child PDFs', library)
+        # #232: selected parent and count badges exclude nested PDFs;
+        # All Documents still enumerates nested 1000-PDF fixtures.
+        self.assertIn('library->model_->pdfCount(countRoot) == baselineCount &&', library)
+        self.assertIn('library->model_->pdfCount(subfolder.path()) == 1', library)
+        self.assertIn('Child PDF changed parent direct count or missed child count', library)
+        self.assertIn('checkpoint("scan-parent-direct")', library)
+        self.assertIn('Parent folder included child PDFs', library)
+        self.assertIn('library->scanAll();', library)
+        self.assertIn('library->allPdfs_->count() == 1001 &&', library)
+        self.assertIn('All Documents missed nested 1000 PDFs', library)
         self.assertIn('Parent folder omitted its own local PDF', library)
         self.assertIn('Library did not recover after nested 1000-PDF directory removal', library)
+        self.assertNotIn('Parent folder did not include the 1000 child PDFs', library)
+        self.assertNotIn('Child PDF did not increment its own folder and every ancestor', library)
         self.assertLess(
-            library.index('return fail("Parent folder did not include the 1000 child PDFs")'),
+            library.index('return fail("Parent folder included child PDFs")'),
             library.index('return fail("Library did not recover after nested 1000-PDF directory removal")')
         )
         self.assertIn('longestGuiGapMs=%4 beats=%5', library)

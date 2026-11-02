@@ -92,6 +92,22 @@ class ReleaseUpdateTests(unittest.TestCase):
         self.assertIn("User PDFs", script)
         self.assertNotIn("Remove-Item -LiteralPath $install", script)
 
+    def test_automatic_update_check_can_be_toggled_without_unattended_install(self):
+        source = (ROOT / "src/lunaupdater.h").read_text(encoding="utf-8")
+        shell = (ROOT / "src/lunatabs.cpp").read_text(encoding="utf-8")
+        for token in (
+            'QStringLiteral("LunaAutoUpdateCheck")',
+            'QStringLiteral("updater/autoCheckEnabled")',
+            'automatic_->setCheckable(true)',
+            'automatic_->setChecked(',
+            'if (!explicitRequest && !automatic_->isChecked()) return;',
+            'QAction* automaticAction() const',
+            'QMessageBox::question(&shell_, QStringLiteral("LUNA 업데이트")',
+        ):
+            self.assertIn(token, source)
+        self.assertIn('help->addAction(updater_->automaticAction())', shell)
+        self.assertIn('updater_->check(false);', shell)
+
     def test_updater_stages_before_closing_and_requires_healthy_restart(self):
         header = (ROOT / "src/lunaupdater.h").read_text(encoding="utf-8")
         script = (ROOT / "tools/LUNA-Update.ps1").read_text(encoding="utf-8")

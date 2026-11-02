@@ -80,6 +80,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QItemSelectionModel>
+#include <QMouseEvent>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>

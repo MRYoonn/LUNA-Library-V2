@@ -49,6 +49,27 @@ class SiFinderTests(unittest.TestCase):
         self.assertEqual(api.calls[1][0], "GET")
         self.assertNotIn("example.invalid", json.dumps(result.to_dict()))
 
+    def test_untrusted_public_title_is_not_display_or_matching_evidence(self):
+        # Figshare title is remote JSON, not a trusted local citation field.
+        for value in ("Fake\\u202e.pdf", "two\\nlines", {"text": "spoofed"},
+                      "x" * 241, ""):
+            with self.subTest(title=value):
+                detail = {**article(123), "title": value}
+                result = lookup_acs_figshare(
+                    DOI, FakeApi(details={123: detail}))
+                self.assertEqual(result.status, "partial")
+                self.assertEqual(len(result.candidates), 2)
+                self.assertTrue(all(c.title == "" for c in result.candidates))
+                self.assertIn("invalid_article_titles=1", result.diagnostic)
+
+    def test_printable_unicode_public_title_remains_available(self):
+        title = "Supporting Information — ΔG‡ 계산"
+        result = lookup_acs_figshare(
+            DOI, FakeApi(details={123: {**article(123), "title": title}}))
+        self.assertEqual(result.status, "candidates")
+        self.assertEqual([c.title for c in result.candidates], [title, title])
+        self.assertIn("invalid_article_titles=0", result.diagnostic)
+
     def test_multiple_articles_and_dedup(self):
         api = FakeApi(search=[{"id": 123}, {"id": 123}, {"id": 456}],
                       details={123: article(123), 456: article(456, files=[{"name": "table.xlsx"}])})

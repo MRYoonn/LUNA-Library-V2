@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import unicodedata
 from uuid import UUID
 
 try:
@@ -71,7 +72,10 @@ def audit_paired_move(root: str | Path, old_relative: str,
             return MoveAudit(False, "invalid_identity")
     except (ValueError, TypeError):
         return MoveAudit(False, "invalid_input")
-    if old.casefold() == new.casefold():
+    # Windows/UI path identities are NFKC + casefold, not plain casefold.
+    # A compatibility-only spelling change is not proof of a physical move;
+    # accepting it can rebind a saved SI to a pre-existing destination.
+    if unicodedata.normalize("NFKC", old).casefold() == unicodedata.normalize("NFKC", new).casefold():
         return MoveAudit(False, "ambiguous_move")
     base = Path(root)
     try:

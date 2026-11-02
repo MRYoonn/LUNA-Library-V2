@@ -276,6 +276,30 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         with self.assertRaises(lab.DatasetError):
             lab.score(gold, predictions, require_real=True)
 
+    def test_terminal_doi_punctuation_is_not_silently_removed(self):
+        # DOI suffix punctuation can be part of the registered identifier.
+        # The scorer must not turn a wrong extracted DOI into a true positive.
+        for suffix in (".", ","):
+            with self.subTest(suffix=suffix):
+                gold, predictions = sample()
+                original = gold["cases"][0]["expected"]["doi"]
+                predictions["cases"][0]["observed"]["doi"] = original + suffix
+                self.assertNotEqual(lab.normalize("doi", original),
+                                    lab.normalize("doi", original + suffix))
+                report = lab.score(gold, predictions)
+                self.assertFalse(report["pass"])
+                self.assertEqual(report["field_scores"]["doi"]["fp"], 1)
+                self.assertEqual(report["field_scores"]["doi"]["fn"], 1)
+                self.assertEqual(report["errors"][0]["field"], "doi")
+
+                # The same exact DOI, whether bare or in an official DOI URL,
+                # must still match without loosening the suffix comparison.
+                gold["cases"][0]["expected"]["doi"] = original + suffix
+                predictions["cases"][0]["observed"]["doi"] = (
+                    "https://doi.org/" + original + suffix
+                )
+                self.assertTrue(lab.score(gold, predictions)["pass"])
+
     def test_invalid_goldset_doi_is_rejected_even_if_prediction_matches(self):
         gold, predictions = sample()
         gold["cases"][0]["expected"]["doi"] = "not-a-doi"

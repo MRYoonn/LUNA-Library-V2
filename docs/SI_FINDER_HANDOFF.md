@@ -726,3 +726,36 @@ CI follow-up (exact source/test commit `ce4f1c7e`):
 completed **SUCCESS**: Python/offline/privacy, Linux Qt6 identity and Windows
 Qt6 identity/move suites all passed. This validates synthetic contracts only;
 it is not a live ACS/Figshare or Windows application integration result.
+
+## Follow-up — truncated Figshare file-ID collision quarantine (2026-11-02)
+
+- Rechecked current main `76e1fd7`, open Draft PR #13/#15/#16/#17,
+  Issue #9, and prior isolated CI #41433812741 (SUCCESS on older code).
+  The independent branch remains `agent/paper-si-finder-linker`.
+- **Bug:** `tools/si_finder.py` inspected only the first 40 file records
+  when collecting Figshare numeric file-ID ownership. An ID repeated in
+  record 41+ could leave a displayed file with ambiguous identity. A
+  repeated ID under an unsafe filename in the same article also escaped
+  the same-article duplicate check.
+- **Fix:** inspect numeric IDs across the entire already-received,
+  1-MB-bounded JSON file list before the 40-entry *display* cap. Quarantine
+  visible entries whose ID repeats within the article or in another
+  article's metadata, including hidden tail/unsafe-label records.
+  Do not expose/download tail files or change API request count.
+- `tests/test_si_finder.py`: three synthetic offline regressions cover
+  same-article truncated-tail collisions, cross-article hidden-tail
+  collisions, and invalid-label same-article collisions. Independent,
+  unambiguous SI candidates remain display-only, never auto-linked.
+- Source commit `1c82b715`; test commit `6cf88093`.
+  CI run [#41441474681](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41441474681)
+  was **queued** at the initial check. Do not call this new revision
+  PASS until the exact test HEAD's Python/privacy and Windows/Linux Qt6
+  jobs succeed. Earlier CI does not validate these new assertions.
+- Still unverified: real ACS/Figshare API, actual landing/SI-file
+  accessibility, Windows production GUI and physical move/rename/restart
+  under Issue #9. Keep PR #17 Draft; no merge, Release, or other branch edits.
+
+Next: inspect exact-test-HEAD CI, fix any failures, then run a permitted
+public ACS DOI live metadata/landing check without downloading SI files.
+Coordinate Windows app-level move/restart acceptance with the Issue #9
+owner before integrating UI.

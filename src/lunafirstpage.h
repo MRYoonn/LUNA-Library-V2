@@ -2,6 +2,7 @@
 #pragma once
 #include "lunabibliography.h"
 #include "lunametadataengine.h"
+#include "lunatitleextractor.h"
 #include "pdfdocument.h"
 #include "pdftextlayoutgenerator.h"
 #include "pdffont.h"
@@ -25,6 +26,8 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
     pdf::PDFICCProfileCache profiles;
     pdf::PDFOptionalContentActivity activity(&document,pdf::OCUsage::View,nullptr);
     QStringList pages;
+    QList<TitleExtraction::Line> firstPageLines;
+    double firstPageHeight = 0;
     for (int i=0; i<std::min<int>(3, int(catalog->getPageCount())); ++i) {
         const auto* page=catalog->getPage(i);
         if(!page) {pages.append(QString());continue;}
@@ -33,12 +36,13 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
             pdf::PDFMeshQualitySettings());
         generator.processContents();
         const auto layout=generator.createTextLayout();
-        struct Line {double x,y;QString text;};
+        struct Line {double x,y;QString text;double fontSize;};
         std::vector<Line> lines;
         const QTransform visual(1,0,0,-1,0,page->getMediaBox().height());
         for(const auto& block:layout.getTextBlocks())
             for(const auto& line:block.getLines()) {
                 QString text;
+                QList<double> characterSizes;
                 const auto& characters=line.getCharacters();
                 for(size_t j=0;j<characters.size();++j){
                     const auto& current=characters[j];
@@ -49,18 +53,24 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
                             text+=QLatin1Char(' ');
                     }
                     text+=current.character;
+                    if (!current.character.isSpace() && current.fontSize>=5 && current.fontSize<=72)
+                        characterSizes.append(current.fontSize);
                 }
+                std::sort(characterSizes.begin(),characterSizes.end());
+                const double textSize=characterSizes.isEmpty()?0.0:characterSizes[characterSizes.size()/2];
                 const QPointF position=visual.map(line.getTopLeft());
-                lines.push_back({position.x(),position.y(),text});
+                lines.push_back({position.x(),position.y(),text,textSize});
             }
         std::stable_sort(lines.begin(),lines.end(),[](const Line& a,const Line& b){
             return a.y != b.y ? a.y < b.y : a.x < b.x;
         });
         QString text;
         for(const auto& row:lines){
+            if (i==0) firstPageLines.append({row.text,row.x,row.y,row.fontSize});
             text+=row.text+QLatin1Char('\n');
             if(text.size()>=32000)break;
         }
+        if (i==0) firstPageHeight=page->getMediaBox().height();
         pages.append(text);
     }
     const QString first=pages.isEmpty()?QString():pages.first();
@@ -84,10 +94,19 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
             return {{"documentKind",QStringLiteral("supporting_information")},
                     {"doiStatus",QStringLiteral("needs_review")}};
     QVariantMap evidence=Bibliography::firstPageCitation(first);
-    // Preserve pre-integration behavior for PDFs with neither own journal
-    // evidence nor an unambiguous DOI. PDF printer metadata alone is not a
-    // publication identity.
-    if(evidence.isEmpty() && !Metadata::acceptableIdentity(candidates))return {};
+    const QVariantMap titleLayout=TitleExtraction::infer(firstPageLines,firstPageHeight);
+    const QVariantMap textualTitle=Bibliography::firstPageIdentity(first);
+    // A well-separated, prominent first-page title can be saved without DOI.
+    // Less certain candidates never become the displayed title automatically.
+    const QString title=titleLayout.value("title").toString();
+    if (!title.isEmpty() && Bibliography::credibleTitle(title)) {
+        evidence["title"]=title;
+        evidence["titleSource"]=QStringLiteral("first_page_layout");
+    } else if (!textualTitle.value("title").toString().isEmpty()) {
+        evidence["title"]=textualTitle.value("title");
+        evidence["titleSource"]=QStringLiteral("first_page_verified");
+    }
+    if (evidence.isEmpty() && !Metadata::acceptableIdentity(candidates)) return {};
     if(const auto* info=document.getInfo(); info && Bibliography::credibleTitle(info->title)) {
         evidence["title"]=info->title.simplified();
         evidence["titleSource"]=QStringLiteral("pdf_metadata");

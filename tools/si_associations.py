@@ -47,10 +47,14 @@ def relative_pdf_path(raw: str) -> str:
     if any(not ch.isprintable() for ch in raw) or raw.startswith("/") or _DRIVE.match(raw):
         raise ValueError("invalid_relative_path")
     parts = raw.split("/")
-    if any(p in ("", ".", "..") or p.endswith((" ", ".")) or ":" in p
-           for p in parts):
+    # Windows cannot represent these path components even when the path is
+    # otherwise relative. Reject them before a user-confirmed link is stored:
+    # an impossible filename must not survive as a misleading SI association.
+    if any(p in ("", ".", "..") or len(p) > 255 or p.endswith((" ", "."))
+           or any(ch in '<>:"|?*' for ch in p) for p in parts):
         raise ValueError("invalid_relative_path")
-    if any(p.split(".", 1)[0].upper() in _RESERVED_DEVICES for p in parts):
+    # Windows also aliases "CON .pdf" to CON, and COM¹/LPT² to devices.
+    if any(p.split(".", 1)[0].rstrip(" ").upper() in _RESERVED_DEVICES for p in parts):
         raise ValueError("invalid_relative_path")
     path = str(PurePosixPath(raw))
     if not path.lower().endswith(".pdf"):

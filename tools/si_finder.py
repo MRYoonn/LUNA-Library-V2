@@ -68,6 +68,22 @@ def safe_figshare_landing(url: object, article_id: int | None = None) -> str:
     return url
 
 
+
+# Public metadata filenames are display labels, never trusted local paths.
+# Reject Windows device names, invisible controls and bidirectional overrides
+# before exposing a label that may later be offered for manual SI matching.
+_RESERVED_DEVICE = re.compile(r"^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])$", re.I)
+
+
+def safe_si_filename(value: object) -> bool:
+    if (not isinstance(value, str) or not value or len(value) > 255
+            or value != value.strip() or value[-1] in ". "
+            or any(ch in '<>:"/\\\\|?*' or not ch.isprintable() for ch in value)):
+        return False
+    # Windows treats CON.txt, COM1.pdf and even "NUL .pdf" as device names.
+    return not _RESERVED_DEVICE.fullmatch(value.split(".", 1)[0].rstrip(" "))
+
+
 _last_request_at = 0.0
 
 
@@ -202,8 +218,7 @@ def lookup_acs_figshare(
                     invalid_file_entries += 1
                     continue
                 filename = item.get("name")
-                if (not isinstance(filename, str) or not filename or len(filename) > 255
-                        or any(ch in filename for ch in "/\\\r\n\0")):
+                if not safe_si_filename(filename):
                     invalid_file_entries += 1
                     continue
                 # Do not expose unvalidated remote download URLs. Every entry

@@ -348,8 +348,36 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     }
     click(action("actionGoToPreviousPage"));
     if (!waitFor([&] { return pageNumber->value() == 1; })) return fail("Previous page toolbar action failed");
-    pageNumber->setValue(2); QMetaObject::invokeMethod(pageNumber,"editingFinished",Qt::DirectConnection);
-    if (!waitFor([&] { const auto pages = pdfWidget->getDrawWidget()->getCurrentPages(); return !pages.empty() && pages.front() == 1; })) return fail("Native page entry did not go to page two");
+    // Exercise the actual QSpinBox edit/Return path (PDF4QT connects editingFinished
+    // to goToPage). Setting a value and invoking the signal directly is not a
+    // faithful user input and can race with page-change UI synchronization.
+    pageNumber->setFocus(Qt::OtherFocusReason);
+    QCoreApplication::processEvents();
+    pageNumber->selectAll();
+    auto* pageEditor = pageNumber->findChild<QLineEdit*>();
+    if (!pageEditor || !pageNumber->isEnabled())
+        return fail("Native page entry editor missing or disabled");
+    pageEditor->setText(QStringLiteral("2"));
+    const int beforePageEntryScroll = vertical->value();
+    int pageEntryCommits = 0;
+    const auto pageEntryConnection = QObject::connect(pageNumber, &QSpinBox::editingFinished,
+        &window, [&] { ++pageEntryCommits; });
+    key(pageNumber, Qt::Key_Return, Qt::NoModifier);
+    QObject::disconnect(pageEntryConnection);
+    if (!waitFor([&] {
+        const auto pages = pdfWidget->getDrawWidget()->getCurrentPages();
+        return pageEntryCommits > 0 && !pages.empty() && pages.front() == 1 &&
+               vertical->value() > beforePageEntryScroll;
+    })) {
+        const auto pages = pdfWidget->getDrawWidget()->getCurrentPages();
+        QStringList displayed;
+        for (const auto page : pages) displayed.append(QString::number(page + 1));
+        error = QStringLiteral("Native page entry did not go to page two: commits=%1 spin=%2 visible=%3 scroll=%4 -> %5 max=%6 enabled=%7")
+            .arg(pageEntryCommits).arg(pageNumber->value()).arg(displayed.join(QLatin1Char(',')))
+            .arg(beforePageEntryScroll).arg(vertical->value()).arg(vertical->maximum())
+            .arg(pageNumber->isEnabled());
+        return false;
+    }
     checkpoint("Reader phase: inline superscript/subscript native selection and copy order");
     // Page 2 contains independently typeset raised (sp3) and lowered (CF3)
     // PDF glyph runs. Ctrl+C must not move '3' to another paragraph.

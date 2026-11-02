@@ -84,7 +84,22 @@ def verify_landing_candidates(
     A partial Figshare search cannot become fully verified. No local document
     bytes, filenames or paths are sent; caller explicitly opts into this check.
     """
-    if result.status not in ("candidates", "partial") or not result.candidates:
+    # Previously checked results can be restored and checked again. Never
+    # preserve an old landing_verified claim merely because the result already
+    # says verified/partial_verified; an explicit offline or failed recheck
+    # must revoke that evidence. Uncertain restored states may be retried, but
+    # cannot be promoted to a complete listing without fresh finder evidence.
+    refreshable = ("candidates", "partial", "verified", "partial_verified",
+                   "needs_review", "offline")
+    if result.status not in refreshable:
+        return result
+    if not result.candidates:
+        if result.status in ("verified", "partial_verified"):
+            doi = normalize_doi(result.doi)
+            fallback = ("https://doi.org/" + doi
+                        if doi and doi == result.doi and doi.startswith("10.1021/") else "")
+            return replace(result, status="needs_review", fallback_url=fallback,
+                           diagnostic="verified_without_candidates")
         return result
     # The finder normally supplies a canonical DOI resolver, but restored or
     # foreign results may contain an arbitrary fallback URL. Never pass that
@@ -168,9 +183,9 @@ def verify_landing_candidates(
         status = "landing_verified" if code == "reachable_html" else "landing_unchecked_" + code
         checked.append(replace(candidate, status=status))
     verified = sum(c.status == "landing_verified" for c in checked)
-    all_verified = verified == len(checked) and result.status == "candidates"
+    all_verified = verified == len(checked) and result.status in ("candidates", "verified")
     overall = "verified" if all_verified else "partial_verified" if verified else "needs_review"
     return replace(result, status=overall, fallback_url=fallback,
                    candidates=tuple(checked), diagnostic=f"landings_checked={probes_sent};"
-                              f"landing_entries_verified={verified};search_partial={int(result.status == 'partial')};"
+                              f"landing_entries_verified={verified};search_partial={int(result.status not in ('candidates', 'verified'))};"
                               f"landing_rate_limited={int(throttled)}")

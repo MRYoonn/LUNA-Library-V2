@@ -1118,9 +1118,6 @@ public:
             const QString date = openedDates_.value(openedDateKey(path));
             if (!date.isEmpty()) rememberDateAlias(path, date);
         }
-        // Do not pin the dock's initial two-pane minimum in QMainWindow's
-        // cached dock layout. QSplitter already carries both child minima;
-        // updateMinimum() adjusts the active content constraint on collapse.
         setMinimumWidth(0);
         auto* layout = new QHBoxLayout(this);
         layout->setContentsMargins(7, 7, 0, 7);
@@ -1704,41 +1701,22 @@ public:
         const bool hasNavigation = !navigation_->isHidden();
         const bool hasDocuments = !documents_->isHidden();
         const bool both = hasNavigation && hasDocuments;
-        const bool any = hasNavigation || hasDocuments;
-        const int target = both ? 562 : (hasNavigation ? 270 : 240);
         setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12);
         setMaximumWidth(both ? 850 : 290);
-        if (layout()) layout()->invalidate();
         updateGeometry();
         if (auto* dock = qobject_cast<QDockWidget*>(parentWidget())) {
-            dock->setVisible(any);
-            if (!any) return;
-            // Build #227: content=290, dock=432 and dock.max=432. Qt's
-            // QMainWindow dock area held the INITIAL two-pane 432px minimum
-            // even after the QSplitter hid navigation. Refresh the dock's
-            // own bounds as well as its content before resizing.
+            dock->setVisible(hasNavigation || hasDocuments);
+            if (!(hasNavigation || hasDocuments)) return;
             dock->setMinimumWidth(1);
             dock->setMaximumWidth(both ? 850 : 300);
             dock->updateGeometry();
             if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget())) {
-                if (main->layout()) main->layout()->activate();
-                main->resizeDocks({dock}, {target}, Qt::Horizontal);
-                // A dock-area layout request can land after the click event.
-                // Refitting on the next event cycle ensures the narrower
-                // content constraints win over the old two-pane allocation.
-                QTimer::singleShot(0, dock, [dock, target, both] {
-                    if (!dock->isVisible() || !dock->widget()) return;
-                    const bool nowNavigation = !dock->widget()->findChild<QWidget*>(
-                        QStringLiteral("LunaNavigation"))->isHidden();
-                    const bool nowDocuments = !dock->widget()->findChild<QWidget*>(
-                        QStringLiteral("LunaDocuments"))->isHidden();
-                    if ((nowNavigation && nowDocuments) != both) return;
-                    dock->setMinimumWidth(1);
-                    dock->setMaximumWidth(both ? 850 : 300);
-                    if (auto* window = qobject_cast<QMainWindow*>(dock->parentWidget())) {
-                        if (window->layout()) window->layout()->activate();
-                        window->resizeDocks({dock}, {target}, Qt::Horizontal);
-                    }
+                const int width = both ? 562 : (hasNavigation ? 270 : 240);
+                main->resizeDocks({dock}, {width}, Qt::Horizontal);
+                QTimer::singleShot(0, dock, [dock, width] {
+                    if (dock->isVisible())
+                        if (auto* window = qobject_cast<QMainWindow*>(dock->parentWidget()))
+                            window->resizeDocks({dock}, {width}, Qt::Horizontal);
                 });
             }
         }
@@ -3207,8 +3185,6 @@ protected:
         if (object == window_ && event->type() == QEvent::Close) {
             QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
             settings.setValue(QStringLiteral("window/geometry"), window_->saveGeometry());
-            // LUNA uses a fixed toolbar/dock layout; Qt saveState() would traverse
-            // nested PDF editor toolbars and persist them as shell toolbars.
         }
         return QObject::eventFilter(object, event);
     }
@@ -3221,7 +3197,6 @@ private:
 static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWindow& viewer, bool sessionShell) {
     QFile sheet(QStringLiteral(":/luna/lunalibrary.qss"));
     if (sheet.open(QIODevice::ReadOnly)) window.setStyleSheet(themeSheet(sheet.readAll()));
-    // Hide the old PDF4QT sidebar: LUNA must have precisely two visible columns.
     if (auto* old = window.findChild<QDockWidget*>(
         QStringLiteral("SidebarDockWidget"))) {
         old->hide();
@@ -3440,10 +3415,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     window.resize(QSize(1366, 768).boundedTo(available));
     QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
     window.restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
-    // Never restore QMainWindow toolbar/dock state (legacy OR v0.9.1).
-    // Qt 6 recursively discovers nested PDF4QT mainToolBar widgets. Even a
-    // versioned key can capture ghost toolbars after the first clean exit.
-    // Keep only window geometry and the independent library splitter setting.
+    // Restore window geometry only; never restore native PDF4QT toolbar state.
     focus->setChecked(dock->isHidden());
     hideAdvancedToolbars(viewer); // Old saved PDF4QT toolbar rows must not reappear.
     controls->hide(); // Legacy actions remain in View; this empty row has no UI role.

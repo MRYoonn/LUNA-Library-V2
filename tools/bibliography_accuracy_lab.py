@@ -116,7 +116,7 @@ def validate_cases(doc: dict, kind: str) -> dict[str, dict]:
 
 
 
-def validate_real_run(gold: dict, predictions: dict) -> None:
+def validate_real_run(gold: dict, predictions: dict, *, require_source_binding: bool = False) -> None:
     """Structural evidence gate; cannot independently authenticate PDF evidence.
 
     A --require-real report is NOT an audited extraction accuracy claim. It
@@ -155,7 +155,20 @@ def validate_real_run(gold: dict, predictions: dict) -> None:
             if value.strip().casefold() in PLACEHOLDER_EVIDENCE:
                 raise DatasetError(f"real run/{ident}: placeholder evidence for {field}")
     labeled = {case["id"]: set(case["expected"]) for case in gold["cases"]}
+    gold_by_id = {case["id"]: case for case in gold["cases"]}
     for case in predictions["cases"]:
+        if require_source_binding:
+            # A valid opaque case ID alone cannot prove that a snapshot was
+            # captured from the goldset PDF. The caller must supply a local
+            # capture-time SHA256; compare identities without disclosing either
+            # digest in the report or error message. This is not proof that
+            # the native adapter itself hashed the PDF.
+            reference = gold_by_id.get(case["id"])
+            digest = case.get("source_sha256")
+            if reference is None or not isinstance(digest, str) or not SHA256.fullmatch(digest):
+                raise DatasetError(f"real run/{case['id']}: missing or invalid capture PDF binding")
+            if digest.lower() != reference["source"]["sha256"].lower():
+                raise DatasetError(f"real run/{case['id']}: capture PDF binding mismatch")
         audit = case.get("audit")
         if not isinstance(audit, dict) or any(
             type(audit.get(key)) is not bool
@@ -217,7 +230,10 @@ def metric(tp: int, other: int) -> float | None:
     return round(tp / (tp + other), 6) if tp + other else None
 
 
-def score(gold: dict, predictions: dict, *, require_real: bool = False) -> dict:
+def score(gold: dict, predictions: dict, *, require_real: bool = False,
+          require_source_binding: bool = False) -> dict:
+    if require_source_binding and not require_real:
+        raise DatasetError("PDF capture binding requires --require-real")
     expected = validate_cases(gold, "goldset")
     observed = validate_cases(predictions, "predictions")
     if gold["dataset_id"] != predictions["dataset_id"]:
@@ -225,7 +241,7 @@ def score(gold: dict, predictions: dict, *, require_real: bool = False) -> dict:
     if require_real and any(c["source"]["kind"] == "synthetic" for c in expected.values()):
         raise DatasetError("--require-real rejects synthetic fixtures")
     if require_real:
-        validate_real_run(gold, predictions)
+        validate_real_run(gold, predictions, require_source_binding=require_source_binding)
     unknown = sorted(set(observed) - set(expected))
     missing = sorted(set(expected) - set(observed))
     if unknown or missing:
@@ -527,7 +543,8 @@ def main(argv: list[str] | None = None) -> int:
         predictions = load_json(args.predictions)
         if args.expected_engine_commit:
             check_engine_identity(predictions, args.expected_engine_commit)
-        result = score(gold, predictions, require_real=args.require_real)
+        result = score(gold, predictions, require_real=args.require_real,
+                       require_source_binding=args.pdf_dir is not None)
         if args.require_real:
             result["engine_commit"] = predictions["engine_commit"].lower()
         if args.coverage_gate:

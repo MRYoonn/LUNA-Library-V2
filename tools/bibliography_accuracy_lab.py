@@ -121,6 +121,9 @@ def validate_real_run(gold: dict, predictions: dict) -> None:
         raise DatasetError("real run requires an exact non-placeholder 40-hex engine_commit")
     if predictions.get("capture_kind") != "qt_record_snapshot_read_only":
         raise DatasetError("real run requires qt_record_snapshot_read_only capture_kind")
+    # One source PDF may not count as multiple independent goldset samples.
+    # Only opaque case IDs enter errors; never expose private PDF hashes.
+    seen_pdf_hashes = {}
     for case in gold["cases"]:
         ident = case["id"]
         source = case["source"]

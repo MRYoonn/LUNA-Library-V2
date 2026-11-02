@@ -1403,8 +1403,29 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) integrationDirectory(dialog, moved);
                 else if (!menuChosen) if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget()))
                     for (auto* action : menu->actions()) if (action->text().startsWith(QStringLiteral("PDF와 썸네일 이동"))) { menuChosen = true; menu->setActiveAction(action); integrationKey(VK_RETURN); break; }
-            }); moveUi.start(30);
-            integrationRequire(integrationClick(host, list->viewport(), card.center(), true), "Real move context-menu mouse input failed");
+            });
+            // The memo edits and live metadata refresh above may replace list
+            // items and move their rows. The old 'card' rect was captured
+            // before those operations and can right-click a different PDF.
+            QListWidgetItem* movePaper = nullptr;
+            QListWidget* moveList = integrationList(host, files[0], &movePaper);
+            integrationRequire(moveList && movePaper && moveList->isVisible(),
+                "A card missing before real move input");
+            moveList->scrollToItem(movePaper, QAbstractItemView::PositionAtCenter);
+            QCoreApplication::processEvents();
+            moveList = integrationList(host, files[0], &movePaper);
+            integrationRequire(moveList && movePaper, "A card replaced during move setup");
+            const QPoint movePoint = moveList->visualItemRect(movePaper).center();
+            const bool movingExpectedCard =
+                moveList->viewport()->rect().contains(movePoint) &&
+                moveList->itemAt(movePoint) == movePaper &&
+                DocumentClaim::identity(movePaper->data(Qt::UserRole).toString()) ==
+                    DocumentClaim::identity(files[0]);
+            result["moveClickedExpectedCard"] = movingExpectedCard;
+            integrationRequire(movingExpectedCard, "Move target changed after memo/list refresh");
+            moveUi.start(30);
+            integrationRequire(integrationClick(host, moveList->viewport(), movePoint, true),
+                "Real move context-menu mouse input failed");
             const QString movedPdf = moved + "/A.pdf", movedThumb = moved + "/A.luna-thumb.png";
             const bool moveReopened = integrationWait([&] {
                 return QFileInfo::exists(movedPdf) && ready(a) &&

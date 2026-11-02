@@ -8,8 +8,8 @@ endif()
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core)
 add_executable(luna_si_move_contract main.cpp)
 target_include_directories(luna_si_move_contract PRIVATE
-  "${CMAKE_CURRENT_LIST_DIR}/../../src"
-  "${LUNA_MOVE_SOURCE}/src")
+  "${LUNA_MOVE_SOURCE}/src"
+  "${CMAKE_CURRENT_LIST_DIR}/../../src")
 target_link_libraries(luna_si_move_contract PRIVATE Qt6::Core)
 enable_testing()
 add_test(NAME si_paired_move_rollback_restart COMMAND luna_si_move_contract)

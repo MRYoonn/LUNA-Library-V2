@@ -26,8 +26,26 @@ class BuildDiagnosticsContracts(unittest.TestCase):
             self.assertEqual(finished["source_sha"], "a" * 40)
             self.assertEqual(finished["gates"]["native"], "failure")
             data = (path / "build-diagnostics.json").read_text(encoding="utf-8")
-            self.assertNotIn("never-copy", data)
+            analysis = (path / "failure-analysis.md").read_text(encoding="utf-8")
+            self.assertNotIn("never-copy", data + analysis)
+            self.assertIn("First failed gate: **native**", analysis)
+            self.assertIn("https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/123", analysis)
+            self.assertIn("not established", analysis)
             self.assertEqual(finished["started_utc"], started["started_utc"])
+
+    def test_each_finished_run_produces_durable_report_and_issues_archive(self):
+        with tempfile.TemporaryDirectory() as folder:
+            record(Path(folder), "finish", status="success", gates="native-ui=success")
+            report = (Path(folder) / "failure-analysis.md").read_text(encoding="utf-8")
+            self.assertIn("Status: **success**", report)
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")
+        self.assertIn("Preserve failed build analysis in a GitHub issue", workflow)
+        self.assertIn("if: failure()", workflow)
+        self.assertIn("gh issue create --title", workflow)
+        for name in ("LUNA-Build-Diagnostics", "LUNA-Preflight-Diagnostics"):
+            part = workflow.split("name: " + name, 1)[1][:230]
+            self.assertIn("retention-days: 90", part)
 
     def test_missing_start_can_still_record_failed_job(self):
         with tempfile.TemporaryDirectory() as folder:

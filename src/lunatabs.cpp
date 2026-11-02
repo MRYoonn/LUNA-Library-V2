@@ -1104,10 +1104,19 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                                !documentsPanel->isHidden() && libraryDock->isVisible(),
                                "Initial pane header geometry invalid");
             for (int turn = 0; turn < 10; ++turn) {
-                integrationRequire(integrationPanelClick(host, navigationToggle) &&
+                const bool paperOnlyNarrow = integrationPanelClick(host, navigationToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
                         !documentsPanel->isHidden() && libraryDock->isVisible() &&
-                        libraryDock->width() <= 300 && buttonsVisible(); }),
+                        libraryDock->width() <= 300 && buttonsVisible(); });
+                result["paperOnlyDockGeometry"] = QJsonObject{
+                    {"cycle", turn}, {"dockWidth", libraryDock->width()},
+                    {"dockMaxWidth", libraryDock->maximumWidth()},
+                    {"contentWidth", libraryDock->widget()->width()},
+                    {"contentMaxWidth", libraryDock->widget()->maximumWidth()},
+                    {"navigationHidden", navigationPanel->isHidden()},
+                    {"documentsHidden", documentsPanel->isHidden()},
+                    {"restoreButtonsVisible", buttonsVisible()}};
+                integrationRequire(paperOnlyNarrow,
                     "Header navigation collapse did not release narrow paper-only width");
                 integrationRequire(integrationPanelClick(host, documentsToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&

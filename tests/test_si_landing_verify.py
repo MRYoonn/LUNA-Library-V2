@@ -353,6 +353,28 @@ class LandingVerifierTests(unittest.TestCase):
         self.assertIn("landing_rate_limited=0", result.diagnostic)
 
 
+    def test_restored_untrusted_title_cannot_be_verified_by_shared_landing(self):
+        # The finder sanitizes titles, but restored result objects may bypass it.
+        safe = SiCandidate(123, DOI, "Printable ΔG‡", "good.pdf", BASE + "123")
+        unsafe = SiCandidate(123, DOI, "Spoof\\u202e", "bad.pdf", BASE + "123")
+        source = SiLookupResult(DOI, "candidates", (unsafe, safe),
+                                "https://doi.org/" + DOI)
+        calls = []
+        result = verify_landing_candidates(
+            source, lambda url: calls.append(url) or "reachable_html")
+        self.assertEqual([c.status for c in result.candidates],
+                         ["landing_unchecked_unsafe_title", "landing_verified"])
+        self.assertEqual(result.status, "partial_verified")
+        self.assertEqual(calls, [BASE + "123"])
+
+    def test_restored_non_string_title_never_probes(self):
+        foreign = SiCandidate(123, DOI, {"spoof": "title"}, "si.pdf", BASE + "123")
+        result = verify_landing_candidates(
+            SiLookupResult(DOI, "candidates", (foreign,), "https://doi.org/" + DOI),
+            lambda _: self.fail("unsafe title must not probe"))
+        self.assertEqual(result.status, "needs_review")
+        self.assertEqual(result.candidates[0].status, "landing_unchecked_unsafe_title")
+
     def test_foreign_unsafe_filename_never_promotes_even_with_valid_landing(self):
         # A restored/forged candidate may bypass si_finder sanitization.
         good = fixture(1).candidates[0]

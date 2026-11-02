@@ -100,7 +100,7 @@ class LibraryModes(unittest.TestCase):
             'QStringLiteral("LunaPanelRestoreRail")',
             'libraryHeading->layout()->addWidget(panelButton(',
             'paperHeading->addWidget(panelButton(',
-            'restoreRail->move(8, window.menuBar()->height() + 49)',
+            'restoreRail->move(8, window.menuBar()->height() + 95)',
             'void toggleNavigation()', 'void toggleDocuments()',
         ):
             self.assertIn(token, self.cpp, token)

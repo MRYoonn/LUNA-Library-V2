@@ -6,11 +6,13 @@ standalone; the LUNA Qt integration and link-reachability gate are future work.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass
 import json
 import os
 import re
 import time
+import unicodedata
 from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -176,6 +178,7 @@ def lookup_acs_figshare(
         failed_details = 0
         truncated_files = 0
         invalid_file_entries = 0
+        ambiguous_file_entries = 0
         for summary in found:
             if not isinstance(summary, dict):
                 rejected += 1
@@ -213,13 +216,23 @@ def lookup_acs_figshare(
             # can display. Retain the first MAX_FILES for user review.
             if len(files) > MAX_FILES:
                 truncated_files += 1
+            # A filename is only a display key in the current model (there
+            # is no verified per-file identity). Two files on one article with
+            # the same Windows/Unicode-compatible name cannot be distinguished
+            # safely as SI1 versus SI2. Suppress BOTH ambiguous entries and
+            # require review instead of silently choosing the first.
+            valid_names = []
             for item in files[:MAX_FILES]:
-                if not isinstance(item, dict):
+                if not isinstance(item, dict) or not safe_si_filename(item.get("name")):
                     invalid_file_entries += 1
                     continue
-                filename = item.get("name")
-                if not safe_si_filename(filename):
-                    invalid_file_entries += 1
+                valid_names.append(item["name"])
+            keys = [unicodedata.normalize("NFKC", name).casefold()
+                    for name in valid_names]
+            counts = Counter(keys)
+            ambiguous_file_entries += sum(counts[key] > 1 for key in keys)
+            for filename, key in zip(valid_names, keys):
+                if counts[key] > 1:
                     continue
                 # Do not expose unvalidated remote download URLs. Every entry
                 # opens the official landing page for user review in a browser.
@@ -228,15 +241,18 @@ def lookup_acs_figshare(
             # A rejected summary/detail makes the discovered set incomplete.
             # A full first page may conceal more records, even with zero files.
             status = "partial" if (rejected or failed_details or truncated_files
-                                   or invalid_file_entries or len(found) == MAX_ARTICLES) else "candidates"
-        elif rejected or failed_details or truncated_files or invalid_file_entries or len(found) == MAX_ARTICLES:
+                                   or invalid_file_entries or ambiguous_file_entries
+                                   or len(found) == MAX_ARTICLES) else "candidates"
+        elif (rejected or failed_details or truncated_files or invalid_file_entries
+              or ambiguous_file_entries or len(found) == MAX_ARTICLES):
             status = "needs_review"
         else:
             status = "not_found"
         diagnostic = (f"rejected={rejected};detail_failures={failed_details};"
                       f"search_page_full={int(len(found) == MAX_ARTICLES)};"
                       f"file_lists_truncated={truncated_files};"
-                      f"invalid_file_entries={invalid_file_entries}")
+                      f"invalid_file_entries={invalid_file_entries};"
+                      f"ambiguous_file_entries={ambiguous_file_entries}")
         return SiLookupResult(doi, status, tuple(candidates), fallback, diagnostic)
     except (ValueError, HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
         # Never include remote response bodies or local paths in diagnostics.

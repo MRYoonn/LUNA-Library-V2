@@ -94,16 +94,49 @@ class LibraryModes(unittest.TestCase):
         self.assertIn('setMinimumWidth(0);', self.cpp)
         self.assertNotIn('setMinimumWidth(432);', self.cpp)
         self.assertIn('setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12)', self.cpp)
-        self.assertIn('setMaximumWidth(both ? 850 : 290)', self.cpp)
+        self.assertIn('setMaximumWidth(wide ? 850 : 290)', self.cpp)
         self.assertIn('dock->setMinimumWidth(1)', self.cpp)
-        self.assertIn('dock->setMaximumWidth(both ? 850 : 300)', self.cpp)
+        self.assertIn('dock->setMaximumWidth(wide ? 850 : 300)', self.cpp)
         self.assertIn('dock->updateGeometry()', self.cpp)
-        self.assertIn('const int width = both ? 562 : (hasNavigation ? 270 : 240)', self.cpp)
-        self.assertIn('QTimer::singleShot(0, dock, [dock, width, both]', self.cpp)
-        self.assertIn('(dock->widget()->maximumWidth() == 850) != both', self.cpp)
+        self.assertIn('const int width = hasNavigation ? savedWidth : 240', self.cpp)
+        self.assertIn('QTimer::singleShot(0, dock, [dock, width, wide]', self.cpp)
+        self.assertIn('(dock->widget()->maximumWidth() == 850) != wide', self.cpp)
         self.assertIn('window->resizeDocks({dock}, {width}, Qt::Horizontal)', self.cpp)
         self.assertIn('navigation_->setVisible(navigation_->isHidden())', self.cpp)
         self.assertIn('documents_->setVisible(documents_->isHidden())', self.cpp)
+
+    def test_folder_is_direct_only_single_selection_and_bulk_trash(self):
+        folder = self.cpp.split('void selectFolder(const QString& path)')[1].split('void scanAll()')[0]
+        all_docs = self.cpp.split('void scanAll()')[1].split('void scanBatch(bool all)')[0]
+        self.assertNotIn('QDirIterator::Subdirectories', folder)
+        self.assertIn('QDirIterator::Subdirectories', all_docs)
+        for token in (
+            'tree_->setSelectionMode(QAbstractItemView::SingleSelection)',
+            'QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows',
+            'list->setSelectionMode(QAbstractItemView::ExtendedSelection)',
+            'void trashSelectedDocuments(QListWidget* list, const QString& clicked)',
+            'for (auto* item : list->selectedItems())',
+            'if (!seen.contains(DocumentClaim::identity(clicked))) paths = {clicked};',
+            'for (const auto& path : paths) trashDocument(path, true)',
+            'else if (chosen == trash) trashSelectedDocuments(list, path)',
+            'item && item->isSelected()',
+        ):
+            self.assertIn(token, self.cpp, token)
+
+    def test_icon_only_headers_and_saved_dock_width(self):
+        tabs = (ROOT/'src/lunatabs.cpp').read_text(encoding='utf-8')
+        for token in (
+            'shelf->hide()', 'section->hide()', 'title->hide()',
+            'libraryHeaderLayout->addStretch(1)',
+            'titleRow->insertStretch(0, 1)',
+            'QStringLiteral("library/expandedDockWidth")',
+            'settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width())',
+            'const bool wide = hasNavigation',
+            'setMaximumWidth(wide ? 850 : 290)',
+            'dock->setMaximumWidth(wide ? 850 : 300)',
+        ):
+            self.assertIn(token, self.cpp, token)
+        self.assertIn('tabs_->setCornerWidget(rail, Qt::TopLeftCorner)', tabs)
 
     def test_paper_header_and_pdf_tabs_share_top_alignment_and_no_native_tab_rule(self):
         tabs = (ROOT/'src/lunatabs.cpp').read_text(encoding='utf-8')

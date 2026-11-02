@@ -1110,8 +1110,13 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                         libraryDock->width() <= 300 && buttonsVisible(); });
                 result["paperOnlyDockGeometry"] = QJsonObject{
                     {"cycle", turn}, {"dockWidth", libraryDock->width()},
+                    {"dockMinWidth", libraryDock->minimumWidth()},
+                    {"dockMinHint", libraryDock->minimumSizeHint().width()},
+                    {"dockSizeHint", libraryDock->sizeHint().width()},
                     {"dockMaxWidth", libraryDock->maximumWidth()},
                     {"contentWidth", libraryDock->widget()->width()},
+                    {"contentMinWidth", libraryDock->widget()->minimumWidth()},
+                    {"contentMinHint", libraryDock->widget()->minimumSizeHint().width()},
                     {"contentMaxWidth", libraryDock->widget()->maximumWidth()},
                     {"navigationHidden", navigationPanel->isHidden()},
                     {"documentsHidden", documentsPanel->isHidden()},

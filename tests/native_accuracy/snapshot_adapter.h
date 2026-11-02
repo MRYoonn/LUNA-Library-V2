@@ -14,8 +14,17 @@ inline bool validOpaqueId(const QString& id) {
     return re.match(id).hasMatch();
 }
 
-inline QJsonObject captureCase(const QString& opaqueId, const QVariantMap& visibleRecord) {
+inline QJsonObject captureCase(const QString& opaqueId, const QVariantMap& visibleRecord,
+                               const QString& localPdfSha256 = QString()) {
     if (!validOpaqueId(opaqueId)) return {};
+    // Optional hash supplied by the LOCAL caller at capture time. This pure
+    // adapter never reads a PDF; a blank digest is allowed for synthetic and
+    // regression-only snapshots, but cannot pass the scorer's --pdf-dir gate.
+    static const QRegularExpression digestPattern(QStringLiteral(R"(^[0-9a-fA-F]{64}$)"));
+    if (!localPdfSha256.isEmpty() &&
+        (!digestPattern.match(localPdfSha256).hasMatch() ||
+         localPdfSha256 == QString(64, QLatin1Char('0'))))
+        return {};
     QJsonObject observed;
     // Whitelist ONLY bibliography values; never serialize identities, file
     // paths, annotations, legacy backups, PDF contents or arbitrary map keys.
@@ -88,9 +97,12 @@ inline QJsonObject captureCase(const QString& opaqueId, const QVariantMap& visib
                      || selectedSeniorAuthor);
     // A citation override may make the CARD differ from record fields. The
     // scorer must label these as record snapshots, not screenshot assertions.
-    return {{QStringLiteral("id"), opaqueId},
-            {QStringLiteral("observed"), observed},
-            {QStringLiteral("audit"), audit}};
+    QJsonObject captured{{QStringLiteral("id"), opaqueId},
+                         {QStringLiteral("observed"), observed},
+                         {QStringLiteral("audit"), audit}};
+    if (!localPdfSha256.isEmpty())
+        captured.insert(QStringLiteral("source_sha256"), localPdfSha256.toLower());
+    return captured;
 }
 
 inline QJsonObject predictionDocument(const QString& datasetId,

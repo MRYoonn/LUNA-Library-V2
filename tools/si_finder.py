@@ -252,15 +252,33 @@ def lookup_acs_figshare(
                 # is offered, with reachability still unverified.
                 candidates.append(SiCandidate(article_id, doi, title, filename, landing,
                                               file_id=file_id))
+        # Figshare file IDs identify public files across articles, not merely
+        # within one article. A repeated ID under two different article IDs
+        # makes ownership ambiguous; suppress every conflicting occurrence.
+        # Keep unrelated SI entries available for manual review.
+        file_id_owners: dict[int, set[int]] = {}
+        for candidate in candidates:
+            if candidate.file_id is not None:
+                file_id_owners.setdefault(candidate.file_id, set()).add(candidate.article_id)
+        cross_article_ids = {
+            file_id for file_id, owners in file_id_owners.items() if len(owners) > 1
+        }
+        cross_article_file_id_entries = sum(
+            candidate.file_id in cross_article_ids for candidate in candidates
+        )
+        if cross_article_ids:
+            candidates = [candidate for candidate in candidates
+                          if candidate.file_id not in cross_article_ids]
         if candidates:
             # A rejected summary/detail makes the discovered set incomplete.
             # A full first page may conceal more records, even with zero files.
             status = "partial" if (rejected or failed_details or truncated_files
                                    or invalid_file_entries or ambiguous_file_entries
-                                   or ambiguous_file_ids or len(found) == MAX_ARTICLES) else "candidates"
+                                   or ambiguous_file_ids or cross_article_file_id_entries
+                                   or len(found) == MAX_ARTICLES) else "candidates"
         elif (rejected or failed_details or truncated_files or invalid_file_entries
               or ambiguous_file_entries or ambiguous_file_ids
-              or len(found) == MAX_ARTICLES):
+              or cross_article_file_id_entries or len(found) == MAX_ARTICLES):
             status = "needs_review"
         else:
             status = "not_found"
@@ -269,7 +287,8 @@ def lookup_acs_figshare(
                       f"file_lists_truncated={truncated_files};"
                       f"invalid_file_entries={invalid_file_entries};"
                       f"ambiguous_file_entries={ambiguous_file_entries};"
-                      f"ambiguous_file_ids={ambiguous_file_ids}")
+                      f"ambiguous_file_ids={ambiguous_file_ids};"
+                      f"cross_article_file_id_entries={cross_article_file_id_entries}")
         return SiLookupResult(doi, status, tuple(candidates), fallback, diagnostic)
     except (ValueError, HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
         # Never include remote response bodies or local paths in diagnostics.

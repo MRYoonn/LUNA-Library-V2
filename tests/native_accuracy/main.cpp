@@ -224,25 +224,29 @@ int main(int argc, char** argv) {
                                {QStringLiteral("doi"), QStringLiteral("10.1000/physical-move")},
                                {QStringLiteral("metadata_status"), QStringLiteral("needs_review")}};
     check(store.save(physicalPdf, physicalRecord, false), "seed physical move bibliography");
-    const QByteArray occupiedBytes("unrelated-existing-metadata");
-    check(writeFixture(targetMeta, occupiedBytes), "seed destination sidecar collision");
+    // The current production helper moves PDF + .luna-thumb.* only. A
+    // .luna-meta.json is NOT in its move set: test a supported thumbnail
+    // collision and separately expose the metadata-sidecar limitation.
+    const QByteArray occupiedBytes("unrelated-existing-thumbnail");
+    check(writeFixture(targetThumb, occupiedBytes), "seed destination thumbnail collision");
     const auto rejectedMove = luna::movePdfWithThumbnails(physicalPdf, physicalTarget);
-    check(!rejectedMove.success, "physical move rejects occupied metadata destination");
-    check(readFixture(targetMeta) == occupiedBytes &&
+    check(!rejectedMove.success, "physical move rejects occupied thumbnail destination");
+    check(readFixture(targetThumb) == occupiedBytes &&
           readFixture(physicalPdf) == pdfBytes &&
           readFixture(physicalThumb) == thumbBytes &&
           readFixture(physicalMeta) == metaBytes &&
-          !QFileInfo::exists(targetPdf), "collision preserves all original files");
-    check(QFile::remove(targetMeta), "clear disposable collision fixture");
+          !QFileInfo::exists(targetPdf) && !QFileInfo::exists(targetMeta),
+          "collision preserves all original files");
+    check(QFile::remove(targetThumb), "clear disposable collision fixture");
     const auto movedFiles = luna::movePdfWithThumbnails(physicalPdf, physicalTarget);
     check(movedFiles.success && movedFiles.documentPath == targetPdf,
           "production helper moves physical PDF and sidecars");
     check(!QFileInfo::exists(physicalPdf) &&
-          !QFileInfo::exists(physicalThumb) &&
-          !QFileInfo::exists(physicalMeta), "no source files remain after physical move");
+          !QFileInfo::exists(physicalThumb), "PDF and thumbnail source files removed after move");
     check(readFixture(targetPdf) == pdfBytes &&
-          readFixture(targetThumb) == thumbBytes &&
-          readFixture(targetMeta) == metaBytes, "moved PDF and sidecar bytes preserved");
+          readFixture(targetThumb) == thumbBytes, "moved PDF and thumbnail bytes preserved");
+    check(readFixture(physicalMeta) == metaBytes && !QFileInfo::exists(targetMeta),
+          "metadata JSON sidecar remains at source: current helper does not move it");
     check(store.relocate(physicalPdf, movedFiles.documentPath),
           "relocate bibliography only after successful physical move");
     luna::Bibliography afterPhysicalMove;

@@ -86,13 +86,23 @@ def verify_landing_candidates(
     """
     if result.status not in ("candidates", "partial") or not result.candidates:
         return result
+    # The finder normally supplies a canonical DOI resolver, but restored or
+    # foreign results may contain an arbitrary fallback URL. Never pass that
+    # untrusted URL through to the UI, including in offline/error paths.
+    doi = normalize_doi(result.doi)
+    valid_parent = bool(doi and doi == result.doi and doi.startswith("10.1021/"))
+    fallback = "https://doi.org/" + doi if valid_parent else ""
     if offline or os.environ.get("LUNA_SI_OFFLINE") == "1":
-        return replace(result, status="offline", diagnostic="landing_check_offline")
+        # An offline check must not preserve a stale/forged landing_verified
+        # status from a restored candidate. It has made no HTTP request.
+        return replace(result, status="offline", fallback_url=fallback,
+                       candidates=tuple(replace(c, status="landing_unchecked_offline")
+                                        for c in result.candidates),
+                       diagnostic="landing_check_offline")
     # A reachable page cannot certify a candidate whose parent DOI differs
     # from the lookup result. Do not trust externally assembled result objects.
-    doi = normalize_doi(result.doi)
-    if not doi or doi != result.doi or not doi.startswith("10.1021/"):
-        return replace(result, status="needs_review",
+    if not valid_parent:
+        return replace(result, status="needs_review", fallback_url="",
                        candidates=tuple(replace(c, status="landing_unchecked_invalid_parent_doi")
                                         for c in result.candidates),
                        diagnostic="invalid_parent_doi")
@@ -160,7 +170,7 @@ def verify_landing_candidates(
     verified = sum(c.status == "landing_verified" for c in checked)
     all_verified = verified == len(checked) and result.status == "candidates"
     overall = "verified" if all_verified else "partial_verified" if verified else "needs_review"
-    return replace(result, status=overall, candidates=tuple(checked),
-                   diagnostic=f"landings_checked={probes_sent};"
+    return replace(result, status=overall, fallback_url=fallback,
+                   candidates=tuple(checked), diagnostic=f"landings_checked={probes_sent};"
                               f"landing_entries_verified={verified};search_partial={int(result.status == 'partial')};"
                               f"landing_rate_limited={int(throttled)}")

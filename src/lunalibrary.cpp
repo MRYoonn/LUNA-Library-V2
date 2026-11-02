@@ -908,14 +908,9 @@ private:
                 if (!pdf.isFile() || pdf.isSymLink() ||
                     pdf.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) continue;
                 QString folder = QDir::cleanPath(pdf.absolutePath()).toCaseFolded();
-                while (folder == normalizedRoot ||
-                       folder.startsWith(normalizedRoot + QLatin1Char('/'))) {
+                if (folder == normalizedRoot ||
+                    folder.startsWith(normalizedRoot + QLatin1Char('/')))
                     result->insert(folder, result->value(folder) + 1);
-                    if (folder == normalizedRoot) break;
-                    const QString parent = QDir::cleanPath(QFileInfo(folder).absolutePath()).toCaseFolded();
-                    if (parent == folder) break;
-                    folder = parent;
-                }
             }
         });
         connect(worker, &QThread::finished, this, [this, result, version] {

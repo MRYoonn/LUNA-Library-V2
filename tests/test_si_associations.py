@@ -90,6 +90,31 @@ class AssociationTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 relative_pdf_path(path)
 
+    def test_windows_forbidden_components_fail_closed(self):
+        # A Windows user cannot move to or restore any of these locations.
+        # Reject both filenames and parent folders, without mutating links.
+        i = sample()
+        before = i.to_json()
+        invalid = ("Chem/SI?.pdf", "Chem/SI*.pdf", "Chem/SI|2.pdf",
+                   "Chem/<SI>.pdf", 'Chem/SI"2.pdf', "Bad?Folder/SI.pdf",
+                   "Chem/CON .pdf", "Chem/LPT² .pdf",
+                   "Chem/" + "a" * 256 + ".pdf")
+        for path in invalid:
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(ValueError, "invalid_relative_path"):
+                    relative_pdf_path(path)
+                with self.assertRaisesRegex(ValueError, "invalid_relative_path"):
+                    i.relocate(SI1, "Chem/SI1.pdf", path)
+                self.assertEqual(i.to_json(), before)
+
+    def test_untrusted_state_with_impossible_windows_path_rejected(self):
+        i = sample()
+        forged = json.loads(i.to_json())
+        forged["documents"][0]["relative_path"] = "Chem/SI?.pdf"
+        with self.assertRaisesRegex(ValueError, "invalid_relative_path"):
+            AssociationIndex.from_json(json.dumps(forged))
+        self.assertEqual(i.documents[SI1].relative_path, "Chem/SI1.pdf")
+
     def test_orphan_link_rejected_on_load(self):
         i = sample()
         i.confirm_link(MAIN, SI1, DOI, user_confirmed=True)

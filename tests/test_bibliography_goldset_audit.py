@@ -233,6 +233,33 @@ class GoldsetCollectionAuditTests(unittest.TestCase):
             }])
             self.assertNotIn(str(target), result.stdout)
 
+
+    def test_report_cannot_overwrite_staged_pdf(self):
+        gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        case = copy.deepcopy(gold["cases"][0])
+        payload = b"%PDF-1.7\\nsynthetic do not overwrite\\n%%EOF\\n"
+        digest = hashlib.sha256(payload).hexdigest()
+        case["source"] = {"kind": "public", "sha256": digest}
+        case["evidence"] = {field: "synthetic review label"
+                            for field in case["expected"]}
+        gold["cases"] = [case]
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            pdf_dir = base / "private-pdfs"
+            pdf_dir.mkdir()
+            pdf_path = pdf_dir / (digest + ".pdf")
+            pdf_path.write_bytes(payload)
+            gold_path = base / "gold.json"
+            gold_path.write_text(json.dumps(gold), encoding="utf-8")
+            process = subprocess.run(
+                [sys.executable, "-B", str(TOOL), "--goldset", str(gold_path),
+                 "--pdf-dir", str(pdf_dir), "--report", str(pdf_path)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(process.returncode, 2)
+            self.assertIn("outside the private PDF directory", process.stderr)
+            self.assertEqual(pdf_path.read_bytes(), payload)
+
     def test_invalid_json_is_not_a_ready_report(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "invalid.json"

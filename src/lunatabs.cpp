@@ -167,26 +167,18 @@ public:
         installLibraryShell(*this, *initial);
         performanceEvent("native-shell-after-library", performanceNow());
         auto* frame = centralWidget();
-        auto* corner = findChild<QWidget*>(QStringLiteral("LunaTabCorner"));
-        if (corner) { frame->layout()->removeWidget(corner); tabs_->setCornerWidget(corner, Qt::TopLeftCorner); }
         static_cast<QVBoxLayout*>(frame->layout())->addWidget(tabs_);
         unattachedTabs.release(); // The shell's central frame now owns the tabs.
         open_ = new QAction(QStringLiteral("PDF 열기…"), this); open_->setObjectName(QStringLiteral("LunaOpenDocuments"));
         open_->setShortcut(QKeySequence(QStringLiteral("Ctrl+O"))); addAction(open_);
         open_->setToolTip(QStringLiteral("여러 PDF를 탭으로 열기 (Ctrl+O)"));
         connect(open_, &QAction::triggered, this, [this] { chooseFiles(); });
-        if (corner) {
-            auto* addCorner = new QWidget(tabs_);
-            auto* addRow = new QHBoxLayout(addCorner); addRow->setContentsMargins(0, 0, 4, 0);
-            auto* plus = new QToolButton(addCorner); plus->setObjectName(QStringLiteral("LunaNewTab")); plus->setIcon(readerIcon(QStringLiteral("add")));
-            plus->setAccessibleName(QStringLiteral("새 PDF 탭 열기")); plus->setToolTip(QStringLiteral("새 PDF 탭 열기")); plus->setFixedSize(43, 41);
-            addRow->addWidget(plus); tabs_->setCornerWidget(addCorner, Qt::TopRightCorner);
-            connect(plus, &QToolButton::clicked, open_, &QAction::trigger);
-            // Restore controls belong to the tab header itself, never inside
-            // the collapsible library dock. Keep both visible in every panel
-            // combination, including when both library columns are hidden.
-            corner->show();
-        }
+        auto* addCorner = new QWidget(tabs_);
+        auto* addRow = new QHBoxLayout(addCorner); addRow->setContentsMargins(0, 0, 4, 0);
+        auto* plus = new QToolButton(addCorner); plus->setObjectName(QStringLiteral("LunaNewTab")); plus->setIcon(readerIcon(QStringLiteral("add")));
+        plus->setAccessibleName(QStringLiteral("새 PDF 탭 열기")); plus->setToolTip(QStringLiteral("새 PDF 탭 열기")); plus->setFixedSize(43, 41);
+        addRow->addWidget(plus); tabs_->setCornerWidget(addCorner, Qt::TopRightCorner);
+        connect(plus, &QToolButton::clicked, open_, &QAction::trigger);
         quit_ = new QAction(QStringLiteral("끝내기"), this); quit_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q"))); addAction(quit_);
         connect(quit_, &QAction::triggered, this, [this] { trace("shell-quit-action"); close(); });
         for (const auto& route : {qMakePair("actionSave", "Ctrl+S"), qMakePair("actionSave_As", "Ctrl+Shift+S"),
@@ -1081,46 +1073,50 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             focus->setChecked(false);
             auto* navigationToggle = host.findChild<QToolButton*>(QStringLiteral("LunaNavigationCollapseButton"));
             auto* documentsToggle = host.findChild<QToolButton*>(QStringLiteral("LunaDocumentsCollapseButton"));
+            auto* navRestore = host.findChild<QToolButton*>(QStringLiteral("LunaNavigationRestoreButton"));
+            auto* docsRestore = host.findChild<QToolButton*>(QStringLiteral("LunaDocumentsRestoreButton"));
             auto* navigationPanel = host.findChild<QWidget*>(QStringLiteral("LunaNavigation"));
             auto* documentsPanel = host.findChild<QWidget*>(QStringLiteral("LunaDocuments"));
             auto* libraryDock = host.findChild<QDockWidget*>(QStringLiteral("LunaLibraryDock"));
-            auto* corner = host.findChild<QWidget*>(QStringLiteral("LunaTabCorner"));
-            integrationRequire(navigationToggle && documentsToggle && navigationPanel &&
-                               documentsPanel && libraryDock && corner,
-                               "Independent panel controls or dock missing");
-            integrationRequire(navigationToggle->parentWidget() == corner &&
-                               documentsToggle->parentWidget() == corner &&
-                               !navigationToggle->icon().isNull() && !documentsToggle->icon().isNull(),
-                               "Independent panel buttons are not hosted in the tab corner");
+            auto* navHeader = host.findChild<QWidget*>(QStringLiteral("LunaLibraryHeader"));
+            auto* paperHeader = host.findChild<QWidget*>(QStringLiteral("LunaPaperHeader"));
+            auto* restoreRail = host.findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail"));
+            integrationRequire(navigationToggle && documentsToggle && navRestore && docsRestore &&
+                               navigationPanel && documentsPanel && libraryDock && navHeader &&
+                               paperHeader && restoreRail,
+                               "Independent pane-header controls or edge restore rail missing");
+            integrationRequire(navigationToggle->parentWidget() == navHeader &&
+                               documentsToggle->parentWidget() == paperHeader &&
+                               !navigationToggle->icon().isNull() && !documentsToggle->icon().isNull() &&
+                               !host.findChild<QWidget*>(QStringLiteral("LunaTabCorner")),
+                               "Panel buttons leaked into PDF-only tab header");
             auto buttonsVisible = [&] {
-                return corner->isVisible() && navigationToggle->isVisible() &&
-                       documentsToggle->isVisible() &&
-                       corner->rect().contains(navigationToggle->geometry()) &&
-                       corner->rect().contains(documentsToggle->geometry()) &&
-                       !navigationToggle->geometry().intersects(documentsToggle->geometry());
+                return (navigationPanel->isHidden() ? navRestore->isVisible() : navigationToggle->isVisible()) &&
+                       (documentsPanel->isHidden() ? docsRestore->isVisible() : documentsToggle->isVisible()) &&
+                       (navigationPanel->isHidden() || documentsPanel->isHidden() ? restoreRail->isVisible() : !restoreRail->isVisible());
             };
             integrationRequire(buttonsVisible() && !navigationPanel->isHidden() &&
                                !documentsPanel->isHidden() && libraryDock->isVisible(),
-                               "Initial independent panel geometry invalid");
+                               "Initial pane header geometry invalid");
             for (int turn = 0; turn < 10; ++turn) {
                 integrationRequire(integrationPanelClick(host, navigationToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
                         !documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
-                    "Navigation-only real collapse click failed");
+                    "Header navigation collapse failed");
                 integrationRequire(integrationPanelClick(host, documentsToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
                         documentsPanel->isHidden() && libraryDock->isHidden() && buttonsVisible(); }),
-                    "Both panels hidden: restore buttons disappeared or document panel did not collapse");
-                integrationRequire(integrationPanelClick(host, navigationToggle) &&
+                    "Both collapsed: left-edge restore rail disappeared");
+                integrationRequire(integrationPanelClick(host, navRestore) &&
                     integrationWait([&] { return !navigationPanel->isHidden() &&
                         documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
-                    "Independent navigation restore failed while paper list stayed hidden");
-                integrationRequire(integrationPanelClick(host, documentsToggle) &&
+                    "Left-edge navigation restore failed");
+                integrationRequire(integrationPanelClick(host, docsRestore) &&
                     integrationWait([&] { return !navigationPanel->isHidden() &&
                         !documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
-                    "Independent paper-list restore failed");
+                    "Left-edge paper-list restore failed");
                 integrationRequire(!focus->isChecked(),
-                    "Independent panel clicks unexpectedly activated focus mode");
+                    "Panel controls unexpectedly activated focus mode");
             }
             result["tenIndependentPanelToggleCycles"] = true;
             auto collapse = [&] {

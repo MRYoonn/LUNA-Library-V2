@@ -84,6 +84,7 @@ def inventory(gold: dict, pdf_dir: Path | None = None) -> dict:
     unknown_by_publisher = defaultdict(Counter)
     synthetic_ids = []
     evidence_gaps = []
+    seen_pdf_hashes = {}
     placeholder_evidence = frozenset({
         "tbd", "todo", "n/a", "n.a.", "unknown", "pending",
         "placeholder", "unverified", "-",

@@ -475,3 +475,40 @@ source edits or synthetic test fixtures. Inspect exact-HEAD isolated CI before
 marking PASS. Then collect 20+ authorized ACS/RSC/Wiley/Nature/Elsevier PDF
 gold labels with independent evidence and read-only snapshots from an exact
 PR #16 build; keep private data outside GitHub. Keep PR Draft.
+
+## Follow-up 2026-11-02 — physical same-volume move regression (CI pending)
+
+The isolated QtCore native test now invokes the **existing production**
+`src/lunafilemove.h::movePdfWithThumbnails()` against a temporary, fabricated
+`.pdf`, `.luna-thumb.png`, and `.luna-meta.json` under `QTemporaryDir`.
+It first places an unrelated destination metadata sidecar and asserts that
+the collision is rejected **without modifying any source bytes or the
+occupied destination**. After clearing the fixture, it checks all three
+files moved with exact byte equality, that source files are absent, then
+calls the existing `Bibliography::relocate()`. A newly constructed Qt
+bibliography store must retain the human-edited title, `manual` provenance,
+and `needs_review` status at the new file identity. This extends the
+previous in-memory relocation-only synthetic checks without modifying the
+production mover, PDF4QT, reader, or other PRs.
+
+The fake PDF contains only a header and fabricated bytes: this tests the
+**file-management transaction**, not PDF parsing, annotations, the rendered
+card, Windows GUI interactions, full-process restart, cross-volume moves,
+or actual user files. No original PDF, real QSettings, network request or
+private sidecar is read or uploaded. The native test is compiled only in the
+independent Qt6 Windows job; source contracts are also checked by Python.
+
+Validation commands:
+```sh
+python -B -m unittest discover -s tests -p 'test_accuracy_snapshot_source_contract.py' -v
+cmake -S tests/native_accuracy -B build/native_accuracy
+cmake --build build/native_accuracy --config Release
+ctest --test-dir build/native_accuracy -C Release --output-on-failure
+```
+
+**Exact new HEAD CI not yet verified.** Next: inspect the branch's
+`python-contract` and `windows-qtcore` results and correct any failures;
+then gather >=20 permissioned/public publisher PDFs with independently
+reviewed labels and opt-in local-only read-only native snapshots. Real
+HTTP 429/404, Windows GUI and actual process restart remain separate gates.
+Keep PR #18 Draft; do not merge or release.

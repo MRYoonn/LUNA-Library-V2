@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "snapshot_adapter.h"
+#include "local_pdf_capture.h"
 #include "../../src/lunabibliography.h"
 #include "../../src/lunafilemove.h"
 #include <QDir>
@@ -129,6 +130,55 @@ int main(int argc, char** argv) {
     check(luna::Accuracy::captureCase(QStringLiteral("syn-zero-hash"), paper,
                                      QString(64, QLatin1Char('0'))).isEmpty(),
           "placeholder capture-time PDF digest rejected");
+
+    // Opt-in local capture must hash actual synthetic PDF bytes, not copy
+    // a caller-supplied goldset digest into the native snapshot.
+    const QString localPdf = root.filePath(QStringLiteral("synthetic-capture.pdf"));
+    const QByteArray pdfBytes("%PDF-1.4\\nsynthetic local fixture only\\n%%EOF\\n");
+    {
+        QFile fixture(localPdf);
+        check(fixture.open(QIODevice::WriteOnly), "create synthetic capture PDF");
+        check(fixture.write(pdfBytes) == pdfBytes.size(), "write synthetic capture PDF");
+    }
+    const QString actualDigest = QString::fromLatin1(
+        QCryptographicHash::hash(pdfBytes, QCryptographicHash::Sha256).toHex());
+    const auto hashedCase = luna::Accuracy::captureCaseFromLocalPdf(
+        QStringLiteral("syn-local-hash"), paper, localPdf);
+    check(hashedCase.value(QStringLiteral("source_sha256")).toString() == actualDigest,
+          "local PDF bytes bound to snapshot");
+    check(!hashedCase.contains(QStringLiteral("path"))
+          && !hashedCase.contains(QStringLiteral("filename")),
+          "local capture never exports PDF path");
+    check(luna::Accuracy::captureCaseFromLocalPdf(
+              QStringLiteral("syn-missing"), paper, root.filePath(QStringLiteral("missing.pdf"))).isEmpty(),
+          "missing PDF cannot produce a bound snapshot");
+    const QString movedPdfFixture = root.filePath(QStringLiteral("synthetic-capture-moved.pdf"));
+    check(QFile::rename(localPdf, movedPdfFixture), "rename synthetic PDF for capture");
+    check(luna::Accuracy::captureCaseFromLocalPdf(
+              QStringLiteral("syn-old-path"), paper, localPdf).isEmpty(),
+          "stale PDF path cannot produce a bound snapshot");
+    check(luna::Accuracy::captureCaseFromLocalPdf(
+              QStringLiteral("syn-new-path"), paper, movedPdfFixture)
+              .value(QStringLiteral("source_sha256")).toString() == actualDigest,
+          "renamed PDF preserves content binding");
+    {
+        QFile changed(movedPdfFixture);
+        check(changed.open(QIODevice::Append), "open synthetic PDF for modification");
+        check(changed.write("modified") == 8, "modify synthetic PDF bytes");
+    }
+    check(luna::Accuracy::captureCaseFromLocalPdf(
+              QStringLiteral("syn-changed"), paper, movedPdfFixture)
+              .value(QStringLiteral("source_sha256")).toString() != actualDigest,
+          "changed PDF cannot reuse old goldset digest");
+    const QString nonPdf = root.filePath(QStringLiteral("not-a-pdf.pdf"));
+    {
+        QFile invalid(nonPdf);
+        check(invalid.open(QIODevice::WriteOnly), "create invalid synthetic PDF");
+        check(invalid.write("not a pdf") == 9, "write invalid synthetic PDF");
+    }
+    check(luna::Accuracy::captureCaseFromLocalPdf(
+              QStringLiteral("syn-not-pdf"), paper, nonPdf).isEmpty(),
+          "invalid PDF header cannot produce a bound snapshot");
 
     check(one.value(QStringLiteral("audit")).toObject().value(QStringLiteral("authorsSource")).toString() == QStringLiteral("Crossref"), "author provenance");
     const auto sources = one.value(QStringLiteral("audit")).toObject()

@@ -650,3 +650,34 @@ opted-in public DOI metadata/landing probe on a permitted network, without
 downloading SI files. Then coordinate a disposable-file Windows
 move/rename/restart acceptance with the Issue #9 owner. Keep Draft, do not
 merge or release.
+
+
+## Follow-up — stop ACS/Figshare detail requests on HTTP 429 (2026-11-02)
+
+- Reviewed main `76e1fd7`, Draft PR #13/#15/#16, Issue #9 and PR #17's
+  previously green exact-code Actions #41414871935. PR #16's DOI and SI
+  classification remain owned by their branches; no reader/renderer change.
+- **Bug:** the detail loop previously swallowed HTTP 429 into a generic
+  `detail_failures` counter and continued issuing GET requests. This could
+  worsen provider throttling and report an empty set as `needs_review`
+  without clearly recording rate limiting.
+- `tools/si_finder.py`: a detail-level HTTP 429 now **stops further requests**.
+  If earlier SI metadata was collected, the result remains display-only
+  `partial`; if none was collected, it returns `rate_limited`, never a
+  definitive `not_found`. A sanitized `detail_rate_limited=1` diagnostic
+  records the stop. Non-429 detail failures still use the existing
+  partial/review handling. The DOI publisher fallback remains available.
+- `tests/test_si_finder.py`: two new synthetic offline regressions cover
+  the 429 stop after a valid SI and 429 on the first detail, including
+  assertion that **no later GET** occurs. No live API calls or file downloads.
+- Source/test commits: `923ed5fb`, `57abadd6`. New-head Python/privacy
+  and Windows/Linux Qt6 CI must be checked before calling this revision PASS.
+  The previous #41414871935 SUCCESS covers the older implementation only.
+- Not verified: real ACS/Figshare HTTP 429 behavior, actual SI-file
+  accessibility, full Windows LUNA GUI, physical move/rename/restart, and
+  PR #17 integration divergence. Keep Draft; no main/other PR changes,
+  auto-merge or Release.
+
+Next: confirm the isolated push-triggered CI on the exact new code SHA.
+Then run the opt-in live public ACS DOI metadata/landing probe on a network
+with access to official endpoints, without downloading any SI files.

@@ -1104,10 +1104,13 @@ public:
         shelf->setAccessibleName(QStringLiteral("라이브러리"));
         shelf->setFixedSize(24, 24);
         libraryHeaderLayout->addWidget(shelf);
+        shelf->hide();
         auto* section = new QLabel(QStringLiteral("라이브러리"), libraryHeader);
         section->setObjectName(QStringLiteral("LunaLibraryTitle"));
         QFont headingFont(QStringLiteral("Malgun Gothic")); headingFont.setPixelSize(18); headingFont.setBold(true); headingFont.setLetterSpacing(QFont::AbsoluteSpacing, -.45); section->setFont(headingFont);
         libraryHeaderLayout->addWidget(section, 1);
+        section->hide();
+        libraryHeaderLayout->addStretch(1);
         nav->addWidget(libraryHeader);
         auto* group = new QButtonGroup(this);
         auto navButton = [this, nav, group](const QString& text, const QString& icon) {
@@ -1392,6 +1395,8 @@ public:
         titleRow->setSpacing(3);
         // Right-side controls stay visible when the title has to contract.
         titleRow->addWidget(title, 1);
+        title->hide();
+        titleRow->insertStretch(0, 1);
         headingLayout->addLayout(titleRow);
         // Both paper views keep the same vertical QListWidget and model.
         compactPaperMode_ = QSettings(QSettings::defaultFormat(), QSettings::UserScope,
@@ -1637,22 +1642,26 @@ public:
         const bool hasNavigation = !navigation_->isHidden();
         const bool hasDocuments = !documents_->isHidden();
         const bool both = hasNavigation && hasDocuments;
+        const bool wide = hasNavigation;
+        QSettings preferences(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        const int savedWidth = qBound(432, preferences.value(
+            QStringLiteral("library/expandedDockWidth"), 562).toInt(), 850);
         setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12);
-        setMaximumWidth(both ? 850 : 290);
+        setMaximumWidth(wide ? 850 : 290);
         updateGeometry();
         if (auto* dock = qobject_cast<QDockWidget*>(parentWidget())) {
             dock->setVisible(hasNavigation || hasDocuments);
             if (!(hasNavigation || hasDocuments)) return;
             dock->setMinimumWidth(1);
-            dock->setMaximumWidth(both ? 850 : 300);
+            dock->setMaximumWidth(wide ? 850 : 300);
             dock->updateGeometry();
             if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget())) {
-                const int width = both ? 562 : (hasNavigation ? 270 : 240);
+                const int width = hasNavigation ? savedWidth : 240;
                 main->resizeDocks({dock}, {width}, Qt::Horizontal);
-                QTimer::singleShot(0, dock, [dock, width, both] {
-                    if (!dock->isVisible() || (dock->widget()->maximumWidth() == 850) != both) return;
+                QTimer::singleShot(0, dock, [dock, width, wide] {
+                    if (!dock->isVisible() || (dock->widget()->maximumWidth() == 850) != wide) return;
                     dock->setMinimumWidth(1);
-                    dock->setMaximumWidth(both ? 850 : 300);
+                    dock->setMaximumWidth(wide ? 850 : 300);
                     if (auto* window = qobject_cast<QMainWindow*>(dock->parentWidget()))
                         window->resizeDocks({dock}, {width}, Qt::Horizontal);
                 });
@@ -1666,8 +1675,11 @@ public:
     QLineEdit* searchEdit() const { return query_; }
     void savePanelState() {
         if (navigation_->isHidden() || documents_->isHidden()) return;
-        QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
-            .setValue(QStringLiteral("library/splitter"), split_->saveState());
+        QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        settings.setValue(QStringLiteral("library/splitter"), split_->saveState());
+        if (auto* dock = qobject_cast<QDockWidget*>(parentWidget()))
+            if (dock->width() >= 432 && dock->width() <= 850)
+                settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width());
     }
 private:
     QStringList savedPaths(const QString& key) const {
@@ -3252,8 +3264,10 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         restoreRail->setVisible(showNav || showPapers);
         if (showNav || showPapers) {
             restoreRail->adjustSize();
-            restoreRail->move(8, window.menuBar()->height() + 95);
-            restoreRail->raise();
+            if (restoreRail->parentWidget() == &window) {
+                restoreRail->move(8, window.menuBar()->height() + 95);
+                restoreRail->raise();
+            }
         }
     };
     for (auto* action : {folders, documents, focus})

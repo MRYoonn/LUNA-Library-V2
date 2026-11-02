@@ -634,8 +634,9 @@ Keep Draft; no main/renderer/other PR edits, merge or Release.
   previous code would expose the other article's reused ID in both cases.
 - Code commit `c5c3a88e`; tests `075676e3`. Exact new-code CI
   [#41414871935](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41414871935)
-  **in progress at handoff**; do not mark PASS until Python/privacy and both
-  native Qt6 jobs complete. Earlier exact-code
+  **SUCCESS** on exact test/code HEAD `075676e3`: Python/privacy,
+  Linux Qt6 and Windows Qt6 native jobs all passed. The final documentation
+  commit does not change tested code. Earlier exact-code
   [#41404544291](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41404544291)
   succeeded on the previous revision only.
 - Remaining: actual ACS/Figshare API and HTML landing reachability (prior

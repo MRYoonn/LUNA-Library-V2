@@ -233,9 +233,17 @@ class NativeFileManagementContracts(unittest.TestCase):
         self.assertIn('return QStringLiteral("%1  ·  %2").arg(label).arg(pdfCount(filePath(index)));', UI)
         self.assertIn('if (parent->objectName() == QStringLiteral("LunaFolderDropTree")', UI)
 
-    def test_folder_selection_matches_recursive_count_badges(self):
-        self.assertIn("The selected folder represents its complete subtree", UI)
-        self.assertIn("QDirIterator::Subdirectories", UI)
+    def test_folder_selection_matches_direct_count_badges_and_all_documents_recursive(self):
+        # Run #231: the user's selected-folder view must NOT include child PDFs;
+        # only the explicit All Documents view searches descendants.
+        folder_view = UI.split("void selectFolder(const QString& path)", 1)[1].split("void scanAll()", 1)[0]
+        all_view = UI.split("void scanAll()", 1)[1].split("void scanBatch(bool all)", 1)[0]
+        count_worker = UI.split("void beginRecount()", 1)[1].split("connect(worker, &QThread::finished", 1)[0]
+        self.assertNotIn("QDirIterator::Subdirectories", folder_view)
+        self.assertIn("QDirIterator::Subdirectories", all_view)
+        self.assertIn("QDirIterator::Subdirectories", count_worker)
+        self.assertNotIn("while (folder == normalizedRoot", count_worker)
+        self.assertIn("result->insert(folder, result->value(folder) + 1)", count_worker)
         self.assertIn("folderCountPoll->setInterval(60000)", UI)
         self.assertIn("model_->refreshPdfCounts(root_)", UI)
 

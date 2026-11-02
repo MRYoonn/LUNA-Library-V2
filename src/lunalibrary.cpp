@@ -1113,7 +1113,6 @@ public:
         dates.endGroup(); dates.beginGroup(QStringLiteral("library/memos"));
         for (const QString& key : dates.childKeys()) memos_.insert(key, dates.value(key).toString());
         dates.endGroup(); // Do not load legacy tags; leave stored preferences intact for rollback.
-        // Read existing date keys without migrating memos or changing their keys.
         for (const QString& path : savedPaths(QStringLiteral("library/recent"))) {
             const QString date = openedDates_.value(openedDateKey(path));
             if (!date.isEmpty()) rememberDateAlias(path, date);
@@ -1713,10 +1712,12 @@ public:
             if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget())) {
                 const int width = both ? 562 : (hasNavigation ? 270 : 240);
                 main->resizeDocks({dock}, {width}, Qt::Horizontal);
-                QTimer::singleShot(0, dock, [dock, width] {
-                    if (dock->isVisible())
-                        if (auto* window = qobject_cast<QMainWindow*>(dock->parentWidget()))
-                            window->resizeDocks({dock}, {width}, Qt::Horizontal);
+                QTimer::singleShot(0, dock, [dock, width, both] {
+                    if (!dock->isVisible() || (dock->widget()->maximumWidth() == 850) != both) return;
+                    dock->setMinimumWidth(1);
+                    dock->setMaximumWidth(both ? 850 : 300);
+                    if (auto* window = qobject_cast<QMainWindow*>(dock->parentWidget()))
+                        window->resizeDocks({dock}, {width}, Qt::Horizontal);
                 });
             }
         }

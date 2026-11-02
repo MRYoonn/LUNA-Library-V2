@@ -512,3 +512,21 @@ then gather >=20 permissioned/public publisher PDFs with independently
 reviewed labels and opt-in local-only read-only native snapshots. Real
 HTTP 429/404, Windows GUI and actual process restart remain separate gates.
 Keep PR #18 Draft; do not merge or release.
+
+## Follow-up 2026-11-02 — strict typed preservation assertions (CI pending)
+
+The independent offline regression scorer now rejects a preserved-field
+snapshot when the **type** changes even if Python considers the values equal.
+In particular, `False == 0` and `True == 1` previously let a manual
+QSettings boolean become an integer while `must_preserve` still passed.
+A changed type now reports `changed_protected_value`. The new synthetic
+unit test checks both directions for true/false and 0/1, and unchanged
+values of all four types.
+
+This only validates supplied snapshots; it does **not** prove that production
+QSettings migration, manual edits, or a Windows process restart behaved
+correctly. Exact-HEAD Python and Windows QtCore CI have not been observed
+passing for this change. Run the isolated workflow and then real Windows
+regressions with disposable settings. Authorized multi-publisher PDF goldset
+and field-wise extraction accuracy are still outstanding. Keep Draft #18;
+do not merge, release, or modify the reader/metadata engine.

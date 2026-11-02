@@ -165,6 +165,47 @@ class ProbeTests(unittest.TestCase):
                 self.assertEqual(rc, 2)
                 self.assertEqual(json.loads(output.getvalue())["landing_http_gate"], "fail")
 
+    def test_strict_landing_gate_rechecks_duplicate_file_identity_and_fallback(self):
+        # Restored reports must not bypass the finder's ambiguity checks.
+        # All URLs and IDs are synthetic evidence; no HTTP request is made.
+        source = SiLookupResult(DOI, "verified", (
+            SiCandidate(7688531, DOI, "Public example", "SI.pdf", PUBLIC_LANDING,
+                        status="landing_verified", file_id=123),
+            SiCandidate(7688531, DOI, "Public example", "SI2.pdf", PUBLIC_LANDING,
+                        status="landing_verified", file_id=124),
+        ), "https://doi.org/" + DOI)
+        args = ["--doi", DOI, "--live", "--check-landings", "--require-landing-http"]
+
+        def gate(result):
+            report = {"verification_scope": "landing_html_only", "result": result}
+            with patch("si_live_probe.inspect_doi", return_value=report):
+                output = StringIO()
+                with contextlib.redirect_stdout(output):
+                    code = main(args)
+            return code, json.loads(output.getvalue())["landing_http_gate"]
+
+        self.assertEqual(gate(source.to_dict()), (0, "pass"))
+
+        cases = ("same_filename", "nfkc_casefold_filename", "same_file_id",
+                 "cross_article_file_id", "forged_fallback")
+        for case in cases:
+            with self.subTest(case=case):
+                report = source.to_dict()
+                second = report["candidates"][1]
+                if case == "same_filename":
+                    second["filename"] = "SI.pdf"
+                elif case == "nfkc_casefold_filename":
+                    second["filename"] = "ＳＩ.pdf"
+                elif case == "same_file_id":
+                    second["file_id"] = 123
+                elif case == "cross_article_file_id":
+                    second["article_id"] = 7688532
+                    second["landing_url"] = PUBLIC_LANDING.replace("7688531", "7688532")
+                    second["file_id"] = 123
+                else:
+                    report["fallback_url"] = "https://untrusted.invalid/si"
+                self.assertEqual(gate(report), (2, "fail"))
+
     def test_strict_landing_gate_rejects_missing_opt_in_without_network(self):
         with patch("si_live_probe.inspect_doi", side_effect=AssertionError("network")):
             with contextlib.redirect_stderr(StringIO()):

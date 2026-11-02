@@ -516,3 +516,24 @@ landing accessibility remains unverified.
   SMB/network filesystem, and association-store-to-native-UI binding still
   require separate acceptance. Live ACS/Figshare landing/file reachability
   is also unverified. Keep Draft; no merge/release.
+
+
+### Native contract CI resolution (2026-11-02)
+
+- Initial run [#41386229703](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41386229703)
+  **FAILED** on Linux because the harness include search path selected the SI
+  branch's older `lunafilemove.h` instead of the separately pinned PR #16
+  version. The observed "metadata collision was accepted" was a **test
+  wiring error**, not proof of a defect in the pinned PR #16 implementation.
+- Corrected the include search order so the pinned PR #16 header is first;
+  added `tests/native_si_move/**` to CI path triggers so future test edits
+  cannot silently skip the native workflow.
+- Exact code/workflow HEAD `6c9ba31f95ea9e10ceeb4f82d5f096c10274357b`:
+  [Actions #41386453218](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41386453218)
+  **SUCCESS**. Offline Python SI/privacy gate PASS; Linux Qt6 identity and
+  paired-move consumer contract PASS; Windows MSVC Qt6 identity and
+  paired-move consumer contract PASS. No real app or user PDF was exercised.
+- Follow-up is to review any newer PR #16 move-helper commit and explicitly
+  repin/re-run the contract; then verify real Windows app movement/rename,
+  failed rollback and local association persistence with approved disposable
+  files. Live ACS/Figshare API/landing remains unverified.

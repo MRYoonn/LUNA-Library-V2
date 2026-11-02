@@ -759,3 +759,10 @@ Next: inspect exact-test-HEAD CI, fix any failures, then run a permitted
 public ACS DOI live metadata/landing check without downloading SI files.
 Coordinate Windows app-level move/restart acceptance with the Issue #9
 owner before integrating UI.
+
+CI follow-up for exact source/test commit `6cf88093`:
+[SI isolated Actions #41441474681](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41441474681)
+completed **SUCCESS**: Python offline/privacy, Linux Qt6 identity/move and
+Windows Qt6 identity/move jobs all passed. These are synthetic regressions;
+no real ACS/Figshare endpoint, SI-file accessibility or production Windows
+GUI integration was tested.

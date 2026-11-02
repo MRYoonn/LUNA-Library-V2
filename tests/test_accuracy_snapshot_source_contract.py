@@ -22,6 +22,14 @@ class SnapshotSourceContract(unittest.TestCase):
         self.assertIn('fieldSources.insert(field, provider)', code)
         self.assertNotIn('fieldSources.insert(QStringLiteral("private_note")', code)
 
+    def test_known_negative_fields_are_explicitly_captured(self):
+        header = HEADER.read_text(encoding="utf-8")
+        native = NATIVE.read_text(encoding="utf-8")
+        self.assertIn("QJsonValue(QJsonValue::Null)", header)
+        self.assertIn('observed.insert(QStringLiteral("document_kind")', header)
+        self.assertIn('observed.insert(QStringLiteral("terminal_author")', header)
+        self.assertIn("SI explicitly captures absent paper fields", native)
+
     def test_native_regressions_seed_isolated_settings(self):
         code = NATIVE.read_text(encoding="utf-8")
         for expected in ('QTemporaryDir', 'Hao Fang', 'legacy author must not reappear',

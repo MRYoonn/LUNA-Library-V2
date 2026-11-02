@@ -121,9 +121,37 @@ class LandingVerifierTests(unittest.TestCase):
         self.assertEqual(result.fallback_url, "https://doi.org/" + DOI)
         self.assertEqual(result.diagnostic, "verified_without_candidates")
 
-    def test_non_candidates_unchanged(self):
-        source = fixture(status="rate_limited")
-        self.assertIs(verify_landing_candidates(source, lambda _: self.fail("network")), source)
+    def test_provider_failure_snapshot_with_candidates_fails_closed(self):
+        # A provider error cannot legitimately carry confirmed SI entries.
+        # This supersedes the old identity-preserving assertion, which would
+        # keep stale/forged landing_verified evidence after HTTP 429 or 404.
+        for provider_status in ("rate_limited", "not_found", "provider_unavailable",
+                                "unsupported_publisher", "unknown_status"):
+            with self.subTest(provider_status=provider_status):
+                stale = SiCandidate(123, DOI, "Synthetic data", "si.pdf", BASE + "123",
+                                    status="landing_verified")
+                source = SiLookupResult(DOI, provider_status, (stale,),
+                                        "https://evil.invalid/forged")
+                checked = verify_landing_candidates(
+                    source, lambda _: self.fail("provider failure must not probe"))
+                self.assertEqual(checked.status, "needs_review")
+                self.assertEqual(checked.fallback_url, "https://doi.org/" + DOI)
+                self.assertEqual(checked.diagnostic, "untrusted_lookup_status")
+                self.assertEqual(checked.candidates[0].status,
+                                 "landing_unchecked_untrusted_lookup_status")
+                self.assertEqual(source.candidates[0].status, "landing_verified")
+
+    def test_empty_provider_failure_snapshot_preserves_error_not_forged_fallback(self):
+        # A genuine zero-candidate 429/404 stays an error, not a verified SI.
+        for provider_status in ("rate_limited", "not_found", "provider_unavailable"):
+            with self.subTest(provider_status=provider_status):
+                source = SiLookupResult(DOI, provider_status, (),
+                                        "https://evil.invalid/forged")
+                checked = verify_landing_candidates(
+                    source, lambda _: self.fail("empty result must not probe"))
+                self.assertEqual(checked.status, provider_status)
+                self.assertEqual(checked.candidates, ())
+                self.assertEqual(checked.fallback_url, "https://doi.org/" + DOI)
 
     def test_reject_untrusted_candidate_before_probe(self):
         source = fixture()

@@ -380,6 +380,9 @@ private:
         PerformanceSpan span("editor-ui-bind");
         performanceEvent("native-editor-before-reader-prepare", performanceNow());
         prepareReaderSession(*editor, *this);
+        if (auto* view = editor->findChild<QMenu*>(QStringLiteral("menuView")))
+            if (auto* zoom = findChild<QAction*>(QStringLiteral("LunaDefaultOpeningZoom")))
+                if (!view->actions().contains(zoom)) view->addAction(zoom);
         performanceEvent("native-editor-after-reader-prepare", performanceNow());
         if (auto* bar = editor->findChild<QToolBar*>(QStringLiteral("mainToolBar"))) bar->hide();
         editor->statusBar()->hide();
@@ -519,6 +522,8 @@ private:
             if (!help->actions().contains(notices)) help->addAction(notices);
             if (updater_ && !help->actions().contains(updater_->action()))
                 help->addAction(updater_->action());
+            if (updater_ && !help->actions().contains(updater_->automaticAction()))
+                help->addAction(updater_->automaticAction());
         }
         bindCommonReaderToolbar(*this, *editor);
         editor->getProgramController()->getPdfWidget()->setFocus(); updateTitle(editor);

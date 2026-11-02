@@ -131,6 +131,12 @@ def validate_real_run(gold: dict, predictions: dict) -> None:
             raise DatasetError(f"real run/{ident}: only public or permissioned PDFs accepted")
         if source["sha256"].lower() == "0" * 64:
             raise DatasetError(f"real run/{ident}: placeholder PDF SHA256")
+        digest = source["sha256"].lower()
+        first_case = seen_pdf_hashes.setdefault(digest, ident)
+        if first_case != ident:
+            raise DatasetError(
+                f"real run/{ident}: duplicate PDF SHA256 also used by {first_case}"
+            )
         evidence = case["evidence"]
         for field in case["expected"]:
             # Explicit null means independently verified ABSENCE, not unknown.

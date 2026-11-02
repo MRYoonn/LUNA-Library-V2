@@ -188,6 +188,10 @@ def lookup_acs_figshare(
         # or suppressing same-article duplicates. Otherwise a rejected entry
         # can conceal an ID collision with a different article.
         raw_file_id_owners: dict[int, set[int]] = {}
+        # An ID hidden beyond the display cap (or behind an unsafe filename)
+        # still conflicts with a displayed ID. The HTTP JSON byte limit
+        # bounds this scan; only the first MAX_FILES are ever displayed.
+        raw_file_id_counts: Counter[tuple[int, int]] = Counter()
         for summary in found:
             if not isinstance(summary, dict):
                 rejected += 1
@@ -235,16 +239,21 @@ def lookup_acs_figshare(
             # can display. Retain the first MAX_FILES for user review.
             if len(files) > MAX_FILES:
                 truncated_files += 1
+            # Scan IDs from the ENTIRE bounded JSON response before applying
+            # the 40-file display cap. Otherwise a tail entry can conceal a
+            # same-article or cross-article ID collision with a visible SI.
+            for item in files:
+                if isinstance(item, dict):
+                    observed_id = item.get("id")
+                    if type(observed_id) is int and 0 < observed_id < 10**15:
+                        raw_file_id_owners.setdefault(observed_id, set()).add(article_id)
+                        raw_file_id_counts[(article_id, observed_id)] += 1
             # Figshare documents a numeric PublicFilePresenter.id. Preserve
             # it as evidence for display/review, but never infer that the file
             # URL was opened or that a local SI is linked. Older/partial
             # metadata without an id remains display-only (file_id=None).
             valid_entries: list[tuple[str, int | None]] = []
             for item in files[:MAX_FILES]:
-                if isinstance(item, dict):
-                    observed_id = item.get("id")
-                    if type(observed_id) is int and 0 < observed_id < 10**15:
-                        raw_file_id_owners.setdefault(observed_id, set()).add(article_id)
                 if not isinstance(item, dict) or not safe_si_filename(item.get("name")):
                     invalid_file_entries += 1
                     continue
@@ -257,15 +266,15 @@ def lookup_acs_figshare(
             keys = [unicodedata.normalize("NFKC", name).casefold()
                     for name, _ in valid_entries]
             name_counts = Counter(keys)
-            id_counts = Counter(file_id for _, file_id in valid_entries
-                                if file_id is not None)
-            # Suppress BOTH entries for either a Windows/Unicode-equivalent
-            # filename or a reused numeric file ID in the same article.
+            # Suppress displayed entries when an ID occurs anywhere in the
+            # article, even in a truncated tail or an invalid filename.
             ambiguous_file_entries += sum(name_counts[key] > 1 for key in keys)
-            ambiguous_file_ids += sum(file_id is not None and id_counts[file_id] > 1
-                                      for _, file_id in valid_entries)
+            ambiguous_file_ids += sum(
+                file_id is not None and raw_file_id_counts[(article_id, file_id)] > 1
+                for _, file_id in valid_entries)
             for (filename, file_id), key in zip(valid_entries, keys):
-                if name_counts[key] > 1 or (file_id is not None and id_counts[file_id] > 1):
+                if (name_counts[key] > 1 or
+                        (file_id is not None and raw_file_id_counts[(article_id, file_id)] > 1)):
                     continue
                 # Never expose download_url: only the official article landing
                 # is offered, with reachability still unverified.

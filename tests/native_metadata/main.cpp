@@ -83,6 +83,16 @@ int main(int argc,char** argv){
     expect(ambiguous.value("title").toString().isEmpty() &&
            ambiguous.value("titleStatus").toString()==QStringLiteral("needs_review"),
            "competing title headings must not autosave");
+    const auto weak = TitleExtraction::infer({
+        {QStringLiteral("Publisher header text"),40,25,9},
+        {QStringLiteral("Potentially Important Study of Heteroarenes"),62,140,12.5},
+        {QStringLiteral("A Smith, B Brown and C Green"),62,200,9},
+        {QStringLiteral("Department of Chemistry"),62,249,9},
+        {QStringLiteral("Abstract"),62,285,9}
+    },792);
+    expect(weak.value("title").toString().isEmpty() &&
+           weak.value("titleStatus").toString()==QStringLiteral("needs_review"),
+           "weak title typography must require review");
     const auto chemistry = TitleExtraction::infer({
         {QStringLiteral("Journal header text"),20,30,9},
         {QStringLiteral("β-C–H and α-C–C Activation in Thiouracils"),60,140,19},

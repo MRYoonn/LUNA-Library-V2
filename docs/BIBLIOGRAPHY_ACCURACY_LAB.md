@@ -145,6 +145,24 @@ extraction accuracy. Native Qt6 CTest, live Crossref/OpenAlex, user-settings
 preservation, real Windows restarts/moves, and independently reviewed PDF
 evidence are still outstanding. Keep PR #18 Draft; do not merge or release.
 
+## Follow-up: selected senior-author index contamination guard (2026-11-02)
+
+PR #16's `Metadata::labCitation()` can choose an author through
+`senior_author_index` even when `senior_author_override` is empty. The
+read-only native snapshot adapter previously flagged only the textual
+override, so a manually selected author could be mistaken for automatic
+terminal-author card accuracy. The adapter now sets its existing
+`senior_author_override_active` audit flag when a selected index is within
+the structured-author list, without exporting the index, user identities, or
+paths. The real-mode scorer already rejects this flag; no production engine
+or UI changes are needed. A missing/out-of-range index does not alter the
+card and is not marked active. Synthetic QtCore and source-contract tests
+cover ordinary, selected, and invalid-index cases.
+
+**Not yet acceptance evidence:** these tests do not exercise the actual
+Windows card, live providers, user QSettings, or 20+ publisher PDF goldset.
+Check the exact new-head CI before marking PASS. Keep PR #18 Draft.
+
 ## Follow-up: manual-provenance contamination guard (2026-11-01)
 
 The native Qt snapshot adapter reports both field-level provenance and flags

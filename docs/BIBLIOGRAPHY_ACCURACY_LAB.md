@@ -328,3 +328,13 @@ Windows execution, or reviewer judgments. The real publisher goldset and
 actual Qt/Windows/QSettings/429/404/move/restart validations remain outstanding.
 Run `python -B -m unittest discover -s tests -p 'test_bibliography_goldset_audit.py' -v`
 and check the exact branch commit's independent CI before reporting PASS.
+
+## Follow-up: reject placeholder evidence and protect local goldset (2026-11-02)
+
+The prediction-free collection audit now flags case/field evidence that is only
+a placeholder (e.g. `TBD`, `N/A`, `Unverified`) as
+`placeholder_field_evidence`; it cannot count as an independent review of a
+positive value or an explicit null. The CLI also refuses `--report` when the
+resolved output path is the input goldset, preventing accidental destruction of
+private source labels. Two synthetic-only regression tests cover these guards.
+Neither check authenticates publisher PDFs or measures LUNA extraction quality.

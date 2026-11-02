@@ -175,5 +175,67 @@ class LandingVerifierTests(unittest.TestCase):
         response.read.assert_not_called()
 
 
+    def test_landing_429_stops_later_unique_urls_but_keeps_prior_verified(self):
+        # HEAD/GET status 429 is global back-pressure, not a per-file miss.
+        source = SiLookupResult(DOI, "candidates", tuple(
+            SiCandidate(article_id, DOI, "Synthetic", f"si{article_id}.pdf",
+                        BASE + str(article_id))
+            for article_id in (123, 456, 789)
+        ), "https://doi.org/" + DOI)
+        calls = []
+        def probe(url):
+            calls.append(url)
+            if url.endswith("/123"):
+                return "reachable_html"
+            if url.endswith("/456"):
+                return "rate_limited"
+            self.fail("a landing was probed after HTTP 429")
+
+        result = verify_landing_candidates(source, probe)
+        self.assertEqual(result.status, "partial_verified")
+        self.assertEqual([c.status for c in result.candidates],
+                         ["landing_verified", "landing_unchecked_rate_limited",
+                          "landing_unchecked_rate_limited"])
+        self.assertEqual(len(calls), 2)
+        self.assertIn("landings_checked=2", result.diagnostic)
+        self.assertIn("landing_rate_limited=1", result.diagnostic)
+
+    def test_raised_http_429_stops_probes_and_never_verifies(self):
+        source = SiLookupResult(DOI, "candidates", tuple(
+            SiCandidate(article_id, DOI, "Synthetic", f"si{article_id}.pdf",
+                        BASE + str(article_id))
+            for article_id in (123, 456)
+        ), "https://doi.org/" + DOI)
+        calls = []
+        def probe(url):
+            calls.append(url)
+            raise HTTPError(url, 429, "synthetic rate limit", {}, None)
+
+        result = verify_landing_candidates(source, probe)
+        self.assertEqual(result.status, "needs_review")
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(all(c.status == "landing_unchecked_rate_limited"
+                            for c in result.candidates))
+        self.assertIn("landings_checked=1", result.diagnostic)
+
+    def test_landing_404_does_not_trigger_rate_limit_backpressure(self):
+        source = SiLookupResult(DOI, "candidates", tuple(
+            SiCandidate(article_id, DOI, "Synthetic", f"si{article_id}.pdf",
+                        BASE + str(article_id))
+            for article_id in (123, 456)
+        ), "https://doi.org/" + DOI)
+        calls = []
+        def probe(url):
+            calls.append(url)
+            return "not_found" if url.endswith("/123") else "reachable_html"
+
+        result = verify_landing_candidates(source, probe)
+        self.assertEqual(result.status, "partial_verified")
+        self.assertEqual([c.status for c in result.candidates],
+                         ["landing_unchecked_not_found", "landing_verified"])
+        self.assertEqual(len(calls), 2)
+        self.assertIn("landing_rate_limited=0", result.diagnostic)
+
+
 if __name__ == "__main__":
     unittest.main()

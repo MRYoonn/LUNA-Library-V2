@@ -8,6 +8,7 @@ on:
       - 'tests/test_si_*.py'
       - 'src/lunasiidentity.h'
       - 'tests/native_si_identity/**'
+      - 'tests/native_si_move/**'
       - 'tools/preflight_public.py'
       - '.github/workflows/si-isolated.yml'
   workflow_dispatch:

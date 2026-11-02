@@ -157,6 +157,60 @@ int main(int argc, char** argv) {
     check(reopened.record(occupied).value(QStringLiteral("title")).toString()
           == QStringLiteral("Initial Synthetic Title"), "collision leaves destination intact");
 
+    // A stale edit dialog must not erase a newer background metadata refresh.
+    // Exercise the real saveEdits three-way merge with disposable QSettings.
+    const QString staleIdentity = QStringLiteral("synthetic:stale-dialog");
+    QVariantMap staleInitial{{QStringLiteral("doi"), QStringLiteral("10.1000/stale-dialog")},
+                             {QStringLiteral("title"), QStringLiteral("Initial Dialog Title")},
+                             {QStringLiteral("journal"), QStringLiteral("Initial Journal")},
+                             {QStringLiteral("volume"), QStringLiteral("1")}};
+    check(store.save(staleIdentity, staleInitial, false), "seed stale dialog record");
+    const QVariantMap dialogBefore = store.record(staleIdentity);
+    QVariantMap background = dialogBefore;
+    background[QStringLiteral("journal")] = QStringLiteral("Background Verified Journal");
+    background[QStringLiteral("journalSource")] = QStringLiteral("Crossref");
+    background[QStringLiteral("volume")] = QStringLiteral("42");
+    background[QStringLiteral("volumeSource")] = QStringLiteral("Crossref");
+    check(store.save(staleIdentity, background, false), "simulate background refresh");
+    QVariantMap dialogAfter = dialogBefore;
+    dialogAfter[QStringLiteral("title")] = QStringLiteral("Human Edited Dialog Title");
+    check(store.saveEdits(staleIdentity, dialogBefore, dialogAfter),
+          "merge only the explicitly edited dialog field");
+    const QVariantMap mergedDialog = store.record(staleIdentity);
+    check(mergedDialog.value(QStringLiteral("title")).toString()
+          == QStringLiteral("Human Edited Dialog Title"), "human dialog title saved");
+    check(mergedDialog.value(QStringLiteral("titleSource")).toString()
+          == QStringLiteral("manual"), "human dialog provenance saved");
+    check(mergedDialog.value(QStringLiteral("journal")).toString()
+          == QStringLiteral("Background Verified Journal"), "stale dialog preserves new journal");
+    check(mergedDialog.value(QStringLiteral("journalSource")).toString()
+          == QStringLiteral("Crossref"), "stale dialog preserves provider provenance");
+    check(mergedDialog.value(QStringLiteral("volume")).toString()
+          == QStringLiteral("42"), "stale dialog preserves new volume");
+
+    // An invalid human DOI must reject the entire edit atomically, including
+    // unrelated fields changed in the same dialog; no partial QSettings write.
+    const QVariantMap beforeInvalid = store.record(staleIdentity);
+    QVariantMap invalidEdit = beforeInvalid;
+    invalidEdit[QStringLiteral("doi")] = QStringLiteral("not-a-doi");
+    invalidEdit[QStringLiteral("title")] = QStringLiteral("Must Not Be Saved");
+    check(!store.saveEdits(staleIdentity, beforeInvalid, invalidEdit),
+          "reject invalid manual DOI");
+    const QVariantMap afterInvalid = store.record(staleIdentity);
+    check(afterInvalid.value(QStringLiteral("doi")) == beforeInvalid.value(QStringLiteral("doi")),
+          "invalid DOI leaves stored DOI unchanged");
+    check(afterInvalid.value(QStringLiteral("title")) == beforeInvalid.value(QStringLiteral("title")),
+          "invalid DOI does not partially save title");
+    check(afterInvalid.value(QStringLiteral("metadata_status"))
+          == beforeInvalid.value(QStringLiteral("metadata_status")),
+          "invalid DOI leaves metadata status unchanged");
+    luna::Bibliography restartedDialog;
+    const QVariantMap durableDialog = restartedDialog.record(staleIdentity);
+    check(durableDialog.value(QStringLiteral("title")).toString()
+          == QStringLiteral("Human Edited Dialog Title"), "dialog edit survives new store");
+    check(durableDialog.value(QStringLiteral("journal")).toString()
+          == QStringLiteral("Background Verified Journal"), "background field survives new store");
+
     std::fprintf(stderr, "LUNA_ACCURACY_SNAPSHOT_PASS: 4 synthetic cases\n");
     return 0;
 }

@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
-    from tools.si_finder import SiLookupResult, normalize_doi, safe_figshare_landing, safe_si_filename
+    from tools.si_finder import SiLookupResult, normalize_doi, safe_figshare_landing, safe_si_filename, safe_si_title
 except ImportError:
     from si_finder import SiLookupResult, normalize_doi, safe_figshare_landing, safe_si_filename
 
@@ -150,6 +150,8 @@ def verify_landing_candidates(
         # cached URLs: two different article IDs must never share verification.
         if candidate.resource_doi != doi:
             code = "doi_mismatch"
+        elif not safe_si_title(candidate.title):
+            code = "unsafe_title"
         elif not safe_si_filename(candidate.filename):
             code = "unsafe_filename"
         elif candidate.file_id is not None and (

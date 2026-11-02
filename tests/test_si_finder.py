@@ -131,6 +131,44 @@ class SiFinderTests(unittest.TestCase):
         self.assertEqual((result.status, result.candidates), ("needs_review", ()))
         self.assertIn("invalid_file_entries=3", result.diagnostic)
 
+    def test_same_article_duplicate_filenames_are_ambiguous(self):
+        # Different Figshare file entries can have indistinguishable labels
+        # on Windows, or after Unicode compatibility normalization. Without
+        # a per-file verified identity, neither entry may be offered as SI1.
+        files = [
+            {"name": "SI.pdf", "id": 1001},
+            {"name": "si.PDF", "id": 1002},
+            {"name": "Ａ-data.pdf", "id": 1003},
+            {"name": "A-data.pdf", "id": 1004},
+            {"name": "unique.cif", "id": 1005},
+        ]
+        result = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=files)}))
+        self.assertEqual(result.status, "partial")
+        self.assertEqual([c.filename for c in result.candidates], ["unique.cif"])
+        self.assertIn("ambiguous_file_entries=4", result.diagnostic)
+        self.assertIn("invalid_file_entries=0", result.diagnostic)
+
+    def test_only_ambiguous_file_labels_never_report_not_found(self):
+        result = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=[
+                {"name": "SI.pdf"}, {"name": "si.pdf"}])}))
+        self.assertEqual((result.status, result.candidates), ("needs_review", ()))
+        self.assertIn("ambiguous_file_entries=2", result.diagnostic)
+
+    def test_same_filename_in_distinct_articles_is_not_ambiguous(self):
+        # The article ID + landing URL distinguishes separate public records.
+        result = lookup_acs_figshare(DOI, FakeApi(
+            search=[{"id": 123}, {"id": 456}],
+            details={
+                123: article(123, files=[{"name": "SI.pdf"}]),
+                456: article(456, files=[{"name": "SI.pdf"}]),
+            }))
+        self.assertEqual(result.status, "candidates")
+        self.assertEqual(len(result.candidates), 2)
+        self.assertEqual({c.article_id for c in result.candidates}, {123, 456})
+        self.assertIn("ambiguous_file_entries=0", result.diagnostic)
+
     def test_missing_resource_doi_is_not_a_match(self):
         api = FakeApi(details={123: article(123, doi="")})
         self.assertEqual(lookup_acs_figshare(DOI, api).status, "needs_review")

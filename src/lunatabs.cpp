@@ -913,6 +913,10 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(brand && qAbs(brand->mapTo(menu, brand->rect().center()).y() - menu->rect().center().y()) <= 1, "Brand icon/text is not vertically centered with menus");
         }
         auto* library = host.findChild<QWidget*>(QStringLiteral("LunaLibraryPanel")); integrationRequire(library, "Shared library missing");
+        auto* paperTop = host.findChild<QWidget*>(QStringLiteral("LunaPaperHeader"));
+        integrationRequire(paperTop && !tabs->tabBar()->drawBase() &&
+            qAbs(paperTop->mapTo(&host, QPoint()).y() - tabs->tabBar()->mapTo(&host, QPoint()).y()) <= 8,
+            "PDF tab top rule or paper/PDF header vertical alignment regressed");
         for (auto* widget : library->findChildren<QWidget*>()) integrationRequire(!widget->inherits("QProgressBar"), "Disk usage progress widget remains in the library");
         for (auto* label : library->findChildren<QLabel*>()) integrationRequire(!label->text().contains(QStringLiteral("디스크 사용 공간")) && !label->text().contains(QStringLiteral("저장 공간 정보 없음")), "Disk usage label remains in the library");
         result["menuGlyphAndBrandVerticalCenters"] = centers; result["diskUsageUiAbsent"] = true;
@@ -1102,8 +1106,9 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             for (int turn = 0; turn < 10; ++turn) {
                 integrationRequire(integrationPanelClick(host, navigationToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
-                        !documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
-                    "Header navigation collapse failed");
+                        !documentsPanel->isHidden() && libraryDock->isVisible() &&
+                        libraryDock->width() <= 300 && buttonsVisible(); }),
+                    "Header navigation collapse did not release narrow paper-only width");
                 integrationRequire(integrationPanelClick(host, documentsToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
                         documentsPanel->isHidden() && libraryDock->isHidden() && buttonsVisible(); }),

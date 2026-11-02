@@ -92,7 +92,9 @@ class LibraryModes(unittest.TestCase):
     def test_paper_only_window_can_shrink_without_hidden_navigation_minimum(self):
         self.assertIn('split_->setChildrenCollapsible(true);', self.cpp)
         self.assertIn('setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12)', self.cpp)
-        self.assertIn('dock->setMaximumWidth(hasNavigation && hasDocuments ? 850 : 300)', self.cpp)
+        self.assertIn('setMaximumWidth(hasNavigation && hasDocuments ? 850 : 290)', self.cpp)
+        self.assertIn('updateGeometry();', self.cpp)
+        self.assertNotIn('dock->setMaximumWidth(hasNavigation && hasDocuments ? 850 : 300)', self.cpp)
         self.assertIn('{hasNavigation && hasDocuments ? 562 : (hasNavigation ? 270 : 240)}', self.cpp)
         self.assertIn('navigation_->setVisible(navigation_->isHidden())', self.cpp)
         self.assertIn('documents_->setVisible(documents_->isHidden())', self.cpp)

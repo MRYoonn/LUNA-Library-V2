@@ -24,6 +24,10 @@ ID = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
 SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 DOCUMENT_KINDS = frozenset(("main_article", "supporting_information"))
 DOI = re.compile(r"^10\.\d{4,9}/\S+$", re.I)
+PLACEHOLDER_EVIDENCE = frozenset({
+    "tbd", "todo", "n/a", "n.a.", "unknown", "pending",
+    "placeholder", "unverified", "-",
+})
 
 
 class DatasetError(ValueError):
@@ -144,6 +148,8 @@ def validate_real_run(gold: dict, predictions: dict) -> None:
             value = evidence.get(field)
             if not isinstance(value, str) or not value.strip():
                 raise DatasetError(f"real run/{ident}: missing nonblank evidence for {field}")
+            if value.strip().casefold() in PLACEHOLDER_EVIDENCE:
+                raise DatasetError(f"real run/{ident}: placeholder evidence for {field}")
     labeled = {case["id"]: set(case["expected"]) for case in gold["cases"]}
     for case in predictions["cases"]:
         audit = case.get("audit")

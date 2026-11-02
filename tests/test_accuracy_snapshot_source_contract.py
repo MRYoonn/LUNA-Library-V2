@@ -41,6 +41,22 @@ class SnapshotSourceContract(unittest.TestCase):
         self.assertNotIn('audit.insert(QStringLiteral("senior_author_index")', header)
         self.assertNotIn('observed.insert(QStringLiteral("senior_author_index")', header)
 
+    def test_physical_move_uses_production_helper_and_keeps_sidecars(self):
+        native = NATIVE.read_text(encoding="utf-8")
+        self.assertIn('#include "../../src/lunafilemove.h"', native)
+        self.assertIn('luna::movePdfWithThumbnails(physicalPdf, physicalTarget)', native)
+        self.assertIn('store.relocate(physicalPdf, movedFiles.documentPath)', native)
+        for expected in ("physical move rejects occupied metadata destination",
+                         "collision preserves all original files",
+                         "moved PDF and sidecar bytes preserved",
+                         "physical move preserves manual title provenance",
+                         "physical move preserves review status"):
+            self.assertIn(expected, native)
+        # The native test creates disposable files; no user paths or PDFs.
+        self.assertIn('QTemporaryDir root', native)
+        self.assertIn('synthetic-paper.luna-meta.json', native)
+        self.assertIn('synthetic-paper.luna-thumb.png', native)
+
     def test_native_regressions_seed_isolated_settings(self):
         code = NATIVE.read_text(encoding="utf-8")
         for expected in ('QTemporaryDir', 'Hao Fang', 'legacy author must not reappear',

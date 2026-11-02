@@ -183,6 +183,10 @@ def lookup_acs_figshare(
         invalid_file_entries = 0
         ambiguous_file_entries = 0
         ambiguous_file_ids = 0
+        # Collect numeric file-ID ownership before rejecting unsafe filenames
+        # or suppressing same-article duplicates. Otherwise a rejected entry
+        # can conceal an ID collision with a different article.
+        raw_file_id_owners: dict[int, set[int]] = {}
         for summary in found:
             if not isinstance(summary, dict):
                 rejected += 1
@@ -226,6 +230,10 @@ def lookup_acs_figshare(
             # metadata without an id remains display-only (file_id=None).
             valid_entries: list[tuple[str, int | None]] = []
             for item in files[:MAX_FILES]:
+                if isinstance(item, dict):
+                    observed_id = item.get("id")
+                    if type(observed_id) is int and 0 < observed_id < 10**15:
+                        raw_file_id_owners.setdefault(observed_id, set()).add(article_id)
                 if not isinstance(item, dict) or not safe_si_filename(item.get("name")):
                     invalid_file_entries += 1
                     continue
@@ -256,12 +264,8 @@ def lookup_acs_figshare(
         # within one article. A repeated ID under two different article IDs
         # makes ownership ambiguous; suppress every conflicting occurrence.
         # Keep unrelated SI entries available for manual review.
-        file_id_owners: dict[int, set[int]] = {}
-        for candidate in candidates:
-            if candidate.file_id is not None:
-                file_id_owners.setdefault(candidate.file_id, set()).add(candidate.article_id)
         cross_article_ids = {
-            file_id for file_id, owners in file_id_owners.items() if len(owners) > 1
+            file_id for file_id, owners in raw_file_id_owners.items() if len(owners) > 1
         }
         cross_article_file_id_entries = sum(
             candidate.file_id in cross_article_ids for candidate in candidates

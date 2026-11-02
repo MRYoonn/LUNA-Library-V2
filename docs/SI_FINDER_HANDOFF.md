@@ -857,3 +857,13 @@ unverified. No production merge/release is authorized.
 
 
 **Exact-code CI result (2026-11-03):** [SI isolated #41470938573](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41470938573) **SUCCESS** on source/test commit `48c63c7a`: public privacy gate PASS; **144/144** offline synthetic Python tests PASS (including all three new restored-candidate guards); Linux Qt6 standalone identity/move PASS; Windows Qt6 standalone identity/move PASS. Documentation-only commits do not change the tested source. No live ACS/Figshare or installed Windows LUNA GUI verification is implied.
+
+
+### 2026-11-03 — restored-result fallback and offline evidence safety
+- The landing verifier is an opt-in boundary that may receive externally restored `SiLookupResult` objects. Previously it passed through an arbitrary `fallback_url` (potentially a phishing destination) even after a failed probe, and its offline return preserved a stale or forged `landing_verified` candidate status.
+- `tools/si_landing_verify.py` now derives the fallback solely from a valid canonical ACS parent DOI (`https://doi.org/<doi>`). Invalid parent DOI has no fallback. In offline mode it marks every supplied candidate `landing_unchecked_offline`, never retaining a claimed successful HTTP check without a new probe. Existing read-only finder and DOI extraction are unchanged.
+- `tests/test_si_landing_verify.py` adds three synthetic offline regressions for malicious fallback URL, stale verification during offline checks, and invalid DOI in online/offline modes. No network requests, PDFs, credentials, QSettings or local paths are part of these tests.
+- Source commit `511cd8e1`, test commit `378931b6`. **Exact-commit Python/privacy and Qt CI are not yet confirmed** at handoff writing. Prior #41470938573 success does not cover this change.
+- Live ACS/Figshare API and HTML landing availability, individual SI file access, and installed Windows GUI association/move/restart remain unverified. PR #17 must remain Draft; no main/renderer/PDF4QT/other PR edits, merge or Release.
+
+Next: inspect exact-HEAD isolated CI for these changes and fix failures. Run the opt-in live public DOI smoke CLI in a permitted network environment, recording official API article ID and strict HTML landing result without downloading SI files. Then verify Issue #9 paired sidecar moves and PR #16 integration on Windows before UI acceptance.

@@ -1406,7 +1406,29 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             }); moveUi.start(30);
             integrationRequire(integrationClick(host, list->viewport(), card.center(), true), "Real move context-menu mouse input failed");
             const QString movedPdf = moved + "/A.pdf", movedThumb = moved + "/A.luna-thumb.png";
-            integrationRequire(integrationWait([&] { return QFileInfo::exists(movedPdf) && ready(a) && !a->property("LunaMoveRestorePending").toBool() && DocumentClaim::identity(a->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(movedPdf); }), "PDF move did not reopen the same A tab"); moveUi.stop();
+            const bool moveReopened = integrationWait([&] {
+                return QFileInfo::exists(movedPdf) && ready(a) &&
+                    !a->property("LunaMoveRestorePending").toBool() &&
+                    DocumentClaim::identity(a->getProgramController()->getOriginalFileName()) ==
+                    DocumentClaim::identity(movedPdf);
+            });
+            moveUi.stop();
+            result["pairedMoveDiagnostics"] = QJsonObject{
+                {"menuChosen", menuChosen},
+                {"movedPdfExists", QFileInfo::exists(movedPdf)},
+                {"originalPdfExists", QFileInfo::exists(files[0])},
+                {"thumbnailMoved", QFileInfo::exists(movedThumb)},
+                {"editorReady", ready(a)},
+                {"editorHasDocument", bool(a->getProgramController()->getDocument())},
+                {"moveRestorePending", a->property("LunaMoveRestorePending").toBool()},
+                {"sourceOpenAtMove", a->property("LunaMoveSourceOpened").toBool()},
+                {"fileMoveSucceeded", a->property("LunaMoveFileSucceeded").toBool()},
+                {"claimAccepted", a->property("LunaMoveClaimAccepted").toBool()},
+                {"controllerPathIdentity", DocumentClaim::identity(a->getProgramController()->getOriginalFileName())},
+                {"expectedPathIdentity", DocumentClaim::identity(movedPdf)},
+                {"tabCount", host.documentCount()}};
+            write();
+            integrationRequire(moveReopened, "PDF move did not reopen the same A tab");
             integrationRequire(menuChosen && !QFileInfo::exists(files[0]) && !QFileInfo::exists(thumbnail) && integrationBytes(movedPdf) == savedA && integrationBytes(movedThumb) == originalThumb && host.documentCount() == 1, "Paired move lost bytes or duplicated the tab");
             QTimer selectMoved; QObject::connect(&selectMoved, &QTimer::timeout, &host, [&] { if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) integrationDirectory(dialog, moved); });
             selectMoved.start(30); location->click(); selectMoved.stop();

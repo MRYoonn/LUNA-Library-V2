@@ -433,6 +433,42 @@ class SiFinderTests(unittest.TestCase):
             raise HTTPError(url, 429, "rate limited", {}, None)
         self.assertEqual(lookup_acs_figshare(DOI, blocked).status, "rate_limited")
 
+    def test_detail_rate_limit_stops_later_requests(self):
+        # A provider 429 is back-pressure: do not keep issuing GET requests.
+        # Previously the detail loop swallowed HTTPError(429) as an ordinary
+        # failed detail, which could hammer the provider and hide throttling.
+        calls = []
+        def limited(method, url, body):
+            calls.append((method, url))
+            if method == "POST":
+                return [{"id": 123}, {"id": 456}, {"id": 789}]
+            if url.endswith("/123"):
+                return article(123, files=[{"name": "existing.pdf", "id": 101}])
+            if url.endswith("/456"):
+                raise HTTPError(url, 429, "rate limited", {}, None)
+            self.fail("a request was issued after provider rate limiting")
+
+        result = lookup_acs_figshare(DOI, limited)
+        self.assertEqual(result.status, "partial")
+        self.assertEqual([c.filename for c in result.candidates], ["existing.pdf"])
+        self.assertIn("detail_rate_limited=1", result.diagnostic)
+        self.assertEqual([method for method, _ in calls], ["POST", "GET", "GET"])
+        self.assertEqual(result.candidates[0].status, "metadata_match_link_unchecked")
+
+    def test_first_detail_rate_limit_never_reports_not_found(self):
+        calls = []
+        def limited(method, url, body):
+            calls.append((method, url))
+            if method == "POST":
+                return [{"id": 123}, {"id": 456}]
+            raise HTTPError(url, 429, "rate limited", {}, None)
+
+        result = lookup_acs_figshare(DOI, limited)
+        self.assertEqual((result.status, result.candidates), ("rate_limited", ()))
+        self.assertEqual(result.fallback_url, "https://doi.org/" + DOI)
+        self.assertIn("detail_rate_limited=1", result.diagnostic)
+        self.assertEqual([method for method, _ in calls], ["POST", "GET"])
+
     def test_reject_large_summary(self):
         api = FakeApi(search=[{"id": i} for i in range(21)])
         self.assertEqual(lookup_acs_figshare(DOI, api).status, "provider_unavailable")

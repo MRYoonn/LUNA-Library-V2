@@ -75,6 +75,7 @@ APPROVED = {
     "tests/native_metadata/CMakeLists.txt", "tests/native_metadata/main.cpp", "tests/native_si_identity/CMakeLists.txt", "tests/native_si_identity/main.cpp",
     "tests/native_dialog/thumbnails.cpp",
     "src/lunafilemove.h", "tests/native_dialog/filemoves.cpp",
+    "tests/native_si_move/CMakeLists.txt", "tests/native_si_move/main.cpp",
     "src/lunadocumentclaim.h", "tests/native_dialog/documentclaims.cpp",
     "tools/probe_documents_windows.py",
     "tools/probe_research_windows.py",

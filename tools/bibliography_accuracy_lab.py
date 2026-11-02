@@ -299,7 +299,11 @@ def score_regressions(regressions: object) -> dict:
             if field not in before or before[field] != after.get(field):
                 failures.append({"case_id": ident, "field": field, "reason": "changed_protected_value"})
         for field in empty:
-            if after.get(field) not in (None, "", []):
+            # An omitted snapshot key is not evidence that a field was empty.
+            # Require an explicit captured null/blank value to avoid a false PASS.
+            if field not in after:
+                failures.append({"case_id": ident, "field": field, "reason": "missing_asserted_field"})
+            elif after[field] not in (None, "", []):
                 failures.append({"case_id": ident, "field": field, "reason": "unexpected_value"})
         if "expected_status" in case and case["expected_status"] != case.get("actual_status"):
             failures.append({"case_id": ident, "field": "status", "reason": "wrong_status"})

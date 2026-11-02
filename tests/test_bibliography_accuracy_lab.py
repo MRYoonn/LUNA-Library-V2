@@ -112,6 +112,27 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         with self.assertRaisesRegex(lab.DatasetError, "invalid expected_status"):
             lab.score(gold, predictions)
 
+    def test_missing_empty_field_snapshot_is_not_a_pass(self):
+        gold, predictions = sample()
+        case = next(item for item in predictions["regressions"]
+                    if item["id"] == "invalid-doi")
+        self.assertIsNone(case["after"]["doi"])
+        self.assertTrue(lab.score(gold, predictions)["pass"])
+        del case["after"]["doi"]
+        report = lab.score(gold, predictions)
+        self.assertFalse(report["pass"])
+        self.assertIn({"case_id": "invalid-doi", "field": "doi",
+                       "reason": "missing_asserted_field"},
+                      report["regression_checks"]["failures"])
+        case["after"]["doi"] = ""
+        self.assertTrue(lab.score(gold, predictions)["pass"])
+        case["after"]["doi"] = "10.1000/unexpected"
+        report = lab.score(gold, predictions)
+        self.assertFalse(report["pass"])
+        self.assertIn({"case_id": "invalid-doi", "field": "doi",
+                       "reason": "unexpected_value"},
+                      report["regression_checks"]["failures"])
+
     def test_status_only_regression_is_explicit_and_scoreable(self):
         gold, predictions = sample()
         predictions["regressions"].append({

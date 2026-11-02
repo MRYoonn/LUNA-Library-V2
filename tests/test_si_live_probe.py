@@ -143,7 +143,7 @@ class ProbeTests(unittest.TestCase):
             ("foreign_host", "candidate", "landing_url",
              "https://acs.figshare.com.evil.invalid/articles/dataset/7688531"),
             ("unsafe_filename", "candidate", "filename", "bad／si.pdf"),
-            ("unsafe_title", "candidate", "title", "Hidden\\u202eTitle"),
+            ("unsafe_title", "candidate", "title", "Hidden\u202eTitle"),
             ("invalid_file_id", "candidate", "file_id", True),
             ("missing_candidate", "collection", "", None),
         )

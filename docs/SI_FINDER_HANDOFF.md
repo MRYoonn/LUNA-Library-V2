@@ -576,3 +576,39 @@ production UI wiring and actual Windows user-library moves remain unverified.
 - A missing file ID remains `null` for display-only compatibility; malformed/boolean/negative IDs are rejected, and repeated IDs within one article suppress all colliding entries. Casefold/NFKC filename ambiguity protection remains active even when IDs differ. Any omission/collision yields `partial` or `needs_review`, not a false complete SI listing.
 - Added three **synthetic offline** tests for valid/missing IDs, invalid types, and repeated IDs. Live ACS/Figshare metadata and landing-page reachability remain **unverified**; this change does not activate local SI auto-linking, UI integration, or file moves.
 - Next: verify exact-HEAD Python/privacy and Windows/Linux QtCore CI; then run an explicitly authorized public ACS DOI live metadata + strict landing check (no PDF download). Review PR #16's latest move helper before any actual Windows integration. Keep PR #17 Draft; no main/other PR edits, merge or Release.
+
+
+## Follow-up — cross-article Figshare file-ID ownership guard (2026-11-02)
+
+- The prior per-article ID check was insufficient when two different public
+  article records claim the **same numeric file ID**. This is conflicting
+  provider metadata, not evidence that either SI belongs to the main paper.
+- `tools/si_finder.py` now collects file-ID owners across all DOI-matched
+  article details, suppresses **every** candidate for IDs claimed by more
+  than one article, and retains unrelated candidates for display only.
+  A partly suppressed set reports `partial`; an entirely suppressed set
+  reports `needs_review`. The diagnostic records
+  `cross_article_file_id_entries`. No file URLs or automatic associations
+  are introduced.
+- `tests/test_si_finder.py` adds two fabricated, offline regression cases:
+  conflicting IDs with unrelated files retained, and all candidates
+  conflicting. These tests must pass at the exact new code HEAD before
+  claiming a regression PASS.
+- Previous exact-HEAD [isolated CI #41397157377](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41397157377)
+  finished **SUCCESS** in Python/privacy, Linux Qt6 and Windows Qt6 jobs.
+  That run validates the **previous** file-ID change only.
+- PR #16 is currently `03ebb8ba`; compared with pinned move-helper
+  `a001ba96`, the 12 subsequent commits do not modify
+  `src/lunafilemove.h`. The pinned native consumer result is historical
+  and is **not** full Windows app acceptance.
+- Public ACS/Figshare API and landing-page checks could not be completed
+  from this environment (API retrieval unavailable; landing returned HTTP
+  403). No link or individual SI file is marked reachable on that basis.
+  Do not interpret the existing HTML-only landing verifier as a file test.
+
+Next: confirm the exact new SI branch HEAD's offline and Windows/Linux CI.
+Then perform an explicitly opted-in, rate-limited ACS DOI metadata + landing
+probe on a network where official public endpoints respond; log HTTP status
+and article ID without downloading files. Separately verify actual Windows
+Explorer move/rename/restart and the PR #17 branch integration conflict.
+Keep Draft; no main/renderer/other PR edits, merge or Release.

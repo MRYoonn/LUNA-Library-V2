@@ -5,16 +5,18 @@ opens; only a direct HTTPS HTML response can promote an SI candidate.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import replace
 import os
+import unicodedata
 from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
-    from tools.si_finder import SiLookupResult, normalize_doi, safe_figshare_landing
+    from tools.si_finder import SiLookupResult, normalize_doi, safe_figshare_landing, safe_si_filename
 except ImportError:
-    from si_finder import SiLookupResult, normalize_doi, safe_figshare_landing
+    from si_finder import SiLookupResult, normalize_doi, safe_figshare_landing, safe_si_filename
 
 MAX_LANDINGS = 8
 HTML_TYPES = frozenset(("text/html", "application/xhtml+xml"))
@@ -94,6 +96,20 @@ def verify_landing_candidates(
                        candidates=tuple(replace(c, status="landing_unchecked_invalid_parent_doi")
                                         for c in result.candidates),
                        diagnostic="invalid_parent_doi")
+    # A verifier can be called with a restored/foreign result, not only with
+    # freshly sanitized finder output. Fail closed on duplicate public file
+    # identities and unsafe labels before probing a shared article landing.
+    # Landing reachability never proves an individual file is accessible.
+    name_counts = Counter(
+        (c.article_id, unicodedata.normalize("NFKC", c.filename).casefold())
+        for c in result.candidates
+        if type(c.article_id) is int and c.article_id > 0
+        and safe_si_filename(c.filename)
+    )
+    id_counts = Counter(
+        c.file_id for c in result.candidates
+        if type(c.file_id) is int and c.file_id > 0
+    )
     cache: dict[str, str] = {}
     checked = []
     probes_sent = 0
@@ -104,6 +120,15 @@ def verify_landing_candidates(
         # cached URLs: two different article IDs must never share verification.
         if candidate.resource_doi != doi:
             code = "doi_mismatch"
+        elif not safe_si_filename(candidate.filename):
+            code = "unsafe_filename"
+        elif candidate.file_id is not None and (
+                type(candidate.file_id) is not int or not 0 < candidate.file_id < 10**15):
+            code = "invalid_file_id"
+        elif (name_counts[(candidate.article_id,
+                           unicodedata.normalize("NFKC", candidate.filename).casefold())] > 1
+              or (candidate.file_id is not None and id_counts[candidate.file_id] > 1)):
+            code = "ambiguous_file_identity"
         elif safe_figshare_landing(url, candidate.article_id) != url:
             code = "unsafe_url"
         else:

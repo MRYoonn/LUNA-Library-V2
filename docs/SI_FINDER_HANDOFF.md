@@ -867,3 +867,14 @@ unverified. No production merge/release is authorized.
 - Live ACS/Figshare API and HTML landing availability, individual SI file access, and installed Windows GUI association/move/restart remain unverified. PR #17 must remain Draft; no main/renderer/PDF4QT/other PR edits, merge or Release.
 
 Next: inspect exact-HEAD isolated CI for these changes and fix failures. Run the opt-in live public DOI smoke CLI in a permitted network environment, recording official API article ID and strict HTML landing result without downloading SI files. Then verify Issue #9 paired sidecar moves and PR #16 integration on Windows before UI acceptance.
+
+
+### 2026-11-03 — restored verified-state recheck regression (source/test HEAD f0dc4b79)
+- Root cause: `verify_landing_candidates` returned immediately for any restored result status other than `candidates`/`partial`. A prior `verified` or `partial_verified` object therefore retained `landing_verified` even when an explicit subsequent offline or failed HTTP recheck was requested. A forged `verified` result with zero candidates also escaped the verifier.
+- Reproduction: verify a synthetic ACS result with `reachable_html`, pass that returned `verified` result into the verifier with `offline=True` or a `not_found` probe. Before the fix the old `landing_verified` status persisted. A `partial_verified` result similarly bypassed fresh checks.
+- Fix in `tools/si_landing_verify.py`: explicit rechecks of `verified`, `partial_verified`, `needs_review`, and `offline` results now reevaluate candidate evidence; offline and failed checks revoke stale success. Previously partial/uncertain result provenance cannot be upgraded to a complete verified listing. Empty restored verified results become `needs_review`, and untrusted fallback URLs are replaced by a canonical ACS DOI resolver.
+- Four synthetic tests in `tests/test_si_landing_verify.py` exercise offline revocation, HTTP 404 revocation, partial/uncertain recheck conservatism, and empty forged verified results. No actual PDF, SI binary, credentials, local paths or QSettings are used.
+- Source commit `6881ac6a`; test commit `f0dc4b79`. Exact-code Python/privacy and Linux/Windows Qt6 CI **pending verification**; previous green #41476969572 covers older source. Do not claim this change PASS until the new run completes.
+- Still unverified: actual ACS/Figshare API, HTML landing reachability, individual SI file access, Windows production GUI integration, local PDF/sidecar move/rename/restart. Keep Draft PR #17; no main, PDF4QT, other PR, merge or Release modifications.
+
+Next: check the exact-source isolated CI on `f0dc4b79`; fix any failures. Run approved live ACS DOI opt-in probe with network permission and record the exact official article URL/status (not individual SI access), then Windows integrated paired-move/restart checks against PR #16 and Issue #9.

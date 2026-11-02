@@ -5,6 +5,7 @@ fixtures also run in the existing Windows native_metadata acceptance target.
 """
 from pathlib import Path
 import unittest
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,6 +25,16 @@ class TitleExtractorContracts(unittest.TestCase):
         for key in ('bad', 'affiliation', 'authorList'):
             self.assertIn('QRegularExpression ' + key + '(QString::fromUtf8(\n        R"(', self.title)
         self.assertEqual(self.title.count('QString::fromUtf8(\n        R"('), 3)
+        # Check syntax of all three C++ raw patterns with Python's built-in
+        # engine; normalize PCRE2 Unicode classes used inside character sets.
+        patterns = re.findall(r'R"\\((.*?)\\)"', self.title, flags=re.S)
+        self.assertEqual(len(patterns), 3)
+        normalized = [p.replace(r'\\p{Lu}', 'A-Z').replace(r'\\p{Ll}', 'a-z')
+                        .replace(r'\\p{M}', '') for p in patterns]
+        compiled = [re.compile(p, re.I) for p in normalized]
+        self.assertTrue(compiled[0].search("Introduction"))
+        self.assertTrue(compiled[1].search("Department of Chemistry"))
+        self.assertFalse(compiled[0].search("Photocatalytic Addition to Alkenes"))
 
     def test_windows_overlay_includes_new_title_header(self):
         overlay = (ROOT / "tools/apply_overlay.py").read_text(encoding="utf-8")

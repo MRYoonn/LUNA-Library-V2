@@ -53,7 +53,10 @@ def relative_pdf_path(raw: str) -> str:
     # NFKC may turn apparently harmless Unicode into Windows separators,
     # reserved device names or dot segments. Validate BOTH representations
     # before recording an opt-in local association.
-    for candidate in (raw, unicodedata.normalize("NFKC", raw)):
+    normalized = unicodedata.normalize("NFKC", raw)
+    if normalized.count("/") != raw.count("/"):
+        raise ValueError("invalid_relative_path")
+    for candidate in (raw, normalized):
         if (not candidate or "\\" in candidate or candidate.startswith("/")
                 or _DRIVE.match(candidate)
                 or any(not ch.isprintable() for ch in candidate)):

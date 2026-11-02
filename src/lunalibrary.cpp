@@ -3850,9 +3850,9 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         checkpoint("count-child");
         library->model_->refreshPdfCounts(countRoot);
         if (!wait([&] { return library->model_->countsAvailable() &&
-            library->model_->pdfCount(countRoot) == baselineCount + 1 &&
+            library->model_->pdfCount(countRoot) == baselineCount &&
             library->model_->pdfCount(subfolder.path()) == 1; }, 10000))
-            return fail("Child PDF did not increment its own folder and every ancestor");
+            return fail("Child PDF changed parent direct count or missed child count");
     }
     checkpoint("count-deleted");
     library->model_->refreshPdfCounts(countRoot);
@@ -4127,13 +4127,16 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             return fail("Library discovery opened an unrelated PDF");
         qInfo() << "LUNA synthetic 1000-PDF library: load ms" << loadMs
                 << "search ms" << searchMs << "maximum GUI timer gap ms" << longestGap;
-        // Selecting the parent must include ALL nested PDFs, while the
-        // synthetic 1000-PDF child directory is still present.
-        checkpoint("scan-1001");
+        // Parent lists direct PDFs only; All Documents still scans descendants.
+        checkpoint("scan-parent-direct");
         library->selectFolder(pdf.absolutePath());
-        if (!wait([&] { return list->count() == 1001 &&
+        if (!wait([&] { return list->count() == 1 &&
             !library->folderTimer_->isActive(); }, 15000))
-            return fail("Parent folder did not include the 1000 child PDFs");
+            return fail("Parent folder included child PDFs");
+        library->scanAll();
+        if (!wait([&] { return library->allPdfs_->count() == 1001 &&
+            !library->allTimer_->isActive(); }, 15000))
+            return fail("All Documents missed nested 1000 PDFs");
         bool foundRootDocument = false;
         for (int i = 0; i < list->count(); ++i)
             if (list->item(i)->data(Qt::UserRole).toString() == path) {

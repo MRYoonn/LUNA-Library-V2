@@ -22,6 +22,17 @@ class SnapshotSourceContract(unittest.TestCase):
         self.assertIn('fieldSources.insert(field, provider)', code)
         self.assertNotIn('fieldSources.insert(QStringLiteral("private_note")', code)
 
+    def test_capture_digest_is_optional_validated_and_has_no_pdf_io(self):
+        header = HEADER.read_text(encoding="utf-8")
+        native = NATIVE.read_text(encoding="utf-8")
+        self.assertIn("const QString& localPdfSha256 = QString()", header)
+        self.assertIn('captured.insert(QStringLiteral("source_sha256")', header)
+        self.assertIn("digestPattern.match(localPdfSha256)", header)
+        self.assertIn("unbound snapshot does not invent PDF digest", native)
+        self.assertIn("synthetic capture-time PDF digest is normalized", native)
+        self.assertIn("invalid capture-time PDF digest rejected", native)
+        self.assertIn("placeholder capture-time PDF digest rejected", native)
+
     def test_known_negative_fields_are_explicitly_captured(self):
         header = HEADER.read_text(encoding="utf-8")
         native = NATIVE.read_text(encoding="utf-8")

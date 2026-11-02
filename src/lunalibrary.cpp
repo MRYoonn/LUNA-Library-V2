@@ -3214,12 +3214,12 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     controls->setMovable(false);
     controls->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     controls->setIconSize(QSize(18, 18));
-    auto* folders = controls->addAction(window.style()->standardIcon(QStyle::SP_DirIcon), QStringLiteral("폴더"));
+    auto* folders = controls->addAction(readerIcon(QStringLiteral("library")), QStringLiteral("라이브러리"));
     folders->setObjectName(QStringLiteral("LunaToggleNavigation"));
     folders->setCheckable(true);
     folders->setChecked(true);
     QObject::connect(folders, &QAction::triggered, library, [library] { library->toggleNavigation(); });
-    auto* documents = controls->addAction(window.style()->standardIcon(QStyle::SP_FileDialogDetailedView), QStringLiteral("목록"));
+    auto* documents = controls->addAction(readerIcon(QStringLiteral("documents")), QStringLiteral("논문 목록"));
     documents->setObjectName(QStringLiteral("LunaToggleDocuments"));
     documents->setCheckable(true);
     documents->setChecked(true);

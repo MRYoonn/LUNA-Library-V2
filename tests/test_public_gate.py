@@ -76,7 +76,15 @@ class PublicGate(unittest.TestCase):
         self.assertTrue(any("secrets" in e.lower() for e in check(self.root)))
     def test_pdf4qt_commit_hash_pinned(self):
         self.assertEqual(len(PIN), 40)
-        self.assertEqual(len(BLOBS), 2)
+        # The two overlay entrypoints and the exact pinned native Editor
+        # source are each hashed before any PDF4QT patch can run.
+        self.assertEqual(set(BLOBS), {
+            "Pdf4QtEditor/main.cpp",
+            "Pdf4QtEditor/CMakeLists.txt",
+            "Pdf4QtLibGui/pdfeditormainwindow.cpp",
+        })
+        self.assertEqual(BLOBS["Pdf4QtLibGui/pdfeditormainwindow.cpp"],
+                         "b12ac782fdf8a7f5dde892c90a7f5c5bfd50a20b")
         self.assertTrue(all(len(v) == 40 for v in BLOBS.values()))
 
 if __name__ == "__main__":

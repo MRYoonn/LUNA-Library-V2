@@ -10,10 +10,12 @@ import argparse
 import json
 
 try:
-    from tools.si_finder import lookup_acs_figshare
+    from tools.si_finder import (lookup_acs_figshare, normalize_doi, safe_figshare_landing,
+                                 safe_si_filename, safe_si_title)
     from tools.si_landing_verify import verify_landing_candidates
 except ImportError:
-    from si_finder import lookup_acs_figshare
+    from si_finder import (lookup_acs_figshare, normalize_doi, safe_figshare_landing,
+                           safe_si_filename, safe_si_title)
     from si_landing_verify import verify_landing_candidates
 
 
@@ -30,6 +32,28 @@ def inspect_doi(doi: str, *, live: bool = False, check_landings: bool = False,
         "verification_scope": "landing_html_only" if check_landings else "metadata_only",
         "result": result.to_dict(),
     }
+
+
+def _verified_identity(candidate: dict, doi: str) -> bool:
+    """Independently check the CLI acceptance gate's public identity evidence.
+
+    This does not verify individual SI files; the landing verifier is still
+    responsible for the bounded HTTP check. Never accept a restored/misrouted
+    report solely because it claims landing_verified.
+    """
+    if not isinstance(candidate, dict):
+        return False
+    article_id = candidate.get("article_id")
+    file_id = candidate.get("file_id")
+    landing = candidate.get("landing_url")
+    return (type(article_id) is int and 0 < article_id < 10**15
+            and candidate.get("resource_doi") == doi
+            and isinstance(landing, str)
+            and safe_figshare_landing(landing, article_id) == landing
+            and safe_si_filename(candidate.get("filename"))
+            and bool(safe_si_title(candidate.get("title")))
+            and (file_id is None or
+                 (type(file_id) is int and 0 < file_id < 10**15)))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -55,9 +79,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.require_landing_http:
         result = report["result"]
         candidates = result["candidates"]
+        doi = normalize_doi(args.doi)
         accepted = (report["verification_scope"] == "landing_html_only"
+                    and bool(doi) and doi.startswith("10.1021/")
+                    and result.get("doi") == doi
                     and result["status"] == "verified" and bool(candidates)
-                    and all(c["status"] == "landing_verified" for c in candidates)
+                    and all(c.get("status") == "landing_verified"
+                            and _verified_identity(c, doi) for c in candidates)
                     and (args.expected_article_id is None or
                          any(c["article_id"] == args.expected_article_id for c in candidates)))
         report["landing_http_gate"] = "pass" if accepted else "fail"

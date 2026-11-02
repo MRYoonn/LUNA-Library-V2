@@ -4149,6 +4149,13 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         const qint64 searchMs = searchClock.elapsed();
         if (visible != 1 || searchMs > 1000) return fail("1000-PDF filename search failed or blocked the UI");
         search->clear(); list->scrollToBottom();
+        QCoreApplication::processEvents();
+        const int preservedScroll = list->verticalScrollBar()->value();
+        if (library->localSync_ && library->localSync_->metadataChanged)
+            library->localSync_->metadataChanged(list->item(500)->data(Qt::UserRole).toString());
+        QCoreApplication::processEvents();
+        if (preservedScroll == 0 || list->verticalScrollBar()->value() != preservedScroll)
+            return fail("Sidecar metadata refresh reset 1000-PDF list scroll");
         if (!wait([&] { return beats >= 3; })) return fail("Library loading starved GUI events");
         heartbeat.stop();
         if (longestGap > 1000) return fail("Library GUI event gap exceeded one second");

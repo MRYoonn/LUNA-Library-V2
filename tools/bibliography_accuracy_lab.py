@@ -55,7 +55,11 @@ def normalize(field: str, value: object) -> str:
     result = unicodedata.normalize("NFC" if field == "title" else "NFKC", value).strip()
     if field == "doi":
         result = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi\s*:\s*)", "", result, flags=re.I)
-        return result.rstrip("., ").casefold()
+        # The scorer compares canonical DOI identity, not punctuation guessed
+        # from prose. DOI suffixes may legitimately end in a period or comma;
+        # trimming them here silently turns a wrong extracted DOI into a TP.
+        # Any prose-boundary cleanup belongs in the upstream DOI extractor.
+        return result.casefold()
     result = " ".join(result.split()).casefold()
     if field == "page":
         result = re.sub(r"\s*[-\u2013\u2014]\s*", "-", result)

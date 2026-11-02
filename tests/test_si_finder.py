@@ -51,7 +51,7 @@ class SiFinderTests(unittest.TestCase):
 
     def test_untrusted_public_title_is_not_display_or_matching_evidence(self):
         # Figshare title is remote JSON, not a trusted local citation field.
-        for value in ("Fake\\u202e.pdf", "two\\nlines", {"text": "spoofed"},
+        for value in ("Fake" + chr(0x202e) + ".pdf", "two" + chr(10) + "lines", {"text": "spoofed"},
                       "x" * 241, ""):
             with self.subTest(title=value):
                 detail = {**article(123), "title": value}

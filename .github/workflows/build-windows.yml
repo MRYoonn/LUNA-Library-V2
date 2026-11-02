@@ -150,6 +150,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Public security gate blocked build" }
           python -B -m unittest discover -s tests -p 'test_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw "Regression tests failed" }
+          python -B tools/verify_folder_counts.py --output "$env:RUNNER_TEMP/luna-build-diagnostics/folder-count-verification.json"
+          if ($LASTEXITCODE -ne 0) { throw "Folder-count semantic gate failed; inspect diagnostics artifact" }
           python -B tests/native_dialog/windows_job.py
           if ($LASTEXITCODE -ne 0) { throw "Synthetic Windows process containment failed" }
       - name: Validate official x64 CRT staging on the actual Windows image

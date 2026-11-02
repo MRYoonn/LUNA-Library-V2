@@ -133,6 +133,39 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
                        "reason": "unexpected_value"},
                       report["regression_checks"]["failures"])
 
+    def test_missing_preserved_field_is_not_a_false_pass(self):
+        # Synthetic snapshots: a missing key must not compare equal to None,
+        # an empty string, or an empty list from the earlier capture.
+        for value in (None, "", []):
+            with self.subTest(value=value):
+                case = {
+                    "id": "protected-field", "before": {"title": value},
+                    "after": {"title": value}, "must_preserve": ["title"],
+                }
+                self.assertEqual(lab.score_regressions([case])["passed"], 1)
+                for missing_side in ("before", "after"):
+                    missing = copy.deepcopy(case)
+                    del missing[missing_side]["title"]
+                    report = lab.score_regressions([missing])
+                    self.assertEqual(report["failed"], 1)
+                    self.assertEqual(report["failures"], [{
+                        "case_id": "protected-field", "field": "title",
+                        "reason": "missing_asserted_field",
+                    }])
+        changed = {
+            "id": "changed-field", "before": {"title": None},
+            "after": {"title": "automatic replacement"},
+            "must_preserve": ["title"],
+        }
+        self.assertEqual(lab.score_regressions([changed])["failures"][0]["reason"],
+                         "changed_protected_value")
+        gold, predictions = sample()
+        predictions["regressions"].append({
+            "id": "missing-null-after", "before": {"doi": None},
+            "after": {}, "must_preserve": ["doi"],
+        })
+        self.assertFalse(lab.score(gold, predictions)["pass"])
+
     def test_status_only_regression_is_explicit_and_scoreable(self):
         gold, predictions = sample()
         predictions["regressions"].append({

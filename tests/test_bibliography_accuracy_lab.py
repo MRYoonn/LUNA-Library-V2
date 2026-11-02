@@ -360,8 +360,10 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
     def test_require_real_rejects_unverified_snapshot_identity(self):
         # Fabricated contract fixtures: NEVER a real-publisher measurement.
         gold, predictions = sample()
-        for case in gold["cases"]:
-            case["source"] = {"kind": "public", "sha256": "a" * 64}
+        # Each fabricated public PDF must have a distinct digest. Duplicate
+        # bytes are rejected before the provenance/negative-label checks below.
+        for index, case in enumerate(gold["cases"]):
+            case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
             case["evidence"] = {field: "fabricated contract test only"
                                 for field in case["expected"]}
         with self.assertRaisesRegex(lab.DatasetError, "engine_commit"):
@@ -381,8 +383,10 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         # Real-mode structural validation is testable without claiming the
         # fabricated labels or digest are authentic PDF evidence.
         gold, predictions = sample()
-        for case in gold["cases"]:
-            case["source"] = {"kind": "public", "sha256": "a" * 64}
+        # Each fabricated public PDF must have a distinct digest. Duplicate
+        # bytes are rejected before the provenance/negative-label checks below.
+        for index, case in enumerate(gold["cases"]):
+            case["source"] = {"kind": "public", "sha256": f"{index + 1:064x}"}
             case["evidence"] = {field: "fabricated contract test only"
                                 for field in case["expected"]}
         predictions["engine_commit"] = "b" * 40
@@ -399,7 +403,8 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         si["source"]["sha256"] = "0" * 64
         with self.assertRaisesRegex(lab.DatasetError, "placeholder PDF SHA256"):
             lab.score(gold, predictions, require_real=True)
-        si["source"]["sha256"] = "a" * 64
+        si_index = next(index for index, case in enumerate(gold["cases"]) if case is si)
+        si["source"]["sha256"] = f"{si_index + 1:064x}"
         self.assertTrue(lab.score(gold, predictions, require_real=True)["pass"])
 
     def test_real_mode_rejects_manual_card_override_contamination(self):

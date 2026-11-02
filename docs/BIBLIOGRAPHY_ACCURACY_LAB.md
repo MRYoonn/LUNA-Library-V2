@@ -757,3 +757,11 @@ separately. Keep PR #18 Draft and do not merge or release.
 - The scorer and read-only goldset inventory share the same placeholder policy; no production DOI engine, PDF4QT, QSettings or private files were changed.
 - Added fabricated-contract regression cases for positive title and null SI DOI evidence. **CI on the new exact HEAD is required**; no actual multi-publisher PDF precision/recall or Windows GUI validation is claimed.
 - Next: check exact-commit Python and Windows QtCore workflow results; if green, collect authorized/public 20+ PDF goldset, run private local hash/header audit and native snapshot capture, then report real field-wise metrics only with independently reviewed labels.
+
+### Follow-up 2026-11-03 — DOI suffix punctuation accuracy
+
+- **Root cause:** `normalize("doi", value)` used `rstrip("., ")` when scoring. DOI suffixes can contain terminal punctuation; the scorer could incorrectly classify `10.1000/example.` and `10.1000/example` as the same DOI (false TP). This is an **evaluation bug**, not a request to change the production DOI extractor.
+- **Reproduction:** use the synthetic ACS case, append `.` or `,` to the predicted DOI only, then score it. Previously the wrong value passed; now it produces one DOI FP and one FN. A matching full DOI URL including the punctuation still passes.
+- **Files:** `tools/bibliography_accuracy_lab.py`, `tests/test_bibliography_accuracy_lab.py`. No metadata fetcher, reader, QSettings, PDF4QT, or other PR touched.
+- **Prior verified CI:** [#41514606504](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41514606504) reported Python and Windows QtCore success for the **previous** `80faae5c` HEAD, not for these new commits.
+- **Next exact action:** check the new branch-head Python/Windows CI jobs for the added DOI test; fix any failure before claiming PASS. Then obtain 20+ independently reviewed authorized/public PDFs, capture native read-only snapshots on Windows at a pinned PR #16 SHA, and separately verify real HTTP 429/404, existing user-like QSettings, file move/restart, and card display. No real accuracy numbers are available yet.

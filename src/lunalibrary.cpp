@@ -1655,6 +1655,7 @@ public:
         QSettings preferences(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
         const int savedWidth = qBound(432, preferences.value(
             QStringLiteral("library/expandedDockWidth"), 562).toInt(), 850);
+        navigation_->setMaximumWidth(hasDocuments ? 300 : 850);
         setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12);
         setMaximumWidth(wide ? 850 : 290);
         updateGeometry();

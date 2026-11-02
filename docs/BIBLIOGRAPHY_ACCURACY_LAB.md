@@ -679,3 +679,25 @@ Windows QtCore CI on this exact commit; inspect the results before claiming
 PASS. No private QSettings, real publisher PDF, network response, GUI state,
 or actual metadata-engine precision/recall is involved. Real user-PC legacy
 settings and the >=20 authorized PDF goldset remain unverified.
+
+
+## Follow-up 2026-11-03 — repair duplicate-hash fixture regression
+
+Exact-HEAD Actions [#41477618847](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41477618847)
+reported **Windows QtCore PASS, Python FAIL (2 tests)**. Both failing
+`test_require_real_*` tests reused the same fabricated `a * 64` SHA256
+for all seven supposedly independent PDF cases. The newly added production
+scorer duplicate-PDF guard correctly rejected them before reaching their
+intended snapshot-identity and negative-label assertions. This was a **test
+fixture defect**, not a reason to weaken the duplicate protection.
+
+The two tests now generate distinct, deterministic synthetic SHA256 strings
+for each fabricated public-kind case, and restore the exact original
+case-specific digest after the deliberate placeholder-hash rejection.
+No real PDFs, personal QSettings or network data are used. Only the
+independent test and handoff documentation changed; the scorer and
+publisher extraction engine are untouched.
+
+**Exact-HEAD CI must be checked** for Python and Windows QtCore before
+calling this fix verified. Actual publisher precision/recall, Windows GUI,
+live 429/404 and private user settings remain unverified.

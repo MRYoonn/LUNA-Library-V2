@@ -30,6 +30,17 @@ class SnapshotSourceContract(unittest.TestCase):
         self.assertIn('observed.insert(QStringLiteral("terminal_author")', header)
         self.assertIn("SI explicitly captures absent paper fields", native)
 
+    def test_selected_senior_author_is_disclosed_without_exporting_index(self):
+        header = HEADER.read_text(encoding="utf-8")
+        native = NATIVE.read_text(encoding="utf-8")
+        self.assertIn('visibleRecord.value(QStringLiteral("senior_author_index"), -1)', header)
+        self.assertIn("seniorIndex >= 0 && seniorIndex < structuredAuthors.size()", header)
+        self.assertIn("|| selectedSeniorAuthor", header)
+        self.assertIn("selected senior-author index is a manual card override", native)
+        self.assertIn("out-of-range index does not change the card", native)
+        self.assertNotIn('audit.insert(QStringLiteral("senior_author_index")', header)
+        self.assertNotIn('observed.insert(QStringLiteral("senior_author_index")', header)
+
     def test_native_regressions_seed_isolated_settings(self):
         code = NATIVE.read_text(encoding="utf-8")
         for expected in ('QTemporaryDir', 'Hao Fang', 'legacy author must not reappear',

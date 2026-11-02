@@ -42,6 +42,39 @@ personal user PDFs, notes, local settings, private paths, credentials, memory
 dumps, or complete environment snapshots in public artifacts. Run IDs and
 commit hashes are public diagnostic metadata.
 
+## Mandatory permanent cause-analysis record
+
+On every completed CI job, `tools/build_diagnostics.py` now emits a
+`failure-analysis.md` alongside `build-diagnostics.json`, with the exact run,
+source commit, first failed gate, per-gate outcomes, and GitHub Actions log URL.
+A failed gate's specific root cause must remain **not established** until
+the actual native trace, screenshot or compiler output proves otherwise.
+The diagnostic artifacts use the maximum configured **90-day** retention
+(instead of 14 days). On a failed Windows build the workflow also posts
+the Markdown report into a durable GitHub Issue, subject to repository issue
+permissions. A GitHub Issue preserves its report content after the ZIP artifact
+expires. Artifact upload still runs even if issue archival is unavailable.
+
+### Verified historical failure trail
+
+| Build | First failing stage / verified issue |
+|---|---|
+| #221 | Independent library/paper collapse held a wide dock |
+| #222 | Native page-number input failed the page-two check |
+| #223 | PDF4QT page input committed twice on focus-out |
+| #224 | Python preflight pin list grew to 3 but test expected 2 |
+| #225 | The downstream pristine-upstream check rejected the earlier Editor patch |
+| #226 | Viewport scrolled to page two, but continuous view still intersected page one |
+| #227 | Paper-only content width 290px; outer QDockWidget retained 432px |
+| #228 | Strict PDF-A paired move/same-tab check failed |
+| #229 | Native UI selected a stale/wrong paper card after memo/search; A PDF was not moved |
+| #230 | **SUCCESS** on exact SHA `b33c237d7a4c8ab0156f414ca61a2420aa23458f` |
+
+[Successful #230 run](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41469874145).
+The post-#230 feature changes (multi-PDF trash, direct folder display, icon-only
+headers, size memory, zoom menu visibility, automatic update toggle) have
+**NOT** been validated by a new Windows build. Do not label them released.
+
 **Current branch limitation:** These guarantees become effective for builds
 using the commit containing this workflow. Earlier historical builds do not
 retroactively acquire these diagnostics. No workflow is triggered automatically:

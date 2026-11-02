@@ -878,3 +878,5 @@ Next: inspect exact-HEAD isolated CI for these changes and fix failures. Run the
 - Still unverified: actual ACS/Figshare API, HTML landing reachability, individual SI file access, Windows production GUI integration, local PDF/sidecar move/rename/restart. Keep Draft PR #17; no main, PDF4QT, other PR, merge or Release modifications.
 
 Next: check the exact-source isolated CI on `f0dc4b79`; fix any failures. Run approved live ACS DOI opt-in probe with network permission and record the exact official article URL/status (not individual SI access), then Windows integrated paired-move/restart checks against PR #16 and Issue #9.
+
+**Exact-source CI acceptance (2026-11-03):** [SI isolated #41486735136](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41486735136) completed **SUCCESS** for source/test HEAD `f0dc4b79`: Python offline synthetic tests and public/privacy preflight PASS, Linux Qt6 standalone identity/paired-move PASS, Windows Qt6 standalone identity/paired-move PASS. The subsequent documentation-only commit does not alter tested source. This is not live publisher or production Windows GUI acceptance; PR #17 remains Draft.

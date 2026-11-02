@@ -950,6 +950,10 @@ protected:
         }
         QListWidget::mousePressEvent(e);
     }
+    void mouseReleaseEvent(QMouseEvent* e) override {
+        if (e->button() == Qt::RightButton) { e->accept(); return; }
+        QListWidget::mouseReleaseEvent(e);
+    }
     QMimeData* mimeData(const QList<QListWidgetItem*>& items) const override {
         auto* data = new QMimeData;
         QList<QUrl> urls;

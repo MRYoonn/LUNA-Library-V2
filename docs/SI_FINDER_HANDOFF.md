@@ -846,3 +846,11 @@ patch; `89cfb80e` explicitly rejects this and passed the replacement run.
 These are isolated tests, not Windows LUNA GUI acceptance. Real ACS/Figshare
 metadata API, landing-page availability and individual SI file access remain
 unverified. No production merge/release is authorized.
+
+
+### 2026-11-03 — fail-closed landing verification for externally restored candidates
+- The existing finder already rejects ambiguous file identities, but a caller can supply a restored/foreign `SiLookupResult` directly to the landing verifier. Previously a reachable **article HTML page** could mark a candidate with an unsafe filename, duplicate Figshare file ID, or NFKC-equivalent filename as `landing_verified`.
+- `tools/si_landing_verify.py` now independently checks filename safety, valid positive integer file IDs, cross-article file-ID collisions and same-article NFKC/casefold filename collisions **before** any HEAD/GET. Invalid candidates remain `landing_unchecked_unsafe_filename`, `landing_unchecked_invalid_file_id` or `landing_unchecked_ambiguous_file_identity`. Unrelated candidates remain independently probeable; no file is downloaded or automatically linked.
+- `tests/test_si_landing_verify.py` adds three synthetic offline regression cases, including an unsafe compatibility separator, two articles sharing one file ID, and Unicode-equivalent SI names with a Boolean file ID. Source commit `f54cc622`, test commit `48c63c7a`.
+- New exact-code CI: https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41470938573 — **queued at writing; PASS not yet claimed**. Prior green CI #41459077944 does not cover this revision.
+- No live ACS/Figshare API, HTML landing, or individual SI file has been verified reachable. Production Windows UI association, paired move/restart and PR #16 integration remain unverified. PR #17 remains Draft; no main, renderer, PDF4QT, other PR, auto-merge or Release changes.

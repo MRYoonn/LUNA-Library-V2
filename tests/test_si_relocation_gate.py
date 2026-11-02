@@ -94,6 +94,19 @@ class PairedMoveGateTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertFalse(audit_paired_move(self.root, "Old/SI.pdf", path, SI).ok)
 
+    def test_nfkc_alias_is_not_evidence_of_a_completed_move(self):
+        # No file ever existed at the compatibility-spelled old location.
+        # A destination with a valid UUID sidecar must not make that a move.
+        self.move_both()
+        before = self.index.to_json()
+        for old_alias in ("New/Ｒenamed.pdf", "New/RENAMED.PDF"):
+            with self.subTest(old_alias=old_alias):
+                audit = audit_paired_move(self.root, old_alias,
+                                          "New/Renamed.pdf", SI)
+                self.assertFalse(audit.ok)
+                self.assertEqual(audit.code, "ambiguous_move")
+                self.assertEqual(self.index.to_json(), before)
+
     def test_stale_index_refused(self):
         self.move_both()
         result = apply_verified_relocation(self.index, self.root, SI,

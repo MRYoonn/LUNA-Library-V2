@@ -289,11 +289,19 @@ public:
             if (!good || next.isEmpty() ||
                 value.value(field + QStringLiteral("Source")).toString() == QStringLiteral("manual")) return;
             const QString old = value.value(field).toString().simplified();
-            if (!old.isEmpty()) return;
+            const bool strongerPrintedTitle =
+                field == QStringLiteral("title") &&
+                value.value(QStringLiteral("titleSource")).toString() == QStringLiteral("pdf_metadata") &&
+                proposal.value("titleSource").toString() == QStringLiteral("first_page_layout") &&
+                !Metadata::compatibleTitle(old,next);
+            if (!old.isEmpty() && !strongerPrintedTitle) return;
             value[field] = next.left(4096);
+            const QString suggestedSource = proposal.value(field + QStringLiteral("Source")).toString();
             value[field + QStringLiteral("Source")] =
-                field == QStringLiteral("title") && proposal.value("titleSource").toString() == QStringLiteral("pdf_metadata") ?
-                    QStringLiteral("pdf_metadata") : QStringLiteral("first_page_verified");
+                field == QStringLiteral("title") && suggestedSource == QStringLiteral("first_page_layout")
+                    ? QStringLiteral("first_page_layout") :
+                  field == QStringLiteral("title") && suggestedSource == QStringLiteral("pdf_metadata")
+                    ? QStringLiteral("pdf_metadata") : QStringLiteral("first_page_verified");
             changedField = true;
         };
         fill("title", credibleTitle(proposal.value("title").toString()));

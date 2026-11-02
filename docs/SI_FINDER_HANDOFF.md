@@ -390,3 +390,27 @@ original DOI fallback; the default offline behavior is unchanged.
   HEAD/GET result was obtained by the opt-in SI probe. The program must keep
   its live link verification status unconfirmed; a readable third-party web
   preview is not an end-to-end probe PASS.
+
+
+## Follow-up: safe public SI filename display (2026-11-02)
+
+- `tools/si_finder.py` now rejects unsafe public Figshare filename labels:
+  Windows device names (including COM/LPT superscript-digit variants),
+  forbidden Windows filename characters, leading/trailing whitespace or dots,
+  nonprintable Unicode including bidirectional overrides, and overlong names.
+  This is a **metadata display and manual matching safety gate**, not an
+  automatic local rename, file downloader, or SI file integrity check.
+- A record containing both valid and invalid file labels stays `partial`;
+  an entirely invalid set becomes `needs_review`. Valid Korean/Greek
+  scientific filenames and non-PDF SI formats remain eligible.
+- `tests/test_si_finder.py` adds synthetic offline cases for these boundaries.
+- Previous exact-HEAD `355c5f21` SI CI run `41360225684` succeeded in
+  both offline-contract and Windows QtCore identity jobs. That result does
+  **not** certify this new patch; inspect the newest exact-HEAD run before
+  claiming PASS.
+- Live ACS/Figshare API and SI landing HTTP checks are still **unverified**.
+  A public landing-page fetch in this environment returned HTTP 403; do not
+  treat the DOI or candidate URLs as verified or download SI bytes.
+- The independent Python finder is not connected to the production LUNA
+  cards. Issue #9's paired `.luna-meta.json` move/rollback and a real
+  Windows application restart test remain integration blockers.

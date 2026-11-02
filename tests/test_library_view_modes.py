@@ -93,20 +93,22 @@ class LibraryModes(unittest.TestCase):
         for token in (
             'QStringLiteral("LunaNavigationCollapseButton")',
             'QStringLiteral("LunaDocumentsCollapseButton")',
-            'QStringLiteral("라이브러리 탐색 패널 접기 / 펼치기")',
-            'QStringLiteral("논문 목록 패널 접기 / 펼치기")',
-            "addIndependentPanelButtons(documentHeader, documentRow);",
-            "addIndependentPanelButtons(corner, row);",
-            "void toggleNavigation()",
-            "void toggleDocuments()",
-            "target->addWidget(toggle)",
+            'QStringLiteral("LunaNavigationRestoreButton")',
+            'QStringLiteral("LunaDocumentsRestoreButton")',
+            'QStringLiteral("LunaLibraryHeader")',
+            'QStringLiteral("LunaPaperHeader")',
+            'QStringLiteral("LunaPanelRestoreRail")',
+            'libraryHeading->layout()->addWidget(panelButton(',
+            'paperHeading->addWidget(panelButton(',
+            'restoreRail->move(8, window.menuBar()->height() + 49)',
+            'void toggleNavigation()', 'void toggleDocuments()',
         ):
             self.assertIn(token, self.cpp, token)
         self.assertNotIn('QStringLiteral("LunaCombinedPanelToggle")', self.cpp)
-        self.assertIn("navigation_->setVisible(navigation_->isHidden())", self.cpp)
-        self.assertIn("documents_->setVisible(documents_->isHidden())", self.cpp)
-        self.assertIn("void focusSearch() { documents_->show(); updateMinimum();", self.cpp)
-        self.assertNotIn("void focusSearch() { showBothPanels();", self.cpp)
+        self.assertNotIn('addIndependentPanelButtons(corner, row)', self.cpp)
+        self.assertIn('navigation_->setVisible(navigation_->isHidden())', self.cpp)
+        self.assertIn('documents_->setVisible(documents_->isHidden())', self.cpp)
+        self.assertIn('void focusSearch() { documents_->show(); updateMinimum();', self.cpp)
 
     def test_user_configurable_default_opening_zoom_preserves_restored_view(self):
         for token in (
@@ -127,23 +129,22 @@ class LibraryModes(unittest.TestCase):
         self.assertIn("refreshFileLists();", self.cpp)
         self.assertIn("list->count() == 1000 && !library->folderTimer_->isActive()", self.cpp)
 
-    def test_native_toolbar_geometry_uses_independent_reader_header_buttons(self):
-        # Build #204: Qt packed/loaded correctly; the geometry smoke still
-        # looked for the removed single "LunaCombinedPanelToggle" and failed.
+    def test_native_toolbar_geometry_uses_panel_headings_not_tab_buttons(self):
         reader = (ROOT/"src/lunareadertoolbar.cpp").read_text(encoding="utf-8")
         self.assertNotIn('QStringLiteral("LunaCombinedPanelToggle")', reader)
         for term in (
             'QStringLiteral("LunaNavigationCollapseButton")',
             'QStringLiteral("LunaDocumentsCollapseButton")',
-            '"LunaDocumentHeader", "LunaTabCorner"',
-            'header->rect().contains(navigationToggle->geometry())',
-            'header->rect().contains(documentsToggle->geometry())',
-            'navigationToggle->geometry().intersects(documentsToggle->geometry())',
+            'QStringLiteral("LunaPanelRestoreRail")',
+            'QStringLiteral("LunaLibraryHeader")',
+            'QStringLiteral("LunaPaperHeader")',
+            'Panel heading control is clipped or detached',
             'Toolbar overflow button overlaps a control',
         ):
             self.assertIn(term, reader, term)
-        self.assertIn('addIndependentPanelButtons(documentHeader, documentRow);', self.cpp)
-        self.assertIn('addIndependentPanelButtons(corner, row);', self.cpp)
+        self.assertIn('controls->hide();', self.cpp)
+        self.assertNotIn('addIndependentPanelButtons(documentHeader, documentRow);', self.cpp)
+        self.assertNotIn('addIndependentPanelButtons(corner, row);', self.cpp)
 
     def test_wheel_uses_short_animation_but_not_for_touchpad(self):
         for term in (

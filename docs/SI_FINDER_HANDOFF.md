@@ -681,3 +681,12 @@ merge or release.
 Next: confirm the isolated push-triggered CI on the exact new code SHA.
 Then run the opt-in live public ACS DOI metadata/landing probe on a network
 with access to official endpoints, without downloading any SI files.
+
+
+## 2026-11-02 — landing-level HTTP 429 back-pressure (pending CI)
+
+- Continued Draft PR #17 on `agent/paper-si-finder-linker`. Reviewed latest main `76e1fd76997c97c90a53b31fa0b0f47db847a3f7`, PR #13/#15/#16 (PR #16 `03ebb8ba`), and Issue #9. The PR #16 move helper blob `fe2a7b1` still matches the pinned native test source; no production branch was edited.
+- `tools/si_landing_verify.py`: an HTTP 429 returned **or raised** by a landing probe now stops all *new* landing requests for that lookup. Previously the independent landing checker continued probing later URLs even though the metadata finder already stopped after 429. Earlier confirmed HTML landing checks remain individually marked `landing_verified`; later unprobed URLs remain `landing_unchecked_rate_limited`. A 404 is **not** global throttling. The diagnostic `landings_checked` now counts actual probe calls, not cached/unprobed URLs; `landing_rate_limited` records the stop condition.
+- `tests/test_si_landing_verify.py`: three synthetic/offline regressions cover partial verification followed by 429, an injected HTTPError(429) with no later requests, and 404 followed by a valid second landing. No real network request or PDF download is performed by these tests.
+- **Validation boundary:** new exact-head Python/Qt CI not confirmed at documentation edit time; prior CI #41414871935 PASS belongs to earlier code. A successful HTML landing HEAD response is **not** verification of individual SI file availability. Real ACS/Figshare API/landing reachability, actual Windows GUI, physical move/rename/restart and user data remain unverified.
+- Next: confirm exact-head `si-isolated.yml` Python/privacy and Linux/Windows Qt6 jobs; fix any failures without modifying main/PR #13/#15/#16. Then run the existing opt-in `tools/si_live_probe.py --doi <authorized-public-acs-doi> --live --check-landings --require-landing-http` on an official-endpoint-accessible network. Do not infer SI-file reachability or auto-associate local PDFs. Keep PR Draft; no merge/Release.

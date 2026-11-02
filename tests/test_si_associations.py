@@ -118,6 +118,36 @@ class AssociationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate_document"):
             AssociationIndex.from_json(json.dumps(data))
 
+    def test_only_v4_ids_can_enter_or_be_imported(self):
+        # Native SiIdentity::validId only accepts UUIDv4. A legacy/forged
+        # UUIDv1/v5 must not create an unmovable linked document in the store.
+        index = sample()
+        before = index.to_json()
+        for invalid in ("11111111-1111-1111-8111-111111111111",
+                        "55555555-5555-5555-8555-555555555555",
+                        "00000000-0000-0000-0000-000000000000"):
+            with self.subTest(id=invalid):
+                with self.assertRaisesRegex(ValueError, "invalid_document_id"):
+                    index.add_document(invalid, "si", "Chem/Unverified.pdf")
+                self.assertEqual(index.to_json(), before)
+                forged = json.loads(before)
+                forged["documents"][0]["id"] = invalid
+                with self.assertRaisesRegex(ValueError, "invalid_document_id"):
+                    AssociationIndex.from_json(json.dumps(forged))
+
+    def test_windows_superscript_device_and_invisible_path_blocked(self):
+        for unsafe in ("COM¹.pdf", "Chem/LPT².pdf", "Chem/COM³.txt.pdf",
+                       "Chem/hidden\\u202e.pdf", "Chem/hidden\\u200b.pdf"):
+            with self.subTest(path=unsafe), self.assertRaises(ValueError):
+                relative_pdf_path(unsafe)
+        self.assertEqual(relative_pdf_path("Chem/실험_α.pdf"), "Chem/실험_α.pdf")
+
+    def test_boolean_schema_version_is_not_version_one(self):
+        forged = json.loads(sample().to_json())
+        forged["version"] = True  # Python True == 1, but JSON true is not v1.
+        with self.assertRaisesRegex(ValueError, "unsupported_state"):
+            AssociationIndex.from_json(json.dumps(forged))
+
     def test_empty_and_invalid_json(self):
         self.assertEqual(AssociationIndex.from_json(AssociationIndex().to_json()).links, {})
         with self.assertRaisesRegex(ValueError, "invalid_state"):

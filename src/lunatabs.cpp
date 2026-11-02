@@ -166,6 +166,10 @@ public:
         auto* initial = createEditor();
         performanceEvent("native-shell-before-library", performanceNow());
         installLibraryShell(*this, *initial);
+        // Restore controls belong to the left end of the PDF tab strip,
+        // not a floating overlay in the middle of the reader.
+        if (auto* rail = findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail")))
+            tabs_->setCornerWidget(rail, Qt::TopLeftCorner);
         performanceEvent("native-shell-after-library", performanceNow());
         auto* frame = centralWidget();
         static_cast<QVBoxLayout*>(frame->layout())->addWidget(tabs_);

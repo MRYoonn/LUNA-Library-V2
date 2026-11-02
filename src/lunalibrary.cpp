@@ -1654,7 +1654,6 @@ public:
     void updateMinimum() {
         const bool hasNavigation = !navigation_->isHidden();
         const bool hasDocuments = !documents_->isHidden();
-        const bool both = hasNavigation && hasDocuments;
         const bool wide = hasNavigation;
         QSettings preferences(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
         const int savedWidth = qBound(432, preferences.value(

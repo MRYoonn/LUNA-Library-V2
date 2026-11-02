@@ -62,25 +62,27 @@ class NativeTabsContract(unittest.TestCase):
         for source in (tabs, library, reader):
             self.assertNotIn('QStringLiteral("LunaCombinedPanelToggle")', source)
         for token in (
-            'corner->show();',
             'phase("ten real independent library/paper panel toggle cycles")',
             'QStringLiteral("LunaNavigationCollapseButton")',
             'QStringLiteral("LunaDocumentsCollapseButton")',
-            'QStringLiteral("LunaNavigation")',
-            'QStringLiteral("LunaDocuments")',
-            'QStringLiteral("LunaLibraryDock")',
+            'QStringLiteral("LunaNavigationRestoreButton")',
+            'QStringLiteral("LunaDocumentsRestoreButton")',
+            'QStringLiteral("LunaLibraryHeader")',
+            'QStringLiteral("LunaPaperHeader")',
+            'QStringLiteral("LunaPanelRestoreRail")',
             'integrationPanelClick(host, navigationToggle)',
             'integrationPanelClick(host, documentsToggle)',
-            'navigationPanel->isHidden() &&',
-            'documentsPanel->isHidden() && libraryDock->isHidden() && buttonsVisible()',
-            'navigationToggle->geometry().intersects(documentsToggle->geometry())',
+            'integrationPanelClick(host, navRestore)',
+            'integrationPanelClick(host, docsRestore)',
             'result["tenIndependentPanelToggleCycles"] = true;',
         ):
             self.assertIn(token, tabs, token)
         self.assertIn('for (int turn = 0; turn < 10; ++turn)', tabs)
-        self.assertEqual(tabs.count('integrationPanelClick(host, navigationToggle)'), 2)
-        self.assertEqual(tabs.count('integrationPanelClick(host, documentsToggle)'), 2)
-        self.assertIn('addIndependentPanelButtons(corner, row);', library)
+        self.assertEqual(tabs.count('integrationPanelClick(host, navigationToggle)'), 1)
+        self.assertEqual(tabs.count('integrationPanelClick(host, documentsToggle)'), 1)
+        self.assertIn('panelButton(libraryHeading, folders,', library)
+        self.assertIn('paperHeading->addWidget(panelButton(', library)
+        self.assertIn('!host.findChild<QWidget*>(QStringLiteral("LunaTabCorner"))', tabs)
 
     def test_build_206_native_memo_re_resolves_replaced_cards_and_checks_disk(self):
         # Build #206: QSettings and the screenshot contained the entered memo,
@@ -622,20 +624,21 @@ class NativeTabsContract(unittest.TestCase):
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
         style = (ROOT / 'src/lunalibrary.qss').read_text(encoding='utf-8')
         overlay = (ROOT / 'experiments/native_tabs/prepare.py').read_text(encoding='utf-8')
-        self.assertIn('setCornerWidget(corner, Qt::TopLeftCorner)', tabs)
+        self.assertNotIn('setCornerWidget(corner, Qt::TopLeftCorner)', tabs)
+        self.assertIn('tabs_->setCornerWidget(addCorner, Qt::TopRightCorner)', tabs)
+        self.assertIn('controls->hide();', library)
+        self.assertIn('restoreRail->move(8, window.menuBar()->height() + 49)', library)
         self.assertIn('setExpanding(false)', tabs)
         self.assertIn('minimumTabSizeHint(int) const override { return {88, 41}; }', tabs)
         self.assertIn('tabs_->setTabText(index, text)', tabs)
         self.assertIn('tabs_->setElideMode(Qt::ElideMiddle)', tabs)
         self.assertIn('tabs_->tabBar()->setAcceptDrops(true)', tabs)
-        # Both controls now live in the always-visible reader header rather
-        # than being inserted into the collapsible library navigation row.
-        # Keep the contract tied to independent, user-accessible controls.
-        self.assertIn('addIndependentPanelButtons(corner, row)', library)
-        self.assertIn('target->addWidget(toggle)', library)
+        # Header buttons collapse panes; the hidden pane has a reader-edge restore button.
         self.assertIn('LunaNavigationCollapseButton', library)
         self.assertIn('LunaDocumentsCollapseButton', library)
-        self.assertIn('toggle->setDefaultAction(entry.first)', library)
+        self.assertIn('LunaNavigationRestoreButton', library)
+        self.assertIn('LunaDocumentsRestoreButton', library)
+        self.assertIn('button->setDefaultAction(action)', library)
         self.assertIn('navigationToggle->click()', library)
         self.assertIn('documentsToggle->click()', library)
         self.assertIn('Collapsing library navigation also hid the paper list', library)

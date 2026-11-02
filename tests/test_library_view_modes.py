@@ -187,6 +187,11 @@ class LibraryModes(unittest.TestCase):
         ):
             self.assertIn(token, self.cpp, token)
         self.assertIn("c->getPdfWidget()->getDrawWidgetProxy()->zoom(zoom)", self.cpp)
+        self.assertIn('window.addAction(defaultZoom)', self.cpp)
+        self.assertIn('view->addAction(defaultZoom)', self.cpp)
+        tabs = (ROOT/'src/lunatabs.cpp').read_text(encoding='utf-8')
+        self.assertIn('findChild<QAction*>(QStringLiteral("LunaDefaultOpeningZoom"))', tabs)
+        self.assertIn('view->addAction(zoom)', tabs)
 
     def test_background_watcher_cannot_restart_incremental_pdf_scan(self):
         self.assertIn("localSync_->filesChanged = [this] {", self.cpp)

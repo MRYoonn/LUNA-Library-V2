@@ -46,9 +46,10 @@ class SnapshotSourceContract(unittest.TestCase):
         self.assertIn('#include "../../src/lunafilemove.h"', native)
         self.assertIn('luna::movePdfWithThumbnails(physicalPdf, physicalTarget)', native)
         self.assertIn('store.relocate(physicalPdf, movedFiles.documentPath)', native)
-        for expected in ("physical move rejects occupied metadata destination",
+        for expected in ("physical move rejects occupied thumbnail destination",
                          "collision preserves all original files",
-                         "moved PDF and sidecar bytes preserved",
+                         "moved PDF and thumbnail bytes preserved",
+                         "metadata JSON sidecar remains at source: current helper does not move it",
                          "physical move preserves manual title provenance",
                          "physical move preserves review status"):
             self.assertIn(expected, native)

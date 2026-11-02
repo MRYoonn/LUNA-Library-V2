@@ -27,6 +27,10 @@ def inventory(gold: dict) -> dict:
     unknown_by_publisher = defaultdict(Counter)
     synthetic_ids = []
     evidence_gaps = []
+    placeholder_evidence = frozenset({
+        "tbd", "todo", "n/a", "n.a.", "unknown", "pending",
+        "placeholder", "unverified", "-",
+    })
     for ident, case in sorted(cases.items()):
         if case["source"]["kind"] == "synthetic":
             synthetic_ids.append(ident)
@@ -44,6 +48,11 @@ def inventory(gold: dict) -> dict:
             if not isinstance(value, str) or not value.strip():
                 evidence_gaps.append({
                     "case_id": ident, "criterion": "missing_nonblank_field_evidence",
+                    "field": field,
+                })
+            elif value.strip().casefold() in placeholder_evidence:
+                evidence_gaps.append({
+                    "case_id": ident, "criterion": "placeholder_field_evidence",
                     "field": field,
                 })
         unknown = sorted(set(FIELDS) - set(case["expected"]))
@@ -77,6 +86,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--report", type=Path,
                         help="Write only to a local, access-controlled path; never commit private reports")
     args = parser.parse_args(argv)
+    # An audit report must never destroy the original private goldset, even
+    # when --report names it through a relative path or a symlink.
+    if args.report is not None and args.report.resolve() == args.goldset.resolve():
+        print("[BLOCK] report path would overwrite input goldset", file=sys.stderr)
+        return 2
     try:
         result = inventory(load_json(args.goldset))
     except DatasetError as exc:

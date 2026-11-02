@@ -638,3 +638,26 @@ evidence, privacy-reviewed native captures from an exact PR #16 build, real
 Windows GUI/legacy QSettings, and live offline/429/404/restart/move acceptance.
 Never upload local PDF copies, private goldsets, snapshots, reports or settings.
 Keep Draft PR #18; no merge, release, or changes to other PRs.
+
+## Legacy author migration matrix — 2026-11-03
+
+This isolated native test extends the previously passing fresh-process QSettings
+regression, without changing PR #13/#16 production behavior. Four disposable
+legacy records cover both record-wide `manual=false/true` values and the
+ambiguous old `source=Manual` marker, with/without independently verified
+`authorEvidence=first-page-terminal-and`. Only the `manual=false` record
+with verified terminal-author evidence may expose the author; the other
+three remain unverified, retaining `legacyAuthors` solely for recovery.
+A separate synthetic test preserves a deliberately blank manually owned author
+against first-page enrichment and retains a one-word human author. The child
+process repeats these checks after loading the INI settings from disk.
+
+Modified: `tests/native_accuracy/main.cpp`,
+`tests/test_accuracy_snapshot_source_contract.py`, this handoff document.
+The source contract is NOT a substitute for a compiled Windows QtCore CTest.
+Run `python -B -m unittest discover -s tests -p
+'test_accuracy_snapshot_source_contract.py' -v` and the existing isolated
+Windows QtCore CI on this exact commit; inspect the results before claiming
+PASS. No private QSettings, real publisher PDF, network response, GUI state,
+or actual metadata-engine precision/recall is involved. Real user-PC legacy
+settings and the >=20 authorized PDF goldset remain unverified.

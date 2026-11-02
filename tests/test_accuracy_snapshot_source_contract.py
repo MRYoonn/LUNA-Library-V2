@@ -67,7 +67,12 @@ class SnapshotSourceContract(unittest.TestCase):
         self.assertIn("freshProcess.exitCode() == 0", native)
         self.assertIn("fresh process reads moved PDF bibliography", native)
         self.assertIn("fresh process retains manual provenance", native)
-        self.assertIn("fresh process retains 429 diagnostic", native)
+        self.assertIn("fresh process retains offline/429/404 diagnostic", native)
+        self.assertIn("fresh process does not claim offline/429/404 complete", native)
+        self.assertIn("fresh process retains original title after provider failure", native)
+        self.assertIn('QStringLiteral("not_found")', native)
+        self.assertIn('QStringLiteral("offline")', native)
+        self.assertIn('QStringLiteral("rate_limited")', native)
         self.assertIn("QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsRoot)", native)
         self.assertIn("QTemporaryDir root", native)
 

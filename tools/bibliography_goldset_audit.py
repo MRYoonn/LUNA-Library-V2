@@ -8,6 +8,7 @@ import json
 import os
 import stat
 import sys
+import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -169,11 +170,26 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     output = json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
     if args.report:
+        # A report is derived from potentially private goldset labels. Never
+        # follow a report symlink into an unrelated local document, and write
+        # atomically so a failed write cannot leave a truncated report.
+        temporary_report = None
         try:
-            args.report.write_text(output, encoding="utf-8")
+            if args.report.is_symlink():
+                raise OSError("refusing symlink report path")
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=args.report.parent,
+                prefix=".luna-goldset-audit-", suffix=".tmp", delete=False,
+            ) as stream:
+                temporary_report = Path(stream.name)
+                stream.write(output)
+            os.replace(temporary_report, args.report)
         except OSError as exc:
             print(f"[BLOCK] cannot write report: {exc}", file=sys.stderr)
             return 2
+        finally:
+            if temporary_report is not None:
+                temporary_report.unlink(missing_ok=True)
     else:
         print(output, end="")
     print(f"[{'READY' if result['ready'] else 'INCOMPLETE'}] goldset collection only; "

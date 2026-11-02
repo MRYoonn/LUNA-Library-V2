@@ -190,7 +190,7 @@ jobs:
           name: LUNA-Preflight-Diagnostics
           path: ${{ runner.temp }}/luna-build-diagnostics/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 90
 
   native-probes:
     needs: windows-packaging-preflight
@@ -238,6 +238,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      issues: write
     if: ${{ !inputs.production_paper_capture && !inputs.packaging_preflight_only && !inputs.native_probes_only && !inputs.tab_host_source_run }}
     runs-on: windows-2022
     timeout-minutes: 180
@@ -712,6 +713,17 @@ jobs:
           } else {
             Write-Warning 'Source checkout missing: bootstrap.json and GitHub step logs remain diagnostic evidence.'
           }
+      - name: Preserve failed build analysis in a GitHub issue
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $analysis = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics/failure-analysis.md'
+          if (Test-Path $analysis) {
+            gh issue create --title "LUNA Build #$env:GITHUB_RUN_NUMBER - failure analysis" --body-file $analysis
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'Could not archive failed run in GitHub Issues; artifact remains available' }
+          }
       - name: Upload permanent Windows failure diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -719,7 +731,7 @@ jobs:
           name: LUNA-Build-Diagnostics
           path: ${{ runner.temp }}/luna-build-diagnostics/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 90
 
   tab-host-experiment:
     needs: windows-packaging-preflight

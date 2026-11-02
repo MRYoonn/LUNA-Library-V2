@@ -252,6 +252,52 @@ class SiFinderTests(unittest.TestCase):
         self.assertEqual((result.status, result.candidates), ("needs_review", ()))
         self.assertIn("cross_article_file_id_entries=2", result.diagnostic)
 
+    def test_collision_hidden_by_same_article_duplicate_label(self):
+        # Both article 123 entries disappear from the display due to a
+        # case-insensitive filename collision. Their IDs still count as
+        # provider ownership evidence: article 456 must not inherit ID 901.
+        api = FakeApi(
+            search=[{"id": 123}, {"id": 456}],
+            details={
+                123: article(123, files=[
+                    {"name": "SI.pdf", "id": 901},
+                    {"name": "si.PDF", "id": 902},
+                ]),
+                456: article(456, files=[
+                    {"name": "apparently-safe.pdf", "id": 901},
+                    {"name": "independent.cif", "id": 903},
+                ]),
+            })
+        result = lookup_acs_figshare(DOI, api)
+        self.assertEqual(result.status, "partial")
+        self.assertEqual([(c.article_id, c.filename, c.file_id)
+                          for c in result.candidates],
+                         [(456, "independent.cif", 903)])
+        self.assertIn("ambiguous_file_entries=2", result.diagnostic)
+        self.assertIn("cross_article_file_id_entries=1", result.diagnostic)
+
+    def test_collision_hidden_by_invalid_filename(self):
+        # An unsafe path is never displayed, but its otherwise valid file ID
+        # must still prevent an unrelated article from claiming ownership.
+        api = FakeApi(
+            search=[{"id": 123}, {"id": 456}],
+            details={
+                123: article(123, files=[
+                    {"name": "../unsafe.pdf", "id": 901},
+                ]),
+                456: article(456, files=[
+                    {"name": "apparently-safe.pdf", "id": 901},
+                    {"name": "independent.cif", "id": 903},
+                ]),
+            })
+        result = lookup_acs_figshare(DOI, api)
+        self.assertEqual(result.status, "partial")
+        self.assertEqual([(c.article_id, c.filename, c.file_id)
+                          for c in result.candidates],
+                         [(456, "independent.cif", 903)])
+        self.assertIn("invalid_file_entries=1", result.diagnostic)
+        self.assertIn("cross_article_file_id_entries=1", result.diagnostic)
+
     def test_missing_resource_doi_is_not_a_match(self):
         api = FakeApi(details={123: article(123, doi="")})
         self.assertEqual(lookup_acs_figshare(DOI, api).status, "needs_review")

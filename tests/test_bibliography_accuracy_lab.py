@@ -48,6 +48,22 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         self.assertEqual(result["field_scores"]["doi"]["tn"], 2)
         self.assertEqual(set(result["by_publisher"]), {"ACS", "RSC", "Wiley", "Nature", "Elsevier", "Other"})
 
+    def test_real_mode_rejects_reused_pdf_hash_without_leaking_digest(self):
+        # Fabricated hashes and provider labels only: no publisher PDFs.
+        gold, predictions = sample()
+        for index, case in enumerate(gold["cases"]):
+            digest = "a" * 64 if index < 2 else f"{index:064x}"
+            case["source"] = {"kind": "public", "sha256": digest}
+            case["evidence"] = {
+                field: "synthetic contract evidence" for field in case["expected"]
+            }
+        predictions["engine_commit"] = "1" * 40
+        predictions["capture_kind"] = "qt_record_snapshot_read_only"
+        seed_synthetic_audit(predictions)
+        with self.assertRaisesRegex(lab.DatasetError, "duplicate PDF SHA256") as error:
+            lab.score(gold, predictions, require_real=True)
+        self.assertNotIn("a" * 64, str(error.exception))
+
     def test_mismatch_counts_fp_and_fn_and_no_doi_false_positive(self):
         gold, predictions = sample()
         predictions["cases"][0]["observed"]["terminal_author"] = "Wrong Author"

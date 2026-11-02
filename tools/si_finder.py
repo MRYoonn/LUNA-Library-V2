@@ -78,12 +78,23 @@ _RESERVED_DEVICE = re.compile(r"^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³
 
 
 def safe_si_filename(value: object) -> bool:
-    if (not isinstance(value, str) or not value or len(value) > 255
-            or value != value.strip() or value[-1] in ". "
-            or any(ch in '<>:"/\\\\|?*' or not ch.isprintable() for ch in value)):
+    """Accept only labels safe both as supplied and after Unicode NFKC.
+
+    NFKC is used for duplicate detection and may be applied by a later
+    local-file matcher. Fullwidth slashes, colons or device names must not
+    become unsafe paths after that normalization.
+    """
+    if not isinstance(value, str):
         return False
-    # Windows treats CON.txt, COM1.pdf and even "NUL .pdf" as device names.
-    return not _RESERVED_DEVICE.fullmatch(value.split(".", 1)[0].rstrip(" "))
+    for name in (value, unicodedata.normalize("NFKC", value)):
+        if (not name or len(name) > 255 or name != name.strip()
+                or name[-1] in ". "
+                or any(ch in '<>:"/\\\\|?*' or not ch.isprintable() for ch in name)):
+            return False
+        # Windows also treats CON.txt, COM1.pdf and NUL .pdf as device names.
+        if _RESERVED_DEVICE.fullmatch(name.split(".", 1)[0].rstrip(" ")):
+            return False
+    return True
 
 
 _last_request_at = 0.0

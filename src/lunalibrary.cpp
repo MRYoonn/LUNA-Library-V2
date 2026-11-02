@@ -1701,9 +1701,9 @@ public:
         const bool hasNavigation = !navigation_->isHidden();
         const bool hasDocuments = !documents_->isHidden();
         setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12);
-        // QDockWidget otherwise keeps its old 562px allocation even after
-        // a child panel hides. Give that width back to the PDF reader.
         if (auto* dock = qobject_cast<QDockWidget*>(parentWidget())) {
+            // Do not retain the two-column allocation in one-column mode.
+            dock->setMaximumWidth(hasNavigation && hasDocuments ? 850 : 300);
             dock->setVisible(hasNavigation || hasDocuments);
             if (hasNavigation || hasDocuments)
                 if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget()))

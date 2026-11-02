@@ -58,7 +58,8 @@ int main(int argc, char** argv) {
     settings.sync();
     check(settings.status() == QSettings::NoError, "legacy synthetic fixture saved");
     const auto hidden = luna::Accuracy::captureCase(QStringLiteral("syn-legacy"), store.record(legacy));
-    check(!hidden.value(QStringLiteral("observed")).toObject().contains(QStringLiteral("terminal_author")),
+    check(hidden.value(QStringLiteral("observed")).toObject().contains(QStringLiteral("terminal_author")) &&
+          hidden.value(QStringLiteral("observed")).toObject().value(QStringLiteral("terminal_author")).isNull(),
           "suppressed legacy author must not reappear");
 
     paper["authors"] = QStringLiteral("Corrected, User Last");
@@ -75,8 +76,13 @@ int main(int argc, char** argv) {
     const auto supporting = luna::Accuracy::captureCase(QStringLiteral("syn-si"), si);
     check(supporting.value(QStringLiteral("observed")).toObject().value(QStringLiteral("document_kind")).toString() == QStringLiteral("supporting_information"),
           "SI classified without invented DOI");
-    check(!supporting.value(QStringLiteral("observed")).toObject().contains(QStringLiteral("doi")),
+    check(supporting.value(QStringLiteral("observed")).toObject().contains(QStringLiteral("doi")) &&
+          supporting.value(QStringLiteral("observed")).toObject().value(QStringLiteral("doi")).isNull(),
           "SI has no invented DOI");
+    check(supporting.value(QStringLiteral("observed")).toObject().value(QStringLiteral("title")).isNull() &&
+          supporting.value(QStringLiteral("observed")).toObject().value(QStringLiteral("terminal_author")).isNull() &&
+          supporting.value(QStringLiteral("observed")).toObject().value(QStringLiteral("journal")).isNull(),
+          "SI explicitly captures absent paper fields");
     QJsonArray cases{one, hidden, manual, supporting};
     const auto doc = luna::Accuracy::predictionDocument(QStringLiteral("luna-synthetic-native"),
                     QString(40, QLatin1Char('a')), cases);

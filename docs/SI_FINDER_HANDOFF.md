@@ -690,3 +690,33 @@ with access to official endpoints, without downloading any SI files.
 - `tests/test_si_landing_verify.py`: three synthetic/offline regressions cover partial verification followed by 429, an injected HTTPError(429) with no later requests, and 404 followed by a valid second landing. No real network request or PDF download is performed by these tests.
 - **Validation boundary:** new exact-head Python/Qt CI not confirmed at documentation edit time; prior CI #41414871935 PASS belongs to earlier code. A successful HTML landing HEAD response is **not** verification of individual SI file availability. Real ACS/Figshare API/landing reachability, actual Windows GUI, physical move/rename/restart and user data remain unverified.
 - Next: confirm exact-head `si-isolated.yml` Python/privacy and Linux/Windows Qt6 jobs; fix any failures without modifying main/PR #13/#15/#16. Then run the existing opt-in `tools/si_live_probe.py --doi <authorized-public-acs-doi> --live --check-landings --require-landing-http` on an official-endpoint-accessible network. Do not infer SI-file reachability or auto-associate local PDFs. Keep PR Draft; no merge/Release.
+
+
+## Follow-up — HEAD-only landing false-positive guard (2026-11-02)
+
+- Reviewed main `76e1fd7`, open Draft PR #13/#15/#16/#17, Issue #9, and the
+  existing ACS/Figshare finder, landing verifier and exact-code CI history.
+  Earlier SI CI #41424752313 passed on `35f9ff56` (code/test) only.
+- Found a false-positive: `official_landing_status()` previously promoted a
+  public Figshare landing after **HEAD 200 text/html**, without checking whether
+  the page actually opens via GET. A HEAD-allowed/GET-blocked landing could
+  therefore be marked `landing_verified`.
+- The verifier now requires a successful bounded HTML **GET** after HEAD 200
+  (or HEAD 405/501). GET uses the existing one-byte Range request and never
+  reads the response body; redirects, 403, 404, 429 and non-HTML remain
+  unverified. A GET-level 429 stops later landing probes. No SI file, PDF,
+  user document, credential or publisher paywall is accessed.
+- Four synthetic offline regressions cover HEAD-only false positives,
+  successful HEAD+GET, HEAD 404 without GET, and GET 429 back-pressure.
+  Files: `tools/si_landing_verify.py`, `tests/test_si_landing_verify.py`.
+  Source/test commits: `a22822b0`, `ce4f1c7e`.
+- **Validation boundary:** exact-test-HEAD Python/privacy and Windows/Linux
+  Qt6 CI must finish before marking this revision PASS. Real ACS/Figshare
+  metadata, landing availability and individual SI-file reachability are
+  **not verified**. Real Windows LUNA UI and physical move/restart acceptance
+  remain pending; keep PR #17 Draft, no merge or Release.
+
+Next: confirm exact-code CI for `ce4f1c7e`; then run an opt-in, public DOI
+probe on a permitted network with official endpoints. Never infer individual
+SI-file accessibility from an HTML landing. Do not modify main, PDF4QT,
+PR #13/#15/#16, or the Issue #9 file mover.

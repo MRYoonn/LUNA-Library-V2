@@ -124,6 +124,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      issues: write
     steps:
       - name: Bootstrap trace before checkout (synthetic metadata only)
         shell: pwsh
@@ -181,7 +182,27 @@ jobs:
             python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "checkout=${{ steps.checkout.outcome }};public-gate=${{ steps.public-gate.outcome }};crt-check=${{ steps.crt-check.outcome }}"
             if ($LASTEXITCODE -ne 0) { throw 'Could not finalize preflight diagnostics' }
           } else {
-            Write-Warning 'Source checkout missing: bootstrap.json and GitHub step logs remain diagnostic evidence.'
+            $trace = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics'
+            New-Item -ItemType Directory -Force -Path $trace | Out-Null
+            @(
+              '# LUNA Build Error Analysis',
+              "- Run: $env:GITHUB_RUN_ID",
+              "- Source SHA: $env:GITHUB_SHA",
+              '- Cause not established: checkout/source diagnostics unavailable.',
+              "- Job logs: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            ) | Set-Content -Encoding utf8 (Join-Path $trace 'failure-analysis.md')
+            Write-Warning 'Source checkout missing; bootstrap and minimal analysis preserved.'
+          }
+      - name: Preserve failed preflight analysis in a GitHub issue
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $analysis = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics/failure-analysis.md'
+          if (Test-Path $analysis) {
+            gh issue create --title "LUNA Preflight #$env:GITHUB_RUN_NUMBER - failure analysis" --body-file $analysis
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'Issue archival failed; preflight artifact retained' }
           }
       - name: Upload public preflight diagnostics on success or failure
         if: always()
@@ -711,7 +732,16 @@ jobs:
             python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "checkout=${{ steps.checkout.outcome }};source=${{ steps.source-check.outcome }};metadata=${{ steps.metadata-test.outcome }};dialog=${{ steps.dialog-test.outcome }};compile=${{ steps.native-compile.outcome }};portable=${{ steps.portable-check.outcome }};native-ui=${{ steps.native-ui.outcome }};tabs=${{ steps.tabs-test.outcome }};installer=${{ steps.installer-test.outcome }}"
             if ($LASTEXITCODE -ne 0) { throw 'Could not finalize build diagnostics' }
           } else {
-            Write-Warning 'Source checkout missing: bootstrap.json and GitHub step logs remain diagnostic evidence.'
+            $trace = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics'
+            New-Item -ItemType Directory -Force -Path $trace | Out-Null
+            @(
+              '# LUNA Build Error Analysis',
+              "- Run: $env:GITHUB_RUN_ID",
+              "- Source SHA: $env:GITHUB_SHA",
+              '- Cause not established: checkout/source diagnostics unavailable.',
+              "- Job logs: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            ) | Set-Content -Encoding utf8 (Join-Path $trace 'failure-analysis.md')
+            Write-Warning 'Source checkout missing; bootstrap and minimal analysis preserved.'
           }
       - name: Preserve failed build analysis in a GitHub issue
         if: failure()

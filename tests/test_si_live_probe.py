@@ -128,6 +128,43 @@ class ProbeTests(unittest.TestCase):
                 self.assertEqual(main(["--doi", DOI, "--live", "--check-landings",
                                        "--require-landing-http"]), 2)
 
+    def test_strict_landing_gate_rejects_misrouted_or_forged_identity(self):
+        # A successful landing GET must never certify another paper's DOI or
+        # a different Figshare article. These reports are synthetic snapshots;
+        # the CLI must reject them even if the status string says verified.
+        source = SiLookupResult(DOI, "verified", (
+            SiCandidate(7688531, DOI, "Public example", "si.pdf", PUBLIC_LANDING,
+                        status="landing_verified", file_id=123),
+        ), "https://doi.org/" + DOI)
+        cases = (
+            ("parent_doi", "result", "doi", "10.1021/jacs.6c99999"),
+            ("candidate_doi", "candidate", "resource_doi", "10.1021/jacs.6c99999"),
+            ("wrong_article", "candidate", "article_id", 7688532),
+            ("foreign_host", "candidate", "landing_url",
+             "https://acs.figshare.com.evil.invalid/articles/dataset/7688531"),
+            ("unsafe_filename", "candidate", "filename", "bad／si.pdf"),
+            ("unsafe_title", "candidate", "title", "Hidden\\u202eTitle"),
+            ("invalid_file_id", "candidate", "file_id", True),
+            ("missing_candidate", "collection", "", None),
+        )
+        for label, scope, field, value in cases:
+            with self.subTest(label=label):
+                result = source.to_dict()
+                if scope == "result":
+                    result[field] = value
+                elif scope == "candidate":
+                    result["candidates"][0][field] = value
+                else:
+                    result["candidates"] = [None]
+                report = {"verification_scope": "landing_html_only", "result": result}
+                with patch("si_live_probe.inspect_doi", return_value=report):
+                    output = StringIO()
+                    with contextlib.redirect_stdout(output):
+                        rc = main(["--doi", DOI, "--live", "--check-landings",
+                                   "--require-landing-http"])
+                self.assertEqual(rc, 2)
+                self.assertEqual(json.loads(output.getvalue())["landing_http_gate"], "fail")
+
     def test_strict_landing_gate_rejects_missing_opt_in_without_network(self):
         with patch("si_live_probe.inspect_doi", side_effect=AssertionError("network")):
             with contextlib.redirect_stderr(StringIO()):

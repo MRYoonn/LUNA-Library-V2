@@ -168,6 +168,46 @@ class AssociationTests(unittest.TestCase):
                 relative_pdf_path(unsafe)
         self.assertEqual(relative_pdf_path("Chem/실험_α.pdf"), "Chem/실험_α.pdf")
 
+    def test_nfkc_compatibility_separators_and_devices_are_rejected(self):
+        # Fullwidth and compatibility forms can turn into path separators,
+        # Windows devices, or dot segments after UI/filesystem normalization.
+        invalid = ("Chem/SI／appendix.pdf", "Chem/SI＼appendix.pdf",
+                   "Chem/SI：appendix.pdf", "Chem/ＣＯＮ.pdf",
+                   "Chem/ＮＵＬ.pdf", "Chem/．/SI.pdf",
+                   "Chem/Bad？name.pdf", "Chem/Bad．")
+        index = sample()
+        before = index.to_json()
+        for path in invalid:
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(ValueError, "invalid_relative_path"):
+                    relative_pdf_path(path)
+                with self.assertRaisesRegex(ValueError, "invalid_relative_path"):
+                    index.relocate(SI1, "Chem/SI1.pdf", path)
+                self.assertEqual(index.to_json(), before)
+        self.assertEqual(relative_pdf_path("Chem/실험_α.pdf"), "Chem/실험_α.pdf")
+        self.assertEqual(relative_pdf_path("Chem/Ｋ-structure.pdf"),
+                         "Chem/Ｋ-structure.pdf")
+
+    def test_nfkc_equivalent_paths_cannot_link_two_local_documents(self):
+        index = sample()
+        before = index.to_json()
+        # Distinct Unicode spellings are unsafe as independent local IDs:
+        # a Windows/UI normalization step can make them indistinguishable.
+        with self.assertRaisesRegex(ValueError, "path_collision"):
+            index.add_document(OTHER, "si", "Chem/ＳＩ１.pdf")
+        with self.assertRaisesRegex(ValueError, "path_collision"):
+            index.relocate(SI1, "Chem/SI1.pdf", "Chem/ＳＩ２.pdf")
+        self.assertEqual(index.to_json(), before)
+
+    def test_nfkc_collision_in_imported_state_fails_closed(self):
+        index = sample()
+        forged = json.loads(index.to_json())
+        for document in forged["documents"]:
+            if document["id"] == SI2:
+                document["relative_path"] = "Chem/ＳＩ１.pdf"
+        with self.assertRaisesRegex(ValueError, "path_collision"):
+            AssociationIndex.from_json(json.dumps(forged))
+
     def test_boolean_schema_version_is_not_version_one(self):
         forged = json.loads(sample().to_json())
         forged["version"] = True  # Python True == 1, but JSON true is not v1.

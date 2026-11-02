@@ -48,6 +48,7 @@
 #include <QScreen>
 #include <QIcon>
 #include <functional>
+#include <algorithm>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
 #include <atomic>
@@ -364,9 +365,14 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         &window, [&] { ++pageEntryCommits; });
     key(pageNumber, Qt::Key_Return, Qt::NoModifier);
     QObject::disconnect(pageEntryConnection);
+    // In continuous layout PDF4QT returns *all* intersecting pages in order.
+    // A page-2 jump can legitimately leave a sliver of page 1 visible; its
+    // first visible page (and spin-box display) can therefore still be 1.
+    // Require actual viewport movement AND page 2 in the viewport instead.
     if (!waitFor([&] {
         const auto pages = pdfWidget->getDrawWidget()->getCurrentPages();
-        return pageEntryCommits > 0 && !pages.empty() && pages.front() == 1 &&
+        return pageEntryCommits > 0 &&
+               std::find(pages.begin(), pages.end(), pdf::PDFInteger(1)) != pages.end() &&
                vertical->value() > beforePageEntryScroll;
     })) {
         const auto pages = pdfWidget->getDrawWidget()->getCurrentPages();

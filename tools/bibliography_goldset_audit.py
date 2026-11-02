@@ -153,6 +153,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.report is not None and args.report.resolve() == args.goldset.resolve():
         print("[BLOCK] report path would overwrite input goldset", file=sys.stderr)
         return 2
+    if (args.report is not None and args.pdf_dir is not None
+            and args.report.resolve().is_relative_to(args.pdf_dir.resolve())):
+        print("[BLOCK] report path must be outside the private PDF directory", file=sys.stderr)
+        return 2
     try:
         result = inventory(load_json(args.goldset), args.pdf_dir)
     except DatasetError as exc:

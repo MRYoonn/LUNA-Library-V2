@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from bibliography_accuracy_lab import (
-    DatasetError, FIELDS, audit_field_label_coverage,
+    DatasetError, FIELDS, PLACEHOLDER_EVIDENCE, audit_field_label_coverage,
     audit_goldset_coverage, load_json, validate_cases,
 )
 
@@ -85,10 +85,6 @@ def inventory(gold: dict, pdf_dir: Path | None = None) -> dict:
     synthetic_ids = []
     evidence_gaps = []
     seen_pdf_hashes = {}
-    placeholder_evidence = frozenset({
-        "tbd", "todo", "n/a", "n.a.", "unknown", "pending",
-        "placeholder", "unverified", "-",
-    })
     for ident, case in sorted(cases.items()):
         if case["source"]["kind"] == "synthetic":
             synthetic_ids.append(ident)
@@ -115,7 +111,7 @@ def inventory(gold: dict, pdf_dir: Path | None = None) -> dict:
                     "case_id": ident, "criterion": "missing_nonblank_field_evidence",
                     "field": field,
                 })
-            elif value.strip().casefold() in placeholder_evidence:
+            elif value.strip().casefold() in PLACEHOLDER_EVIDENCE:
                 evidence_gaps.append({
                     "case_id": ident, "criterion": "placeholder_field_evidence",
                     "field": field,

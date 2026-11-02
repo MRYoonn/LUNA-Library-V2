@@ -1701,9 +1701,10 @@ public:
         const bool hasNavigation = !navigation_->isHidden();
         const bool hasDocuments = !documents_->isHidden();
         setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12);
+        // QDockWidget derives constraints from its content, not the dock itself.
+        setMaximumWidth(hasNavigation && hasDocuments ? 850 : 290);
+        updateGeometry();
         if (auto* dock = qobject_cast<QDockWidget*>(parentWidget())) {
-            // Do not retain the two-column allocation in one-column mode.
-            dock->setMaximumWidth(hasNavigation && hasDocuments ? 850 : 300);
             dock->setVisible(hasNavigation || hasDocuments);
             if (hasNavigation || hasDocuments)
                 if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget()))

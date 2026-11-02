@@ -766,3 +766,37 @@ completed **SUCCESS**: Python offline/privacy, Linux Qt6 identity/move and
 Windows Qt6 identity/move jobs all passed. These are synthetic regressions;
 no real ACS/Figshare endpoint, SI-file accessibility or production Windows
 GUI integration was tested.
+
+## Follow-up — NFKC-safe SI display labels (2026-11-02)
+
+- Reviewed current main `76e1fd7`, open Draft PR #13/#15/#16/#17,
+  Issue #9 and the prior exact-code isolated CI
+  [#41441474681](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41441474681)
+  (SUCCESS for the **previous** source/test revision).
+- Found a local-matching safety gap: `safe_si_filename` rejected ASCII
+  Windows path separators and device names, but accepted compatibility
+  Unicode forms such as `SI／appendix.pdf` or `ＣＯＮ.pdf`.
+  Unicode NFKC (already used by the candidate duplicate detector) turns
+  these into `SI/appendix.pdf` and `CON.pdf`. Later local matching or
+  normalization must not be offered unsafe filenames.
+- `tools/si_finder.py`: validate **both original and NFKC-normalized**
+  public metadata labels for forbidden characters, device names, trailing
+  dots/spaces, controls and length. Keep ordinary Unicode SI labels.
+  Invalid entries are excluded with `invalid_file_entries`; unrelated
+  candidates remain visible, metadata-only and unlinked.
+- `tests/test_si_finder.py`: two synthetic offline regressions exercise
+  Unicode slash/backslash/colon/question-mark/device-name/trailing-dot
+  spoofing and an end-to-end candidate filtering case.
+- Source commit `855b2dc9`, test commit `a3548174`. New exact-code
+  Python/privacy and Linux/Windows Qt6 CI is **not yet confirmed** at
+  handoff creation. Prior CI is not evidence for this revision.
+- No publisher request, SI download, local PDF move, DOI extraction, QSettings,
+  renderer, main or other PR was modified. Real ACS/Figshare API and landing
+  availability, SI-file access, Windows app move/restart and UI integration
+  remain unverified. Keep PR #17 Draft, no merge or Release.
+
+Next: confirm isolated CI for `a3548174`; fix any failures on this branch.
+Then run the opt-in public ACS DOI metadata + landing smoke test from a
+permitted network, without downloading SI files. Do not claim that an
+HTML landing verifies the individual SI binary. Coordinate app-level
+paired PDF/metadata-sidecar move and restart with Issue #9's owner.

@@ -1640,9 +1640,6 @@ public:
             refreshBibliography(DocumentClaim::identity(pdf));
         };
         localSync_->filesChanged = [this] {
-            // A background file-identity sweep must not erase/restart a user
-            // initiated incremental scan. In particular, the 1000-PDF fixture
-            // can trigger a watcher while its first batches are still loading.
             if (folderTimer_->isActive() || allTimer_->isActive()) return;
             refreshFileLists();
         };
@@ -1679,8 +1676,6 @@ public:
     void recordEditor(pdfviewer::PDFEditorMainWindow& editor) { rememberEditor(editor); }
     void selectActiveCard() {
         // Active-document color is independent of QListWidget selection.
-        // Never call setCurrentItem: it scrolls to the item and makes the
-        // paper list jump when opening tabs or changing the current PDF.
         QString active;
         if (viewer_ && viewer_->getProgramController() &&
             viewer_->getProgramController()->getDocument())
@@ -2646,6 +2641,8 @@ private:
         auto* controller = operation->getProgramController();
         const bool opened = controller->getDocument() &&
             DocumentClaim::identity(controller->getOriginalFileName()) == sourceIdentity;
+        operation->setProperty("LunaMoveSourceOpened", opened);
+        operation->setProperty("LunaMoveClaimAccepted", false);
         int page = 0;
         double zoom = 2.0;
         pdf::PageLayout layout = pdf::PageLayout::OneColumn;
@@ -2655,8 +2652,6 @@ private:
                 return;
             }
             if (!controller->askForSaveDocumentBeforeClose()) return;
-            // Save As may have changed the current document while prompting.
-            // Do not close or relocate a different document under the old name.
             if (DocumentClaim::identity(controller->getOriginalFileName()) != sourceIdentity) {
                 QMessageBox::information(this, QStringLiteral("이동 취소"),
                     QStringLiteral("저장한 문서의 경로가 변경되었습니다. 이동할 파일을 다시 선택해 주세요."));
@@ -2671,6 +2666,7 @@ private:
         }
         hideThumbnail();
         const auto result = movePdfWithThumbnails(source, destination);
+        operation->setProperty("LunaMoveFileSucceeded", result.success);
         if (result.success) {
             QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
             for (const QString& key : {QStringLiteral("library/favorites"), QStringLiteral("library/recent")}) {
@@ -2710,7 +2706,11 @@ private:
             if (pages_->currentIndex() == 1) scanAll();
             else if (pages_->currentIndex() == 2) showHistory(showingFavorites_);
         }
-        if (opened && result.success && movedHandler && !movedHandler(operation.data(), source, result.documentPath)) return;
+        if (opened && result.success && movedHandler) {
+            const bool accepted = movedHandler(operation.data(), source, result.documentPath);
+            operation->setProperty("LunaMoveClaimAccepted", accepted);
+            if (!accepted) return;
+        }
         if (opened) {
             operation->setProperty("LunaMoveRestorePending", true);
             operation->setProperty("LunaPreserveReopenView", true);

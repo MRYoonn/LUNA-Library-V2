@@ -9,6 +9,7 @@
 #include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QSettings>
+#include <QProcess>
 #include <QTemporaryDir>
 #include <cstdio>
 #include <cstdlib>
@@ -22,6 +23,47 @@ static void check(bool yes, const char* message) {
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
+    // A second OS process must reload the relocated record from an isolated
+    // INI file, not from the parent process's QSettings cache or aliases_.
+    const QStringList arguments = app.arguments();
+    if (arguments.size() > 1 && arguments.at(1) == QStringLiteral("--verify-fresh-process")) {
+        check(arguments.size() == 5, "fresh-process arguments");
+        const QString settingsRoot = arguments.at(2);
+        const QString movedPdf = arguments.at(3);
+        const QString dialogIdentity = arguments.at(4);
+        check(QDir(settingsRoot).exists(), "fresh-process isolated settings root");
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsRoot);
+        luna::Bibliography freshStore;
+        const QVariantMap moved = freshStore.record(movedPdf);
+        check(moved.value(QStringLiteral("title")).toString() ==
+              QStringLiteral("Manually Verified Move Title"),
+              "fresh process reads moved PDF bibliography");
+        check(moved.value(QStringLiteral("titleSource")).toString() ==
+              QStringLiteral("manual"), "fresh process retains manual provenance");
+        check(moved.value(QStringLiteral("metadata_status")).toString() ==
+              QStringLiteral("needs_review"), "fresh process retains review status");
+        const QFileInfo pdfInfo(movedPdf);
+        check(pdfInfo.isFile(), "fresh process sees moved PDF");
+        check(QFileInfo(QDir(pdfInfo.absolutePath()).filePath(
+              pdfInfo.completeBaseName() + QStringLiteral(".luna-thumb.png"))).isFile(),
+              "fresh process sees moved thumbnail");
+        const QVariantMap dialog = freshStore.record(dialogIdentity);
+        check(dialog.value(QStringLiteral("title")).toString() ==
+              QStringLiteral("Human Edited Dialog Title"),
+              "fresh process reads edited dialog title");
+        check(dialog.value(QStringLiteral("journal")).toString() ==
+              QStringLiteral("Background Verified Journal"),
+              "fresh process preserves background journal");
+        check(dialog.value(QStringLiteral("titleSource")).toString() ==
+              QStringLiteral("manual"), "fresh process retains dialog provenance");
+        const QVariantMap limited = freshStore.record(QStringLiteral("synthetic:failure:rate_limited"));
+        check(limited.value(QStringLiteral("metadata_last_error")).toString() ==
+              QStringLiteral("rate_limited"), "fresh process retains 429 diagnostic");
+        check(limited.value(QStringLiteral("metadata_status")).toString() ==
+              QStringLiteral("partial"), "fresh process does not claim 429 complete");
+        return 0;
+    }
     QTemporaryDir root;
     check(root.isValid(), "isolated synthetic settings");
     QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -311,6 +353,18 @@ int main(int argc, char** argv) {
           == QStringLiteral("Human Edited Dialog Title"), "dialog edit survives new store");
     check(durableDialog.value(QStringLiteral("journal")).toString()
           == QStringLiteral("Background Verified Journal"), "background field survives new store");
+
+    // Unlike creating a second Bibliography object, this exits and re-enters
+    // the actual application binary in a separate process. Never pass user
+    // paths, user settings or real PDFs to this synthetic-only child.
+    QProcess freshProcess;
+    freshProcess.start(QCoreApplication::applicationFilePath(),
+                       {QStringLiteral("--verify-fresh-process"), root.path(),
+                        movedFiles.documentPath, staleIdentity});
+    check(freshProcess.waitForStarted(10000), "start isolated fresh process");
+    check(freshProcess.waitForFinished(15000), "fresh process finished");
+    check(freshProcess.exitStatus() == QProcess::NormalExit &&
+          freshProcess.exitCode() == 0, "fresh process restart regression");
 
     std::fprintf(stderr, "LUNA_ACCURACY_SNAPSHOT_PASS: 4 synthetic cases\n");
     return 0;

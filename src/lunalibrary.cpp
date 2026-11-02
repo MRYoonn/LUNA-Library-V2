@@ -1123,7 +1123,7 @@ public:
         layout->setContentsMargins(7, 7, 0, 7);
         split_ = new QSplitter(Qt::Horizontal, this);
         split_->setObjectName(QStringLiteral("LunaLibrarySplitter"));
-        split_->setChildrenCollapsible(false);
+        split_->setChildrenCollapsible(true);
         split_->setHandleWidth(5);
         layout->addWidget(split_);
 
@@ -1637,6 +1637,9 @@ public:
             favorites_=QSet<QString>(favorites.cbegin(),favorites.cend());
             ThumbnailCache::instance()->invalidate();
         };
+        localSync_->metadataChanged = [this](const QString& pdf) {
+            refreshBibliography(DocumentClaim::identity(pdf));
+        };
         localSync_->filesChanged = [this] {
             // A background file-identity sweep must not erase/restart a user
             // initiated incremental scan. In particular, the 1000-PDF fixture
@@ -1705,7 +1708,7 @@ public:
             if (hasNavigation || hasDocuments)
                 if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget()))
                     main->resizeDocks({dock},
-                        {hasNavigation && hasDocuments ? 562 : (hasNavigation ? 270 : 350)},
+                        {hasNavigation && hasDocuments ? 562 : (hasNavigation ? 270 : 240)},
                         Qt::Horizontal);
         }
     }
@@ -1734,7 +1737,7 @@ private:
                     matching.append(item);
             }
             for (auto* item : matching) decorate(item, item->data(Qt::UserRole).toString());
-            filter(list, query_->text());
+            if (!query_->text().isEmpty()) filter(list, query_->text());
         }
     }
     // Explicit user action, no modal dialog and no forced auto-save of
@@ -3393,7 +3396,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     if (sessionShell) {
         auto* frame = new QWidget(&window); frame->setObjectName(QStringLiteral("LunaPdfFrame"));
         auto* layout = new QVBoxLayout(frame);
-        layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(0);
+        layout->setContentsMargins(0, 7, 0, 0); layout->setSpacing(0);
         window.setCentralWidget(frame);
     }
     QObject::connect(&window, &QWidget::windowTitleChanged, &window,

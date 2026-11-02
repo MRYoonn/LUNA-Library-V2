@@ -17,6 +17,13 @@ class TitleExtractorContracts(unittest.TestCase):
         cls.model = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
         cls.native = (ROOT / "tests/native_metadata/main.cpp").read_text(encoding="utf-8")
 
+    def test_windows_overlay_includes_new_title_header(self):
+        overlay = (ROOT / "tools/apply_overlay.py").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")
+        self.assertIn('folder / "lunatitleextractor.h": (own / "lunatitleextractor.h").read_bytes()', overlay)
+        self.assertIn("python tools/apply_overlay.py pdf4qt", workflow)
+        self.assertIn("cmake -S tests/native_metadata", workflow)
+
     def test_offline_title_extractor_uses_actual_pdf_character_sizes(self):
         self.assertIn('#include "lunatitleextractor.h"', self.first)
         self.assertIn('current.fontSize', self.first)

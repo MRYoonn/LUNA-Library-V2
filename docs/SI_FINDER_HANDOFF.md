@@ -414,3 +414,25 @@ original DOI fallback; the default offline behavior is unchanged.
 - The independent Python finder is not connected to the production LUNA
   cards. Issue #9's paired `.luna-meta.json` move/rollback and a real
   Windows application restart test remain integration blockers.
+
+
+## Follow-up: POSIX library-root case boundary (2026-11-02)
+
+- Reviewed the latest main and Draft #13/#15/#16 and Issue #9. PR #16 now
+  contains a `.luna-meta.json` paired-move clause, but this does **not**
+  establish end-to-end move/rollback/restart acceptance. Do not modify the
+  owning file-move implementation in this isolated module.
+- The standalone `SiIdentity::guardedPdf` previously used
+  `Qt::CaseInsensitive` on **all** operating systems. On a case-sensitive
+  Linux filesystem, `CaseRoot/` and `caseroot/` can be distinct siblings:
+  a PDF in the latter could pass the former's library-root check. The guard
+  now uses platform-appropriate case comparison (Windows insensitive;
+  POSIX sensitive), failing closed before sidecar creation.
+- The QtCore fixture now checks that both read and explicit enrollment reject
+  the case-distinct sibling without creating any sidecar. Added an isolated
+  Ubuntu Qt6 CI job so the POSIX branch is actually compiled and exercised;
+  the existing Windows QtCore job remains unchanged.
+- **Evidence pending:** exact-commit GitHub Actions Linux/Windows results.
+  No actual user PDF, real Windows LUNA integration, or ACS/Figshare live
+  metadata/landing was tested by this patch. Keep links unconfirmed, PR #17
+  Draft, and no merge/release.

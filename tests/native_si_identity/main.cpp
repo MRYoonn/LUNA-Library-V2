@@ -120,6 +120,28 @@ int main(int argc, char** argv) {
     check(luna::SiIdentity::ensure(root, QDir(root).filePath(QStringLiteral("Moved")))
               .error == QStringLiteral("unsafe_pdf_path"), "directory not PDF");
 
+#ifdef Q_OS_LINUX
+    // On case-sensitive filesystems CaseRoot and caseroot are distinct.
+    // Case-insensitive prefix matching must not enroll a sibling's PDF.
+    check(QDir(root).mkpath(QStringLiteral("CaseRoot")) &&
+              QDir(root).mkpath(QStringLiteral("caseroot")),
+          "case-distinct sibling directories");
+    const QString upper = QDir(root).filePath(QStringLiteral("CaseRoot"));
+    const QString lower = QDir(root).filePath(QStringLiteral("caseroot"));
+    if (QFileInfo(upper).canonicalFilePath() != QFileInfo(lower).canonicalFilePath()) {
+        const QString siblingPdf = QDir(lower).filePath(QStringLiteral("Sibling.pdf"));
+        check(put(siblingPdf, original), "case-distinct sibling PDF");
+        check(luna::SiIdentity::read(upper, siblingPdf).error ==
+                  QStringLiteral("unsafe_pdf_path"),
+              "read rejects case-distinct sibling outside library root");
+        check(luna::SiIdentity::ensure(upper, siblingPdf).error ==
+                  QStringLiteral("unsafe_pdf_path"),
+              "ensure rejects case-distinct sibling outside library root");
+        check(!QFileInfo::exists(luna::SiIdentity::sidecarPath(siblingPdf)),
+              "rejected sibling receives no sidecar");
+    }
+#endif
+
     // Reuse PR #16's DOI normalizer; SI identity must not implement another.
     check(luna::Metadata::normalizeDoi(QStringLiteral("https://doi.org/10.1021/JACS.4C05881.")) ==
               QStringLiteral("10.1021/jacs.4c05881"), "shared DOI normalizer");

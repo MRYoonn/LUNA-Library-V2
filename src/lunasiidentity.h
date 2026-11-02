@@ -42,8 +42,16 @@ inline QString guardedPdf(const QString& root, const QString& pdfPath) {
     const QString canonical = QDir::fromNativeSeparators(pdf.canonicalFilePath());
     const QString prefix = rootPath.endsWith(QLatin1Char('/')) ?
         rootPath : rootPath + QLatin1Char('/');
+    // Windows path identity is case-insensitive, but POSIX may contain two
+    // distinct sibling directories differing only by case. Never enroll a
+    // PDF outside the chosen root on a case-sensitive filesystem.
+#ifdef Q_OS_WIN
+    constexpr Qt::CaseSensitivity pathCase = Qt::CaseInsensitive;
+#else
+    constexpr Qt::CaseSensitivity pathCase = Qt::CaseSensitive;
+#endif
     if (rootPath.isEmpty() || canonical.isEmpty() ||
-        !canonical.startsWith(prefix, Qt::CaseInsensitive))
+        !canonical.startsWith(prefix, pathCase))
         return {};
     return canonical;
 }

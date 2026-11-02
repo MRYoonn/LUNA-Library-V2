@@ -17,7 +17,7 @@
     {"id": "http-429", "before": {"doi": "10.1000/synthetic-acs-main", "journal": "User Journal"}, "after": {"doi": "10.1000/synthetic-acs-main", "journal": "User Journal"}, "must_preserve": ["doi", "journal"], "expected_status": "rate_limited", "actual_status": "rate_limited"},
     {"id": "http-404", "before": {"title": "User Title"}, "after": {"title": "User Title"}, "must_preserve": ["title"], "expected_status": "not_found", "actual_status": "not_found"},
     {"id": "ambiguous-doi", "before": {}, "after": {"doi": null}, "must_remain_empty": ["doi"], "expected_status": "needs_review", "actual_status": "needs_review"},
-    {"id": "invalid-doi", "before": {}, "after": {}, "must_remain_empty": ["doi"], "expected_status": "needs_review", "actual_status": "needs_review"},
+    {"id": "invalid-doi", "before": {}, "after": {"doi": null}, "must_remain_empty": ["doi"], "expected_status": "needs_review", "actual_status": "needs_review"},
     {"id": "manual-overwrite", "before": {"authors": "Human Correct Author", "authorsSource": "manual"}, "after": {"authors": "Human Correct Author", "authorsSource": "manual"}, "must_preserve": ["authors", "authorsSource"]},
     {"id": "restart", "before": {"citation": "User Citation", "titleSource": "manual"}, "after": {"citation": "User Citation", "titleSource": "manual"}, "must_preserve": ["citation", "titleSource"]},
     {"id": "file-move", "before": {"doi": "10.1000/synthetic-rsc-main", "memo": "Synthetic note"}, "after": {"doi": "10.1000/synthetic-rsc-main", "memo": "Synthetic note"}, "must_preserve": ["doi", "memo"]},

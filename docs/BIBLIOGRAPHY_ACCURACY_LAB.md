@@ -422,3 +422,38 @@ This is a **contract correction only**. No user QSettings, real PDFs, network
 change. Verify exact-HEAD isolated Python and Windows QtCore CI before
 claiming PASS. Then collect permissioned/public publisher goldset PDFs and
 read-only native snapshots; keep all private artifacts local.
+
+## Follow-up — negative-label capture completeness (2026-11-02)
+
+The previous scorer treated an omitted native `observed` key as equivalent to
+an explicitly captured `null` when the gold label was negative. That
+incorrectly incremented true negatives (e.g. SI DOI absent, ACS article number
+absent) and could produce a false PASS without proof the native field had
+been read.
+
+The **independent** read-only Qt snapshot adapter now emits an explicit JSON
+`null` for each absent whitelisted field, including `terminal_author` and
+`document_kind`. Nonempty unknown document classifications are preserved for
+the existing `invalid_document_kind` scorer rather than silently dropped.
+The scorer reports `missing_snapshot_field` and increments the separate
+`missing_snapshot` count when a gold-negative field is omitted; it does not
+credit a true negative or invent an FP/FN. An omitted known-positive value
+continues to count as FN. The synthetic fixture and Qt/Python regressions
+exercise the new contract; these are **not** real extraction measurements.
+
+Validation commands (synthetic, isolated only):
+
+```sh
+python -B -m unittest discover -s tests -p 'test_bibliography_accuracy_lab.py' -v
+python -B -m unittest discover -s tests -p 'test_accuracy_snapshot_source_contract.py' -v
+cmake -S tests/native_accuracy -B build/native_accuracy
+cmake --build build/native_accuracy --config Release
+ctest --test-dir build/native_accuracy -C Release --output-on-failure
+```
+
+No Windows Qt build, full application GUI, publisher PDF accuracy, live HTTP
+429/404, actual file relocation, or user QSettings can be inferred from
+source edits or synthetic test fixtures. Inspect exact-HEAD isolated CI before
+marking PASS. Then collect 20+ authorized ACS/RSC/Wiley/Nature/Elsevier PDF
+gold labels with independent evidence and read-only snapshots from an exact
+PR #16 build; keep private data outside GitHub. Keep PR Draft.

@@ -11,6 +11,30 @@ SYNC = (ROOT / "src/lunalocalsync.h").read_text(encoding="utf-8")
 
 
 class NativeFileManagementContracts(unittest.TestCase):
+    def test_paired_move_records_open_session_file_and_claim_separately(self):
+        # Windows #228 moved past 10 real panel cycles, then the PDF A path
+        # did not rebind. Keep a diagnostic for *which* leg failed.
+        tabs = (ROOT / "src/lunatabs.cpp").read_text(encoding="utf-8")
+        for token in (
+            'operation->setProperty("LunaMoveSourceOpened", opened)',
+            'operation->setProperty("LunaMoveFileSucceeded", result.success)',
+            'operation->setProperty("LunaMoveClaimAccepted", accepted)',
+        ):
+            self.assertIn(token, UI)
+        for token in (
+            'result["pairedMoveDiagnostics"] = QJsonObject',
+            '{"menuChosen", menuChosen}',
+            '{"movedPdfExists", QFileInfo::exists(movedPdf)}',
+            '{"editorHasDocument", bool(a->getProgramController()->getDocument())}',
+            '{"sourceOpenAtMove", a->property("LunaMoveSourceOpened").toBool()}',
+            '{"claimAccepted", a->property("LunaMoveClaimAccepted").toBool()}',
+            '{"controllerPathIdentity", DocumentClaim::identity(a->getProgramController()->getOriginalFileName())}',
+            'integrationRequire(moveReopened, "PDF move did not reopen the same A tab")',
+        ):
+            self.assertIn(token, tabs, token)
+        self.assertIn('return QFileInfo::exists(movedPdf) && ready(a)', tabs)
+
+
     def test_real_pdf_and_sidecar_copy_with_no_overwrite(self):
         for token in (
             "FileCopyResult copyPdfWithThumbnails(",

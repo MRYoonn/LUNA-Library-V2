@@ -74,8 +74,18 @@ inline QJsonObject captureCase(const QString& opaqueId, const QVariantMap& visib
     if (!fieldSources.isEmpty()) audit.insert(QStringLiteral("field_sources"), fieldSources);
     audit.insert(QStringLiteral("manual_citation_active"),
                  !visibleRecord.value(QStringLiteral("citation")).toString().trimmed().isEmpty());
+    // labCitation() also accepts a selected senior_author_index. That
+    // changes the displayed author even with no text override, so it must
+    // not be counted as automatic terminal-author extraction accuracy.
+    const QStringList structuredAuthors =
+        visibleRecord.value(QStringLiteral("authors_structured")).toStringList();
+    const int seniorIndex =
+        visibleRecord.value(QStringLiteral("senior_author_index"), -1).toInt();
+    const bool selectedSeniorAuthor =
+        seniorIndex >= 0 && seniorIndex < structuredAuthors.size();
     audit.insert(QStringLiteral("senior_author_override_active"),
-                 !visibleRecord.value(QStringLiteral("senior_author_override")).toString().trimmed().isEmpty());
+                 !visibleRecord.value(QStringLiteral("senior_author_override")).toString().trimmed().isEmpty()
+                     || selectedSeniorAuthor);
     // A citation override may make the CARD differ from record fields. The
     // scorer must label these as record snapshots, not screenshot assertions.
     return {{QStringLiteral("id"), opaqueId},

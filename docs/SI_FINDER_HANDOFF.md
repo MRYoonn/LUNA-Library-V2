@@ -807,3 +807,31 @@ completed **SUCCESS** on `a3548174fa2fe48f468222ef165004de9da905ca`:
 Linux Qt6 identity/move PASS, Windows Qt6 identity/move PASS.
 This validates the NFKC source and tests, not real ACS/Figshare availability,
 individual SI-file downloads, or production Windows GUI integration.
+
+## Follow-up: NFKC-safe local association paths (2026-11-02)
+
+The independent `tools/si_associations.py` reference now validates both
+original and Unicode NFKC-normalized relative paths. Compatibility separators,
+reserved Windows device names, and dot segments fail closed; normalized
+case-insensitive path identity is used for add/relocate/import collision checks.
+This closes a mismatch with the existing `si_finder.safe_si_filename` guard.
+No filenames are rewritten, no PDFs or QSettings are touched, and no automatic
+Main/SI link is created.
+
+Synthetic regression coverage in `tests/test_si_associations.py` includes
+unsafe compatibility separators/devices, two UUIDs with visually aliased
+paths, forged persisted JSON, and valid Korean/Greek names. These are local
+association-model tests, **not** a claim of real Windows GUI acceptance.
+
+**Updated dependency check:** the current independent PR #16 branch's
+`src/lunafilemove.h` now includes `.luna-meta.json` in the paired move and
+rollback sequence. Earlier handoff sections stating it is unconditionally
+omitted are historical and no longer describe that branch's latest source.
+PR #17 is stacked on an earlier PR #16 base, and this source inspection is
+not proof that the installed Windows LUNA application contains the fix.
+Do not enable SI-linked physical moves until the exact integrated revision,
+Windows native paired-move tests, and user-PC restart are verified.
+
+Verification gate: `python -B -m unittest discover -s tests -p 'test_si_*.py' -v`,
+`python -B tools/preflight_public.py`, and exact-commit Linux/Windows Qt CI.
+Live ACS/Figshare link and SI-file access remain unverified. Keep PR #17 Draft.

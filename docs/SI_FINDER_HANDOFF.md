@@ -612,3 +612,40 @@ probe on a network where official public endpoints respond; log HTTP status
 and article ID without downloading files. Separately verify actual Windows
 Explorer move/rename/restart and the PR #17 branch integration conflict.
 Keep Draft; no main/renderer/other PR edits, merge or Release.
+
+## Follow-up — hidden Figshare file-ID ownership conflict (2026-11-02)
+
+- Reviewed latest main `76e1fd7`, Draft PR #13/#15/#16 and Issue #9. PR #16
+  is at `03ebb8ba`; compared with pinned `a001ba96`, the existing
+  `src/lunafilemove.h` is unchanged. No production code was modified.
+- Fixed a false ownership inference in `tools/si_finder.py`: the previous
+  cross-article ID guard collected owners only from display candidates **after**
+  rejecting unsafe filenames and suppressing same-article duplicate names.
+  An ID belonging to a hidden/rejected entry could therefore appear unique
+  in another article and remain visible as an apparently unambiguous SI.
+- Numeric file-ID ownership is now recorded from each bounded public detail
+  entry **before** filename filtering or local deduplication. Every candidate
+  carrying an ID claimed by more than one article is suppressed. Unrelated
+  SI metadata remains visible; status stays `partial` or `needs_review`.
+  Invalid IDs still do not count as ownership evidence. No file download,
+  automatic local association, or link-reachability promotion is introduced.
+- Two synthetic offline regressions cover an ID hidden behind duplicate
+  same-article filenames and an ID hidden behind an unsafe filename. The
+  previous code would expose the other article's reused ID in both cases.
+- Code commit `c5c3a88e`; tests `075676e3`. Exact new-code CI
+  [#41414871935](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41414871935)
+  **in progress at handoff**; do not mark PASS until Python/privacy and both
+  native Qt6 jobs complete. Earlier exact-code
+  [#41404544291](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41404544291)
+  succeeded on the previous revision only.
+- Remaining: actual ACS/Figshare API and HTML landing reachability (prior
+  public probe encountered unavailable API/HTTP 403); individual SI file
+  accessibility is never inferred from an HTML landing; real Windows app
+  move/rename/restart, PR #17 branch divergence, and production UI integration
+  remain unverified.
+
+Next: inspect exact-head CI and repair any failure; use an explicitly
+opted-in public DOI metadata/landing probe on a permitted network, without
+downloading SI files. Then coordinate a disposable-file Windows
+move/rename/restart acceptance with the Issue #9 owner. Keep Draft, do not
+merge or release.

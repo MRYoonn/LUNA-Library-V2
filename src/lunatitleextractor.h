@@ -26,10 +26,10 @@ inline bool isExcluded(QString text) {
         return true;
     static const QRegularExpression bad(QString::fromUtf8(
         R"(^(?:(?:research|review|original|full|open access)\s+(?:article|paper)|(?:article|abstract|introduction|keywords?|contents|references|communication|letters?|perspectives?|editorial|supplementary|supporting|revised supporting|table of contents|graphical abstract|copyright|©|published|received|accepted|correspondence|author contributions|funding|acknowledg(?:e)?ments|view article online|cite this|journal homepage|volume|issue|article in press)\b|(?:www\.|doi:|10\.\d{4,9}/)|(?:journal of the american chemical society|chemical science|nature communications|organic letters|angewandte chemie|acs catalysis)$))"),
-        QRegularExpression::CaseInsensitiveOption));
+        QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression affiliation(QString::fromUtf8(
         R"(\b(?:department of|university|institution|institute of|faculty of|school of|laboratory of|research center)\b)"),
-        QRegularExpression::CaseInsensitiveOption));
+        QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression authorList(QString::fromUtf8(
         R"((?:,\s*[\p{Lu}][\p{Ll}\p{M}.'’-]+\s+[\p{Lu}][\p{Ll}\p{M}.'’-]+.*(?:\band\b|&)|\b[\p{Lu}][\p{Ll}\p{M}.'’-]+\s+[\p{Lu}][\p{Ll}\p{M}.'’-]+\s*,\s*[\p{Lu}]))"));
     return bad.match(text).hasMatch() || affiliation.match(text).hasMatch() ||

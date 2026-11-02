@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 #include "snapshot_adapter.h"
 #include "../../src/lunabibliography.h"
+#include "../../src/lunafilemove.h"
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QJsonDocument>
@@ -181,6 +185,74 @@ int main(int argc, char** argv) {
           == QStringLiteral("Human Reviewed Chemistry Title"), "collision leaves source intact");
     check(reopened.record(occupied).value(QStringLiteral("title")).toString()
           == QStringLiteral("Initial Synthetic Title"), "collision leaves destination intact");
+
+    // Exercise the production physical PDF+sidecar move helper against disposable
+    // on-disk files, then relocate the bibliography and reopen its Qt store.
+    // The PDF bytes are fabricated, never parsed, and never leave QTemporaryDir.
+    const QDir temporary(root.path());
+    check(temporary.mkpath(QStringLiteral("physical-source")) &&
+          temporary.mkpath(QStringLiteral("physical-target")),
+          "create isolated physical move folders");
+    const QString physicalSource = temporary.filePath(QStringLiteral("physical-source"));
+    const QString physicalTarget = temporary.filePath(QStringLiteral("physical-target"));
+    const QString pdfName = QStringLiteral("synthetic-paper.pdf");
+    const QString thumbName = QStringLiteral("synthetic-paper.luna-thumb.png");
+    const QString metaName = QStringLiteral("synthetic-paper.luna-meta.json");
+    const QString physicalPdf = QDir(physicalSource).filePath(pdfName);
+    const QString physicalThumb = QDir(physicalSource).filePath(thumbName);
+    const QString physicalMeta = QDir(physicalSource).filePath(metaName);
+    const QString targetPdf = QDir(physicalTarget).filePath(pdfName);
+    const QString targetThumb = QDir(physicalTarget).filePath(thumbName);
+    const QString targetMeta = QDir(physicalTarget).filePath(metaName);
+    const QByteArray pdfBytes("%PDF-1.4\\n% fabricated fixture, not a publisher PDF\\n");
+    const QByteArray thumbBytes("fabricated-thumbnail-bytes");
+    const QByteArray metaBytes("{\\"synthetic\\":true}");
+    const auto writeFixture = [](const QString& path, const QByteArray& bytes) {
+        QFile file(path);
+        return file.open(QIODevice::WriteOnly | QIODevice::NewOnly) &&
+               file.write(bytes) == bytes.size();
+    };
+    const auto readFixture = [](const QString& path) {
+        QFile file(path);
+        return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+    };
+    check(writeFixture(physicalPdf, pdfBytes) &&
+          writeFixture(physicalThumb, thumbBytes) &&
+          writeFixture(physicalMeta, metaBytes), "seed disposable PDF and sidecars");
+    QVariantMap physicalRecord{{QStringLiteral("title"), QStringLiteral("Manually Verified Move Title")},
+                               {QStringLiteral("titleSource"), QStringLiteral("manual")},
+                               {QStringLiteral("doi"), QStringLiteral("10.1000/physical-move")},
+                               {QStringLiteral("metadata_status"), QStringLiteral("needs_review")}};
+    check(store.save(physicalPdf, physicalRecord, false), "seed physical move bibliography");
+    const QByteArray occupiedBytes("unrelated-existing-metadata");
+    check(writeFixture(targetMeta, occupiedBytes), "seed destination sidecar collision");
+    const auto rejectedMove = luna::movePdfWithThumbnails(physicalPdf, physicalTarget);
+    check(!rejectedMove.success, "physical move rejects occupied metadata destination");
+    check(readFixture(targetMeta) == occupiedBytes &&
+          readFixture(physicalPdf) == pdfBytes &&
+          readFixture(physicalThumb) == thumbBytes &&
+          readFixture(physicalMeta) == metaBytes &&
+          !QFileInfo::exists(targetPdf), "collision preserves all original files");
+    check(QFile::remove(targetMeta), "clear disposable collision fixture");
+    const auto movedFiles = luna::movePdfWithThumbnails(physicalPdf, physicalTarget);
+    check(movedFiles.success && movedFiles.documentPath == targetPdf,
+          "production helper moves physical PDF and sidecars");
+    check(!QFileInfo::exists(physicalPdf) &&
+          !QFileInfo::exists(physicalThumb) &&
+          !QFileInfo::exists(physicalMeta), "no source files remain after physical move");
+    check(readFixture(targetPdf) == pdfBytes &&
+          readFixture(targetThumb) == thumbBytes &&
+          readFixture(targetMeta) == metaBytes, "moved PDF and sidecar bytes preserved");
+    check(store.relocate(physicalPdf, movedFiles.documentPath),
+          "relocate bibliography only after successful physical move");
+    luna::Bibliography afterPhysicalMove;
+    const QVariantMap physicalRestored = afterPhysicalMove.record(targetPdf);
+    check(physicalRestored.value(QStringLiteral("title")).toString() ==
+          QStringLiteral("Manually Verified Move Title"), "physical move title survives new store");
+    check(physicalRestored.value(QStringLiteral("titleSource")).toString() ==
+          QStringLiteral("manual"), "physical move preserves manual title provenance");
+    check(physicalRestored.value(QStringLiteral("metadata_status")).toString() ==
+          QStringLiteral("needs_review"), "physical move preserves review status");
 
     // A stale edit dialog must not erase a newer background metadata refresh.
     // Exercise the real saveEdits three-way merge with disposable QSettings.

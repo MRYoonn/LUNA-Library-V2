@@ -71,6 +71,22 @@ class SnapshotSourceContract(unittest.TestCase):
         self.assertIn("QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsRoot)", native)
         self.assertIn("QTemporaryDir root", native)
 
+    def test_legacy_author_matrix_covers_both_flags_and_fresh_process(self):
+        native = NATIVE.read_text(encoding="utf-8")
+        # These checks only prove that the native regression is present;
+        # the Windows QtCore CTest must actually execute its assertions.
+        self.assertIn("variant < 4", native)
+        self.assertIn("variant % 2", native)
+        self.assertIn('QStringLiteral("source"), QStringLiteral("Manual")', native)
+        self.assertIn('QStringLiteral("authorEvidence")', native)
+        self.assertIn("verified first-page terminal author survives legacy migration", native)
+        self.assertIn("legacy false manual flag still suppresses unverified author", native)
+        self.assertIn("fresh process legacy author migration matrix", native)
+        self.assertIn("deliberately empty manual author rejects automatic overwrite", native)
+        self.assertIn("one-word human author remains visible", native)
+        self.assertIn("fresh process preserves deliberate empty manual author", native)
+        self.assertIn("fresh process preserves one-word manual author", native)
+
     def test_native_regressions_seed_isolated_settings(self):
         code = NATIVE.read_text(encoding="utf-8")
         for expected in ('QTemporaryDir', 'Hao Fang', 'legacy author must not reappear',

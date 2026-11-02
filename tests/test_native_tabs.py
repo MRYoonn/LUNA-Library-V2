@@ -255,6 +255,23 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('checked("actionCreateTextHighlight")', adapter)
         self.assertIn('checked("actionStickyNoteComment")', adapter)
 
+    def test_page_entry_smoke_uses_real_qt_input_and_verifies_navigation(self):
+        smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
+        # Run #222: setValue + forced editingFinished can race with native
+        # page-change state. Do not weaken the actual page/scroll assertion.
+        for token in (
+            'pageNumber->setFocus(Qt::OtherFocusReason)',
+            'pageEditor->setText(QStringLiteral("2"))',
+            'key(pageNumber, Qt::Key_Return, Qt::NoModifier)',
+            '&QSpinBox::editingFinished',
+            'pageEntryCommits > 0',
+            'pages.front() == 1',
+            'vertical->value() > beforePageEntryScroll',
+            'Native page entry did not go to page two: commits=%1',
+        ):
+            self.assertIn(token, smoke, token)
+        self.assertNotIn('pageNumber->setValue(2); QMetaObject::invokeMethod(pageNumber,"editingFinished"', smoke)
+
     def test_saved_annotation_reopen_checks_real_pdf_and_not_ui_action_state(self):
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
         for token in (

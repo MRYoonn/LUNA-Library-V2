@@ -58,11 +58,18 @@ def _request(method: str, url: str) -> str:
 
 
 def official_landing_status(url: str) -> str:
-    """Probe only a strictly allowlisted HTTPS /articles/ landing URL."""
+    """Require a real bounded HTML GET; HEAD alone never verifies a landing.
+
+    A server can allow HEAD while rejecting GET, so only a successful HTML
+    GET (without reading the response body) proves the public landing opens.
+    HEAD 405/501 is an ordinary fallback; other HEAD failures are final.
+    """
     if safe_figshare_landing(url) != url:
         return "unsafe_url"
     first = _request("HEAD", url)
-    return _request("GET", url) if first == "head_unsupported" else first
+    if first not in ("reachable_html", "head_unsupported"):
+        return first
+    return _request("GET", url)
 
 
 def verify_landing_candidates(

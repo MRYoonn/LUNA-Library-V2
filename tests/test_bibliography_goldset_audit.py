@@ -115,6 +115,39 @@ class GoldsetCollectionAuditTests(unittest.TestCase):
             "case_id": case["id"], "criterion": "placeholder_pdf_sha256",
         }])
 
+
+    def test_placeholder_evidence_is_not_independent_review(self):
+        gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        for placeholder in ("TBD", " n/A ", "Unverified"):
+            with self.subTest(placeholder=placeholder):
+                case = copy.deepcopy(gold["cases"][0])
+                case["source"] = {"kind": "public", "sha256": "e" * 64}
+                case["evidence"] = {field: "fabricated review label"
+                                    for field in case["expected"]}
+                case["evidence"]["doi"] = placeholder
+                gold["cases"] = [case]
+                process, report = run_audit(gold)
+                self.assertEqual(process.returncode, 1, process.stderr)
+                self.assertFalse(report["evidence_audit"]["ready"])
+                self.assertIn({
+                    "case_id": case["id"], "criterion": "placeholder_field_evidence",
+                    "field": "doi",
+                }, report["evidence_audit"]["gaps"])
+
+    def test_report_cannot_overwrite_input_goldset(self):
+        with tempfile.TemporaryDirectory() as folder:
+            gold = FIXTURE.read_text(encoding="utf-8")
+            input_path = Path(folder) / "goldset.json"
+            input_path.write_text(gold, encoding="utf-8")
+            process = subprocess.run(
+                [sys.executable, "-B", str(TOOL), "--goldset", str(input_path),
+                 "--report", str(input_path)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(process.returncode, 2, process.stderr)
+            self.assertIn("overwrite input goldset", process.stderr)
+            self.assertEqual(input_path.read_text(encoding="utf-8"), gold)
+
     def test_invalid_json_is_not_a_ready_report(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "invalid.json"

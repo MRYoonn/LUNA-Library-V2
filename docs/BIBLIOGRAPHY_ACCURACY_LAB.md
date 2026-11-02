@@ -311,3 +311,20 @@ The source and synthetic tests were added independently of the existing DOI
 engine, PDF renderer, and application settings. The exact branch's Python and
 Windows CI must be checked before claiming this follow-up passes. Real ACS,
 RSC, Wiley, Nature and Elsevier accuracy remains unmeasured.
+
+## Follow-up: collection evidence readiness gate (2026-11-02)
+
+The read-only `tools/bibliography_goldset_audit.py` inventory now includes
+`evidence_audit.ready` and case/field-specific `evidence_audit.gaps`.
+It refuses to declare collection readiness when a purported public/permissioned
+PDF uses an all-zero SHA256, when a **positive** field has whitespace-only
+support, or when an explicit `null` (verified absence, notably SI DOI) has
+no nonblank independent evidence. Omitted/unknown labels do not need evidence.
+The existing breadth and per-publisher field gates remain unchanged.
+
+Three synthetic-only subprocess tests cover these failure modes. A structurally
+passing evidence audit does **not** authenticate hashes, PDFs, source URLs,
+Windows execution, or reviewer judgments. The real publisher goldset and
+actual Qt/Windows/QSettings/429/404/move/restart validations remain outstanding.
+Run `python -B -m unittest discover -s tests -p 'test_bibliography_goldset_audit.py' -v`
+and check the exact branch commit's independent CI before reporting PASS.

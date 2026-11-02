@@ -83,8 +83,9 @@ def main(argv: list[str] | None = None) -> int:
         accepted = (report["verification_scope"] == "landing_html_only"
                     and bool(doi) and doi.startswith("10.1021/")
                     and result.get("doi") == doi
-                    and result["status"] == "verified" and bool(candidates)
-                    and all(c.get("status") == "landing_verified"
+                    and result["status"] == "verified"
+                    and isinstance(candidates, list) and bool(candidates)
+                    and all(isinstance(c, dict) and c.get("status") == "landing_verified"
                             and _verified_identity(c, doi) for c in candidates)
                     and (args.expected_article_id is None or
                          any(c["article_id"] == args.expected_article_id for c in candidates)))

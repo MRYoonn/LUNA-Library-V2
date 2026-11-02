@@ -21,6 +21,10 @@ except ImportError:  # standalone execution with tools/ on sys.path
 MAX_DOCUMENTS = 20000
 MAX_LINKS = 20000
 SCHEMA_VERSION = 1
+# Keep the local index compatible with Qt's opt-in UUIDv4 sidecar identity.
+_RESERVED_DEVICES = {"CON", "PRN", "AUX", "NUL"} | {
+    f"{prefix}{digit}" for prefix in ("COM", "LPT") for digit in "123456789¹²³"
+}
 _DRIVE = re.compile(r"^[a-zA-Z]:")
 
 
@@ -31,7 +35,7 @@ def document_id(raw: str) -> str:
         value = UUID(raw)
     except (ValueError, AttributeError) as exc:
         raise ValueError("invalid_document_id") from exc
-    if str(value) != raw.lower() or value.version is None:
+    if str(value) != raw.lower() or value.version != 4:
         raise ValueError("invalid_document_id")
     return str(value)
 
@@ -40,14 +44,13 @@ def relative_pdf_path(raw: str) -> str:
     """Canonical slash-relative PDF path; no traversal or Windows aliases."""
     if not isinstance(raw, str) or not raw or len(raw) > 1024 or "\\" in raw:
         raise ValueError("invalid_relative_path")
-    if any(ord(ch) < 32 for ch in raw) or raw.startswith("/") or _DRIVE.match(raw):
+    if any(not ch.isprintable() for ch in raw) or raw.startswith("/") or _DRIVE.match(raw):
         raise ValueError("invalid_relative_path")
     parts = raw.split("/")
     if any(p in ("", ".", "..") or p.endswith((" ", ".")) or ":" in p
            for p in parts):
         raise ValueError("invalid_relative_path")
-    if any(p.split(".")[0].upper() in {"CON", "PRN", "AUX", "NUL", *[f"COM{i}" for i in range(1, 10)], *[f"LPT{i}" for i in range(1, 10)]}
-           for p in parts):
+    if any(p.split(".", 1)[0].upper() in _RESERVED_DEVICES for p in parts):
         raise ValueError("invalid_relative_path")
     path = str(PurePosixPath(raw))
     if not path.lower().endswith(".pdf"):
@@ -151,7 +154,7 @@ class AssociationIndex:
             data = json.loads(raw)
         except (ValueError, TypeError) as exc:
             raise ValueError("invalid_state") from exc
-        if not isinstance(data, dict) or set(data) != {"version", "documents", "links"} or data["version"] != SCHEMA_VERSION:
+        if not isinstance(data, dict) or set(data) != {"version", "documents", "links"} or type(data["version"]) is not int or data["version"] != SCHEMA_VERSION:
             raise ValueError("unsupported_state")
         if (not isinstance(data["documents"], list) or len(data["documents"]) > MAX_DOCUMENTS
                 or not isinstance(data["links"], list) or len(data["links"]) > MAX_LINKS):

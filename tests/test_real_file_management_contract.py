@@ -136,7 +136,7 @@ class NativeFileManagementContracts(unittest.TestCase):
             "sidecarTimer_.start(0);",
             "processed<8 && elapsed.elapsed()<12",
             "finishScan(sidecarChanged_);",
-            "sidecarChanged_=true;",
+            "if(metadataChanged) metadataChanged(pdf);",
             "if (rescanPending_) {",
         ):
             self.assertIn(token, SYNC, token)
@@ -145,6 +145,19 @@ class NativeFileManagementContracts(unittest.TestCase):
         self.assertNotIn("if(!info.exists()) { publish(pdf); continue; }", worker_finish)
         self.assertIn("if(!info.exists()) { publish(pdf); continue; }", SYNC)
         self.assertIn("if (!worker_) busy_ = false;", SYNC)
+
+    def test_metadata_only_pdf_open_never_rescans_or_resets_paper_list(self):
+        # Missing bibliography -> sidecar import; keep the existing list and
+        # scroll rather than treating a metadata file as a changed PDF set.
+        batch = SYNC.split("void processSidecarBatch()", 1)[1].split("QString root_;", 1)[0]
+        self.assertIn("if(metadataChanged) metadataChanged(pdf);", batch)
+        self.assertNotIn("sidecarChanged_=true;", batch)
+        self.assertIn("if (changed && filesChanged) filesChanged();", SYNC)
+        self.assertIn("localSync_->metadataChanged = [this](const QString& pdf)", UI)
+        self.assertIn("refreshBibliography(DocumentClaim::identity(pdf));", UI)
+        self.assertIn("if (!query_->text().isEmpty()) filter(list, query_->text());", UI)
+        self.assertIn("preservedScroll = list->verticalScrollBar()->value()", UI)
+        self.assertIn("Sidecar metadata refresh reset 1000-PDF list scroll", UI)
 
     def test_deleted_nested_directory_is_not_rewatched(self):
         # Build #208 exited with 0xC0000005 immediately after Windows

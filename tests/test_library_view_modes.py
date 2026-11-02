@@ -132,6 +132,7 @@ class LibraryModes(unittest.TestCase):
             'QStringLiteral("library/expandedDockWidth")',
             'settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width())',
             'const bool wide = hasNavigation',
+            'navigation_->setMaximumWidth(hasDocuments ? 300 : 850)',
             'setMaximumWidth(wide ? 850 : 290)',
             'dock->setMaximumWidth(wide ? 850 : 300)',
         ):

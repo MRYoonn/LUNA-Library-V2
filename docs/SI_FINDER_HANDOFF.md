@@ -800,3 +800,10 @@ Then run the opt-in public ACS DOI metadata + landing smoke test from a
 permitted network, without downloading SI files. Do not claim that an
 HTML landing verifies the individual SI binary. Coordinate app-level
 paired PDF/metadata-sidecar move and restart with Issue #9's owner.
+
+Exact-source/test CI follow-up: [SI isolated Actions #41448875055](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41448875055)
+completed **SUCCESS** on `a3548174fa2fe48f468222ef165004de9da905ca`:
+**138/138 Python synthetic tests PASS**, public-source privacy gate PASS,
+Linux Qt6 identity/move PASS, Windows Qt6 identity/move PASS.
+This validates the NFKC source and tests, not real ACS/Figshare availability,
+individual SI-file downloads, or production Windows GUI integration.

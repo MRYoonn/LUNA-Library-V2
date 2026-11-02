@@ -3205,8 +3205,10 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     if (auto* view = viewer.findChild<QMenu*>(QStringLiteral("menuView"))) {
         view->addAction(folders);
         view->addAction(documents);
-        auto* defaultZoom = view->addAction(QStringLiteral("기본 시작 배율 설정…"));
+        auto* defaultZoom = new QAction(QStringLiteral("기본 시작 배율 설정…"), &window);
         defaultZoom->setObjectName(QStringLiteral("LunaDefaultOpeningZoom"));
+        window.addAction(defaultZoom);
+        view->addAction(defaultZoom);
         defaultZoom->setToolTip(QStringLiteral("새 PDF를 열 때 적용하는 기본 배율 (25~500%, 기본 200%)"));
         QObject::connect(defaultZoom, &QAction::triggered, &window, [&window] {
             QSettings preferences(QSettings::defaultFormat(), QSettings::UserScope,

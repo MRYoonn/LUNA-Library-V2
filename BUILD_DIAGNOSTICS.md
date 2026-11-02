@@ -69,6 +69,7 @@ expires. Artifact upload still runs even if issue archival is unavailable.
 | #228 | Strict PDF-A paired move/same-tab check failed |
 | #229 | Native UI selected a stale/wrong paper card after memo/search; A PDF was not moved |
 | #230 | **SUCCESS** on exact SHA `b33c237d7a4c8ab0156f414ca61a2420aa23458f` |
+| #231 | **FAIL** in preflight: outdated `test_folder_selection_matches_recursive_count_badges` expected subtree display, contradictory to direct-only selected-folder requirement. Fixed in subsequent feature branch commits. |
 
 [Successful #230 run](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41469874145).
 The post-#230 feature changes (multi-PDF trash, direct folder display, icon-only

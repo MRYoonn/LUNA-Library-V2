@@ -356,7 +356,7 @@ class LandingVerifierTests(unittest.TestCase):
     def test_restored_untrusted_title_cannot_be_verified_by_shared_landing(self):
         # The finder sanitizes titles, but restored result objects may bypass it.
         safe = SiCandidate(123, DOI, "Printable ΔG‡", "good.pdf", BASE + "123")
-        unsafe = SiCandidate(123, DOI, "Spoof\\u202e", "bad.pdf", BASE + "123")
+        unsafe = SiCandidate(123, DOI, "Spoof" + chr(0x202e), "bad.pdf", BASE + "123")
         source = SiLookupResult(DOI, "candidates", (unsafe, safe),
                                 "https://doi.org/" + DOI)
         calls = []

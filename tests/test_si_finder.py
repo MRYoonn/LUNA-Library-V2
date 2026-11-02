@@ -315,6 +315,52 @@ class SiFinderTests(unittest.TestCase):
         result = lookup_acs_figshare(DOI, api)
         self.assertEqual((result.status, len(result.candidates)), ("partial", 20))
 
+    def test_truncated_tail_duplicate_id_quarantines_visible_file(self):
+        # The 41st file is not displayed, but can reuse the first file's ID.
+        files = [{"name": f"si{i}.pdf", "id": 1000 + i} for i in range(40)]
+        files.append({"name": "hidden-tail.cif", "id": 1000})
+        result = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=files)}))
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(len(result.candidates), 39)
+        self.assertNotIn(1000, [c.file_id for c in result.candidates])
+        self.assertIn("file_lists_truncated=1", result.diagnostic)
+        self.assertIn("ambiguous_file_ids=1", result.diagnostic)
+
+    def test_truncated_tail_id_cannot_claim_another_article(self):
+        # A hidden ID from article 123 conflicts with a visible file in 456.
+        files = [{"name": f"si{i}.pdf", "id": 1000 + i} for i in range(40)]
+        files.append({"name": "tail.cif", "id": 901})
+        api = FakeApi(
+            search=[{"id": 123}, {"id": 456}],
+            details={
+                123: article(123, files=files),
+                456: article(456, files=[
+                    {"name": "wrong-owner.pdf", "id": 901},
+                    {"name": "independent.cif", "id": 902},
+                ]),
+            })
+        result = lookup_acs_figshare(DOI, api)
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(len(result.candidates), 41)
+        self.assertNotIn(901, [c.file_id for c in result.candidates])
+        self.assertIn("cross_article_file_id_entries=1", result.diagnostic)
+
+    def test_unsafe_filename_duplicate_id_quarantines_visible_file(self):
+        # Reject the unsafe label AND the seemingly safe file sharing its ID.
+        files = [
+            {"name": "good.pdf", "id": 901},
+            {"name": "../unsafe.pdf", "id": 901},
+            {"name": "independent.cif", "id": 902},
+        ]
+        result = lookup_acs_figshare(
+            DOI, FakeApi(details={123: article(123, files=files)}))
+        self.assertEqual(result.status, "partial")
+        self.assertEqual([(c.filename, c.file_id) for c in result.candidates],
+                         [("independent.cif", 902)])
+        self.assertIn("invalid_file_entries=1", result.diagnostic)
+        self.assertIn("ambiguous_file_ids=1", result.diagnostic)
+
     def test_bounded_file_list_reports_partial_not_complete(self):
         # More than 40 files are never silently presented as the full SI set.
         files = [{"name": f"si{i:02}.pdf"} for i in range(42)]

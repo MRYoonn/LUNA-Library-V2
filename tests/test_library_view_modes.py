@@ -110,6 +110,9 @@ class LibraryModes(unittest.TestCase):
         all_docs = self.cpp.split('void scanAll()')[1].split('void scanBatch(bool all)')[0]
         self.assertNotIn('QDirIterator::Subdirectories', folder)
         self.assertIn('QDirIterator::Subdirectories', all_docs)
+        counts = self.cpp.split('void beginRecount()')[1].split('connect(worker, &QThread::finished')[0]
+        self.assertIn('result->insert(folder, result->value(folder) + 1)', counts)
+        self.assertNotIn('while (folder == normalizedRoot', counts)
         for token in (
             'tree_->setSelectionMode(QAbstractItemView::SingleSelection)',
             'QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows',

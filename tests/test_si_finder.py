@@ -217,6 +217,41 @@ class SiFinderTests(unittest.TestCase):
         self.assertEqual((all_bad.status, all_bad.candidates),
                          ("needs_review", ()))
 
+    def test_cross_article_file_id_collision_quarantines_both_owners(self):
+        # A globally identified Figshare file cannot safely belong to two
+        # different public articles, even if their filenames differ.
+        api = FakeApi(
+            search=[{"id": 123}, {"id": 456}],
+            details={
+                123: article(123, files=[
+                    {"name": "one.pdf", "id": 901},
+                    {"name": "distinct.pdf", "id": 902},
+                ]),
+                456: article(456, files=[
+                    {"name": "two.cif", "id": 901},
+                    {"name": "third.pdf", "id": 903},
+                ]),
+            })
+        result = lookup_acs_figshare(DOI, api)
+        self.assertEqual(result.status, "partial")
+        self.assertEqual([(c.article_id, c.filename, c.file_id)
+                          for c in result.candidates],
+                         [(123, "distinct.pdf", 902), (456, "third.pdf", 903)])
+        self.assertIn("cross_article_file_id_entries=2", result.diagnostic)
+        self.assertTrue(all(c.status == "metadata_match_link_unchecked"
+                            for c in result.candidates))
+
+    def test_only_cross_article_collisions_require_review(self):
+        api = FakeApi(
+            search=[{"id": 123}, {"id": 456}],
+            details={
+                123: article(123, files=[{"name": "a.pdf", "id": 901}]),
+                456: article(456, files=[{"name": "b.pdf", "id": 901}]),
+            })
+        result = lookup_acs_figshare(DOI, api)
+        self.assertEqual((result.status, result.candidates), ("needs_review", ()))
+        self.assertIn("cross_article_file_id_entries=2", result.diagnostic)
+
     def test_missing_resource_doi_is_not_a_match(self):
         api = FakeApi(details={123: article(123, doi="")})
         self.assertEqual(lookup_acs_figshare(DOI, api).status, "needs_review")

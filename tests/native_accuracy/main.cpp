@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
     // Opt-in local capture must hash actual synthetic PDF bytes, not copy
     // a caller-supplied goldset digest into the native snapshot.
     const QString localPdf = root.filePath(QStringLiteral("synthetic-capture.pdf"));
-    const QByteArray pdfBytes("%PDF-1.4\\nsynthetic local fixture only\\n%%EOF\\n");
+    const QByteArray pdfBytes("%PDF-1.4\nsynthetic local fixture only\n%%EOF\n");
     {
         QFile fixture(localPdf);
         check(fixture.open(QIODevice::WriteOnly), "create synthetic capture PDF");

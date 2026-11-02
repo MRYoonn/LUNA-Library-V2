@@ -25,6 +25,11 @@ class TitleExtractorContracts(unittest.TestCase):
         for key in ('bad', 'affiliation', 'authorList'):
             self.assertIn('QRegularExpression ' + key + '(QString::fromUtf8(\n        R"(', self.title)
         self.assertEqual(self.title.count('QString::fromUtf8(\n        R"('), 3)
+        # Windows #219/#220: both two-argument QRegularExpression ctors
+        # need ONE final ')' after CaseInsensitiveOption, not '));'.
+        # Python regex compilation alone cannot detect this C++ syntax error.
+        self.assertEqual(self.title.count('QRegularExpression::CaseInsensitiveOption);'), 2)
+        self.assertNotIn('QRegularExpression::CaseInsensitiveOption));', self.title)
         # Check syntax of all three C++ raw patterns with Python's built-in
         # engine; normalize PCRE2 Unicode classes used inside character sets.
         patterns = re.findall(r'R"\((.*?)\)"', self.title, flags=re.S)

@@ -313,7 +313,10 @@ def score_regressions(regressions: object) -> dict:
             # after.get(field) when the after key was never captured.
             if field not in before or field not in after:
                 failures.append({"case_id": ident, "field": field, "reason": "missing_asserted_field"})
-            elif before[field] != after[field]:
+            elif type(before[field]) is not type(after[field]) or before[field] != after[field]:
+                # Python considers False == 0 and True == 1. A Qt/QSettings
+                # snapshot changing a boolean into an integer is NOT a
+                # preserved manual value, even when their values compare equal.
                 failures.append({"case_id": ident, "field": field, "reason": "changed_protected_value"})
         for field in empty:
             # An omitted snapshot key is not evidence that a field was empty.

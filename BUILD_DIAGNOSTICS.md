@@ -70,6 +70,7 @@ expires. Artifact upload still runs even if issue archival is unavailable.
 | #229 | Native UI selected a stale/wrong paper card after memo/search; A PDF was not moved |
 | #230 | **SUCCESS** on exact SHA `b33c237d7a4c8ab0156f414ca61a2420aa23458f` |
 | #231 | **FAIL** in preflight: outdated `test_folder_selection_matches_recursive_count_badges` expected subtree display, contradictory to direct-only selected-folder requirement. Fixed in subsequent feature branch commits. |
+| #232 | **FAIL** in native UI smoke: old `Child PDF did not increment its own folder and every ancestor` check contradicted new direct-only count rule. Subsequent 1000-PDF parent scan also expected recursive parent contents; both native checks fixed, while All Documents recursion is now explicitly verified. Original native process also reported an access-violation exit; inspect next native run and CDB evidence if it recurs. |
 
 [Successful #230 run](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41469874145).
 The post-#230 feature changes (multi-PDF trash, direct folder display, icon-only

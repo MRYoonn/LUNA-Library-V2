@@ -160,7 +160,7 @@ class GoldsetCollectionAuditTests(unittest.TestCase):
     def test_private_local_pdf_hash_match_is_not_extraction_accuracy(self):
         gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
         case = copy.deepcopy(gold["cases"][0])
-        payload = b"%PDF-1.7\\nsynthetic hash test only\\n%%EOF\\n"
+        payload = b"%PDF-1.7\nsynthetic hash test only\n%%EOF\n"
         digest = hashlib.sha256(payload).hexdigest()
         case["source"] = {"kind": "public", "sha256": digest}
         case["evidence"] = {field: "synthetic review label"
@@ -174,11 +174,12 @@ class GoldsetCollectionAuditTests(unittest.TestCase):
         })
         self.assertFalse(report["ready"])  # Still below 20-PDF coverage.
         self.assertIn("not_extraction_accuracy", report["assessment"])
+        self.assertIn("Local PDF bytes matched", report["warning"])
 
     def test_local_pdf_missing_mismatch_and_invalid_header_are_reported(self):
         gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
         case = copy.deepcopy(gold["cases"][0])
-        payload = b"%PDF-1.7\\nsynthetic correct\\n%%EOF\\n"
+        payload = b"%PDF-1.7\nsynthetic correct\n%%EOF\n"
         digest = hashlib.sha256(payload).hexdigest()
         case["source"] = {"kind": "permissioned", "sha256": digest}
         case["evidence"] = {field: "synthetic review label"
@@ -186,7 +187,7 @@ class GoldsetCollectionAuditTests(unittest.TestCase):
         gold["cases"] = [case]
         for files, reason in (
             ({}, "missing"),
-            ({digest: b"%PDF-1.7\\nwrong bytes"}, "sha256_mismatch"),
+            ({digest: b"%PDF-1.7\nwrong bytes"}, "sha256_mismatch"),
             ({digest: b"not a PDF"}, "invalid_pdf_header"),
         ):
             with self.subTest(reason=reason):
@@ -203,7 +204,7 @@ class GoldsetCollectionAuditTests(unittest.TestCase):
     def test_local_pdf_symlink_is_rejected_without_path_leak(self):
         gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
         case = copy.deepcopy(gold["cases"][0])
-        payload = b"%PDF-1.7\\nsynthetic symlink target\\n%%EOF\\n"
+        payload = b"%PDF-1.7\nsynthetic symlink target\n%%EOF\n"
         digest = hashlib.sha256(payload).hexdigest()
         case["source"] = {"kind": "public", "sha256": digest}
         case["evidence"] = {field: "synthetic review label"
@@ -237,7 +238,7 @@ class GoldsetCollectionAuditTests(unittest.TestCase):
     def test_report_cannot_overwrite_staged_pdf(self):
         gold = json.loads(FIXTURE.read_text(encoding="utf-8"))
         case = copy.deepcopy(gold["cases"][0])
-        payload = b"%PDF-1.7\\nsynthetic do not overwrite\\n%%EOF\\n"
+        payload = b"%PDF-1.7\nsynthetic do not overwrite\n%%EOF\n"
         digest = hashlib.sha256(payload).hexdigest()
         case["source"] = {"kind": "public", "sha256": digest}
         case["evidence"] = {field: "synthetic review label"

@@ -25,8 +25,17 @@ namespace luna {
 class UpdateController final : public QObject {
 public:
     explicit UpdateController(QMainWindow& shell)
-        : QObject(&shell), shell_(shell), action_(new QAction(QStringLiteral("업데이트 확인…"), this)) {
+        : QObject(&shell), shell_(shell), action_(new QAction(QStringLiteral("업데이트 확인…"), this)),
+          automatic_(new QAction(QStringLiteral("자동 업데이트 확인"), this)) {
         action_->setObjectName(QStringLiteral("LunaCheckUpdates"));
+        automatic_->setObjectName(QStringLiteral("LunaAutoUpdateCheck"));
+        automatic_->setCheckable(true);
+        automatic_->setChecked(QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+            .value(QStringLiteral("updater/autoCheckEnabled"), true).toBool());
+        QObject::connect(automatic_, &QAction::toggled, this, [](bool enabled) {
+            QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+                .setValue(QStringLiteral("updater/autoCheckEnabled"), enabled);
+        });
         QObject::connect(action_, &QAction::triggered, this, [this] { check(true); });
         QObject::connect(qApp, &QCoreApplication::aboutToQuit, this, [this] {
             if (!installOnQuit_ || !validToken(stageToken_)) return;
@@ -59,7 +68,9 @@ public:
         }
     }
     QAction* action() const { return action_; }
+    QAction* automaticAction() const { return automatic_; }
     void check(bool explicitRequest) {
+        if (!explicitRequest && !automatic_->isChecked()) return;
 #ifndef Q_OS_WIN
         if (explicitRequest)
             QMessageBox::information(&shell_, QStringLiteral("LUNA 업데이트"), QStringLiteral("Windows Portable에서만 지원합니다."));
@@ -190,6 +201,7 @@ private:
     static QString script() { return QDir(installDir()).filePath(QStringLiteral("LUNA-Update.ps1")); }
     QMainWindow& shell_;
     QAction* action_;
+    QAction* automatic_;
     bool checking_ = false;
     bool staging_ = false;
     bool installOnQuit_ = false;

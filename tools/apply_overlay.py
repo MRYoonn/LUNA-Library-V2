@@ -16,6 +16,7 @@ PIN = "67b6b9903cb4e318803342f2d428f02e1bb124e3"
 BLOBS = {
     "Pdf4QtEditor/main.cpp": "208c36b730ec158854b614e48c868e518aea5cde",
     "Pdf4QtEditor/CMakeLists.txt": "9ca656581680c7af16cee3ed35a32332e44e2dab",
+    "Pdf4QtLibGui/pdfeditormainwindow.cpp": "b12ac782fdf8a7f5dde892c90a7f5c5bfd50a20b",
 }
 CMAKE_ADDITION = """
 # LUNA_LIBRARY_V2_TARGET_BEGIN
@@ -255,6 +256,30 @@ def apply(root: Path, dry_run=False) -> None:
     for rel, sha in BLOBS.items():
         if not verify_file(root / rel, sha):
             raise ValueError("PDF4QT source pin mismatch or unsafe symlink: " + rel)
+    # Run #223: PDF4QT's page-entry handler moves focus BEFORE reading the
+    # entered page. Focus-out can reenter editingFinished and reset the spin
+    # value to the currently visible first page (commits=2, spin=1).
+    # Apply only to the exact pinned upstream file, after the source hash gate.
+    native_editor = root / "Pdf4QtLibGui/pdfeditormainwindow.cpp"
+    native_before = native_editor.read_text(encoding="utf-8").replace("\r\n", "\n")
+    native_after = replace_exact(native_before,
+        '#include <QSpinBox>\n',
+        '#include <QSpinBox>\n#include <QSignalBlocker>\n')
+    native_after = replace_exact(native_after,
+        '    if (m_pageNumberSpinBox->hasFocus())\n'
+        '    {\n'
+        '        m_programController->getPdfWidget()->setFocus();\n'
+        '    }\n\n'
+        '    m_programController->getPdfWidget()->getDrawWidgetProxy()->goToPage(m_pageNumberSpinBox->value() - 1);',
+        '    // Capture the committed value before focus-out can trigger another\n'
+        '    // editingFinished while the editor is synchronizing current pages.\n'
+        '    const int requestedPage = m_pageNumberSpinBox->value() - 1;\n'
+        '    if (m_pageNumberSpinBox->hasFocus())\n'
+        '    {\n'
+        '        const QSignalBlocker noFocusOutReentry(m_pageNumberSpinBox);\n'
+        '        m_programController->getPdfWidget()->setFocus();\n'
+        '    }\n\n'
+        '    m_programController->getPdfWidget()->getDrawWidgetProxy()->goToPage(requestedPage);')
     own = Path(__file__).resolve().parents[1] / "src"
     files = {
         folder / "lunatabs.cpp": (own / "lunatabs.cpp").read_bytes(),
@@ -352,6 +377,9 @@ def apply(root: Path, dry_run=False) -> None:
     if dry_run:
         print("[PASS] Upstream and destination gates")
         return
+    # Preserve the pinned Qt source's newline convention as well.
+    native_newline = b"\r\n" if b"\r\n" in native_editor.read_bytes() else b"\n"
+    native_editor.write_bytes(native_after.encode("utf-8").replace(b"\n", native_newline))
     source_newline = b"\r\n" if b"\r\n" in main.read_bytes() else b"\n"
     for path, data in files.items():
         if path.suffix in {".cpp", ".h"}:

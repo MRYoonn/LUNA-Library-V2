@@ -1,0 +1,87 @@
+name: LUNA PDF association icon and hollow moon tabs - exact Windows CI
+on:
+  push:
+    branches:
+      - feature/pdf-association-moon-tabs-20261104
+    paths:
+      - .github/workflows/pdf-icons-build-once.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  public-source-gate:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate privacy and full Python icon/update/source regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Save exact-source diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'PDF document icon and hollow moon tabs: SHA=%s run=%s. Diagnose first failed step before changing code.\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-PDF-Icon-Source-Diagnostics
+          path: evidence/failure-analysis.md
+          retention-days: 90
+
+  native-registry:
+    needs: public-source-gate
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Build and run isolated HKCU Win32 per-user association CTest
+        shell: pwsh
+        run: |
+          $probe=Join-Path $env:RUNNER_TEMP 'luna-pdf-association'
+          cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'PDF registry native CMake configuration failed' }
+          cmake --build $probe --target luna-native-pdf-association --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'PDF registry Win32 native compilation failed' }
+          ctest --test-dir $probe -C Release -R '^native_pdf_default_apps_candidate$' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Default Apps registry consent / resource ID native regression failed' }
+
+  dispatch-full-windows:
+    needs: public-source-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch full PDF4QT MSVC tab/GUI/package tests at exact source SHA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$BRANCH" = feature/pdf-association-moon-tabs-20261104
+          test "${#SHA}" -eq 40
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq .commit.sha)" = "$SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
+          echo "Full Windows Qt PDF4QT build requested at exact SHA $SHA; no release until native icon resource IDs, visual tab states, portable updater checks all pass."

@@ -1,0 +1,151 @@
+name: LUNA - real Windows #240 to v0.9.0.244 updater validation (one-shot)
+
+# One-time real Windows update from tested older artifact to public stable
+# release. Runs on synthetic files only, isolated in RUNNER_TEMP. No user data.
+on:
+  push:
+    branches:
+      - agent/luna-first-release-20261103
+    paths:
+      - .github/workflows/luna-live-update-e2e-hotfix-once.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  windows-live-updater:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact validated source for offline updater contracts
+        uses: actions/checkout@v4
+        with:
+          ref: 0550c5a2b57e4704c6e1a255a3abfe0094880dbe
+          persist-credentials: false
+      - name: Check safety and updater contract tests before live execution
+        shell: pwsh
+        run: |
+          python -B tools/preflight_public.py
+          if ($LASTEXITCODE -ne 0) { throw 'Public source preflight failed' }
+          python -B -m unittest discover -s tests -p test_updater.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Updater contracts failed' }
+      - name: Test real public release Check / Stage / Apply / healthy restart
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $testRoot = Join-Path $env:RUNNER_TEMP 'luna-live-update-e2e'
+          $install = Join-Path $testRoot 'old-build240'
+          New-Item -ItemType Directory -Force -Path $install | Out-Null
+          $report = [ordered]@{sourceRun='41567734959'; targetRun='41577602717';
+            targetTag='v0.9.0.244'; windows=$env:RUNNER_OS; status='incomplete';
+            checks=[ordered]@{}; error=''}
+          try {
+            # The actual previous verified Windows Portable, not a mock.
+            gh run download 41567734959 --repo $env:REPO --name LUNA-Windows-Portable --dir $install
+            if ($LASTEXITCODE -ne 0) { throw 'Could not download old build #240' }
+            $helper = Join-Path $install 'LUNA-Update.ps1'
+            $oldInfo = Get-Content -LiteralPath (Join-Path $install 'build-info.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$oldInfo.run -cne '41567734959' -or
+                [string]$oldInfo.commit -cne 'a56e1f9f36a4f797fe247039870c9e0fb140a8e4' -or
+                !(Test-Path -LiteralPath $helper -PathType Leaf)) {
+              throw 'Downloaded build #240 is not the expected old updater'
+            }
+            $report.checks.originalBuild = 'passed'
+            # Put synthetic user-owned data next to EXE to prove updater never touches it.
+            $protect = @{}
+            foreach ($name in @('keep-user.pdf','keep-user.luna-thumb.png','keep-user.luna-meta.json')) {
+              $file = Join-Path $install $name
+              [IO.File]::WriteAllText($file, "Synthetic user-owned sentinel: $name", [Text.Encoding]::UTF8)
+              $protect[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
+            }
+            $exeBefore = (Get-FileHash -LiteralPath (Join-Path $install 'LUNA.exe') -Algorithm SHA256).Hash
+            # Check must discover the *public* latest release and return available=true.
+            $checkRaw = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Check -InstallDir $install
+            if ($LASTEXITCODE -ne 0) { throw 'Public Check failed to execute' }
+            $check = (($checkRaw | Out-String).Trim() | ConvertFrom-Json)
+            if ($check.status -cne 'ok' -or !$check.available -or
+                $check.tag -cne 'v0.9.0.244' -or [string]$check.source_run -cne '41577602717') {
+              throw "Public update Check returned unexpected result: $($checkRaw | Out-String)"
+            }
+            $report.checks.liveCheck = 'passed'
+            if ((Get-FileHash -LiteralPath (Join-Path $install 'LUNA.exe') -Algorithm SHA256).Hash -cne $exeBefore) {
+              throw 'Check unexpectedly modified installed EXE'
+            }
+            # Stage makes a REAL HTTPS download and verifies ZIP, every file digest,
+            # provenance, allowed filenames and metadata WITHOUT updating EXE.
+            $stageRaw = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Stage -InstallDir $install
+            if ($LASTEXITCODE -ne 0) { throw 'Public update Stage failed to execute' }
+            $stage = (($stageRaw | Out-String).Trim() | ConvertFrom-Json)
+            if ($stage.status -cne 'staged' -or $stage.tag -cne 'v0.9.0.244' -or
+                [string]$stage.token -cnotmatch '^[a-f0-9]{32}$') {
+              throw "Public update Stage returned unexpected result: $($stageRaw | Out-String)"
+            }
+            $report.checks.liveDownloadAndStage = 'passed'
+            if ((Get-FileHash -LiteralPath (Join-Path $install 'LUNA.exe') -Algorithm SHA256).Hash -cne $exeBefore) {
+              throw 'Stage replaced EXE before user restart consent'
+            }
+            foreach ($f in $protect.Keys) {
+              if ((Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash -cne $protect[$f]) {
+                throw 'Stage touched synthetic user-owned file'
+              }
+            }
+            $work = Join-Path ([IO.Path]::GetTempPath()) ('LUNA-Update-Stage-' + $stage.token)
+            if (!(Test-Path -LiteralPath (Join-Path $work 'state.json'))) { throw 'Missing verified stage journal' }
+            $state = Get-Content -LiteralPath (Join-Path $work 'state.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($state.state -cne 'verified' -or $state.token -cne $stage.token) {
+              throw 'Stage journal is not verified'
+            }
+            # No running app, so applying now exercises the same replacement and
+            # healthy-window acknowledgement as a user-accepted restart.
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Apply -InstallDir $install -Token $stage.token
+            if ($LASTEXITCODE -ne 0) { throw 'Live update Apply/healthy restart failed' }
+            $report.checks.applyAndHealthyRestart = 'passed'
+            $newInfo = Get-Content -LiteralPath (Join-Path $install 'build-info.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($newInfo.version -cne 'v0.9.0.244' -or
+                $newInfo.commit -cne '0550c5a2b57e4704c6e1a255a3abfe0094880dbe') {
+              throw 'Updated executable provenance/semantic version did not match Release'
+            }
+            if ((Get-FileHash -LiteralPath (Join-Path $install 'LUNA.exe') -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+                '9b55f64929dc97bf8a5ec78c172b0bf97091a9940096bd2b0e8c09497297ae0d') {
+              throw 'New installed LUNA EXE digest does not match Windows Build #243'
+            }
+            foreach ($f in $protect.Keys) {
+              if ((Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash -cne $protect[$f]) {
+                throw 'Apply changed a synthetic user PDF, thumbnail or metadata file'
+              }
+            }
+            $report.checks.userOwnedFilesUnchanged = 'passed'
+            $checkAgainRaw = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Check -InstallDir $install
+            if ($LASTEXITCODE -ne 0) { throw 'Post-update Check did not execute' }
+            $checkAgain = (($checkAgainRaw | Out-String).Trim() | ConvertFrom-Json)
+            if ($checkAgain.status -cne 'ok' -or $checkAgain.available -or
+                $checkAgain.tag -cne 'v0.9.0.244') {
+              throw 'Updater would repeatedly offer the same version'
+            }
+            $report.checks.noRepeatOffer = 'passed'
+            $report.status = 'passed'
+            Write-Host 'PASS: Public GitHub Release Check, Stage, Apply, healthy restart, provenance, user-data preservation, and no repeat offer'
+          } catch {
+            $report.status = 'failed'
+            $report.error = [string]$_.Exception.Message
+            throw
+          } finally {
+            $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $testRoot 'update-test-summary.json') -Encoding UTF8
+            # Tests use synthetic runner files. Never kill user processes.
+            Get-CimInstance Win32_Process -Filter "name='LUNA.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.ExecutablePath -ieq (Join-Path $install 'LUNA.exe') } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Preserve on-run success or failure analysis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-Live-Public-Update-E2E
+          path: ${{ runner.temp }}/luna-live-update-e2e/update-test-summary.json
+          if-no-files-found: warn
+          retention-days: 90

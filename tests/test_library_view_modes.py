@@ -116,6 +116,12 @@ class LibraryModes(unittest.TestCase):
         self.assertIn('Child selection left root toggled or wrong PDF list', self.cpp)
         self.assertIn('No previously captured QListWidgetItem* is referenced after this point.', self.cpp)
         self.assertIn('QTemporaryDir selectionFolder(', self.cpp)
+        # The first count fixture's directory must remain alive while the
+        # main native UI smoke still exercises the Qt filesystem model.
+        self.assertIn('QTemporaryDir subfolder(QDir(countRoot)', self.cpp)
+        self.assertIn('QFile::remove(QDir(subfolder.path()).filePath(QStringLiteral("nested.pdf")))', self.cpp)
+        for phase in ('preview-enter', 'crop-enter', 'folder-icons-enter', 'hover-enter', 'memo-enter'):
+            self.assertIn('checkpoint("'+phase+'")', self.cpp)
         self.assertLess(self.cpp.index('list->itemDoubleClicked(item);'),
                         self.cpp.index('QTemporaryDir selectionFolder('))
         self.assertIn('QDirIterator::Subdirectories', all_docs)

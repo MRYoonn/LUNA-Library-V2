@@ -50,7 +50,8 @@ class LibraryModes(unittest.TestCase):
 
     def test_narrow_document_pane_resizes_cards_and_preserves_controls(self):
         for term in (
-            "return {1, compact_ ? kCompactHeight : kCardHeight};",
+            "if(index.data(Qt::UserRole + 10).toBool())return {1,kSIRowHeight};",
+            "(index.data(Qt::UserRole + 11).toInt()>0 ? kSIFooterHeight : 0)",
             "const int height = qMin(164, qMax(48, content.width() * 2 / 3));",
             "return QRect(content.left(), thumbnailRect(r).bottom() + 13, content.width(), 45);",
             "titleMetrics.elidedText(text, Qt::ElideRight, available)",

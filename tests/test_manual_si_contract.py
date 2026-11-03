@@ -35,7 +35,7 @@ class ManualSIContracts(unittest.TestCase):
             'QFile::copy(source,target)', 'if(QFileInfo(target).exists()',
             'QStringLiteral("SI · ")', 'QStringLiteral(" (%1)")',
             'SidecarStorage::safeManagedDirectory(target)',
-            'SidecarStorage::legacyMetadata(target)',
+            'SidecarStorage::allCompanions(target)',
             'bool attachManualSI(', 'bool detachManualSI(',
             '"manualSiParentFile"', '"user_selected_pdf"',
             'QFile::remove(placed.path)',
@@ -98,7 +98,7 @@ class ManualSIContracts(unittest.TestCase):
         self.assertIn('folder / "lunamanualsi.h": (own / "lunamanualsi.h").read_bytes()',OVERLAY)
         self.assertIn('add_test(NAME native_manual_si_attachment',CMAKE)
         for token in (
-            '[PASS] manual SI copy', 'SI selection failed to copy',
+            '[PASS] manual SI:', 'SI selection failed to copy',
             'Second SI did not generate',
             'SI parent relation missing after settings reload',
             'Unlink must preserve copied SI PDF',

@@ -25,6 +25,7 @@ class HiddenStorageContract(unittest.TestCase):
             'QStringLiteral("thumbnails/")',
             "FILE_ATTRIBUTE_HIDDEN",
             "FILE_ATTRIBUTE_REPARSE_POINT",
+            'QStringLiteral("metadata"), QStringLiteral("thumbnails")',
             "bool safeManagedDirectory",
             "bool ensureArea",
             "bool migrateLegacy(",
@@ -44,7 +45,7 @@ class HiddenStorageContract(unittest.TestCase):
         for needle in (
             "return SidecarStorage::metadata(path);",
             "return SidecarStorage::metadataForRead(path);",
-            "SidecarStorage::migrateLegacy(pdf);",
+            "if (!SidecarStorage::migrateLegacy(pdf))",
             "SidecarStorage::migrateLegacy(newPath);",
             "SidecarStorage::ensureArea(pdf, true)",
             "SidecarStorage::companions(oldPath, newPath)",
@@ -72,12 +73,16 @@ class HiddenStorageContract(unittest.TestCase):
         self.assertIn("SidecarStorage::legacyThumbnail(documentPath, ext)", self.ui)
         self.assertIn("SidecarStorage::ensureArea(documentPath, false)", self.ui)
         self.assertIn("const QString thumbnail = SidecarStorage::thumbnail(path", self.ui)
+        self.assertIn('const QString movedThumbnail = SidecarStorage::thumbnail(movedPath, QStringLiteral(".png"));', self.ui)
+        self.assertNotIn('const QString movedThumbnail = QDir(movedFolder).filePath(QFileInfo(thumbnail).fileName());', self.ui)
         self.assertIn("folder / \"lunasidecarpaths.h\"", (ROOT / "tools/apply_overlay.py").read_text("utf-8"))
 
     def test_native_windows_coverage_is_real_not_only_source_assertions(self):
         cmake = (ROOT / "tests/native_dialog/CMakeLists.txt").read_text("utf-8")
         native = (ROOT / "tests/native_dialog/sidecarstorage.cpp").read_text("utf-8")
         self.assertIn("add_test(NAME native_hidden_sidecars", cmake)
+        moves = (ROOT / "tests/native_dialog/filemoves.cpp").read_text("utf-8")
+        self.assertIn('Mixed-version MYBOX publish overwrote a conflicting user record', moves)
         for needle in ("FILE_ATTRIBUTE_HIDDEN", "migrateLegacy(pdf)",
                        "movePdfWithThumbnails(pdf,dest)",
                        "copyPdfWithThumbnails(movedPdf,copyFolder)",

@@ -118,6 +118,13 @@ class SnapshotSourceContract(unittest.TestCase):
         self.assertIn("ACS main navigation SI link is not an SI cover", native)
         self.assertIn("RSC SI cover correctly identified", native)
         self.assertIn("JOC printer job cannot be title", native)
+        self.assertIn("static QString firstPageAcsTitle(", bibliography)
+        self.assertIn("if (!sawAuthors || titleLines.isEmpty()) return {};", bibliography)
+        self.assertIn("credibleTitle(title) ? title : QString()", bibliography)
+        self.assertIn("const QString printedAcsTitle = Bibliography::firstPageAcsTitle(first);", firstpage)
+        self.assertIn('evidence["titleSource"] = QStringLiteral("first_page_verified");', firstpage)
+        self.assertIn("offline ACS main title from printed front matter", native)
+        self.assertIn("unverified ACS cover abstains rather than guessing title", native)
 
     def test_native_regressions_seed_isolated_settings(self):
         code = NATIVE.read_text(encoding="utf-8")

@@ -3928,6 +3928,12 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             !library->folderTab_->isChecked() ||
             !library->tree_->selectionModel()->selectedIndexes().isEmpty())
             return fail("Root shortcut did not clear child-folder highlight");
+        // selectFolder() rebuilds QListWidgetItem objects. Every pointer
+        // captured before the child/root switch is stale, including 'item'
+        // used by the subsequent memo and thumbnail native smoke checks.
+        item = list->item(0);
+        if (!item || item->data(Qt::UserRole).toString() != path)
+            return fail("Rebound root paper item missing after child-folder test");
     }
     checkpoint("count-deleted");
     library->model_->refreshPdfCounts(countRoot);

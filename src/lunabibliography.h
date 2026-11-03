@@ -132,6 +132,16 @@ public:
                 if (candidate.size() > 320) break;
                 const auto match = pattern.match(candidate);
                 if (!match.hasMatch()) continue;
+                // Journal-year-volume appearing in a title, author reference,
+                // or early body citation is not the paper's publication data.
+                // Keep printed header lines and explicit publisher "Cite" cues.
+                const QString prefix = candidate.left(
+                    match.capturedStart(QStringLiteral("journal"))).simplified();
+                static const QRegularExpression printedCitationCue(QStringLiteral(
+                    R"(^(?:Cite\s+(?:This|this article)|How to cite)\s*:)$"),
+                    QRegularExpression::CaseInsensitiveOption);
+                if (!prefix.isEmpty() && !printedCitationCue.match(prefix).hasMatch())
+                    continue;
                 const QString pages = match.captured(QStringLiteral("page")).remove(QLatin1Char(' '));
                 QVariantMap citation = {
                     {"journal", match.captured(QStringLiteral("journal")).simplified()},

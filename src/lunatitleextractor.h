@@ -38,7 +38,7 @@ inline bool isExcluded(QString text) {
 }
 
 inline bool isSupportingInformation(const QList<Line>& lines) {
-    // A main article may have an ACS/RSC "Supporting Information" link.
+    // A main article may have "Supporting Information" or "Supplementary Information" links.
     // Only a verified SI COVER can suppress a scientific title candidate.
     QStringList front;
     for (int i=0; i<lines.size() && i<24; ++i)

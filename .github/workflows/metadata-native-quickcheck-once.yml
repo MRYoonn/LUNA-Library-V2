@@ -1,0 +1,48 @@
+name: LUNA metadata - native QtCore bibliography quickcheck (one-shot)
+
+on:
+  push:
+    branches:
+      - feature/bibliography-scheduled-module-integration-20261103
+    paths:
+      - .github/workflows/metadata-native-quickcheck-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  metadata-native:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+      - name: Public source gate and title/metadata regression
+        shell: pwsh
+        run: |
+          python -B tools/preflight_public.py
+          if ($LASTEXITCODE -ne 0) { throw 'Public source preflight failed' }
+          python -B -m unittest discover -s tests -p test_scheduled_bibliography_integration.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Scheduled metadata contracts failed' }
+          python -B -m unittest discover -s tests -p test_title_extractor_contract.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Existing title contracts failed' }
+      - name: Build only the native QtCore bibliography probe with MSVC
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'luna-metadata-native'
+          cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'CMake metadata probe configure failed' }
+          cmake --build $probe --target luna-native-bibliography --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'MSVC native bibliography compile failed' }
+          ctest --test-dir $probe -C Release -R '^native_bibliography$' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Native bibliography regression failed' }

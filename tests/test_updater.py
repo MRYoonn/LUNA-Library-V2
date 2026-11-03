@@ -107,6 +107,10 @@ class ReleaseUpdateTests(unittest.TestCase):
             self.assertIn(token, source)
         self.assertIn('help->addAction(updater_->automaticAction())', shell)
         self.assertIn('updater_->check(false);', shell)
+        self.assertIn('settings.sync();', source)
+        self.assertIn('QSignalBlocker block(automatic_)', source)
+        self.assertIn('settings.status() != QSettings::NoError', source)
+        self.assertIn('다운로드와 설치는 동의 후에만 진행합니다.', source)
 
     def test_updater_stages_before_closing_and_requires_healthy_restart(self):
         header = (ROOT / "src/lunaupdater.h").read_text(encoding="utf-8")

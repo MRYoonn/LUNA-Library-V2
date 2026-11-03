@@ -1,0 +1,35 @@
+name: LUNA Manager 8 - request exact-branch Windows validation
+
+# One-shot dispatch bridge. Limited to this feature branch and this file.
+# The production build workflow remains workflow_dispatch-only and fail-closed.
+on:
+  push:
+    branches:
+      - manager8/folder-count-verifier-20261103
+    paths:
+      - .github/workflows/manager8-dispatch-once.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch exact feature-branch Windows verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$REF_NAME" = "manager8/folder-count-verifier-20261103"
+          test "${#SOURCE_SHA}" -eq 40
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
+          echo "Requested Windows build on $REF_NAME at $SOURCE_SHA."
+          echo "Do not assume success until the dispatched run finishes and the portable artifact exists."

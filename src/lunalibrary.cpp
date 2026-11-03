@@ -1644,6 +1644,25 @@ public:
             const auto favorites=savedPaths(QStringLiteral("library/favorites"));
             favorites_=QSet<QString>(favorites.cbegin(),favorites.cend());
             ThumbnailCache::instance()->invalidate();
+            // Explorer renaming the original paper must update only its
+            // explicitly attached, same-folder SI records; no PDF bytes move.
+            const QFileInfo oldPdf(before), renamed(after);
+            if(oldPdf.absolutePath()==renamed.absolutePath()) {
+                QDirIterator pdfs(renamed.absolutePath(),
+                    QStringList{QStringLiteral("*.pdf"),QStringLiteral("*.PDF")},QDir::Files);
+                while(pdfs.hasNext()) {
+                    const QString child=pdfs.next();
+                    if(child==after)continue;
+                    const QString id=DocumentClaim::identity(child);
+                    const QVariantMap data=bibliography_.record(id);
+                    if(data.value("manualSI").toBool() &&
+                       data.value("manualSiParentFile").toString().compare(
+                           oldPdf.fileName(),Qt::CaseInsensitive)==0) {
+                        if(bibliography_.attachManualSI(id,renamed.fileName()) && localSync_)
+                            localSync_->publish(child);
+                    }
+                }
+            }
         };
         localSync_->metadataChanged = [this](const QString& pdf) {
             refreshBibliography(DocumentClaim::identity(pdf));
@@ -2203,6 +2222,11 @@ private:
         if (!bibliography_.cloneTo(from, to))
             QMessageBox::warning(this, QStringLiteral("서지정보 복사 실패"),
                 QStringLiteral("PDF는 복사했지만 서지정보를 복제하지 못했습니다. 원본 설정은 보존됩니다."));
+        // The generic Copy action changes folders. Do not accidentally attach
+        // the new PDF to an unrelated paper that happens to share the same
+        // filename in the destination directory.
+        if (bibliography_.record(from).value("manualSI").toBool())
+            bibliography_.detachManualSI(to);
         QSettings settings(QSettings::defaultFormat(), QSettings::UserScope,
                            QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
         const QString a = openedDateKey(source), b = openedDateKey(destination);

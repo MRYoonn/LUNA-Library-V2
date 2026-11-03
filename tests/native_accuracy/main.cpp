@@ -314,6 +314,60 @@ int main(int argc, char** argv) {
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root.path());
     luna::Bibliography store;
+    // A pre-fix ACS main PDF could have been saved as SI by the old
+    // "Supporting Information" navigation-link heuristic. Permit recovery
+    // ONLY after a newly verified publisher title AND strong front-matter DOI.
+    const QString staleAutoSiId=QStringLiteral("synthetic:old-auto-si");
+    QVariantMap staleAutoSi{{QStringLiteral("documentKind"),
+                              QStringLiteral("supporting_information")},
+                             {QStringLiteral("documentKindSource"),
+                              QStringLiteral("first_page_verified")},
+                             {QStringLiteral("unverifiedSiMetadata"),
+                              QVariantMap{{QStringLiteral("authors"),
+                                           QStringLiteral("Unverified Fake Author")}}}};
+    check(store.save(staleAutoSiId, staleAutoSi, false),
+          "seed prior automatic SI misclassification");
+    const QVariantMap trustedMain{{QStringLiteral("documentKind"),
+                                    QStringLiteral("main_article")},
+                                   {QStringLiteral("documentKindSource"),
+                                    QStringLiteral("first_page_verified")},
+                                   {QStringLiteral("doi"),
+                                    QStringLiteral("10.1000/synthetic-main")},
+                                   {QStringLiteral("doiScore"), 90},
+                                   {QStringLiteral("title"),
+                                    QStringLiteral("Verified Synthetic Main Article")},
+                                   {QStringLiteral("titleSource"),
+                                    QStringLiteral("first_page_verified")}};
+    check(store.enrichFromFirstPage(staleAutoSiId, trustedMain),
+          "trusted new front matter repairs stale automatic SI");
+    check(store.record(staleAutoSiId).value(QStringLiteral("documentKind")).toString() ==
+          QStringLiteral("main_article") &&
+          store.record(staleAutoSiId).value(QStringLiteral("title")).toString() ==
+          QStringLiteral("Verified Synthetic Main Article"),
+          "repaired machine SI has current verified title and main kind");
+    check(store.record(staleAutoSiId).value(QStringLiteral("authors")).toString().isEmpty(),
+          "repair does not restore unverified archived SI authors");
+
+    const QString manualSiId=QStringLiteral("synthetic:manual-si-guard");
+    QVariantMap manualSi{{QStringLiteral("documentKind"),
+                           QStringLiteral("supporting_information")},
+                          {QStringLiteral("documentKindSource"),
+                           QStringLiteral("manual")}};
+    check(store.save(manualSiId, manualSi, true), "seed manually classified SI");
+    check(!store.enrichFromFirstPage(manualSiId, trustedMain) &&
+          store.record(manualSiId).value(QStringLiteral("documentKind")).toString() ==
+          QStringLiteral("supporting_information"),
+          "human-confirmed SI cannot be silently reclassified");
+    const QString weakSiId=QStringLiteral("synthetic:weak-si-guard");
+    check(store.save(weakSiId, staleAutoSi, false),
+          "seed SI for weak DOI negative control");
+    QVariantMap weakMain=trustedMain;
+    weakMain[QStringLiteral("doiScore")]=55;
+    check(!store.enrichFromFirstPage(weakSiId, weakMain) &&
+          store.record(weakSiId).value(QStringLiteral("documentKind")).toString() ==
+          QStringLiteral("supporting_information"),
+          "low-confidence DOI cannot repair SI classification");
+
     QVariantMap paper;
     paper["doi"] = QStringLiteral("10.1000/synthetic");
     paper["title"] = QStringLiteral("Synthetic Chemistry Paper");

@@ -1266,7 +1266,13 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         // QPrintDialog::exec uses PrintDlgEx directly on Windows, bypassing
         // QDialog::exec and QApplication::activeModalWidget(). Its native
         // modal loop also need not dispatch a Qt timer. Cancel from Win32.
-        const HWND printOwner = reinterpret_cast<HWND>(window.winId());
+        // The embedded PDF4QT editor is a child HWND. Windows PrintDlgEx
+        // uses the real top-level LUNA shell as the modal owner; testing
+        // against the embedded child HWND rejected a valid native dialog.
+        const HWND editorWindow = reinterpret_cast<HWND>(window.winId());
+        const HWND printOwner = GetAncestor(editorWindow, GA_ROOT);
+        if (!printOwner)
+            return fail("Native top-level print dialog owner was unavailable");
         PrintCancellation cancellation{GetCurrentProcessId(),
                                       GetWindowThreadProcessId(printOwner, nullptr),
                                       printOwner};

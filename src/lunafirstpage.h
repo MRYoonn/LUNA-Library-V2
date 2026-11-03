@@ -82,8 +82,11 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
                 {"doiStatus",QStringLiteral("needs_review")}};
     QVariantMap evidence=Bibliography::firstPageCitation(first);
     const QString printedAcsTitle = Bibliography::firstPageAcsTitle(first);
-    if(!printedAcsTitle.isEmpty()) {
-        evidence["title"] = printedAcsTitle;
+    const QString printedRscTitle = printedAcsTitle.isEmpty()
+        ? Bibliography::firstPageRscTitle(first) : QString();
+    const QString printedTitle = !printedAcsTitle.isEmpty() ? printedAcsTitle : printedRscTitle;
+    if(!printedTitle.isEmpty()) {
+        evidence["title"] = printedTitle;
         evidence["titleSource"] = QStringLiteral("first_page_verified");
     }
     // Preserve pre-integration behavior for PDFs with neither own journal
@@ -97,7 +100,8 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
         evidence["title"]=info->title.simplified();
         evidence["titleSource"]=QStringLiteral("pdf_metadata");
     }
-    const auto author=Bibliography::firstPageLastAuthor(first);
+    QString author=Bibliography::firstPageLastAuthor(first);
+    if(author.isEmpty()) author=Bibliography::firstPageRscLastAuthor(first);
     if(!author.isEmpty()) {
         evidence["authors"]=author;
         evidence["authorEvidence"]=QStringLiteral("first-page-terminal-and");

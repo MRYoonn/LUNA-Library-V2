@@ -90,6 +90,7 @@ APPROVED = {
     "tools/si_landing_verify.py", "tests/test_si_landing_verify.py",
     "tools/si_live_probe.py", "tests/test_si_live_probe.py",
     "tools/si_display_model.py", "tests/test_si_display_model.py",
+    "src/lunasirows.h", "tests/native_si_rows/CMakeLists.txt", "tests/native_si_rows/main.cpp",
     ".github/workflows/si-isolated.yml",
     "tests/test_real_file_management_contract.py",
     "tests/test_updater.py", "tools/prepare_release.py",

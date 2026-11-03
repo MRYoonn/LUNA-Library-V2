@@ -134,14 +134,14 @@ int main(int argc, char** argv) {
     // Opt-in local capture must hash actual synthetic PDF bytes, not copy
     // a caller-supplied goldset digest into the native snapshot.
     const QString localPdf = root.filePath(QStringLiteral("synthetic-capture.pdf"));
-    const QByteArray pdfBytes("%PDF-1.4\nsynthetic local fixture only\n%%EOF\n");
+    const QByteArray capturePdfBytes("%PDF-1.4\nsynthetic local fixture only\n%%EOF\n");
     {
         QFile fixture(localPdf);
         check(fixture.open(QIODevice::WriteOnly), "create synthetic capture PDF");
-        check(fixture.write(pdfBytes) == pdfBytes.size(), "write synthetic capture PDF");
+        check(fixture.write(capturePdfBytes) == capturePdfBytes.size(), "write synthetic capture PDF");
     }
     const QString actualDigest = QString::fromLatin1(
-        QCryptographicHash::hash(pdfBytes, QCryptographicHash::Sha256).toHex());
+        QCryptographicHash::hash(capturePdfBytes, QCryptographicHash::Sha256).toHex());
     const auto hashedCase = luna::Accuracy::captureCaseFromLocalPdf(
         QStringLiteral("syn-local-hash"), paper, localPdf);
     check(hashedCase.value(QStringLiteral("source_sha256")).toString() == actualDigest,

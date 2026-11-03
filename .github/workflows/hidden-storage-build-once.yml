@@ -1,0 +1,42 @@
+name: LUNA hidden .luna sidecars - Windows exact-branch validation (one-shot)
+on:
+  push:
+    branches:
+      - feature/hidden-sidecar-storage-20261103
+    paths:
+      - .github/workflows/hidden-storage-build-once.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  source-preflight-and-dispatch:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify new storage source and all Python contracts before Windows build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Dispatch real full Windows PDF4QT native build for this exact branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          EXACT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$BRANCH" = feature/hidden-sidecar-storage-20261103
+          test "${#EXACT_SHA}" -eq 40
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$EXACT_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
+          echo "Full Windows build requested for $BRANCH SHA $EXACT_SHA"
+          echo "Do not label PASS until that exact Windows run completes and its artifact is checked."

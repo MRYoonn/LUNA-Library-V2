@@ -84,8 +84,8 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('paperHeading->addWidget(panelButton(', library)
         self.assertIn('!host.findChild<QWidget*>(QStringLiteral("LunaTabCorner"))', tabs)
         self.assertIn('PDF tab top rule or paper/PDF header vertical alignment regressed', tabs)
-        self.assertIn('Header navigation collapse did not release narrow paper-only width', tabs)
-        self.assertIn('libraryDock->width() <= 300', tabs)
+        self.assertIn('Paper-only dock cannot retain and expand to the full 850-pixel width', tabs)
+        self.assertIn('libraryDock->maximumWidth() == 850', tabs)
 
     def test_build_206_native_memo_re_resolves_replaced_cards_and_checks_disk(self):
         # Build #206: QSettings and the screenshot contained the entered memo,

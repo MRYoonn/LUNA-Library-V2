@@ -15,6 +15,8 @@ on:
       - 'tools/preflight_public.py'
       - 'tests/test_bibliography_accuracy_lab.py'
       - 'tests/test_accuracy_snapshot_source_contract.py'
+      - 'tools/bibliography_si_risk_probe.py'
+      - 'tests/test_bibliography_si_risk_probe.py'
       - 'tests/native_accuracy/**'
       - 'tests/fixtures/bibliography_accuracy_*.synthetic.json'
   workflow_dispatch:

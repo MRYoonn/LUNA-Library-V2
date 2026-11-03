@@ -108,6 +108,96 @@ public:
         return credibleTitle(title) ? title : QString();
     }
 
+    // Royal Society of Chemistry first pages have a publisher masthead and
+    // a printed DOI, but title/author lines may be interleaved with two-column
+    // "Cite this" metadata. Return nothing for unknown or ambiguous layouts.
+    static bool isRscArticleCover(const QString& firstPageText) {
+        const QStringList lines=firstPageText.left(8000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")),Qt::SkipEmptyParts);
+        if (lines.size()<5 || !firstPageText.left(8000).contains(
+                QStringLiteral("10.1039/"),Qt::CaseInsensitive)) return false;
+        const QString first=lines.first().simplified();
+        return first.compare(QStringLiteral("ChemComm"),Qt::CaseInsensitive)==0 ||
+               (first.compare(QStringLiteral("Organic &"),Qt::CaseInsensitive)==0 &&
+                lines.value(1).simplified().compare(
+                    QStringLiteral("Biomolecular Chemistry"),Qt::CaseInsensitive)==0);
+    }
+
+    static QString firstPageRscTitle(const QString& firstPageText) {
+        if (!isRscArticleCover(firstPageText) ||
+            isSupportingInformationCover(firstPageText)) return {};
+        const auto lines=firstPageText.left(12000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")),Qt::SkipEmptyParts);
+        qsizetype kind=-1;
+        for (qsizetype i=0;i<lines.size() && i<8;++i) {
+            const QString label=lines[i].simplified();
+            if (label.compare(QStringLiteral("PAPER"),Qt::CaseInsensitive)==0 ||
+                label.compare(QStringLiteral("COMMUNICATION"),Qt::CaseInsensitive)==0) {
+                kind=i;break;
+            }
+        }
+        if(kind<0) return {};
+        static const QRegularExpression authorStart(QStringLiteral(
+            R"(^[\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}\s*,)"));
+        static const QRegularExpression volumeOnly(QStringLiteral(
+            R"(^\d{1,4}\s*,\s*\d{1,7}$)"));
+        QStringList titleLines;
+        bool sawAuthor=false;
+        for(qsizetype i=kind+1;i<lines.size() && i<24;++i) {
+            const QString line=lines[i].simplified();
+            if (authorStart.match(line).hasMatch()) {sawAuthor=true;break;}
+            if (line.startsWith(QStringLiteral("Received"),Qt::CaseInsensitive) ||
+                line.startsWith(QStringLiteral("Accepted"),Qt::CaseInsensitive) ||
+                line.startsWith(QStringLiteral("DOI:"),Qt::CaseInsensitive)) break;
+            if (line.compare(QStringLiteral("Licence and permissions"),Qt::CaseInsensitive)==0 ||
+                line.startsWith(QStringLiteral("Licensed under"),Qt::CaseInsensitive) ||
+                line.startsWith(QStringLiteral("Cite this:"),Qt::CaseInsensitive) ||
+                volumeOnly.match(line).hasMatch()) continue;
+            if (line.size()<4 || line.size()>180 || titleLines.size()>=4) return {};
+            titleLines.append(line);
+        }
+        if(!sawAuthor || titleLines.isEmpty()) return {};
+        QString title=titleLines.join(QLatin1Char(' ')).simplified();
+        title.replace(QRegularExpression(QStringLiteral(R"(-\s+(?=\p{L}))")),
+                      QStringLiteral("-"));
+        title.remove(QRegularExpression(QStringLiteral(R"([†‡]\s*$)")));
+        return credibleTitle(title) ? title : QString();
+    }
+
+    static QString firstPageRscLastAuthor(const QString& firstPageText) {
+        if (!isRscArticleCover(firstPageText) ||
+            isSupportingInformationCover(firstPageText)) return {};
+        const auto lines=firstPageText.left(12000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")),Qt::SkipEmptyParts);
+        static const QRegularExpression authorList(QStringLiteral(
+            R"(^[\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}\s*,)"));
+        static const QRegularExpression trailingAnd(QStringLiteral(
+            R"((?:^|\s)\band\s*$)"),QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression decor(QStringLiteral(
+            R"(^[\s*†‡a-z0-9]+|[\s*†‡a-z0-9]+$)"));
+        bool authorListBefore=false;
+        for(qsizetype i=0;i<lines.size() && i<22;++i) {
+            const QString row=lines[i].simplified();
+            if(authorList.match(row).hasMatch()) authorListBefore=true;
+            if(!authorListBefore || !trailingAnd.match(row).hasMatch()) continue;
+            // A separate centered author name can follow the ampersand/and
+            // after publisher footnotes, acceptance metadata or asterisks.
+            for(qsizetype j=i+1;j<lines.size() && j<=i+4;++j) {
+                QString next=lines[j].simplified();
+                if(next.startsWith(QStringLiteral("Received"),Qt::CaseInsensitive) ||
+                   next.startsWith(QStringLiteral("Accepted"),Qt::CaseInsensitive) ||
+                   next.startsWith(QStringLiteral("Published"),Qt::CaseInsensitive) ||
+                   next.startsWith(QStringLiteral("DOI:"),Qt::CaseInsensitive) ||
+                   next.size()<=3) continue;
+                next.remove(QRegularExpression(QStringLiteral(R"(^[*†‡\s\d]+)")));
+                next.remove(QRegularExpression(QStringLiteral(R"([*†‡\s\d]+$)")));
+                if(credibleAuthor(next)) return next;
+                break;
+            }
+        }
+        return {};
+    }
+
     // Conservative citation extraction from the printed first page only.
     // Only known journal patterns are accepted; unknown text is left untouched.
     // No DOI parsing or online queries are performed.
@@ -418,7 +508,11 @@ public:
         static const QRegularExpression printerJob(QStringLiteral(
             R"(^(?:[A-Za-z]{1,18}\.)?[A-Za-z]{1,20}\d[A-Za-z0-9.]*\s+\d+\s*\.{2,}\s*\d+$)"),
             QRegularExpression::CaseInsensitiveOption);
-        if (printerJob.match(text).hasMatch()) return false;
+        static const QRegularExpression printerSpool(QStringLiteral(
+            R"(^[A-Za-z0-9_.-]{7,70}\s+\d{1,7}\s*\.{2,}\s*\d{1,7}\s*(?:\+\+)?$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        if (printerJob.match(text).hasMatch() || printerSpool.match(text).hasMatch())
+            return false;
         static const QRegularExpression placeholder(QStringLiteral(
             R"((?:^|\b)(?:No Job Name|Microsoft Word|Untitled|New Document|Document1|Supporting Information|Revised Supporting Information)(?:\b|$))"),
             QRegularExpression::CaseInsensitiveOption);

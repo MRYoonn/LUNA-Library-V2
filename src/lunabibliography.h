@@ -416,6 +416,9 @@ public:
         const bool verifiedProviderAuthor = authorSource == QStringLiteral("Crossref") ||
             authorSource == QStringLiteral("OpenAlex") ||
             authorSource == QStringLiteral("Crossref + OpenAlex");
+        const QStringList structuredAuthors=value.value("authors_structured").toStringList();
+        const bool verifiedFullAuthorList=verifiedProviderAuthor && !structuredAuthors.isEmpty() &&
+            author==structuredAuthors.join(QStringLiteral(", ")).simplified();
         const bool brokenAuthor = authorSource != QStringLiteral("manual") &&
             (author.contains(QStringLiteral("as well as"), Qt::CaseInsensitive) ||
             author.contains(QStringLiteral("the energetics"), Qt::CaseInsensitive) ||
@@ -424,7 +427,7 @@ public:
             author.contains(QStringLiteral("towards"), Qt::CaseInsensitive) ||
             (authorSource != QStringLiteral("manual") &&
              authorSource != QStringLiteral("first_page_verified") && !verifiedProviderAuthor) ||
-            (!author.isEmpty() && !credibleAuthor(author)));
+            (!author.isEmpty() && !credibleAuthor(author) && !verifiedFullAuthorList));
         if (brokenTitle) {
             if (!title.isEmpty()) value["legacyTitle"] = value.value("title");
             value.remove("title");

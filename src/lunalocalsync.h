@@ -115,6 +115,10 @@ inline bool reconcileExplorerRename(const QString& oldPath, const QString& newPa
         if (error) *error = QStringLiteral("기존 서지정보가 다른 파일과 충돌했습니다. 새 파일을 확인하세요.");
         return false; // Preserve original data on metadata conflict.
     }
+    // Explorer may rename a PDF before our bounded background migration
+    // catches it. Re-home any remaining legacy companions at the NEW name.
+    // A conflict leaves both copies intact; never overwrite or delete data.
+    SidecarStorage::migrateLegacy(newPath);
     settings.sync();
     return settings.status()==QSettings::NoError;
 }

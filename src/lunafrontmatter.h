@@ -29,8 +29,9 @@ inline bool isSupplementCover(const QString& firstPage) {
     static const QRegularExpression cover(QStringLiteral(
         R"(^(?:(?:Revised|Electronic)\s+)?(?:Supporting|Supplementary)\s+Information(?:\s*\((?:SI|ESI)\))?(?:\s+for(?:\s+.+)?)?\.?$|^Electronic\s+Supplementary\s+Material(?:\s*\(ESI\))?(?:\s+for(?:\s+.+)?)?\.?$)"),
         QRegularExpression::CaseInsensitiveOption);
-    // The first visible heading is the best discriminator for actual SI.
-    if (!rows.isEmpty() && cover.match(rows.first()).hasMatch()) return true;
+    // PDF4QT may y-sort a sidebar SI hyperlink before the article masthead.
+    // Look for positive article-navigation evidence BEFORE trusting even the
+    // first text row as an SI cover.
     bool mainArticle = false;
     for (qsizetype i=0; i<rows.size() && i<15; ++i) {
         const QString& row = rows[i];

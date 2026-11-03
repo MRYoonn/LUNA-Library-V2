@@ -1112,6 +1112,16 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(buttonsVisible() && !navigationPanel->isHidden() &&
                                !documentsPanel->isHidden() && libraryDock->isVisible(),
                                "Initial pane header geometry invalid");
+            // Exercise a USER-chosen width rather than only the default 562px.
+            // This must survive repeated navigation/paper panel collapse.
+            host.resizeDocks({libraryDock}, {690}, Qt::Horizontal);
+            integrationRequire(integrationWait([&] { return libraryDock->width() >= 620; }),
+                "Library dock refused user-requested expansion");
+            const int userDockWidth = libraryDock->width();
+            integrationRequire(integrationWait([&] {
+                return QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+                    .value(QStringLiteral("library/expandedDockWidth")).toInt() == userDockWidth;
+            }), "Expanded dock width was not persisted after manual resize");
             for (int turn = 0; turn < 10; ++turn) {
                 const bool paperOnlyExpandable = integrationPanelClick(host, navigationToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
@@ -1145,6 +1155,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                     integrationWait([&] { return !navigationPanel->isHidden() &&
                         !documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
                     "Left-edge paper-list restore failed");
+                integrationRequire(qAbs(libraryDock->width() - userDockWidth) <= 4,
+                    "Collapsing and reopening panels lost the exact user width");
                 integrationRequire(!focus->isChecked(),
                     "Panel controls unexpectedly activated focus mode");
             }

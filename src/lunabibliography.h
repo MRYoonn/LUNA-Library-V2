@@ -788,7 +788,9 @@ public:
         si["siLinkStatus"]=QStringLiteral("verified");
         si["siParentSource"]=provider;
         si["siDiagnostic"]=QString();
+        si["metadata_diagnostic"]=QString();
         si["metadata_source"]=provider;
+        si.remove("metadata_status"); // stale review state must not survive a verified parent link.
         si["metadata_status"]=Metadata::publicationStatus(si);
         si["source"]=QStringLiteral("SI linked to original article");
         return save(identity,si,false);

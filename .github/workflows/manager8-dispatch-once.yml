@@ -31,5 +31,5 @@ jobs:
           test "$REF_NAME" = "manager8/folder-count-verifier-20261103"
           test "${#SOURCE_SHA}" -eq 40
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
-          echo "Requested new full Windows CI after fixing build #241 wrong Python native-test fixture; verify batch undo and 690px panel acceptance at $SOURCE_SHA."
+          echo "Requested Windows CI after #242 verified narrow-host width test precondition fix; 690px dock must persist in full-sized shell at $SOURCE_SHA."
           echo "Do not assume success until the dispatched run finishes and the portable artifact exists."

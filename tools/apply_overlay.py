@@ -276,6 +276,7 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "lunathumbnailcache.h": (own / "lunathumbnailcache.h").read_bytes(),
         folder / "lunafilemove.h": (own / "lunafilemove.h").read_bytes(),
         folder / "lunasidecarpaths.h": (own / "lunasidecarpaths.h").read_bytes(),
+        folder / "lunamanualsi.h": (own / "lunamanualsi.h").read_bytes(),
         folder / "lunatrashundo.h": (own / "lunatrashundo.h").read_bytes(),
         folder / "lunalocalsync.h": (own / "lunalocalsync.h").read_bytes(),
         folder / "lunadocumentclaim.h": (own / "lunadocumentclaim.h").read_bytes(),

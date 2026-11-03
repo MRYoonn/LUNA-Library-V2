@@ -10,6 +10,7 @@
 #include <QString>
 #include "lunametadataengine.h"
 #include "lunafrontmatter.h"
+#include "lunasiidentity.h"
 #include <functional>
 
 namespace luna {
@@ -276,21 +277,44 @@ public:
         QVariantMap value = record(identity);
         bool changedField = false;
         if (proposal.value("documentKind").toString() == QStringLiteral("supporting_information")) {
-            // Preserve all previous data for recovery; suppress only machine-owned
-            // paper fields after the page explicitly identifies itself as SI.
-            QVariantMap archived = value.value("unverifiedSiMetadata").toMap();
-            for (const char* key : {"title", "authors", "journal", "year", "volume", "page", "citation", "doi", "authors_structured", "journal_abbreviation", "issue", "article_number"}) {
-                const QString field = QString::fromLatin1(key);
-                if (value.value(field + QStringLiteral("Source")).toString() != QStringLiteral("manual") &&
-                    value.contains(field)) {
-                    archived[field] = value.take(field);
-                    changedField = true;
-                }
+            const QString proposedDoi=Metadata::normalizeDoi(
+                proposal.value("siArticleDoiCandidate").toString());
+            const QString proposedTitle=proposal.value("siCoverTitle").toString();
+            const bool verified=value.value("siLinkStatus").toString()==QStringLiteral("verified");
+            const QString linkedDoi=Metadata::normalizeDoi(value.value("siParentDoi").toString());
+            if(verified && ((!proposedDoi.isEmpty() && linkedDoi!=proposedDoi) ||
+               (!proposedTitle.isEmpty() && !SIIdentity::sameArticleTitle(
+                   value.value("title").toString(),proposedTitle)))) {
+                value["siLinkStatus"]=QStringLiteral("needs_review");
+                value["siDiagnostic"]=QStringLiteral("si_cover_changed_after_link");
+                return save(identity,value,false); // do NOT destroy previously linked fields.
             }
-            changedField = changedField || value.value("documentKind") != proposal.value("documentKind");
-            value["documentKind"] = proposal.value("documentKind");
-            value["unverifiedSiMetadata"] = archived;
-            return changedField && save(identity, value, false);
+            // Older LUNA versions sometimes saved printer/job headings as paper
+            // titles for SI. Archive only unverified machine-owned fields.
+            if(!verified) {
+                QVariantMap archived=value.value("unverifiedSiMetadata").toMap();
+                for (const char* key : {"title","authors","journal","year","volume","page",
+                                        "citation","doi","authors_structured","journal_abbreviation",
+                                        "issue","article_number"}) {
+                    const QString field=QString::fromLatin1(key);
+                    if(value.contains(field) &&
+                       value.value(field+QStringLiteral("Source")).toString()!=QStringLiteral("manual")) {
+                        archived[field]=value.take(field);
+                        changedField=true;
+                    }
+                }
+                if(!archived.isEmpty())value["unverifiedSiMetadata"]=archived;
+            }
+            const auto setIfChanged=[&](const QString& key,const QVariant& next) {
+                if(value.value(key)!=next){value[key]=next;changedField=true;}
+            };
+            setIfChanged(QStringLiteral("documentKind"),QStringLiteral("supporting_information"));
+            if(!proposedTitle.isEmpty())setIfChanged(QStringLiteral("siCoverTitle"),proposedTitle);
+            if(!proposedDoi.isEmpty())setIfChanged(QStringLiteral("siArticleDoiCandidate"),proposedDoi);
+            if(!proposal.value("siEvidenceSource").toString().isEmpty())
+                setIfChanged(QStringLiteral("siEvidenceSource"),proposal.value("siEvidenceSource"));
+            if(!verified)setIfChanged(QStringLiteral("siLinkStatus"),QStringLiteral("needs_review"));
+            return changedField && save(identity,value,false);
         }
         const auto fill = [&value, &proposal, &changedField](const char* key, bool good) {
             const QString field = QString::fromLatin1(key);
@@ -693,6 +717,120 @@ public:
         entry["manual"] = false;
         entry["source"] = QStringLiteral("PDF first-page refresh");
         return save(identity, entry, false);
+    }
+
+    // Verified SI -> original paper link. A standalone SI DOI is NOT proof:
+    // require a strong match to the paper title printed on the SI cover and a
+    // DOI-equal Crossref/OpenAlex result or an independently saved local paper.
+    bool linkSIToParent(const QString& identity, const QVariantMap& article,
+                        const QString& expectedDoi, bool fromLocal) {
+        QVariantMap si=record(identity);
+        const QString doi=Metadata::normalizeDoi(expectedDoi);
+        const QString cover=si.value("siCoverTitle").toString();
+        const QString title=article.value("title").toString();
+        if(identity.isEmpty() || doi.isEmpty() ||
+           si.value("documentKind").toString()!=QStringLiteral("supporting_information") ||
+           !SIIdentity::isArticleTitle(title) ||
+           !SIIdentity::sameArticleTitle(cover,title) ||
+           Metadata::normalizeDoi(article.value("doi").toString())!=doi ||
+           article.value("documentKind").toString()==QStringLiteral("supporting_information") ||
+           article.value("metadata_status").toString()==QStringLiteral("needs_review"))
+            return false;
+        const QString candidate=Metadata::normalizeDoi(
+            si.value("siArticleDoiCandidate").toString());
+        if(!candidate.isEmpty() && candidate!=doi)return false;
+        const QString previous=Metadata::normalizeDoi(si.value("siParentDoi").toString());
+        if(!previous.isEmpty() && previous!=doi)return false;
+        const QString currentDoi=Metadata::normalizeDoi(si.value("doi").toString());
+        if(!currentDoi.isEmpty() && currentDoi!=doi)return false;
+        if(si.value("titleSource").toString()==QStringLiteral("manual") &&
+           !SIIdentity::sameArticleTitle(si.value("title").toString(),title))return false;
+        for(const char* name:{"year","volume","page","journal"}) {
+            const QString key=QString::fromLatin1(name);
+            if(si.value(key+"Source").toString()==QStringLiteral("manual") &&
+               !si.value(key).toString().isEmpty() &&
+               !article.value(key).toString().isEmpty() &&
+               si.value(key).toString().simplified()!=article.value(key).toString().simplified())
+                return false;
+        }
+        const QString provider=fromLocal ? QStringLiteral("local_verified_article") :
+            article.value("metadata_source").toString();
+        if(!fromLocal && provider.isEmpty())return false;
+        for(const char* name:{"title","authors","authors_structured","journal",
+                              "journal_abbreviation","year","volume","issue","page","article_number"}) {
+            const QString key=QString::fromLatin1(name);
+            const QVariant incoming=article.value(key);
+            if(incoming.toString().simplified().isEmpty() &&
+               !(key==QStringLiteral("authors_structured") && !incoming.toStringList().isEmpty()))
+                continue;
+            if(si.value(key+"Source").toString()==QStringLiteral("manual"))continue;
+            if(fromLocal && key==QStringLiteral("authors")) {
+                const QString authorSource=article.value("authorsSource").toString();
+                if(authorSource!=QStringLiteral("manual") &&
+                   authorSource!=QStringLiteral("first_page_verified") &&
+                   authorSource!=QStringLiteral("Crossref") &&
+                   authorSource!=QStringLiteral("OpenAlex") &&
+                   authorSource!=QStringLiteral("Crossref + OpenAlex"))
+                    continue;
+            }
+            si[key]=incoming;
+            // Preserve local author provenance; otherwise record() suppresses
+            // author values that did not come from a known verified source.
+            si[key+"Source"]=fromLocal ?
+                article.value(key+"Source",QStringLiteral("si_parent_local")) : QVariant(provider);
+        }
+        si["doi"]=doi;
+        si["doiSource"]=fromLocal ? QStringLiteral("si_parent_local") : provider;
+        si["siParentDoi"]=doi;
+        si["siLinkStatus"]=QStringLiteral("verified");
+        si["siParentSource"]=provider;
+        si["siDiagnostic"]=QString();
+        si["metadata_source"]=provider;
+        si["metadata_status"]=Metadata::publicationStatus(si);
+        si["source"]=QStringLiteral("SI linked to original article");
+        return save(identity,si,false);
+    }
+
+    // Prefer an exact DOI+title match to an already indexed local paper.
+    // Without a DOI lead, an *exact* normalized cover title plus a unique
+    // DOI-bearing local article is required. Duplicate versions of one
+    // article are acceptable; distinct DOI/title collisions are not.
+    bool linkSIFromLocal(const QString& identity) {
+        const QVariantMap si=record(identity);
+        if(si.value("documentKind").toString()!=QStringLiteral("supporting_information"))
+            return false;
+        const QString cover=si.value("siCoverTitle").toString();
+        if(!SIIdentity::isArticleTitle(cover))return false;
+        const QString hinted=Metadata::normalizeDoi(
+            si.value("siArticleDoiCandidate").toString());
+        auto store=settings();
+        store.beginGroup(QStringLiteral("library/bibliography"));
+        QVariantMap found;
+        QString foundDoi;
+        for(const QString& key:store.childKeys()) {
+            const QVariantMap parent=store.value(key).toMap();
+            if(parent.value("documentKind").toString()==QStringLiteral("supporting_information"))continue;
+            const QString doi=Metadata::normalizeDoi(parent.value("doi").toString());
+            if(doi.isEmpty() || (!hinted.isEmpty() && hinted!=doi) ||
+               !SIIdentity::sameArticleTitle(cover,parent.value("title").toString()))continue;
+            if(!foundDoi.isEmpty() && (foundDoi!=doi ||
+               !SIIdentity::sameArticleTitle(found.value("title").toString(),
+                                             parent.value("title").toString())))return false;
+            found=parent;
+            foundDoi=doi;
+        }
+        store.endGroup();
+        return !foundDoi.isEmpty() && linkSIToParent(identity,found,foundDoi,true);
+    }
+
+    bool markSIReview(const QString& identity, const QString& why) {
+        if(identity.isEmpty())return false;
+        QVariantMap value=record(identity);
+        if(value.value("documentKind").toString()!=QStringLiteral("supporting_information") ||
+           value.value("siLinkStatus").toString()==QStringLiteral("verified"))return false;
+        value["siLinkStatus"]=QStringLiteral("needs_review");
+        value["siDiagnostic"]=why.left(120);
+        return save(identity,value,false);
     }
 
     // Copy bibliography without changing either source or field provenance.

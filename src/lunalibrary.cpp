@@ -3902,10 +3902,13 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         return fail("Asynchronous folder PDF counts were not delivered");
     const QString countRoot = library->root_;
     QString childFolderPath;
+    // Keep the counted directory alive until ALL UI smoke checks finish.
+    // QFileSystemModel may still be watching a selected child; deleting that
+    // directory mid-test races native QFileSystemWatcher notifications.
+    QTemporaryDir subfolder(QDir(countRoot).filePath(QStringLiteral("luna-count-XXXXXX")));
     const int baselineCount = library->model_->pdfCount(countRoot);
     if (baselineCount < 1) return fail("Root folder PDF count excluded its local document");
     {
-        QTemporaryDir subfolder(QDir(countRoot).filePath(QStringLiteral("luna-count-XXXXXX")));
         if (!subfolder.isValid() ||
             !QFile::copy(path, QDir(subfolder.path()).filePath(QStringLiteral("nested.pdf"))))
             return fail("Nested PDF count fixture could not be created");
@@ -3917,6 +3920,10 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             library->model_->pdfCount(subfolder.path()) == 1; }, 10000))
             return fail("Child PDF changed parent direct count or missed child count");
     }
+    // Delete only the synthetic PDF. Keep its directory watchable until
+    // QTemporaryDir is destroyed after the complete smoke has returned.
+    if (!QFile::remove(QDir(subfolder.path()).filePath(QStringLiteral("nested.pdf"))))
+        return fail("Synthetic nested PDF could not be removed");
     checkpoint("count-deleted");
     library->model_->refreshPdfCounts(countRoot);
     if (!wait([&] { return library->model_->countsAvailable() &&
@@ -3926,6 +3933,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     checkpoint("count-recovered");
     if (!wait([&] { return window.isEnabled() && window.getProgramController()->canClose(); }))
         return fail("Reader busy before crop verification");
+    checkpoint("preview-enter");
     auto* preview = window.findChild<QAction*>(QStringLiteral("LunaPagePreview"));
     auto* grid = window.findChild<QListView*>(QStringLiteral("LunaPageGrid"));
     auto* view = window.findChild<QMenu*>(QStringLiteral("menuView"));
@@ -3957,6 +3965,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (preview->isChecked() || grid->isVisible())
         return fail("Optional page preview did not return to the paper list");
     window.getProgramController()->getPdfWidget()->getDrawWidgetProxy()->goToPage(0);
+    checkpoint("crop-enter");
     const QFileInfo pdf(path);
     const QString thumbnail = pdf.absolutePath() + QLatin1Char('/') + pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
     if (QFileInfo::exists(thumbnail)) return fail("Synthetic crop destination already exists");
@@ -4021,6 +4030,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         return fail("Native directory drop target missing");
     if (!list->dragEnabled() || list->dragDropMode() != QAbstractItemView::DragOnly)
         return fail("Paper-list file drag source missing");
+    checkpoint("folder-icons-enter");
     // Verify all twenty approved SVG resources and portable metadata.
     // A selection stores only iconId, and never writes into the PDF.
     QString iconError;
@@ -4068,6 +4078,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (!QFileInfo::exists(thumbnail) || !QFileInfo::exists(path))
         return fail("Folder icon reset altered PDF or thumbnail files");
     // Paper-card thumbnails are sufficient: no secondary hover popup.
+    checkpoint("hover-enter");
     const QPoint card = list->visualItemRect(item).center();
     mouse(list->viewport(), QEvent::MouseMove, card, Qt::NoButton, Qt::NoButton);
     QCoreApplication::processEvents();
@@ -4076,6 +4087,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     // No click-to-edit: an incidental click on the '+ 메모' line must
     // never open a QLineEdit. Explicit editItem is the same method invoked
     // by the right-click "메모 편집…" action.
+    checkpoint("memo-enter");
     const QPoint memoPoint = DocumentCard::memoRect(list->visualItemRect(item)).center();
     mouse(list->viewport(), QEvent::MouseButtonPress, memoPoint, Qt::LeftButton, Qt::LeftButton);
     mouse(list->viewport(), QEvent::MouseButtonRelease, memoPoint, Qt::LeftButton, Qt::NoButton);

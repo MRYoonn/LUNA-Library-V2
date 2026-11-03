@@ -242,3 +242,11 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 
 **Release boundary:** no automatic update or `main` merge until strict public Python source checks, Windows native Qt metadata tests, full PDF4QT/MSVC build, PDF/tabs/annotations, portable ZIP and real updater checks pass for the identical source SHA. Real publisher SI recognition accuracy and MYBOX cross-PC linking still require a separate gold-standard test. Preserve first-failure logs and GitHub Action diagnostics for every failed build.
 
+
+### SI Qt native first-failure root cause (2026-11-04)
+
+- [SI native run #41697510292](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41697510292): Windows MSVC compilation succeeded; native Qt SI test failed at `ACS SI cover DOI/title extracted independently`.
+- [Instrumented reproduction #41698081821](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41698081821) emitted the actual data (not speculation): `documentKind=supporting_information`, DOI `10.1021/acs.joc.5c01153`, `siEvidenceSource=si_cover_explicit_doi`, but `siCoverTitle=Visible-Light-Driven C5 Functionalization of Thiouracils by a Photoredox Process Alice Brown, Clara Green`. The title wrongly swallowed the immediately following author line.
+- **Root cause:** the newly added SI cover author-row `QRegularExpression` had one extra closing parenthesis in its repeated second-author group. The expression was invalid, so `authorList.match(...).hasMatch()` never recognized the authors and the multi-row title collector appended their names. Corrected the regex and added `authorList.isValid()` fail-closed protection. Native regression includes both single-line and multi-line SI titles with comma-separated authors, and a hard assertion that cover title excludes the author row.
+- The prior stable v0.9.0.249 executable was never modified. The #251/#252 full Windows runs were dispatched at earlier revisions and are **not acceptance evidence** for the corrected regex; final-source quickcheck/full Windows build must pass before a release.
+

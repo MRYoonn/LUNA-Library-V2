@@ -161,6 +161,30 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         with self.assertRaisesRegex(lab.DatasetError, "invalid expected_status"):
             lab.score(gold, predictions)
 
+    def test_missing_positive_snapshot_field_is_not_silent_abstention(self):
+        # An omitted field is an incomplete native capture, not an explicit
+        # extractor abstention. Both count FN, but only the omission is a
+        # snapshot-integrity error.
+        gold, predictions = sample()
+        target = predictions["cases"][0]["observed"]
+        self.assertTrue(target["title"])
+        del target["title"]
+        report = lab.score(gold, predictions)
+        self.assertFalse(report["pass"])
+        self.assertEqual(report["field_scores"]["title"]["fn"], 1)
+        self.assertEqual(report["field_scores"]["title"]["missing_snapshot"], 1)
+        self.assertTrue(any(e["field"] == "title" and
+                            e["error"] == "missing_snapshot_field"
+                            for e in report["errors"]))
+        target["title"] = None
+        report = lab.score(gold, predictions)
+        self.assertFalse(report["pass"])
+        self.assertEqual(report["field_scores"]["title"]["fn"], 1)
+        self.assertEqual(report["field_scores"]["title"]["missing_snapshot"], 0)
+        self.assertTrue(any(e["field"] == "title" and
+                            e["error"] == "missing"
+                            for e in report["errors"]))
+
     def test_missing_empty_field_snapshot_is_not_a_pass(self):
         gold, predictions = sample()
         case = next(item for item in predictions["regressions"]

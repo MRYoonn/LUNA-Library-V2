@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
-// Register LUNA as a PER-USER .pdf candidate. Windows 10/11 owns the actual
+// Register LUNA as a PER-USER .pdf candidate using EXE resource 2.
+// Windows 10/11 owns the actual
 // UserChoice association: never write UserChoice or hijack the default app.
 #include <QDir>
 #include <QFileInfo>
@@ -49,10 +50,10 @@ inline bool writeEmptyValue(const QString& keyPath,const QString& name,QString* 
         *failure=QStringLiteral("OpenWithProgids: Win32 %1").arg(status);
     return status==ERROR_SUCCESS;
 }
-inline bool registerCurrentUser(const QString& exePath, const QString& pdfIconPath,
+inline bool registerCurrentUser(const QString& exePath,
                                 QString* failure=nullptr,
                                 const QString& prefix=QStringLiteral("Software\\")) {
-    const QFileInfo executable(exePath),icon(pdfIconPath);
+    const QFileInfo executable(exePath);
     // A private test prefix is allowed for synthetic HKCU registry checks;
     // the user-visible action can only use the real HKCU\Software prefix.
     if(prefix!=QStringLiteral("Software\\") &&
@@ -62,19 +63,18 @@ inline bool registerCurrentUser(const QString& exePath, const QString& pdfIconPa
     }
     if(!executable.isFile() || executable.isSymLink() ||
        executable.fileName().compare(QStringLiteral("LUNA.exe"),Qt::CaseInsensitive)!=0 ||
-       !icon.isFile() || icon.isSymLink() ||
-       icon.fileName().compare(QStringLiteral("LUNA-PDF.ico"),Qt::CaseInsensitive)!=0 ||
-       executable.canonicalPath().compare(icon.canonicalPath(),Qt::CaseInsensitive)!=0) {
-        if(failure)*failure=QStringLiteral("LUNA.exe와 LUNA-PDF.ico를 같은 폴더에 두세요.");
+       executable.canonicalFilePath().isEmpty()) {
+        if(failure)*failure=QStringLiteral("LUNA.exe 경로를 확인해 주세요.");
         return false;
     }
     const QString exe=QDir::toNativeSeparators(executable.canonicalFilePath());
-    const QString ico=QDir::toNativeSeparators(icon.canonicalFilePath());
     const QString association=prefix+QStringLiteral("Classes\\LUNA.Library.PDF");
     const QString executableKey=prefix+QStringLiteral("Classes\\Applications\\LUNA.exe");
     const QString capabilities=prefix+QStringLiteral("LUNA Library\\Capabilities");
     const QString open=QStringLiteral("\"")+exe+QStringLiteral("\" \"%1\"");
-    const QString iconValue=QStringLiteral("\"")+ico+QStringLiteral("\",0");
+    // ID 1: original blue application icon; ID 2: red PDF document icon.
+    // A negative resource index is the precise ID, not the first shell icon.
+    const QString iconValue=QStringLiteral("\"")+exe+QStringLiteral("\",-2");
     const auto set=[&](const QString& key,const QString& name,const QString& value){
         return writeValue(key,name,value,failure);
     };
@@ -102,7 +102,7 @@ inline bool registerCurrentUser(const QString& exePath, const QString& pdfIconPa
     return true;
 }
 #else
-inline bool registerCurrentUser(const QString&,const QString&,QString* failure=nullptr,
+inline bool registerCurrentUser(const QString&,QString* failure=nullptr,
                                 const QString& ={}) {
     if(failure)*failure=QStringLiteral("Windows 전용 기능");
     return false;

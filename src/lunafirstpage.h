@@ -87,21 +87,26 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
         }
     }
     const auto candidates=Metadata::collectCandidates(pages,infoText);
-    const auto headings=first.split(QLatin1Char('\n'),Qt::SkipEmptyParts);
-    for(qsizetype i=0;i<headings.size() && i<16;++i)
-        if(headings[i].contains(QStringLiteral("Supporting Information"),Qt::CaseInsensitive) ||
-           headings[i].contains(QStringLiteral("Supplementary Information"),Qt::CaseInsensitive))
-            return {{"documentKind",QStringLiteral("supporting_information")},
-                    {"doiStatus",QStringLiteral("needs_review")}};
+    // Do not classify an ACS main-paper navbar hyperlink as an SI cover.
+    if (FrontMatter::isSupplementCover(first))
+        return {{"documentKind",QStringLiteral("supporting_information")},
+                {"doiStatus",QStringLiteral("needs_review")}};
     QVariantMap evidence=Bibliography::firstPageCitation(first);
     const QVariantMap titleLayout=TitleExtraction::infer(firstPageLines,firstPageHeight);
     const QVariantMap textualTitle=Bibliography::firstPageIdentity(first);
-    // A well-separated, prominent first-page title can be saved without DOI.
-    // Less certain candidates never become the displayed title automatically.
+    // Publisher-specific text title fallback from scheduled accuracy module:
+    // require ACS or RSC masthead, author boundary and strong citation cues.
+    const QString acs=FrontMatter::acsTitle(first);
+    const QString publisherTitle=acs.isEmpty() ? FrontMatter::rscTitle(first) : acs;
+    // A prominent geometric title stays first; conservative publisher titles
+    // rescue PDFs whose PDF4QT font/layout extraction has a weak title.
     const QString title=titleLayout.value("title").toString();
     if (!title.isEmpty() && Bibliography::credibleTitle(title)) {
         evidence["title"]=title;
         evidence["titleSource"]=QStringLiteral("first_page_layout");
+    } else if (Bibliography::credibleTitle(publisherTitle)) {
+        evidence["title"]=publisherTitle;
+        evidence["titleSource"]=QStringLiteral("publisher_cover_verified");
     } else if (!textualTitle.value("title").toString().isEmpty()) {
         evidence["title"]=textualTitle.value("title");
         evidence["titleSource"]=QStringLiteral("first_page_verified");
@@ -111,8 +116,13 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
         const QString pdfTitle=info->title.simplified();
         // PDF Info /Title can be a stale Word or publisher export name.
         // Keep a strongly identified printed title if they disagree.
-        if (evidence.value("title").toString().isEmpty() ||
-            Metadata::compatibleTitle(evidence.value("title").toString(),pdfTitle)) {
+        // Do not demote an independently verified publisher-cover title to
+        // stale PDF Info, even if their normalized words happen to agree.
+        if (evidence.value("titleSource").toString() == QStringLiteral("publisher_cover_verified")) {
+            if (!Metadata::compatibleTitle(evidence.value("title").toString(),pdfTitle))
+                evidence["titleStatus"]=QStringLiteral("needs_review");
+        } else if (evidence.value("title").toString().isEmpty() ||
+                   Metadata::compatibleTitle(evidence.value("title").toString(),pdfTitle)) {
             evidence["title"]=pdfTitle;
             evidence["titleSource"]=QStringLiteral("pdf_metadata");
         } else {

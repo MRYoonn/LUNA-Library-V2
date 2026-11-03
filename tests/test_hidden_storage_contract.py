@@ -17,6 +17,7 @@ class HiddenStorageContract(unittest.TestCase):
         cls.undo = (ROOT / "src/lunatrashundo.h").read_text(encoding="utf-8")
         cls.sync = (ROOT / "src/lunalocalsync.h").read_text(encoding="utf-8")
         cls.ui = (ROOT / "src/lunalibrary.cpp").read_text(encoding="utf-8")
+        cls.tabs = (ROOT / "src/lunatabs.cpp").read_text(encoding="utf-8")
 
     def test_hidden_windows_root_and_legacy_fallback(self):
         for needle in (
@@ -76,6 +77,18 @@ class HiddenStorageContract(unittest.TestCase):
         self.assertIn('const QString movedThumbnail = SidecarStorage::thumbnail(movedPath, QStringLiteral(".png"));', self.ui)
         self.assertNotIn('const QString movedThumbnail = QDir(movedFolder).filePath(QFileInfo(thumbnail).fileName());', self.ui)
         self.assertIn("folder / \"lunasidecarpaths.h\"", (ROOT / "tools/apply_overlay.py").read_text("utf-8"))
+        for required in (
+            'const QString thumb = luna::SidecarStorage::thumbnail(files[0], QStringLiteral(".png"));',
+            'const QString thumbnail = luna::SidecarStorage::thumbnail(files[0], QStringLiteral(".png"));',
+            'const QString movedThumb = luna::SidecarStorage::thumbnail(movedPdf, QStringLiteral(".png"));',
+            'luna::SidecarStorage::thumbnail(files[1], QStringLiteral(".png"))',
+        ):
+            self.assertIn(required, self.tabs, required)
+        for stale in (
+            '"/A.luna-thumb.png"',
+            '"/B.luna-thumb.png"',
+        ):
+            self.assertNotIn(stale, self.tabs, stale)
 
     def test_native_windows_coverage_is_real_not_only_source_assertions(self):
         cmake = (ROOT / "tests/native_dialog/CMakeLists.txt").read_text("utf-8")

@@ -91,6 +91,44 @@ int main(int argc, char** argv) {
               "References\nJones, Chem. Commun., 2025, 61, 17870-17873"))
               .isEmpty(), "unanchored body citation cannot be imported");
 
+    const QVariantMap elsevierCover = luna::Bibliography::firstPageElsevierIdentity(
+        QStringLiteral("Bioorg. Med. Chem. Lett. 121 (2025) 130154\n"
+            "Contents lists available at ScienceDirect\n"
+            "Bioorganic & Medicinal Chemistry Letters\n"
+            "journal homepage: www.elsevier.com/locate/bmcl\n"
+            "Design and evaluation of synthetic medicinal chemistry scaffolds\n"
+            "for exploring new receptor ligands\n"
+            "Alex Sample a,1, Taylor Scientist a,1, Research Analyst c,*\n"
+            "Jordan Reviewer a,*\n"
+            "a College of Synthetic Pharmacy, Test University\n"
+            "A R T I C L E I N F O\n"));
+    check(elsevierCover.value("title").toString() ==
+          QStringLiteral("Design and evaluation of synthetic medicinal chemistry scaffolds "
+                         "for exploring new receptor ligands"),
+          "Elsevier printed title confirmed by author boundary");
+    check(elsevierCover.value("authors").toString() ==
+          QStringLiteral("Jordan Reviewer") &&
+          elsevierCover.value("authorEvidence").toString() ==
+          QStringLiteral("first-page-elsevier-author-block"),
+          "Elsevier last author excludes next institutional affiliation");
+    const QVariantMap elsevierReview = luna::Bibliography::firstPageElsevierIdentity(
+        QStringLiteral("Tetrahedron Letters 144 (2024) 155153\n"
+            "Contents lists available at ScienceDirect\nTetrahedron Letters\n"
+            "journal homepage: www.elsevier.com/locate/tetlet\n"
+            "Review\nA review of synthetic radical sulfur reagents\n"
+            "for functionalization of aromatic ring systems\n"
+            "Alex Sample a,b, Jordan Reviewer b,*\n"
+            "a School of Synthetic Chemistry\n"));
+    check(elsevierReview.value("authors").toString() == QStringLiteral("Jordan Reviewer"),
+          "Elsevier two-author review header");
+    check(luna::Bibliography::firstPageElsevierIdentity(QStringLiteral(
+              "Bioorg. Med. Chem. Lett. 121 (2025) 130154\n"
+              "Contents lists available at ScienceDirect\n"
+              "Bioorganic & Medicinal Chemistry Letters\n"
+              "journal homepage: www.elsevier.com/locate/bmcl\n"
+              "Unverified title without publisher author line\n")).isEmpty(),
+          "Elsevier cover without author boundary abstains");
+
     // Synthetic publisher cover structures; never embed real user PDFs or
     // private extracted titles. Detect line-interleaving safely.
     const QString chemCommCover = QStringLiteral(

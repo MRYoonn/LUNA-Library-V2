@@ -47,6 +47,10 @@ inline CopyResult copyNextToParent(const QString& chosenPdf, const QString& arti
     }
     const QString root=parent.canonicalPath();
     const QString source=input.canonicalFilePath();
+    if(!source.isEmpty() && source==parent.canonicalFilePath()) {
+        result.error=QStringLiteral("원논문 자신을 SI로 추가할 수 없습니다.");
+        return result;
+    }
     if(root.isEmpty() || source.isEmpty() || !QFileInfo(root).isWritable()) {
         result.error=QStringLiteral("선택한 PDF를 읽거나 원논문 폴더에 쓸 수 없습니다.");
         return result;

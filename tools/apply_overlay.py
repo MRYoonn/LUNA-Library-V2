@@ -297,7 +297,7 @@ def apply(root: Path, dry_run=False) -> None:
         # The PDF icon is embedded; legacy auto-updaters reject standalone .ico.
         folder / "LUNA-PDF.ico": make_icon(),
         folder / "LUNA-Moon.png": (own.parent / "assets/icons/LUNA-Moon.png").read_bytes(),
-        folder / "luna_icon.rc": b'1 ICON DISCARDABLE "LUNA-Moon.ico"\\n2 ICON DISCARDABLE "LUNA-PDF.ico"\\n',
+        folder / "luna_icon.rc": b'1 ICON DISCARDABLE "LUNA-Moon.ico"\n2 ICON DISCARDABLE "LUNA-PDF.ico"\n',
         folder / "luna_resources.qrc": b'<RCC><qresource prefix="/luna"><file>lunalibrary.qss</file><file>LUNA-Moon.ico</file><file>LUNA-Moon.png</file></qresource></RCC>\n',
         folder / "luna_main.cpp": make_main(main.read_text(encoding="utf-8")
             .replace("\r\n", "\n")).encode("utf-8"),

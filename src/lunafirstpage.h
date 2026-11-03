@@ -84,7 +84,12 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
     const QString printedAcsTitle = Bibliography::firstPageAcsTitle(first);
     const QString printedRscTitle = printedAcsTitle.isEmpty()
         ? Bibliography::firstPageRscTitle(first) : QString();
-    const QString printedTitle = !printedAcsTitle.isEmpty() ? printedAcsTitle : printedRscTitle;
+    const QVariantMap elsevierIdentity =
+        (printedAcsTitle.isEmpty() && printedRscTitle.isEmpty())
+        ? Bibliography::firstPageElsevierIdentity(first) : QVariantMap();
+    const QString printedTitle = !printedAcsTitle.isEmpty() ? printedAcsTitle
+        : !printedRscTitle.isEmpty() ? printedRscTitle
+        : elsevierIdentity.value(QStringLiteral("title")).toString();
     if(!printedTitle.isEmpty()) {
         evidence["title"] = printedTitle;
         evidence["titleSource"] = QStringLiteral("first_page_verified");
@@ -100,11 +105,16 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
         evidence["title"]=info->title.simplified();
         evidence["titleSource"]=QStringLiteral("pdf_metadata");
     }
-    QString author=Bibliography::firstPageLastAuthor(first);
-    if(author.isEmpty()) author=Bibliography::firstPageRscLastAuthor(first);
+    QString author=elsevierIdentity.value(QStringLiteral("authors")).toString();
+    QString authorEvidence=elsevierIdentity.value(QStringLiteral("authorEvidence")).toString();
+    if(author.isEmpty()) {
+        author=Bibliography::firstPageLastAuthor(first);
+        if(author.isEmpty()) author=Bibliography::firstPageRscLastAuthor(first);
+        authorEvidence=QStringLiteral("first-page-terminal-and");
+    }
     if(!author.isEmpty()) {
         evidence["authors"]=author;
-        evidence["authorEvidence"]=QStringLiteral("first-page-terminal-and");
+        evidence["authorEvidence"]=authorEvidence;
     }
     if(Metadata::acceptableIdentity(candidates)) {
         evidence["doi"]=candidates.first().doi;

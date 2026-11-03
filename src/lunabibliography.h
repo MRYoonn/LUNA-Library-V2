@@ -37,6 +37,30 @@ public:
         return result;
     }
 
+    // A SI cover is not the same as an article's Supporting Information link.
+    // ACS article navigation includes that standalone phrase in the first
+    // 16 y-sorted text rows; using "contains" there corrupts main-paper cards.
+    static bool isSupportingInformationCover(const QString& firstPageText) {
+        const auto lines = firstPageText.left(12000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
+        // These are article navigation / publisher citation cues, not SI
+        // headers. Search the same front-matter window before interpreting
+        // a generic "Supporting Information" hyperlink as a cover.
+        for (qsizetype i = 0; i < lines.size() && i < 24; ++i) {
+            const QString item = lines[i].simplified();
+            if (item.startsWith(QStringLiteral("Cite This:"), Qt::CaseInsensitive) ||
+                item.compare(QStringLiteral("Article Recommendations"), Qt::CaseInsensitive) == 0 ||
+                item.startsWith(QStringLiteral("pubs.acs.org/"), Qt::CaseInsensitive))
+                return false;
+        }
+        static const QRegularExpression cover(QStringLiteral(
+            R"(^(?:(?:Revised|Electronic)\s+)?(?:Supporting|Supplementary)\s+Information(?:\s*\((?:SI|ESI)\))?(?:\s+for(?:\s+.+)?)?\.?$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        for (qsizetype i = 0; i < lines.size() && i < 24; ++i)
+            if (cover.match(lines[i].simplified()).hasMatch()) return true;
+        return false;
+    }
+
     // Conservative citation extraction from the printed first page only.
     // Only known journal patterns are accepted; unknown text is left untouched.
     // No DOI parsing or online queries are performed.
@@ -46,15 +70,8 @@ public:
             text.replace(mark, QLatin1Char('-'));
         text.replace(QChar(0x00a0), QLatin1Char(' '));
         const auto lines = text.split(QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
-        // SI pages can cite the main article or references. They are not
-        // reliable evidence for the SI PDF's own publication fields.
-        for (qsizetype i = 0; i < lines.size() && i < 16; ++i) {
-            const QString heading = lines[i].simplified();
-            if (heading.compare(QStringLiteral("Supporting Information"), Qt::CaseInsensitive) == 0 ||
-                heading.compare(QStringLiteral("Revised Supporting Information"), Qt::CaseInsensitive) == 0 ||
-                heading.compare(QStringLiteral("Supplementary Information"), Qt::CaseInsensitive) == 0)
-                return {}; // SI metadata must remain unverified without explicit evidence.
-        }
+        // SI pages can cite the main paper; do not import these as SI's own fields.
+        if (isSupportingInformationCover(text)) return {};
         static const QRegularExpression pattern(QStringLiteral(
             R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|J\.?\s*Phys\.?\s*Chem\.?\s*[ABC]\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Org\.?\s*Biomol\.?\s*Chem\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
             QRegularExpression::CaseInsensitiveOption);
@@ -159,13 +176,8 @@ public:
             if (!line.isEmpty()) lines.append(line);
             if (lines.size() >= 55) break;
         }
-        // Supplementary information often has no original article metadata.
-        // Do not mine captions, instructions or the body for fake title/authors.
-        for (qsizetype i = 0; i < lines.size() && i < 16; ++i) {
-            if (lines[i].contains(QStringLiteral("Supporting Information"), Qt::CaseInsensitive) ||
-                lines[i].contains(QStringLiteral("Supplementary Information"), Qt::CaseInsensitive))
-                return {};
-        }
+        // Do not mine an SI cover for the parent article's title/authors.
+        if (isSupportingInformationCover(text)) return {};
         if (firstPageCitation(text).value("journal").toString().isEmpty()) return {};
         const QString explicitLastAuthor = firstPageLastAuthor(text);
         if (explicitLastAuthor.isEmpty()) return {};
@@ -234,6 +246,13 @@ public:
     static bool credibleTitle(const QString& value) {
         const QString text = value.simplified();
         if (text.size() < 12 || text.size() > 240) return false;
+        // ACS PDF Info titles like "jo5c01153 1..9" and "ml5c00120 1..7"
+        // are printer job names, not scientific titles. They MUST NOT
+        // displace a visible first-page title or DOI-matched provider title.
+        static const QRegularExpression printerJob(QStringLiteral(
+            R"(^(?:[A-Za-z]{1,18}\.)?[A-Za-z]{1,20}\d[A-Za-z0-9.]*\s+\d+\s*\.{2,}\s*\d+$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        if (printerJob.match(text).hasMatch()) return false;
         static const QRegularExpression placeholder(QStringLiteral(
             R"((?:^|\b)(?:No Job Name|Microsoft Word|Untitled|New Document|Document1|Supporting Information|Revised Supporting Information)(?:\b|$))"),
             QRegularExpression::CaseInsensitiveOption);

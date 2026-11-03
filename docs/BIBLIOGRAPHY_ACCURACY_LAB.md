@@ -900,3 +900,12 @@ the same already-loaded PR #16 bibliography record, then run
 `--require-real --pdf-dir --expected-engine-commit` against 20+ authorized
 ACS/RSC/Wiley/Nature/Elsevier PDFs and independently verify manual edits,
 offline/429/404, restart/move, and card rendering. Keep PR #18 Draft.
+
+**Windows CI failure / repair:** Exact commit `c5d7a866` passed Python
+but failed the QtCore MSVC compile in run #41549471856:
+`main.cpp(411): C2374/C2086 pdfBytes redefinition`. The newly added
+synthetic capture test reused the name of an existing physical move fixture
+later in the same `main()` scope. Reproduce by compiling
+`tests/native_accuracy` with MSVC. Commit `88415499` renamed only the new
+fixture to `capturePdfBytes`; verify the subsequent exact-HEAD Windows CI
+before treating the repair as PASS. No production logic was changed.

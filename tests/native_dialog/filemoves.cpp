@@ -80,7 +80,7 @@ int main(int argc, char** argv) {
     const QString oldName=QDir(renamedDir).filePath(QStringLiteral("original.pdf"));
     const QString newName=QDir(renamedDir).filePath(QStringLiteral("renamed.pdf"));
     const QString oldThumb=QDir(renamedDir).filePath(QStringLiteral("original.luna-thumb.png"));
-    const QString newThumb=QDir(renamedDir).filePath(QStringLiteral("renamed.luna-thumb.png"));
+    const QString newThumb=luna::SidecarStorage::thumbnail(newName,QStringLiteral(".png"));
     if (!write(oldName,document) || !write(oldThumb,thumbnail))
         return fail("Cannot create rename inputs");
     QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -192,9 +192,9 @@ int main(int argc, char** argv) {
     const QString watchedBefore=QDir(watchedFolder).filePath(QStringLiteral("watched-original.pdf"));
     const QString watchedAfter=QDir(watchedFolder).filePath(QStringLiteral("watched-renamed.pdf"));
     const QString oldPng=QDir(watchedFolder).filePath(QStringLiteral("watched-original.luna-thumb.png"));
-    const QString newPng=QDir(watchedFolder).filePath(QStringLiteral("watched-renamed.luna-thumb.png"));
+    const QString newPng=luna::SidecarStorage::thumbnail(watchedAfter,QStringLiteral(".png"));
     const QString oldJpg=QDir(watchedFolder).filePath(QStringLiteral("watched-original.luna-thumb.jpg"));
-    const QString newJpg=QDir(watchedFolder).filePath(QStringLiteral("watched-renamed.luna-thumb.jpg"));
+    const QString newJpg=luna::SidecarStorage::thumbnail(watchedAfter,QStringLiteral(".jpg"));
     if(!write(watchedBefore,document) || !write(oldPng,thumbnail) ||
        !write(oldJpg,QByteArray("separate JPG crop")))
         return fail("Cannot create nested Explorer thumbnail fixtures");

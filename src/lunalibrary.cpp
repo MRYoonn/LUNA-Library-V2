@@ -1685,12 +1685,15 @@ public:
     void focusSearch() { documents_->show(); updateMinimum(); query_->setFocus(); query_->selectAll(); }
     QLineEdit* searchEdit() const { return query_; }
     void savePanelState() {
-        if (navigation_->isHidden() || documents_->isHidden()) return;
         QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
-        settings.setValue(QStringLiteral("library/splitter"), split_->saveState());
-        if (auto* dock = qobject_cast<QDockWidget*>(parentWidget()))
-            if (dock->width() >= 432 && dock->width() <= 850)
-                settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width());
+        // Preserve inner proportions only while both panels are visible, but
+        // retain the user's width even when resizing a single remaining panel.
+        if (!navigation_->isHidden() && !documents_->isHidden())
+            settings.setValue(QStringLiteral("library/splitter"), split_->saveState());
+        if ((!navigation_->isHidden() || !documents_->isHidden()))
+            if (auto* dock = qobject_cast<QDockWidget*>(parentWidget()))
+                if (dock->width() >= 432 && dock->width() <= 850)
+                    settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width());
     }
 private:
     QStringList savedPaths(const QString& key) const {
@@ -2341,7 +2344,7 @@ private:
     }
     bool eventFilter(QObject* observed, QEvent* event) override {
         if (observed == parentWidget() && event->type() == QEvent::Resize) {
-            if (!navigation_->isHidden() && !documents_->isHidden())
+            if (!navigation_->isHidden() || !documents_->isHidden())
                 widthSaveTimer_.start();
             return QWidget::eventFilter(observed, event);
         }

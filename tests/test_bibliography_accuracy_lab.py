@@ -240,6 +240,23 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
                        "must_preserve": ["manual"]}
                 self.assertEqual(lab.score_regressions([row])["passed"], 1)
 
+    def test_empty_assertion_rejects_boolean_and_numeric_false_positives(self):
+        # Python False == 0 and 0 == [] is false, but False == "" is false;
+        # more importantly False == None is false and False == [] is false.
+        # A numeric zero or false must never count as an explicitly blank field.
+        for value in (False, 0, 0.0):
+            with self.subTest(value=value):
+                row = {"id": "typed-empty", "before": {},
+                       "after": {"doi": value}, "must_remain_empty": ["doi"]}
+                result = lab.score_regressions([row])
+                self.assertEqual(result["failed"], 1)
+                self.assertEqual(result["failures"][0]["reason"], "unexpected_value")
+        for value in (None, "", []):
+            with self.subTest(value=value):
+                row = {"id": "typed-empty", "before": {},
+                       "after": {"doi": value}, "must_remain_empty": ["doi"]}
+                self.assertEqual(lab.score_regressions([row])["passed"], 1)
+
     def test_status_only_regression_is_explicit_and_scoreable(self):
         gold, predictions = sample()
         predictions["regressions"].append({

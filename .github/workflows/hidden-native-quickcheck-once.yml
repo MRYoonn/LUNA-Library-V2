@@ -1,0 +1,60 @@
+name: LUNA hidden sidecar native Windows preflight - exact tested source
+on:
+  push:
+    branches:
+      - test/hidden-sidecar-native-quickcheck-20261103
+    paths:
+      - .github/workflows/hidden-native-quickcheck-once.yml
+
+permissions:
+  contents: read
+jobs:
+  native:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 29c0d9b57f6d9bb2c6b0f18de754bf6d4c7d4c87
+          persist-credentials: false
+      - name: Exact source security and contract preflight
+        shell: pwsh
+        run: |
+          if ((git rev-parse HEAD).Trim() -cne '29c0d9b57f6d9bb2c6b0f18de754bf6d4c7d4c87') { throw 'Wrong source SHA' }
+          python -B tools/preflight_public.py
+          if ($LASTEXITCODE -ne 0) { throw 'Public preflight failed' }
+          python -B -m unittest discover -s tests -p test_hidden_storage_contract.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Hidden storage contracts failed' }
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Compile and run real native sidecar, file move and bibliography tests
+        shell: pwsh
+        run: |
+          $probe=Join-Path $env:RUNNER_TEMP 'luna-native-sidecar-probe'
+          cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Qt6 CMake configure failed' }
+          cmake --build $probe --target luna-native-sidecars luna-native-filemoves --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'MSVC native C++ failed' }
+          ctest --test-dir $probe -C Release -R '^native_(hidden_sidecars|file_moves)$' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Native file storage behavior failed' }
+      - name: Preserve a diagnostic on success or failure
+        shell: pwsh
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/hidden-sidecar-quickcheck" | Out-Null
+          "Quickcheck exact LUNA source SHA 29c0d9b57f6d9bb2c6b0f18de754bf6d4c7d4c87. Inspect first failed step and CTest log for root cause; do not infer from workflow conclusion alone." |
+            Set-Content -Path "$env:RUNNER_TEMP/hidden-sidecar-quickcheck/failure-analysis.md" -Encoding UTF8
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-Hidden-Sidecar-Quickcheck-Diagnostics
+          path: ${{ runner.temp }}/hidden-sidecar-quickcheck/failure-analysis.md
+          retention-days: 90

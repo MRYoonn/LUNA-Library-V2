@@ -86,12 +86,19 @@ def project_si_rows(index: AssociationIndex, main_id: str,
                      unicodedata.normalize("NFKC", c.filename).casefold())
                     for c in candidates)
     ids = Counter(c.file_id for c in candidates if c.file_id is not None)
+    # A partly malformed/restored "verified" collection cannot certify the
+    # remaining rows as a complete, correctly attributed SI listing.
+    collection_complete = (len(candidates) == len(lookup.candidates)
+                           and all(count == 1 for count in names.values())
+                           and all(count == 1 for count in ids.values()))
+    if not collection_complete:
+        result["lookup_status"] = "needs_review"
     for c in candidates:
         if (names[(c.article_id,
                    unicodedata.normalize("NFKC", c.filename).casefold())] > 1
                 or (c.file_id is not None and ids[c.file_id] > 1)):
             continue
-        verified = (live_landing_check_completed
+        verified = (collection_complete and live_landing_check_completed
                     and lookup.status in VERIFIED_STATUSES
                     and c.status == "landing_verified")
         result["public_si"].append({

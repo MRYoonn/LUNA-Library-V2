@@ -38,7 +38,7 @@ jobs:
           test "${#SOURCE_SHA}" -eq 40
           test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$SOURCE_SHA"
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
-          echo "Windows full compiler and GUI verification requested for immutable $SOURCE_SHA"
+          echo "SI parent DOI+title integration: Windows full compiler and GUI verification requested for immutable $SOURCE_SHA, following moved documentKind source contract fix"
           echo "REQUIRE metadata Qt native regression, PDF4QT, tabs, annotations, portable ZIP before release."
       - name: Preserve analysis artifact even on failure
         if: always()

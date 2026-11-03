@@ -5,6 +5,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 UI = (ROOT / "src/lunalibrary.cpp").read_text(encoding="utf-8")
 FILES = (ROOT / "src/lunafilemove.h").read_text(encoding="utf-8")
+NATIVE_MOVES = (ROOT / "tests/native_dialog/filemoves.cpp").read_text(encoding="utf-8")
 BIB = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
 UNDO = (ROOT / "src/lunatrashundo.h").read_text(encoding="utf-8")
 SYNC = (ROOT / "src/lunalocalsync.h").read_text(encoding="utf-8")
@@ -101,9 +102,9 @@ class NativeFileManagementContracts(unittest.TestCase):
             "pdfPaths_.clear()",
         ):
             self.assertIn(token, UNDO, token)
-        self.assertIn("undo.trashBatch(batch,&renameError,recycle)", FILES)
-        self.assertIn("undo.pdfPaths().size()!=2", FILES)
-        self.assertIn("undo.trashBatch(batch,&renameError,failAfterOne)", FILES)
+        self.assertIn("undo.trashBatch(batch,&renameError,recycle)", NATIVE_MOVES)
+        self.assertIn("undo.pdfPaths().size()!=2", NATIVE_MOVES)
+        self.assertIn("undo.trashBatch(batch,&renameError,failAfterOne)", NATIVE_MOVES)
         for token in (
             "[](const QString& item) { return QFile::moveToTrash(item); }",
             "if (!recycler(item.first))",

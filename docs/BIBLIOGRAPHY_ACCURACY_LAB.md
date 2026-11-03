@@ -965,3 +965,19 @@ settings, private documents, or credentials. PR remains Draft.
 **Reproduce:** Run `python -B -m unittest discover -s tests -p 'test_bibliography_accuracy_lab.py' -v`. Remove `title` from the first synthetic prediction case and score again; the report must contain `missing_snapshot_field` and a title FN. Restore the key with `null`; the report must contain `missing` and a title FN, with no `missing_snapshot` increment.
 
 **Pending:** Check this HEAD's Python/Windows CI; connect read-only native capture to the actual PDF SHA256 on Windows; verify real persisted QSettings/manual edits, HTTP 429/404, restart/move; collect permissioned/public publisher PDFs and independently audit evidence. No real accuracy measurement was performed in this change.
+
+
+### Follow-up — local position-order SI-risk probe (privacy-safe)
+
+Run `python -B -m unittest discover -s tests -p 'test_bibliography_si_risk_probe.py' -v` for fabricated front-page text and SHA/privacy contracts; no private PDF is used in CI. For locally authorized PDFs, install PyMuPDF **on the user's machine only**, keep all PDF files and the reference JSON **outside this repository**, and run:
+
+```sh
+python -B tools/bibliography_si_risk_probe.py \
+  --reference /PRIVATE/REFERENCE_CANDIDATES.json \
+  --pdf-dir /PRIVATE/PDF_DIRECTORY \
+  --report /PRIVATE/si-risk-proxy.json
+```
+
+Multiple `--pdf-dir` values are supported. Input must be a *provisional reference candidate* document with opaque `case_id`, bare local `file_name`, verified `pdf_sha256`, and `candidate_expected.document_kind`. The tool compares actual local bytes to SHA256; it fails closed on a conflicting same-name file, invalid PDF header, missing file, or leaf symlink. Do not copy personal/permissioned PDFs or candidate references into the repository, CI, or PR comments. The output intentionally contains **only opaque IDs and predicted kind**, not paths, filenames, page text, DOI, titles, authors, or watermark information.
+
+**Scope:** The production `src/lunafirstpage.h` in PR #16 uses any `Supporting Information` / `Supplementary Information` text in the first 16 nonblank y/x-sorted rows to classify the document as SI. A synthetic ACS main-page sample with an `Article Recommendations / Supporting Information` link is therefore flagged as SI by that condition, while a standalone top-edge RSC SI heading is correctly flagged. The local diagnostic uses PyMuPDF's *approximate* y/x geometry and is **not PDF4QT/LUNA execution**, nor precision/recall. Production SI remediation must be owned and verified in PR #16, **not silently patched by this independent PR**. Retest with actual PDF4QT text order and the validated 20+ publisher corpus once a Windows build is available.

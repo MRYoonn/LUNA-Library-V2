@@ -39,9 +39,9 @@ int main(int argc,char** argv) {
     if(!next.success || next.path==first.path || read(next.path)!=bytes ||
        read(first.path)!=bytes || !QFileInfo(next.path).fileName().contains(QStringLiteral("(2)")))
         return fail("Second SI did not generate a collision-free indexed name");
-    if(luna::ManualSI::copyNextToParent(parent,parent,title).success &&
+    if(luna::ManualSI::copyNextToParent(parent,parent,title).success ||
        !QFileInfo::exists(parent))
-        return fail("Self attachment erased original paper");
+        return fail("Original PDF must not be selectable as its own SI");
     if(luna::ManualSI::validParentFileName(QStringLiteral("../outside.pdf")) ||
        luna::ManualSI::validParentFileName(QStringLiteral("C:\\evil.pdf")) ||
        !luna::ManualSI::validParentFileName(QFileInfo(parent).fileName()))

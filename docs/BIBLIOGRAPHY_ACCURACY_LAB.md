@@ -934,3 +934,23 @@ authorized/public PDF copies with independent per-field evidence, capture
 read-only records from an exact PR #16 Windows build, and run the local
 goldset and snapshot scorer. Real provider HTTP 429/404, personal legacy
 QSettings, physical PDF/sidecar moves, and Windows GUI remain unverified.
+
+
+## Follow-up: explicit blank-snapshot type contract (2026-11-03)
+
+The regression scorer now defines a captured empty value explicitly as JSON
+null, an empty string, or an empty array (with exact types). Boolean false and
+numeric zero are **not** empty values. A synthetic regression test exercises
+both rejected and accepted types. This is defensive contract hardening; no
+real publisher PDF, native Windows snapshot, or QSettings was tested here.
+
+Reproduce locally:
+
+```sh
+python -B -m unittest discover -s tests -p 'test_bibliography_accuracy_lab.py' -v
+```
+
+Next: check CI on this exact HEAD, then prioritize the read-only Windows
+capture binding to an actual extracted PDF and 20+ authorized/public goldset
+PDFs. Record errors and actual source evidence locally; do not upload user
+settings, private documents, or credentials. PR remains Draft.

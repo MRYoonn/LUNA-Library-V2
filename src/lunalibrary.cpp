@@ -142,14 +142,16 @@ QString savedThumbnailForPdf(const QString& documentPath) {
     const QFileInfo pdf(documentPath);
     if (!pdf.isFile() || pdf.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
         return {};
-    const QString prefix = pdf.absolutePath() + QLatin1Char('/') +
-        pdf.completeBaseName() + QStringLiteral(".luna-thumb");
     for (const QString& ext : {QStringLiteral(".png"), QStringLiteral(".jpg"), QStringLiteral(".jpeg")}) {
-        const QString candidate = prefix + ext;
-        const QFileInfo sidecar(candidate);
-        if (sidecar.isFile() && !sidecar.isSymLink() &&
-            sidecar.size() > 0 && sidecar.size() <= 5'000'000)
-            return candidate;
+        for (const QString& candidate : {SidecarStorage::thumbnail(documentPath, ext),
+                                       SidecarStorage::legacyThumbnail(documentPath, ext)}) {
+            const QFileInfo sidecar(candidate);
+            if (sidecar.isFile() && !sidecar.isSymLink() &&
+                sidecar.size() > 0 && sidecar.size() <= 5'000'000 &&
+                (candidate == SidecarStorage::legacyThumbnail(documentPath, ext) ||
+                 SidecarStorage::safeManagedDirectory(documentPath)))
+                return candidate;
+        }
     }
     return {};
 }
@@ -2436,10 +2438,11 @@ private:
         if (!original.isFile() ||
             original.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0)
             return;
-        const QString output = original.absolutePath() + QLatin1Char('/') +
-            original.completeBaseName() + QStringLiteral(".luna-thumb.png");
-        if (QFileInfo(output).isSymLink()) {
-            QMessageBox::warning(this, QStringLiteral("썸네일 저장 취소"), QStringLiteral("연결 파일에는 저장하지 않습니다."));
+        const QString output = SidecarStorage::thumbnail(documentPath, QStringLiteral(".png"));
+        if (!SidecarStorage::migrateLegacy(documentPath) ||
+            !SidecarStorage::ensureArea(documentPath, false) || QFileInfo(output).isSymLink()) {
+            QMessageBox::warning(this, QStringLiteral("썸네일 저장 취소"),
+                QStringLiteral("기존 관리 파일 충돌 또는 숨김 폴더 오류입니다. 원본은 보존되었습니다."));
             return;
         }
         if (QFileInfo::exists(output) &&
@@ -2447,7 +2450,7 @@ private:
                 QStringLiteral("기존 썸네일을 새 이미지로 교체할까요?"),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
             return;
-        // The image is saved beside the local PDF, including MYBOX-synced folders.
+        // The image is saved under .luna/thumbnails beside the local synced PDF.
         // QWidget::grab is used *after* the crop overlay is hidden.
         document->repaint();
         const QPixmap image = document->grab(area);
@@ -3974,7 +3977,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     window.getProgramController()->getPdfWidget()->getDrawWidgetProxy()->goToPage(0);
     checkpoint("crop-enter");
     const QFileInfo pdf(path);
-    const QString thumbnail = pdf.absolutePath() + QLatin1Char('/') + pdf.completeBaseName() + QStringLiteral(".luna-thumb.png");
+    const QString thumbnail = SidecarStorage::thumbnail(path, QStringLiteral(".png"));
     if (QFileInfo::exists(thumbnail)) return fail("Synthetic crop destination already exists");
     auto* cropAction = window.findChild<QAction*>(QStringLiteral("LunaCropThumbnail"));
     if (!cropAction || !cropAction->isEnabled()) return fail("Crop toolbar action is unavailable for loaded PDF");
@@ -4012,8 +4015,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     QTemporaryDir copied; // Keep generated copies outside the library's recursive scanner.
     if (!copied.isValid()) return fail("Cannot create physical PDF copy test directory");
     const auto copiedFiles = copyPdfWithThumbnails(path, copied.path());
-    const QString copiedThumb = QDir(copied.path()).filePath(pdf.completeBaseName() +
-        QStringLiteral(".luna-thumb.png"));
+    const QString copiedThumb = SidecarStorage::thumbnail(copiedFiles.documentPath, QStringLiteral(".png"));
     if (!copiedFiles.success || !QFileInfo::exists(copiedFiles.documentPath) ||
         !QFileInfo::exists(copiedThumb) ||
         QFileInfo(copiedFiles.documentPath).size() != pdf.size() ||
@@ -4027,8 +4029,8 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     if (!QDir().mkdir(before) || !copyPdfWithThumbnails(path, before).success ||
         !renameWithoutReplacement(before, after) || QFileInfo::exists(before) ||
         !QFileInfo::exists(QDir(after).filePath(pdf.fileName())) ||
-        !QFileInfo::exists(QDir(after).filePath(pdf.completeBaseName() +
-                                                QStringLiteral(".luna-thumb.png"))))
+        !QFileInfo::exists(SidecarStorage::thumbnail(
+             QDir(after).filePath(pdf.fileName()), QStringLiteral(".png"))))
         return fail("Windows physical folder rename did not preserve PDF and thumbnail");
     if (renameWithoutReplacement(copied.path(), after))
         return fail("Folder rename overwrote an existing destination");

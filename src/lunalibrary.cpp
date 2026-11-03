@@ -2637,21 +2637,66 @@ private:
             QStringLiteral("Supporting Information 추가 · PDF 선택"),
             paper.absolutePath(),QStringLiteral("PDF 파일 (*.pdf *.PDF)"));
         if(selected.isEmpty())return;
+        const QString sourceIdentity=DocumentClaim::identity(selected);
+        const QVariantMap existing=bibliography_.record(sourceIdentity);
+        if(existing.value("manualSI").toBool() &&
+           existing.value("manualSiParentFile").toString().compare(
+                paper.fileName(),Qt::CaseInsensitive)!=0) {
+            QMessageBox::warning(this,QStringLiteral("SI 연결 충돌"),
+                QStringLiteral("선택한 SI는 다른 원논문에 연결되어 있습니다. 먼저 기존 연결을 해제해 주세요."));
+            return;
+        }
+        // Renaming the selected PDF currently open in the native editor
+        // could invalidate its document/annotation controller. Never do it.
         const QString title=bibliography_.record(DocumentClaim::identity(parent))
             .value("title",paper.completeBaseName()).toString();
-        const auto copied=luna::ManualSI::copyNextToParent(selected,parent,title);
-        if(!copied.success) {
-            QMessageBox::warning(this,QStringLiteral("SI 추가 실패"),copied.error);
+        const QFileInfo selectedInfo(selected);
+        const bool sameFolder=selectedInfo.canonicalPath().compare(
+            paper.canonicalPath(),Qt::CaseInsensitive)==0;
+        const bool renameNeeded=sameFolder &&
+            !luna::ManualSI::alreadyNamed(selectedInfo.fileName(),title);
+        const QString opened=viewer_->getProgramController()->getOriginalFileName();
+        if(renameNeeded && !opened.isEmpty() &&
+           QFileInfo(opened).canonicalFilePath()==selectedInfo.canonicalFilePath()) {
+            QMessageBox::information(this,QStringLiteral("열린 SI PDF"),
+                QStringLiteral("현재 열린 SI PDF를 닫은 후 추가해 주세요. 주석과 저장 내용을 보존합니다."));
             return;
         }
-        const QString siId=DocumentClaim::identity(copied.path);
+        const auto placed=luna::ManualSI::placeNextToParent(selected,parent,title);
+        if(!placed.success) {
+            QMessageBox::warning(this,QStringLiteral("SI 추가 실패"),placed.error);
+            return;
+        }
+        if(placed.renamedExisting) {
+            QString error;
+            if(!luna::reconcileExplorerRename(placed.previousPath,placed.path,bibliography_,&error)) {
+                // Attempt the exact reverse rename + metadata reconciliation.
+                // If this fails, do not delete either user's PDF or sidecar.
+                QString rollback;
+                if(luna::renameWithoutReplacement(placed.path,placed.previousPath)) {
+                    if(!luna::reconcileExplorerRename(
+                           placed.path,placed.previousPath,bibliography_,&rollback))
+                        rollback=QStringLiteral("이전 이름의 메타데이터를 자동 복구하지 못했습니다.");
+                } else rollback=QStringLiteral("이전 파일명으로 되돌리지 못했습니다.");
+                QMessageBox::warning(this,QStringLiteral("SI 이름 변경 취소"),
+                    QStringLiteral("SI PDF와 기존 주석·서지정보 연결을 확인할 수 없습니다.\\n%1\\n%2")
+                        .arg(error,rollback));
+                return;
+            }
+        }
+        const QString siId=DocumentClaim::identity(placed.path);
         if(!bibliography_.attachManualSI(siId,paper.fileName())) {
-            QFile::remove(copied.path); // only our newly created PDF
+            // Deleting an existing SI is never allowed. For an imported SI,
+            // only the newly copied PDF can be removed on failed attachment.
+            if(!placed.reusedExisting && !placed.renamedExisting)QFile::remove(placed.path);
             QMessageBox::warning(this,QStringLiteral("SI 연결 실패"),
-                QStringLiteral("원본 PDF는 보존됐습니다. 서지정보 연결을 저장하지 못했습니다."));
+                QStringLiteral("기존 SI와 서지정보는 보존했습니다. 다시 연결해 주세요."));
             return;
         }
-        if(localSync_)localSync_->publish(copied.path);
+        QString syncError;
+        if(localSync_ && !localSync_->publish(placed.path,&syncError))
+            QMessageBox::warning(this,QStringLiteral("SI 동기화 확인 필요"),
+                QStringLiteral("로컬 SI 연결은 완료됐지만 MYBOX 메타데이터 저장을 확인하세요.\\n")+syncError);
         expandedSIParents_.insert(parent);
         model_->refreshPdfCounts(root_);
         pages_->setCurrentIndex(0);

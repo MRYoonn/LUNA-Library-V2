@@ -77,18 +77,18 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
         }
     }
     const auto candidates=Metadata::collectCandidates(pages,infoText);
-    const auto headings=first.split(QLatin1Char('\n'),Qt::SkipEmptyParts);
-    for(qsizetype i=0;i<headings.size() && i<16;++i)
-        if(headings[i].contains(QStringLiteral("Supporting Information"),Qt::CaseInsensitive) ||
-           headings[i].contains(QStringLiteral("Supplementary Information"),Qt::CaseInsensitive))
-            return {{"documentKind",QStringLiteral("supporting_information")},
-                    {"doiStatus",QStringLiteral("needs_review")}};
+    if(Bibliography::isSupportingInformationCover(first))
+        return {{"documentKind",QStringLiteral("supporting_information")},
+                {"doiStatus",QStringLiteral("needs_review")}};
     QVariantMap evidence=Bibliography::firstPageCitation(first);
     // Preserve pre-integration behavior for PDFs with neither own journal
     // evidence nor an unambiguous DOI. PDF printer metadata alone is not a
     // publication identity.
     if(evidence.isEmpty() && !Metadata::acceptableIdentity(candidates))return {};
-    if(const auto* info=document.getInfo(); info && Bibliography::credibleTitle(info->title)) {
+    // Verified first-page evidence outranks PDF printer metadata.
+    if(const auto* info=document.getInfo(); info &&
+       !Bibliography::credibleTitle(evidence.value("title").toString()) &&
+       Bibliography::credibleTitle(info->title)) {
         evidence["title"]=info->title.simplified();
         evidence["titleSource"]=QStringLiteral("pdf_metadata");
     }

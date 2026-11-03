@@ -1,0 +1,14 @@
+# LUNA First Public Update Compatibility — Root Cause and Fix (2026-11-03)
+
+## Published baseline and failed Windows acceptance
+
+- First public stable Release `v0.9.0.243`, [GitHub Release](https://github.com/MRYoonn/LUNA-Library-V2/releases/tag/v0.9.0.243), source Windows Build #243 run `41577602717`, original EXE commit `0550c5a2b57e4704c6e1a255a3abfe0094880dbe`.
+- A real Windows update regression was triggered with older Windows Build #240 as the installed program, via [Actions run 41584665613](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41584665613). Windows native contract tests passed, but the shipped `LUNA-Update.ps1 -Mode Check` returned `{"available":false,"status":"unavailable"}`; subsequent download/install was not attempted. Synthetic evidence artifact `13207562059`.
+- The PowerShell helper intentionally masks its internal exceptions for normal app usage. **Code-level root-cause finding:** the published `v0.9.0.243` ZIP contains `Luna-Crash-Tools.ps1`, yet its `Validate-Relative` allowlist permits only `LUNA-Update.ps1`, `Analyze-Luna-Crash.ps1`, and the `Start-Luna-...` helper scripts. `Get-Manifest` calls `Validate-Relative` for every manifest file. Consequently even `Check` rejects the public Release manifest before reporting availability. This is an updater/package **contract mismatch**; the GitHub release feed itself, ZIP digest, and all file digests were independently verified. The exact masked exception was not surfaced in the first failed Windows run, so a confirmed subsequent green Windows `Check` test is required.
+
+## Compatibility-preserving package fix
+
+- Do **not** alter already-published artifacts or quietly widen a user's existing strict updater allowlist.
+- `tools/prepare_release.py` builds future release ZIPs from a Windows-validated unchanged executable, but excludes the unsupported standalone `Luna-Crash-Tools.ps1`. Instead, its vetted function definitions are inserted into the already-allowed `Analyze-Luna-Crash.ps1` and `Start-Luna-Crash-Diagnostics.ps1` before compression. This preserves the local crash-analysis functionality. The original CI development portable, compiled `LUNA.exe`, and core runtime DLLs are unchanged.
+- The transformation fails closed if the helper or its audited dot-source call is missing. `tests/test_updater.py` now creates synthetic imported-script fixtures, asserts inlined functions and the exact **shipped** helper filename allowlist, and rejects unauthorized changes.
+- Any replacement Release must be a **new semantic tag** (e.g. `v0.9.0.244`), with the original exact Windows source run/commit and separately recorded packaging recipe SHA. Never mutate the `v0.9.0.243` release assets. An actual older-version Windows `Check → Stage → Apply → healthy restart → Check` run must pass before declaring the update flow operational.

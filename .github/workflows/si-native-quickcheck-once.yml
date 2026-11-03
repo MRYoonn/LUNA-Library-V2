@@ -1,0 +1,61 @@
+name: LUNA SI original-paper metadata - native Qt independent test (one-shot)
+on:
+  push:
+    branches:
+      - feature/si-parent-bibliography-20261104
+    paths:
+      - .github/workflows/si-native-quickcheck-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  native-si-bibliography:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate source and Python contracts
+        shell: pwsh
+        run: |
+          python -B tools/preflight_public.py
+          if ($LASTEXITCODE -ne 0) { throw 'LUNA public source safety failed' }
+          python -B -m unittest discover -s tests -p test_si_parent_bibliography.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'SI integration contract failed' }
+          python -B -m unittest discover -s tests -p test_title_extractor_contract.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Original paper title contract failed' }
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Build real QtCore + Network SI parent metadata native tests using MSVC
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'luna-si-metadata'
+          cmake -S tests/native_metadata -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Qt metadata CMake configure failed' }
+          cmake --build $probe --target luna_metadata_native --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Qt metadata MSVC C++ compilation failed' }
+          ctest --test-dir $probe -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'SI original-paper native Qt behavior failed; verify corrected SI author-row regex and inspect LUNA_SI_EVIDENCE' }
+      - name: Preserve SI native test diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/luna-si-evidence" | Out-Null
+          "LUNA SI native QtCore source SHA=$env:GITHUB_SHA, workflow=$env:GITHUB_RUN_ID. Inspect first failing step/CTest trace. No private PDFs transmitted." |
+            Set-Content -Path "$env:RUNNER_TEMP/luna-si-evidence/failure-analysis.md" -Encoding UTF8
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-SI-Native-Qt-Diagnostics
+          path: ${{ runner.temp }}/luna-si-evidence/failure-analysis.md
+          retention-days: 90

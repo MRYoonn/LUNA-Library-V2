@@ -228,3 +228,25 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 - Updated only the test/fixture paths to `SidecarStorage::thumbnail(pdf, ".png")` in the same source used by production, preserving all existing checks (crop dimensions, tab ownership, EXE save/reopen, exact PDF and PNG bytes). Added source-level regression assertions so old direct paths cannot silently return.
 - First rerun Build #248 was dispatched before this additional audit and therefore **does not contain the multi-tab smoke correction**; its outcome cannot validate final source HEAD. A new exact-branch full Windows build is mandatory.
 
+## SI original-article bibliography — 2026-11-04
+
+**User issue:** Existing v0.9.0.249 identified legitimate Supporting Information and cleared unverified auto-citations, but returned only `documentKind=supporting_information`. The workflow deliberately skipped DOI lookup; the card was left showing the SI filename rather than the original paper's title, journal, year and authors.
+
+**Proposed fix on `feature/si-parent-bibliography-20261104` (not yet published):**
+- New purely local `src/lunasiidentity.h` identifies a real SI cover (not an article navbar link), proposes a bounded first-cover title, captures only one explicitly printed, non-reference DOI or a **non-authoritative** known ACS/RSC filename DOI hint. No raw PDFs or paths leave the PC.
+- Original-paper bibliography is linked only with a unique local DOI-bearing paper whose title strictly matches the SI cover, or by DOI-specific Crossref/OpenAlex whose DOI and title both match. No broad title-only web search; unknown/ambiguous evidence remains `needs_review`. Crossref's own SI record does not qualify as a published original article.
+- `Bibliography::enrichFromFirstPage` retains prior verified SI links on repeat scans, archives only older unverified automatically written paper metadata, and preserves manual field ownership. Changed SI DOI/title makes an existing link review-only without deleting its data. Verified original article fields are copied to the SI record while retaining `documentKind=supporting_information`, parent DOI and verified source.
+- Reader and imported-PDF workers use the same bounded metadata pipeline. A row displays an `SI · ` prefix and the validated title (or a cover-title candidate) plus a parent DOI/status tooltip.
+- Windows Qt `tests/native_metadata/main.cpp` synthetic fixtures cover ACS and RSC SI covers/filenames, article-vs-SI false positives, local matching, DOI+title verified online link, fake supporting-document Crossref records, conflicting manual title and post-link DOI changes. Python contract `tests/test_si_parent_bibliography.py` protects the integration wiring.
+- `src/lunalibrary.cpp` size guard scoped to 252KB for the added SI branch; original 200KB default limits and private-file/credential blocking unchanged. No new user file collection, upload or network path beyond the existing DOI-only endpoint.
+
+**Release boundary:** no automatic update or `main` merge until strict public Python source checks, Windows native Qt metadata tests, full PDF4QT/MSVC build, PDF/tabs/annotations, portable ZIP and real updater checks pass for the identical source SHA. Real publisher SI recognition accuracy and MYBOX cross-PC linking still require a separate gold-standard test. Preserve first-failure logs and GitHub Action diagnostics for every failed build.
+
+
+### SI Qt native first-failure root cause (2026-11-04)
+
+- [SI native run #41697510292](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41697510292): Windows MSVC compilation succeeded; native Qt SI test failed at `ACS SI cover DOI/title extracted independently`.
+- [Instrumented reproduction #41698081821](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41698081821) emitted the actual data (not speculation): `documentKind=supporting_information`, DOI `10.1021/acs.joc.5c01153`, `siEvidenceSource=si_cover_explicit_doi`, but `siCoverTitle=Visible-Light-Driven C5 Functionalization of Thiouracils by a Photoredox Process Alice Brown, Clara Green`. The title wrongly swallowed the immediately following author line.
+- **Root cause:** the newly added SI cover author-row `QRegularExpression` had one extra closing parenthesis in its repeated second-author group. The expression was invalid, so `authorList.match(...).hasMatch()` never recognized the authors and the multi-row title collector appended their names. Corrected the regex and added `authorList.isValid()` fail-closed protection. Native regression includes both single-line and multi-line SI titles with comma-separated authors, and a hard assertion that cover title excludes the author row.
+- The prior stable v0.9.0.249 executable was never modified. The #251/#252 full Windows runs were dispatched at earlier revisions and are **not acceptance evidence** for the corrected regex; final-source quickcheck/full Windows build must pass before a release.
+

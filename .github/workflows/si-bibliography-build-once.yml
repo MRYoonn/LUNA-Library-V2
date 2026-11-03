@@ -1,0 +1,54 @@
+name: LUNA SI parent bibliography - full Windows CI (one-shot)
+on:
+  push:
+    branches:
+      - feature/si-parent-bibliography-20261104
+    paths:
+      - .github/workflows/si-bibliography-build-once.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  exact-source-and-dispatch:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Privacy gate and all Python metadata/UI regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Dispatch full Windows PDF4QT/native metadata test
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$BRANCH" = feature/si-parent-bibliography-20261104
+          test "${#SOURCE_SHA}" -eq 40
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
+          echo "SI parent bibliography regex-fixed and native-instrumented final source: multiline cover stops before author names; require complete Windows Build, Qt native, GUI and ZIP on $SOURCE_SHA"
+          echo "REQUIRE metadata Qt native regression, PDF4QT, tabs, annotations, portable ZIP before release."
+      - name: Preserve analysis artifact even on failure
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'LUNA SI metadata source SHA=%s, workflow=%s. Any failure: inspect first failed step and test log. No user PDF was used.\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-SI-Metadata-Source-Diagnostics
+          path: evidence/failure-analysis.md
+          retention-days: 90

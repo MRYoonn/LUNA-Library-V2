@@ -1765,9 +1765,9 @@ private:
         auto result = std::make_shared<QVariantMap>();
         auto startWorker = [this, identity, result, snapshot = pdf::PDFDocument(document), queuedAt]() mutable {
             performanceEvent("bibliography-worker-dispatch", queuedAt);
-            auto* worker = QThread::create([snapshot = std::move(snapshot), result]() mutable {
+            auto* worker = QThread::create([snapshot = std::move(snapshot), result, identity]() mutable {
                 const qint64 started = performanceNow();
-                try { *result = luna::extractFirstPage(snapshot); }
+                try { *result = luna::extractFirstPage(snapshot,nullptr,QFileInfo(identity).fileName()); }
                 catch (...) { /* Invalid/image-only documents remain unverified. */ }
                 performanceEvent("bibliography-first-page-worker", started);
             });
@@ -1777,8 +1777,10 @@ private:
                 const bool found = restore ?
                     bibliography_.restoreFromFirstPage(identity, *result) :
                     bibliography_.enrichFromFirstPage(identity, *result);
-                if (result->value(QStringLiteral("documentKind")).toString() !=
+                if (result->value(QStringLiteral("documentKind")).toString() ==
                     QStringLiteral("supporting_information")) {
+                    resolveSIBibliography(identity,restore);
+                } else {
                     QString doi = result->value(QStringLiteral("doi")).toString();
                     if (restore && doi.isEmpty())
                         doi = bibliography_.record(identity).value("doi").toString();
@@ -1836,6 +1838,30 @@ private:
             }
         });
     }
+    // Run only on the UI thread. PDF parsing stays inside the existing
+    // worker; only DOI strings reach the Crossref/OpenAlex lookup service.
+    void resolveSIBibliography(const QString& identity, bool manualRequest) {
+        if(bibliography_.linkSIFromLocal(identity))return;
+        const QVariantMap si=bibliography_.record(identity);
+        if(si.value("siLinkStatus").toString()==QStringLiteral("verified"))return;
+        const QString doi=luna::Metadata::normalizeDoi(
+            si.value("siArticleDoiCandidate").toString());
+        const QString title=si.value("siCoverTitle").toString();
+        if(!doi.isEmpty() && luna::SIIdentity::isArticleTitle(title) && metadataFetcher_) {
+            metadataFetcher_->lookup(doi,[this,identity,doi](QVariantMap parent,QString reason) {
+                if(!parent.isEmpty() &&
+                   bibliography_.linkSIToParent(identity,parent,doi,false))return;
+                bibliography_.markSIReview(identity,parent.isEmpty()
+                    ? (reason.isEmpty()?QStringLiteral("si_provider_unavailable"):reason)
+                    : QStringLiteral("si_parent_title_or_doi_mismatch"));
+            });
+        } else if(manualRequest) {
+            bibliography_.markSIReview(identity,doi.isEmpty()
+                ? QStringLiteral("si_parent_doi_not_found")
+                : QStringLiteral("si_cover_title_unverified"));
+        }
+    }
+
     void enqueueImportedMetadata(const QString& path, bool restore = false) {
         const QFileInfo file(path);
         if (!file.isFile() || file.size()==0 || file.size()>(restore?200:40)*1024*1024)return;
@@ -1859,7 +1885,7 @@ private:
                     [](bool*) {return QString();},false,false);
                 auto document=reader.readFromFile(path);
                 if(reader.getReadingResult()==pdf::PDFDocumentReader::Result::OK)
-                    *result=luna::extractFirstPage(document);
+                    *result=luna::extractFirstPage(document,nullptr,QFileInfo(path).fileName());
             }catch(...){} // Password / malformed PDFs never become trusted.
         });
         connect(worker,&QThread::finished,this,[this,result,identity,restore] {
@@ -1867,8 +1893,10 @@ private:
             const bool found = restore ?
                 bibliography_.restoreFromFirstPage(identity,*result) :
                 bibliography_.enrichFromFirstPage(identity,*result);
-            if(result->value(QStringLiteral("documentKind")).toString()!=
+            if(result->value(QStringLiteral("documentKind")).toString()==
                QStringLiteral("supporting_information")) {
+                resolveSIBibliography(identity,restore);
+            } else {
                 QString doi=result->value(QStringLiteral("doi")).toString();
                 if(restore && doi.isEmpty())
                     doi=bibliography_.record(identity).value("doi").toString();
@@ -1973,7 +2001,11 @@ private:
         const QVariantMap bibliography = bibliography_.record(fileIdentity);
         item->setData(Qt::UserRole + 5, bibliography);
         const QString title = bibliography.value("title").toString().simplified();
-        item->setText(title.isEmpty() ? QFileInfo(path).completeBaseName() : title);
+        const bool isSI=bibliography.value("documentKind").toString() ==
+            QStringLiteral("supporting_information");
+        const QString displayTitle=title.isEmpty()
+            ? bibliography.value("siCoverTitle",QFileInfo(path).completeBaseName()).toString() : title;
+        item->setText(isSI ? QStringLiteral("SI · ")+displayTitle : displayTitle);
         item->setFlags(item->flags() | Qt::ItemIsEditable);
         const QString citation = luna::Bibliography::citation(bibliography);
         const QString lastAuthor = luna::Bibliography::lastListedAuthor(bibliography.value("authors").toString());
@@ -1986,7 +2018,12 @@ private:
             (citation.isEmpty() ? QString() : citation + QLatin1Char('\n')) +
             (doi.isEmpty() ? QString() : QStringLiteral("DOI: ") + doi + QLatin1Char('\n')) +
             (metadataStatus.isEmpty() ? QString() : QStringLiteral("서지정보: ") +
-             metadataStatus + QLatin1Char('\n')) + path);
+             metadataStatus + QLatin1Char('\n')) +
+            (isSI ? QStringLiteral("SI 원논문 연결: ") +
+                bibliography.value("siLinkStatus",QStringLiteral("needs_review")).toString() +
+                QStringLiteral("\n원논문 DOI: ") +
+                bibliography.value("siParentDoi",QStringLiteral("확인 필요")).toString() +
+                QLatin1Char('\n') : QString()) + path);
     }
     void savePaperMemo(const QString& path, QString text) {
         text.replace(QLatin1Char('\n'), QLatin1Char(' ')); text.replace(QLatin1Char('\r'), QLatin1Char(' '));

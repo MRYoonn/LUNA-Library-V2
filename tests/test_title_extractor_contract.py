@@ -73,8 +73,13 @@ class TitleExtractorContracts(unittest.TestCase):
                       'abstract', 'introduction', 'department of', 'university', 'authorList',
                       'first_page_layout', 'R"((', 'best.score < 86'):
             self.assertIn(token, self.title, token)
-        self.assertIn('documentKind', self.first)
-        self.assertIn('supporting_information', self.first)
+        # Classification lives in an isolated, testable SI cover analyzer.
+        # The first-page worker must still return its documentKind unchanged.
+        self.assertIn('return SIIdentity::evidence(first,fileName);', self.first)
+        si = (ROOT / 'src/lunasiidentity.h').read_text(encoding='utf-8')
+        self.assertIn('"documentKind"', si)
+        self.assertIn('supporting_information', si)
+        self.assertIn('FrontMatter::isSupplementCover(firstPage)', si)
 
     def test_existing_manual_title_cannot_be_overwritten(self):
         self.assertIn('field + QStringLiteral("Source")', self.model)

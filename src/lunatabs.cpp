@@ -494,9 +494,7 @@ private:
             connect(associationAction,&QAction::triggered,this,[this] {
                 QString failure;
                 const QString exe=QCoreApplication::applicationFilePath();
-                const QString documentIcon=QDir(QCoreApplication::applicationDirPath())
-                    .filePath(QStringLiteral("LUNA-PDF.ico"));
-                if(!luna::PdfAssociation::registerCurrentUser(exe,documentIcon,&failure)) {
+                if(!luna::PdfAssociation::registerCurrentUser(exe,&failure)) {
                     QMessageBox::warning(this,QStringLiteral("PDF 기본 앱 등록 실패"),failure);
                     return;
                 }

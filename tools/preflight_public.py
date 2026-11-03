@@ -82,6 +82,7 @@ APPROVED = {
     "src/lunafrontmatter.h",
     "src/lunasiidentity.h", "tests/test_si_parent_bibliography.py",
     ".github/workflows/si-bibliography-build-once.yml",
+    ".github/workflows/si-native-quickcheck-once.yml",
     "src/lunametadataengine.h", "src/lunametadatafetch.h", "src/lunatitleextractor.h",
     "tests/test_title_extractor_contract.py",
     "tests/test_scheduled_bibliography_integration.py",

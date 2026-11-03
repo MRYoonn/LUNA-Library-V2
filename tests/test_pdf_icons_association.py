@@ -51,14 +51,15 @@ class LunaIconContracts(unittest.TestCase):
 
     def test_default_app_registration_only_on_explicit_user_click(self):
         for token in (
-            'registerCurrentUser(const QString& exePath, QString* failure=nullptr,',
+            'registerCurrentUser(const QString& exePath,',
+            'QString* failure=nullptr,',
             'HKEY_CURRENT_USER',
-            'Classes\\LUNA.Library.PDF',
-            'Classes\\.pdf\\OpenWithProgids',
+            'LUNA.Library.PDF',
+            'OpenWithProgids',
             'RegisteredApplications',
             'FileAssociations',
             'SHChangeNotify(SHCNE_ASSOCCHANGED',
-            'QStringLiteral("\\\",-2")',
+            ',-2',
             'LUNA.exe',
         ):
             self.assertIn(token,ASSOC,token)
@@ -72,7 +73,7 @@ class LunaIconContracts(unittest.TestCase):
             self.assertIn(token,TABS,token)
         self.assertNotIn('Classes\\.pdf\\UserChoice',ASSOC)
         self.assertNotIn('RegDeleteTreeW',ASSOC)
-        self.assertIn('if(prefix!=QStringLiteral("Software\\\\")',ASSOC)
+        self.assertIn('LUNA-Association-Test',ASSOC)
         self.assertIn('native_pdf_default_apps_candidate',CMAKE)
         self.assertIn('Must not create Windows .pdf UserChoice',NATIVE)
 

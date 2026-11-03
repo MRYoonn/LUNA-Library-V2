@@ -610,6 +610,20 @@ public:
             R"(^[\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}$)"));
         return name.match(text).hasMatch();
     }
+    // Never clear an existing SI label from weak context, an online title
+    // alone, an unmatched DOI, or a missing/ambiguous printed cover.
+    static bool verifiedMainFrontMatter(const QVariantMap& proposal) {
+        return proposal.value(QStringLiteral("documentKind")).toString() ==
+                   QStringLiteral("main_article") &&
+               proposal.value(QStringLiteral("documentKindSource")).toString() ==
+                   QStringLiteral("first_page_verified") &&
+               credibleTitle(proposal.value(QStringLiteral("title")).toString()) &&
+               proposal.value(QStringLiteral("titleSource")).toString() ==
+                   QStringLiteral("first_page_verified") &&
+               proposal.value(QStringLiteral("doiScore")).toInt()>=70 &&
+               !proposal.value(QStringLiteral("doi")).toString().isEmpty();
+    }
+
     // Reuse Recall's field-level conflict protection. Only fill missing/known-bad
     // values, never replace a plausible manual correction or invent absent data.
     bool enrichFromFirstPage(const QString& identity, const QVariantMap& proposal) {
@@ -617,6 +631,8 @@ public:
         QVariantMap value = record(identity);
         bool changedField = false;
         if (proposal.value("documentKind").toString() == QStringLiteral("supporting_information")) {
+            if (value.value(QStringLiteral("documentKindSource")).toString() ==
+                QStringLiteral("manual")) return false;
             // Preserve all previous data for recovery; suppress only machine-owned
             // paper fields after the page explicitly identifies itself as SI.
             QVariantMap archived = value.value("unverifiedSiMetadata").toMap();
@@ -630,8 +646,23 @@ public:
             }
             changedField = changedField || value.value("documentKind") != proposal.value("documentKind");
             value["documentKind"] = proposal.value("documentKind");
+            value["documentKindSource"] = QStringLiteral("first_page_verified");
             value["unverifiedSiMetadata"] = archived;
             return changedField && save(identity, value, false);
+        }
+        if (value.value(QStringLiteral("documentKind")).toString() ==
+            QStringLiteral("supporting_information")) {
+            const bool protectedManual =
+                value.value(QStringLiteral("manual")).toBool() ||
+                value.value(QStringLiteral("documentKindSource")).toString() ==
+                    QStringLiteral("manual");
+            if (protectedManual || !verifiedMainFrontMatter(proposal)) return false;
+            // Previously machine-classified ACS main files can be repaired by
+            // a new DOI/printed-title-backed local rescan. Do not resurrect
+            // unverified archived SI fields; fill only current verified data.
+            value["documentKind"] = QStringLiteral("main_article");
+            value["documentKindSource"] = QStringLiteral("first_page_verified");
+            changedField = true;
         }
         const auto fill = [&value, &proposal, &changedField](const char* key, bool good) {
             const QString field = QString::fromLatin1(key);
@@ -998,6 +1029,17 @@ public:
             return false;
         QVariantMap entry = record(identity);
         bool changed = false;
+        if (entry.value(QStringLiteral("documentKind")).toString() ==
+            QStringLiteral("supporting_information")) {
+            if (entry.value(QStringLiteral("documentKindSource")).toString() ==
+                    QStringLiteral("manual") || !verifiedMainFrontMatter(proposal))
+                return false;
+            // Explicit refresh also repairs stale automatic SI classifications
+            // only with positive first-page title plus strong DOI evidence.
+            entry["documentKind"] = QStringLiteral("main_article");
+            entry["documentKindSource"] = QStringLiteral("first_page_verified");
+            changed = true;
+        }
         const auto replace = [&entry, &proposal, &changed](const char* name, bool valid) {
             const QString field = QString::fromLatin1(name);
             const QString next = proposal.value(field).toString().simplified();

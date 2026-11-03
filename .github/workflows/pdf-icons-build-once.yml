@@ -84,4 +84,4 @@ jobs:
           test "${#SHA}" -eq 40
           test "$(gh api "repos/$REPO/branches/$BRANCH" --jq .commit.sha)" = "$SHA"
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
-          echo "Full Windows Qt PDF4QT build requested at exact SHA $SHA; no release until native icon resource IDs, visual tab states, portable updater checks all pass."
+          echo "PDF icon source contract corrected; full Windows PDF4QT build on SHA $SHA validates embedded resource ID 1/2, tab state, original updater and no external .ico."

@@ -200,3 +200,17 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 ### Metadata quickcheck #3 — exact-source native validation PASS
 - [Windows QtCore quickcheck #3, run 41591815772](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41591815772), exact SHA `715d1bf3279932063d1e8cdb61c0ffdff56f59b9` was **completed / success**. Source security preflight and Python scheduled metadata/title contracts passed **before** installing Qt, then pinned Qt 6.11.3 downloaded and Windows MSVC compiled the real `tests/native_dialog/bibliography.cpp` target successfully. Qt native `ctest -R '^native_bibliography$'` passed, including new ACS/RSC/SI/Nature/manual-owner regression cases.
 - This is a real Windows C++ fixture, not proof of precision/recall on the user's real PDFs. Full production PDF4QT compile, executable and UI integration remain a separate required release gate.
+
+## Hidden .luna sidecar storage migration — 2026-11-03
+
+**User-visible regression:** every local PDF created a visible `<paper>.luna-meta.json` beside the document; thumbnail crops similarly created `<paper>.luna-thumb.png`. Explorer displayed research PDFs mixed with dozens of management files. This was the original intentional sync-sidecar layout, not a corrupted or duplicate PDF.
+
+**Implemented in feature/hidden-sidecar-storage-20261103 (not yet released):**
+- New `src/lunasidecarpaths.h`: one hidden Windows `.luna` directory within each actual PDF folder, split into `metadata/` and `thumbnails/`. Windows FILE_ATTRIBUTE_HIDDEN applied; .luna and its children cannot be symlink/reparse-point redirectors.
+- Preserve filename-based portable metadata, existing document UUID and the user's memo, favorite, bibliography. Preexisting visible files are atomically renamed into hidden layout only when the destination is vacant; collisions/failures retain both originals, never overwrite.
+- Existing old-layout sidecars remain readable; background library scan migrates in bounded (8 PDFs / 12ms) UI turns to avoid freezing 1000+ PDF lists. MYBOX uses the same PDF-relative .luna folder, no cloud API or PDF upload.
+- PDF move, copy, Explorer rename, multi-delete, Ctrl+Z and crop/preview use a shared companion-path enumeration. Copy intentionally creates independent bibliography identity; moves and trash protect BOTH old and hidden variants.
+- New `native_hidden_sidecars` Windows CTest: migration, Windows hidden attribute, legacy conflict preservation, PDF+metadata+thumbnail physical move, copy identity, Ctrl+Z. Existing native file-move, MYBOX and Windows GUI smoke tests remain mandatory.
+
+**Verification boundary:** source changes are not Windows PASS until exact source SHA succeeds in Python security/preflight, Qt C++ tests, PDF4QT MSVC, real LUNA synthetic UI, DPI/CDB/print and packaging. If CI fails, preserve the first failed step, `failure-analysis.md` and `build-diagnostics.json`, fix and re-run on new SHA. Physical MYBOX hidden-folder synchronization and real-user-PC migration are still untested; never automatically delete a conflicting sidecar.
+

@@ -50,7 +50,7 @@ class SiDisplayModelTests(unittest.TestCase):
                          ["Supporting1.pdf", "Supporting2.pdf"])
         self.assertTrue(all(r["local_document_id"] is None for r in report["public_si"]))
 
-    def test_verified_status_requires_explicit_live_verifier_contract(self):
+    def test_caller_supplied_live_flag_never_certifies_http_access(self):
         verified = SiCandidate(12345, DOI, "Example public SI", "si.pdf", URL,
                                status="landing_verified", file_id=123)
         lookup = self.lookup("verified", (verified,))
@@ -58,8 +58,8 @@ class SiDisplayModelTests(unittest.TestCase):
                          "unconfirmed")
         self.assertEqual(project_si_rows(self.index, MAIN, lookup,
                                          live_landing_check_completed=True)["public_si"][0]["status"],
-                         "landing_verified")
-        partial = self.lookup("partial", (verified,))
+                         "unconfirmed")
+        # Even an actual HTTP verifier must eventually pass a trusted proof object,\n        # not a Boolean supplied by restored state or a UI caller.\n        partial = self.lookup("partial", (verified,))
         self.assertEqual(project_si_rows(self.index, MAIN, partial,
                                          live_landing_check_completed=True)["public_si"][0]["status"],
                          "unconfirmed")

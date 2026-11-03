@@ -1113,10 +1113,11 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                                !documentsPanel->isHidden() && libraryDock->isVisible(),
                                "Initial pane header geometry invalid");
             for (int turn = 0; turn < 10; ++turn) {
-                const bool paperOnlyNarrow = integrationPanelClick(host, navigationToggle) &&
+                const bool paperOnlyExpandable = integrationPanelClick(host, navigationToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
                         !documentsPanel->isHidden() && libraryDock->isVisible() &&
-                        libraryDock->width() <= 300 && buttonsVisible(); });
+                        libraryDock->maximumWidth() == 850 &&
+                        libraryDock->width() >= 432 && buttonsVisible(); });
                 result["paperOnlyDockGeometry"] = QJsonObject{
                     {"cycle", turn}, {"dockWidth", libraryDock->width()},
                     {"dockMinWidth", libraryDock->minimumWidth()},
@@ -1130,8 +1131,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                     {"navigationHidden", navigationPanel->isHidden()},
                     {"documentsHidden", documentsPanel->isHidden()},
                     {"restoreButtonsVisible", buttonsVisible()}};
-                integrationRequire(paperOnlyNarrow,
-                    "Header navigation collapse did not release narrow paper-only width");
+                integrationRequire(paperOnlyExpandable,
+                    "Paper-only dock cannot retain and expand to the full 850-pixel width");
                 integrationRequire(integrationPanelClick(host, documentsToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
                         documentsPanel->isHidden() && libraryDock->isHidden() && buttonsVisible(); }),

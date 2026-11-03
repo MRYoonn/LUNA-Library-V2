@@ -84,7 +84,8 @@ int main(int argc, char** argv) {
     const auto wiley = luna::Bibliography::firstPageCitation(QStringLiteral(
         "How to cite: Angew. Chem. Int. Ed. 2025, 64, e202509974"));
     check(wiley.value("article_number").toString() == QStringLiteral("e202509974") &&
-          !wiley.contains("page"), "Wiley e-article is not page range");
+          wiley.value("page").toString() == QStringLiteral("e202509974"),
+          "Wiley article number identified while legacy page view remains stable");
 
     check(luna::Bibliography::firstPageCitation(QStringLiteral(
               "References\nJones, Chem. Commun., 2025, 61, 17870-17873"))

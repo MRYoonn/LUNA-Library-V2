@@ -1254,6 +1254,14 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         return fail("Native text-selection tool unavailable after FreeText reopen");
     checkpoint("Reader phase: native print dialog open and cancel");
     if (!QPrinterInfo::availablePrinters().isEmpty()) {
+        auto* printAction = action("actionPrint");
+        if (!printAction || !printAction->isEnabled())
+            return fail("Native print QAction unavailable after PDF reopen");
+        std::atomic_int nativePrintTriggers{0};
+        const bool printActionEnabledBefore = printAction->isEnabled();
+        const int printerCandidates = QPrinterInfo::availablePrinters().size();
+        const auto printSignal = QObject::connect(printAction, &QAction::triggered,
+            &window, [&] { ++nativePrintTriggers; });
 #ifdef Q_OS_WIN
         // QPrintDialog::exec uses PrintDlgEx directly on Windows, bypassing
         // QDialog::exec and QApplication::activeModalWidget(). Its native
@@ -1278,11 +1286,21 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
                     .arg(cancellation.ownedDialogs.load())
                     .arg(cancellation.cancelRequests.load())
                     .arg(cancellation.seen.load()).arg(finished.load()).toUtf8());
+                diagnostic.write(QStringLiteral("actionTriggers=%1 actionEnabledBefore=%2 printersAvailable=%3\\n")
+                    .arg(nativePrintTriggers.load()).arg(printActionEnabledBefore)
+                    .arg(printerCandidates).toUtf8());
             }
         });
         key(widget,Qt::Key_P,Qt::ControlModifier);
+        // The native print dialog can be created on a queued GUI turn AFTER
+        // the synthesized shortcut returns. Keep the Win32 cancellation
+        // observer alive while Qt processes that turn. Never accept a run
+        // solely because the QAction fired; a cancelable native dialog must
+        // actually have been observed.
+        if (!cancellation.seen.load())
+            waitFor([&] { return cancellation.seen.load(); });
         finished = true; cancelPrint.join();
-        const bool sawPrint = cancellation.seen;
+        const bool sawPrint = cancellation.seen.load();
 #else
         bool sawPrint = false;
         QTimer cancelPrint;
@@ -1293,8 +1311,11 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         });
         cancelPrint.start(50); key(widget,Qt::Key_P,Qt::ControlModifier); cancelPrint.stop();
 #endif
-        if (!sawPrint) return fail("Ctrl+P did not open native print dialog");
-        qInfo("[PASS] Native print dialog opened and cancelled without a print job.");
+        QObject::disconnect(printSignal);
+        if (nativePrintTriggers.load() != 1)
+            return fail("Ctrl+P did not dispatch the native print QAction exactly once");
+        if (!sawPrint) return fail("Ctrl+P dispatched but did not open a cancellable native print dialog");
+        qInfo("[PASS] Native Ctrl+P dispatched once; print dialog opened and cancelled without a print job.");
     } else {
         qInfo("[NOTICE] No system printer on runner: physical print dialog not exercised; native action retained.");
     }

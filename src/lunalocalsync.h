@@ -3,6 +3,7 @@
 #include "lunabibliography.h"
 #include "lunadocumentclaim.h"
 #include "lunafilemove.h"
+#include "lunasidecarpaths.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -35,8 +36,10 @@ inline QSettings lunaLocalStore() {
                      QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
 }
 inline QString portableSidecar(const QString& path) {
-    const QFileInfo f(path);
-    return QDir(f.absolutePath()).filePath(f.completeBaseName() + QStringLiteral(".luna-meta.json"));
+    return SidecarStorage::metadata(path);
+}
+inline QString portableSidecarForRead(const QString& path) {
+    return SidecarStorage::metadataForRead(path);
 }
 inline QString fileObjectId(const QString& path) {
 #ifdef Q_OS_WIN
@@ -66,19 +69,23 @@ inline bool reconcileExplorerRename(const QString& oldPath, const QString& newPa
     if (oldFile.absolutePath().compare(newFile.absolutePath(), Qt::CaseInsensitive) != 0)
         return false; // External cross-directory moves are not silently inferred.
     QList<QPair<QString,QString>> companions;
-    for (const QString& ext : {QStringLiteral(".luna-meta.json"), QStringLiteral(".luna-thumb.png"),
-                               QStringLiteral(".luna-thumb.jpg"), QStringLiteral(".luna-thumb.jpeg")}) {
-        const QString from = QDir(oldFile.absolutePath()).filePath(oldFile.completeBaseName() + ext);
-        const QString to = QDir(newFile.absolutePath()).filePath(newFile.completeBaseName() + ext);
-        if (QFileInfo(from).isSymLink() || QFileInfo(to).isSymLink()) return false;
-        if (QFileInfo::exists(from)) {
-            if (QFileInfo::exists(to)) {
+    for (const auto& pair : SidecarStorage::companions(oldPath, newPath)) {
+        const QFileInfo from(pair.first), to(pair.second);
+        if (from.isSymLink() || to.isSymLink() ||
+            (from.exists() && !from.isFile())) return false;
+        if (from.isFile()) {
+            if (to.exists()) {
                 if (error) *error = QStringLiteral("동일 이름의 썸네일·메타데이터가 있어 자동 변경을 중단했습니다.");
                 return false;
             }
-            companions.append(qMakePair(from,to));
+            companions.append(pair);
         }
     }
+    for (const auto& item : companions)
+        if (!SidecarStorage::prepareTarget(newPath, item.second)) {
+            if (error) *error = QStringLiteral("숨김 LUNA 관리 폴더를 안전하게 준비할 수 없습니다.");
+            return false;
+        }
     QList<QPair<QString,QString>> moved;
     for (const auto& item : companions) {
         if (!renameWithoutReplacement(item.first,item.second)) {
@@ -214,11 +221,17 @@ public:
               f.canonicalFilePath()==root_)) return false;
         QJsonObject data = localSnapshot(pdf);
         if (data.isEmpty()) return false;
+        // Relocate old same-folder files without overwriting conflicts.
+        SidecarStorage::migrateLegacy(pdf);
+        const QString previousOutput=portableSidecarForRead(pdf);
         const QString output=portableSidecar(pdf);
-        if (QFileInfo(output).isSymLink()) return false;
+        if (!SidecarStorage::ensureArea(pdf, true) || QFileInfo(output).isSymLink()) {
+            if (error) *error=QStringLiteral("LUNA 숨김 메타데이터 폴더 접근 실패");
+            return false;
+        }
         QString id;
-        if (QFileInfo(output).isFile()) {
-            QFile previous(output);
+        if (QFileInfo(previousOutput).isFile() && !QFileInfo(previousOutput).isSymLink()) {
+            QFile previous(previousOutput);
             if (previous.open(QIODevice::ReadOnly) && previous.size()<=131072)
                 id=QJsonDocument::fromJson(previous.readAll()).object().value("documentId").toString();
         }
@@ -330,7 +343,7 @@ public:
                 QVariantMap active;
                 QSet<QString> duplicates;
                 for(const QString& pdf:result->paths) {
-                    const QFileInfo sidecar(portableSidecar(pdf));
+                    const QFileInfo sidecar(portableSidecarForRead(pdf));
                     if(!sidecar.isFile() || sidecar.isSymLink() || sidecar.size()>131072) continue;
                     QFile input(sidecar.absoluteFilePath());
                     if(!input.open(QIODevice::ReadOnly)) continue;
@@ -358,7 +371,9 @@ public:
                 for(const auto& id:duplicates) active.remove(id);
                 lunaLocalStore().setValue(key,active);
             }
-            if (mybox_ && localSnapshot && !result->paths.isEmpty()) {
+            // Also migrate legacy visible files when MYBOX sync is disabled;
+            // process at most eight PDFs per UI turn without touching the PDFs.
+            if (!result->paths.isEmpty()) {
                 sidecarPaths_=result->paths;
                 sidecarIndex_=0;
                 sidecarChanged_=changed;
@@ -395,12 +410,14 @@ private:
         while (sidecarIndex_<sidecarPaths_.size() && processed<8 && elapsed.elapsed()<12) {
             const QString pdf=sidecarPaths_.at(sidecarIndex_++);
             ++processed;
+            SidecarStorage::migrateLegacy(pdf);
+            if (!mybox_ || !localSnapshot) continue;
 
             if(pendingPublish_.contains(pdf)) {
                 if(publish(pdf)) pendingPublish_.remove(pdf);
                 continue; // Never import an older synced copy over local edits.
             }
-            const QString sidecar=portableSidecar(pdf);
+            const QString sidecar=portableSidecarForRead(pdf);
             const QFileInfo info(sidecar);
             if(info.isSymLink() || (info.exists() && (!info.isFile() || info.size()>131072))) continue;
             if(!info.exists()) { publish(pdf); continue; }

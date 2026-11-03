@@ -120,7 +120,7 @@ public:
         // SI pages can cite the main paper; do not import these as SI's own fields.
         if (isSupportingInformationCover(text)) return {};
         static const QRegularExpression pattern(QStringLiteral(
-            R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|J\.?\s*Phys\.?\s*Chem\.?\s*[ABC]\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Org\.?\s*Biomol\.?\s*Chem\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
+            R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|ACS\s+Med\.?\s*Chem\.?\s*Lett\.?|J\.?\s*Phys\.?\s*Chem\.?\s*[ABC]\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Org\.?\s*Biomol\.?\s*Chem\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
             QRegularExpression::CaseInsensitiveOption);
         int checked = 0;
         for (qsizetype i = 0; i < lines.size() && checked < 40; ++i, ++checked) {
@@ -132,10 +132,92 @@ public:
                 if (candidate.size() > 320) break;
                 const auto match = pattern.match(candidate);
                 if (!match.hasMatch()) continue;
-                return {{"journal", match.captured(QStringLiteral("journal")).simplified()},
-                        {"year", match.captured(QStringLiteral("year"))},
-                        {"volume", match.captured(QStringLiteral("volume"))},
-                        {"page", match.captured(QStringLiteral("page")).remove(QLatin1Char(' '))}};
+                const QString pages = match.captured(QStringLiteral("page")).remove(QLatin1Char(' '));
+                QVariantMap citation = {
+                    {"journal", match.captured(QStringLiteral("journal")).simplified()},
+                    {"year", match.captured(QStringLiteral("year"))},
+                    {"volume", match.captured(QStringLiteral("volume"))}};
+                if (pages.startsWith(QLatin1Char('e'), Qt::CaseInsensitive))
+                    citation["article_number"] = pages;
+                else
+                    citation["page"] = pages;
+                return citation;
+            }
+        }
+        // Publisher-specific front-page citation formats that do not follow
+        // "Journal YEAR, VOLUME, PAGES". Match only clearly printed metadata,
+        // not reference lists or inferred DOI content.
+        static const QRegularExpression elsevier(QStringLiteral(
+            R"(^(?<journal>Tetrahedron Letters|Bioorg\. Med\. Chem\. Lett\.|Bioorg\. Med\. Chem\.|Bioorganic Chemistry|European Journal of Medicinal Chemistry)\s+(?<volume>\d{1,4})\s*\((?<year>(?:19|20)\d{2})\)\s+(?<article_number>\d{5,8})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression springer(QStringLiteral(
+            R"(^(?<journal>Medicinal Chemistry Research|Silicon)\s*\((?<year>(?:19|20)\d{2})\)\s*(?<volume>\d{1,4}):(?<page>\d{1,7}[-–]\d{1,7})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        // Elsevier and Springer header records are at the very top (not the
+        // body reference list). Do not use a later matching citation.
+        for (qsizetype i=0; i<lines.size() && i<5; ++i) {
+            const QString line = lines[i].simplified();
+            const auto e = elsevier.match(line);
+            if (e.hasMatch()) {
+                QString journal = e.captured(QStringLiteral("journal"));
+                if (journal.compare(QStringLiteral("Bioorg. Med. Chem. Lett."),Qt::CaseInsensitive)==0)
+                    journal = QStringLiteral("Bioorganic & Medicinal Chemistry Letters");
+                else if (journal.compare(QStringLiteral("Bioorg. Med. Chem."),Qt::CaseInsensitive)==0)
+                    journal = QStringLiteral("Bioorganic & Medicinal Chemistry");
+                return {{"journal",journal},
+                        {"year",e.captured(QStringLiteral("year"))},
+                        {"volume",e.captured(QStringLiteral("volume"))},
+                        {"article_number",e.captured(QStringLiteral("article_number"))}};
+            }
+            const auto s = springer.match(line);
+            if (s.hasMatch()) {
+                QString page=s.captured(QStringLiteral("page"));
+                page.replace(QChar(0x2013),QLatin1Char('-'));
+                return {{"journal",s.captured(QStringLiteral("journal"))},
+                        {"year",s.captured(QStringLiteral("year"))},
+                        {"volume",s.captured(QStringLiteral("volume"))},
+                        {"page",page}};
+            }
+        }
+        // Nature publication metadata lives in the printed footer, frequently
+        // >40 layout lines after the title/abstract. Require the exact journal
+        // heading and footer format; never treat a random body citation as own.
+        static const QRegularExpression naturePage(QStringLiteral(
+            R"(^(?<journal>Nature Chemistry|Nature Synthesis)\s*\|\s*Volume\s+(?<volume>\d{1,4})\s*\|\s*[A-Za-z]+\s+(?<year>(?:19|20)\d{2})\s*\|\s*(?<page>\d{1,7}[-–]\d{1,7})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression natureArticle(QStringLiteral(
+            R"(^Nature Communications\s*\|\s*\((?<year>(?:19|20)\d{2})\)\s*(?<volume>\d{1,4}):(?<article_number>\d{1,7})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression rscFooter(QStringLiteral(
+            R"(^\d+\s*\|\s*Chem\.\s*Commun\.,\s*(?<year>(?:19|20)\d{2}),\s*(?<volume>\d{1,4}),\s*(?<page>\d{1,7}[-–]\d{1,7})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        for (qsizetype i=0; i<lines.size() && i<160; ++i) {
+            const QString line=lines[i].simplified();
+            const auto n=naturePage.match(line);
+            if (n.hasMatch()) {
+                QString page=n.captured(QStringLiteral("page"));
+                page.replace(QChar(0x2013),QLatin1Char('-'));
+                return {{"journal",n.captured(QStringLiteral("journal"))},
+                        {"year",n.captured(QStringLiteral("year"))},
+                        {"volume",n.captured(QStringLiteral("volume"))},
+                        {"page",page}};
+            }
+            const auto a=natureArticle.match(line);
+            if (a.hasMatch())
+                return {{"journal",QStringLiteral("Nature Communications")},
+                        {"year",a.captured(QStringLiteral("year"))},
+                        {"volume",a.captured(QStringLiteral("volume"))},
+                        {"article_number",a.captured(QStringLiteral("article_number"))}};
+            // RSC "Cite this:" lines can have intervening title columns.
+            // A printed footer provides the unambiguous complete page range.
+            const auto r=rscFooter.match(line);
+            if (r.hasMatch()) {
+                QString page=r.captured(QStringLiteral("page"));
+                page.replace(QChar(0x2013),QLatin1Char('-'));
+                return {{"journal",QStringLiteral("Chemical Communications")},
+                        {"year",r.captured(QStringLiteral("year"))},
+                        {"volume",r.captured(QStringLiteral("volume"))},
+                        {"page",page}};
             }
         }
         // Some publisher proofs show the journal name, but deliberately do
@@ -388,6 +470,9 @@ public:
         static const QRegularExpression pagePattern(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,7})(?:[-–]\d{1,7})?$)"),
                                                     QRegularExpression::CaseInsensitiveOption);
         fill("page", pagePattern.match(proposal.value("page").toString()).hasMatch());
+        static const QRegularExpression articlePattern(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,8})$)"),
+                                                       QRegularExpression::CaseInsensitiveOption);
+        fill("article_number", articlePattern.match(proposal.value("article_number").toString()).hasMatch());
         if (!changedField) return false;
         value["source"] = QStringLiteral("PDF first-page evidence");
         // Preserve prior manual ownership, but never mark machine extraction manual.

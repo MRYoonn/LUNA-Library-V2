@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "lunabibliography.h"
+#include "lunatitleextractor.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QDebug>
@@ -244,6 +245,96 @@ int main(int argc, char** argv) {
     if (store.relocate("auto", "conflict")) return 15;
     if (store.record("conflict").value("citation") != QStringLiteral("Keep existing")) return 16;
     if (store.save(QString(), structured)) return 17;
+
+    // Scheduled module ②+④ integration: a main ACS paper may have a
+    // "Supporting Information" link near the title. It is not an SI cover.
+    const QString acsArticle = QStringLiteral(
+        "pubs.acs.org/joc\nArticle\n"
+        "Photoredox-Catalyzed Coupling of Alkyl Thiouracils\n"
+        "with Strained Cycloalkenes\n"
+        "Alice Researcher, Bob Chemist, Carol Scientist\n"
+        "Cite This: J. Org. Chem. 2026, 91, 1234–1242\n"
+        "Article Recommendations\nSupporting Information\n");
+    if (luna::FrontMatter::isSupplementCover(acsArticle)) return 90;
+    if (luna::TitleExtraction::isSupportingInformation({
+        {"pubs.acs.org/joc",0,15,9},{"Article",0,28,9},
+        {"Photoredox-Catalyzed Coupling of Alkyl Thiouracils",0,45,19},
+        {"Alice Researcher, Bob Chemist",0,65,9},
+        {"Cite This: J. Org. Chem. 2026, 91, 1234–1242",0,90,9},
+        {"Supporting Information",0,130,9}})) return 91;
+    if (luna::FrontMatter::acsTitle(acsArticle) != QStringLiteral(
+            "Photoredox-Catalyzed Coupling of Alkyl Thiouracils with Strained Cycloalkenes"))
+        return 92;
+    if (luna::Bibliography::firstPageCitation(acsArticle).value("year") != QStringLiteral("2026"))
+        return 93;
+    const QString genuineSi = QStringLiteral(
+        "Supporting Information\nPhotoredox-Catalyzed Coupling of Alkyl Thiouracils\n"
+        "Alice Researcher, Bob Chemist\nJ. Org. Chem. 2026, 91, 1234–1242\n");
+    if (!luna::FrontMatter::isSupplementCover(genuineSi) ||
+        !luna::Bibliography::firstPageCitation(genuineSi).isEmpty() ||
+        !luna::FrontMatter::acsTitle(genuineSi).isEmpty())
+        return 94;
+    if (luna::FrontMatter::isSupplementCover(
+          QStringLiteral("Article Recommendations\nSupporting Information\nCite this article\n")))
+        return 95;
+    // ACS /Title is sometimes a printer spool job rather than a headline.
+    if (luna::Bibliography::credibleTitle(QStringLiteral("jo5c01153 1..9")) ||
+        luna::Bibliography::credibleTitle(QStringLiteral("ml5c00120 1..7")))
+        return 96;
+    if (!luna::Bibliography::credibleTitle(
+          QStringLiteral("A Photoinduced Thiouracil Radical Coupling Reaction")))
+        return 97;
+    // RSC and Nature footers must preserve real page ranges/article numbers
+    // without claiming citation-like references are the document's metadata.
+    const QString rsc = QStringLiteral(
+        "ChemComm\nPAPER\nSelective Photoinduced C5 Functionalization\n"
+        "of Thiouracil Derivatives\nReceived 21 January 2026\n"
+        "Jane Chemist, Alex Scientist\nDOI: 10.1039/D6CC00001A\n"
+        "1234 | Chem. Commun., 2026, 62, 1234–1245\n");
+    if (luna::FrontMatter::rscTitle(rsc) != QStringLiteral(
+            "Selective Photoinduced C5 Functionalization of Thiouracil Derivatives"))
+        return 98;
+    const auto rscData = luna::Bibliography::firstPageCitation(rsc);
+    if (rscData.value("journal") != QStringLiteral("Chemical Communications") ||
+        rscData.value("year") != QStringLiteral("2026") ||
+        rscData.value("page") != QStringLiteral("1234-1245"))
+        return 99;
+    if (!luna::FrontMatter::publisherCitation(QStringLiteral(
+        "A Review of Recent Results\n1234 | Chem. Commun., 2026, 62, 1234–1245\n")).isEmpty())
+        return 100;
+    const auto nature = luna::Bibliography::firstPageCitation(QStringLiteral(
+        "Nature Communications\nResearch Article\nSynthetic nature research\n"
+        "Nature Communications | (2025) 16:12345\n"));
+    if (nature.value("journal") != QStringLiteral("Nature Communications") ||
+        nature.value("article_number") != QStringLiteral("12345") ||
+        nature.value("volume") != QStringLiteral("16"))
+        return 101;
+    // A user-entered title is sacred, but an auto PDF Info title can be
+    // corrected by verified publisher-cover evidence in the same PDF.
+    const QVariantMap publishedTitle{
+        {"title",QStringLiteral("Photoredox-Catalyzed Coupling of Alkyl Thiouracils")},
+        {"titleSource",QStringLiteral("publisher_cover_verified")}};
+    if (!store.save("publisher-auto", {{
+        "title", QStringLiteral("Scanned Export Job Heading From An Old PDF")},
+        {"titleSource",QStringLiteral("pdf_metadata")}}, false))
+        return 102;
+    if (!store.enrichFromFirstPage("publisher-auto",publishedTitle) ||
+        store.record("publisher-auto").value("title") !=
+        QStringLiteral("Photoredox-Catalyzed Coupling of Alkyl Thiouracils") ||
+        store.record("publisher-auto").value("titleSource") !=
+        QStringLiteral("publisher_cover_verified"))
+        return 103;
+    if (!store.save("publisher-manual", {{
+        "title",QStringLiteral("Human Corrected Exact Chemical Title")}},true))
+        return 104;
+    store.enrichFromFirstPage("publisher-manual", publishedTitle);
+    if (store.record("publisher-manual").value("title") !=
+        QStringLiteral("Human Corrected Exact Chemical Title")) return 105;
+    const QVariantMap natureArticle{{"journal",QStringLiteral("Nature Communications")},
+        {"year",QStringLiteral("2025")},{"article_number",QStringLiteral("12345")}};
+    if (!store.enrichFromFirstPage("nature-article", natureArticle) ||
+        store.record("nature-article").value("article_number") != QStringLiteral("12345"))
+        return 106;
 
     qInfo() << "[PASS] Local-only citation paste/format, override, move/restart, collision and PDF info";
     return 0;

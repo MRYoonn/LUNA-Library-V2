@@ -943,3 +943,47 @@ Next: check exact-commit Python/privacy and Linux/Windows Qt6 isolated CI; fix a
 - **Files:** `tools/si_relocation_gate.py` and `tests/test_si_relocation_gate.py`. The finder, DOI engine, PDF4QT, renderer, UI and other PR branches were not modified.
 - **Validation:** Source and regression test committed on `agent/paper-si-finder-linker`; new exact-HEAD Python/privacy and Linux/Windows Qt6 CI results remain unconfirmed at writing. No real Windows paired-move/restart test and no ACS/Figshare live API or individual SI file HTTP validation was performed. The network container still reports DNS resolution failure for official Figshare endpoints.
 - **Next:** check isolated CI for regression commit `a919627c`; fix any failures. Then, from an explicitly permitted network, run the existing opt-in DOI→Figshare API→HTML probe for `10.1021/acsnano.8b07631`, recording real HTTP statuses without downloading PDFs. Coordinate production Windows PDF+sidecar rename/restart acceptance with Issue #9. PR #17 stays Draft; do not merge or release.
+
+
+## Follow-up: privacy-minimal SI list projection (2026-11-03)
+
+Added `tools/si_display_model.py` and `tests/test_si_display_model.py`.
+The read-only projection renders **two separate groups**: UUID-keyed, explicitly
+user-confirmed local SI documents and DOI-matched public ACS/Figshare candidate
+files. It deliberately does not merge rows by DOI/title/filename, guess a local
+match, expose library-relative directories, open a PDF, or persist any state.
+The public list is metadata-only by default. Even a restored
+`landing_verified` candidate remains **unconfirmed** unless the caller
+explicitly supplies `live_landing_check_completed=True` after invoking the
+existing bounded landing verifier. This boolean is an integration contract,
+**not cryptographic evidence** of HTTP access; untrusted restored JSON must
+never be allowed to set it. Offline/provider-error results cannot carry a
+previously verified candidate into the display. Invalid/mismatched DOI,
+unsafe labels, wrong landing article IDs, and duplicate NFKC-equivalent
+filenames or file IDs are suppressed. The fallback always derives from the
+validated parent DOI, not an external result's URL.
+
+Synthetic regression command in a complete branch checkout:
+
+    python -B -m unittest discover -s tests -p 'test_si_display_model.py' -v
+
+The new source/test files and public-source allowlist were committed on the
+dedicated branch. **No local exact-checkout test result is claimed here**;
+check the new exact-HEAD GitHub Actions Python, Linux Qt6 and Windows Qt6
+jobs before marking PASS. This is a Python display contract only; the native
+Qt/C++ model, real LUNA cards, persisted association UI, live Figshare API,
+individual SI file accessibility and real Windows user workflow remain
+unverified.
+
+Integration note: PR #16's current `src/lunafilemove.h` now includes
+`.luna-meta.json` in its move/rollback contract; the older copy in this
+stacked PR does not. The isolated CI tests the pinned PR #16 version, but
+**this does not mean the production LUNA binary has the fix**. Coordinate
+the branch integration with the Issue #9 owner; do not edit that file here,
+merge, release or enable linked physical moves.
+
+Next: inspect exact-HEAD CI, run the opt-in public DOI→Figshare live HTTP
+probe from a permitted network, then port the validated display projection
+to standalone QtCore with the existing PR #16 DOI identity and the Issue #9
+move/rollback contract. Require manual Windows acceptance before exposing
+any verified SI link or enabling local SI move UI.

@@ -264,6 +264,7 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "lunafirstpage.h": (own / "lunafirstpage.h").read_bytes(),
         folder / "lunatitleextractor.h": (own / "lunatitleextractor.h").read_bytes(),
         folder / "lunafrontmatter.h": (own / "lunafrontmatter.h").read_bytes(),
+        folder / "lunasiidentity.h": (own / "lunasiidentity.h").read_bytes(),
         folder / "lunabibliography.h": (own / "lunabibliography.h").read_bytes(),
         folder / "lunametadataengine.h": (own / "lunametadataengine.h").read_bytes(),
         folder / "lunametadatafetch.h": (own / "lunametadatafetch.h").read_bytes(),

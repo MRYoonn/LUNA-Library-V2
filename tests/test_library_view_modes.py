@@ -94,13 +94,13 @@ class LibraryModes(unittest.TestCase):
         self.assertIn('setMinimumWidth(0);', self.cpp)
         self.assertNotIn('setMinimumWidth(432);', self.cpp)
         self.assertIn('setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12)', self.cpp)
-        self.assertIn('setMaximumWidth(wide ? 850 : 290)', self.cpp)
+        self.assertIn('setMaximumWidth(850)', self.cpp)
         self.assertIn('dock->setMinimumWidth(1)', self.cpp)
-        self.assertIn('dock->setMaximumWidth(wide ? 850 : 300)', self.cpp)
+        self.assertIn('dock->setMaximumWidth(850)', self.cpp)
         self.assertIn('dock->updateGeometry()', self.cpp)
-        self.assertIn('const int width = hasNavigation ? savedWidth : 240', self.cpp)
-        self.assertIn('QTimer::singleShot(0, dock, [dock, width, wide]', self.cpp)
-        self.assertIn('(dock->widget()->maximumWidth() == 850) != wide', self.cpp)
+        self.assertIn('const int width = savedWidth', self.cpp)
+        self.assertIn('QTimer::singleShot(0, dock, [dock, width]', self.cpp)
+        self.assertIn('if (!dock->isVisible()) return', self.cpp)
         self.assertIn('window->resizeDocks({dock}, {width}, Qt::Horizontal)', self.cpp)
         self.assertIn('navigation_->setVisible(navigation_->isHidden())', self.cpp)
         self.assertIn('documents_->setVisible(documents_->isHidden())', self.cpp)
@@ -109,6 +109,11 @@ class LibraryModes(unittest.TestCase):
         folder = self.cpp.split('void selectFolder(const QString& path)')[1].split('void scanAll()')[0]
         all_docs = self.cpp.split('void scanAll()')[1].split('void scanBatch(bool all)')[0]
         self.assertNotIn('QDirIterator::Subdirectories', folder)
+        self.assertIn('group->setExclusive(false)', folder)
+        self.assertIn('for (auto* button : group->buttons()) button->setChecked(false)', folder)
+        self.assertIn('selection->clearSelection()', folder)
+        self.assertIn('selection->setCurrentIndex(index,', folder)
+        self.assertIn('Child selection left root toggled or wrong PDF list', self.cpp)
         self.assertIn('QDirIterator::Subdirectories', all_docs)
         counts = self.cpp.split('void beginRecount()')[1].split('connect(worker, &QThread::finished')[0]
         self.assertIn('result->insert(folder, result->value(folder) + 1)', counts)
@@ -117,12 +122,15 @@ class LibraryModes(unittest.TestCase):
             'tree_->setSelectionMode(QAbstractItemView::SingleSelection)',
             'QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows',
             'list->setSelectionMode(QAbstractItemView::ExtendedSelection)',
-            'void trashSelectedDocuments(QListWidget* list, const QString& clicked)',
-            'for (auto* item : list->selectedItems())',
-            'if (!seen.contains(DocumentClaim::identity(clicked))) paths = {clicked};',
+            'void trashSelectedDocuments(const QStringList& selection, const QString& clicked)',
+            'for (const QString& path : selection)',
+            'if (paths.isEmpty()) paths = {clicked};',
             'for (const auto& path : paths) trashDocument(path, true)',
-            'else if (chosen == trash) trashSelectedDocuments(list, path)',
-            'item && item->isSelected()',
+            'else if (chosen == trash) trashSelectedDocuments(contextSelection, path)',
+            'selectedItems().size() > 1 || (item && item->isSelected())',
+            'QStringList contextSelection;',
+            'contextSelection.append(selected->data(Qt::UserRole).toString())',
+            'Right-click collapsed a multi-selected PDF group',
             'void mouseReleaseEvent(QMouseEvent* e) override',
         ):
             self.assertIn(token, self.cpp, token)
@@ -134,11 +142,14 @@ class LibraryModes(unittest.TestCase):
             'libraryHeaderLayout->addStretch(1)',
             'titleRow->insertStretch(0, 1)',
             'QStringLiteral("library/expandedDockWidth")',
+            'widthSaveTimer_.setInterval(250)',
+            'dock->installEventFilter(library)',
+            'const int storedWidth = qBound(432',
             'settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width())',
-            'const bool wide = hasNavigation',
+            'dock->installEventFilter(library)',
             'navigation_->setMaximumWidth(hasDocuments ? 300 : 850)',
-            'setMaximumWidth(wide ? 850 : 290)',
-            'dock->setMaximumWidth(wide ? 850 : 300)',
+            'setMaximumWidth(850)',
+            'dock->setMaximumWidth(850)',
         ):
             self.assertIn(token, self.cpp, token)
         self.assertIn('tabs_->setCornerWidget(rail, Qt::TopLeftCorner)', tabs)

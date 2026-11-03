@@ -1083,10 +1083,29 @@ public:
         layout->setContentsMargins(7, 7, 0, 7);
         split_ = new QSplitter(Qt::Horizontal, this);
         split_->setObjectName(QStringLiteral("LunaLibrarySplitter"));
-        split_->setChildrenCollapsible(true);
+        split_->setChildrenCollapsible(false);
         split_->setHandleWidth(5);
         layout->addWidget(split_);
-        auto* navigationScroll = new QScrollArea(split_);
+        // Keep both splitter children in their ORIGINAL order even when
+        // either content panel is collapsed. Each owns its own 36px inline
+        // restore tab: library on the left, paper list directly after it.
+        navigationSlot_ = new QWidget(split_);
+        navigationSlot_->setObjectName(QStringLiteral("LunaNavigationSlot"));
+        auto* navigationSlotLayout = new QHBoxLayout(navigationSlot_);
+        navigationSlotLayout->setContentsMargins(0, 0, 0, 0);
+        navigationSlotLayout->setSpacing(0);
+        auto* navigationScroll = new QScrollArea(navigationSlot_);
+        navigationSlotLayout->addWidget(navigationScroll, 1);
+        navigationFold_ = new QWidget(navigationSlot_);
+        navigationFold_->setObjectName(QStringLiteral("LunaNavigationFold"));
+        navigationFold_->setFixedWidth(foldWidth_);
+        auto* navigationFoldLayout = new QVBoxLayout(navigationFold_);
+        navigationFoldLayout->setContentsMargins(3, 5, 3, 0);
+        navigationFoldLayout->setSpacing(0);
+        navigationFold_->hide();
+        navigationSlotLayout->addWidget(navigationFold_);
+        split_->addWidget(navigationSlot_);
+        split_->setCollapsible(0, false);
         navigationScroll->setWidgetResizable(true);
         navigationScroll->setFrameShape(QFrame::NoFrame);
         navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -1386,7 +1405,23 @@ public:
         location->setAccessibleName(QStringLiteral("라이브러리 위치 선택"));
         location->setObjectName(QStringLiteral("LunaLocation"));
         libraryHeaderLayout->addWidget(location);
-        documents_ = new QWidget(split_);
+        documentsSlot_ = new QWidget(split_);
+        documentsSlot_->setObjectName(QStringLiteral("LunaDocumentsSlot"));
+        auto* documentsSlotLayout = new QHBoxLayout(documentsSlot_);
+        documentsSlotLayout->setContentsMargins(0, 0, 0, 0);
+        documentsSlotLayout->setSpacing(0);
+        documents_ = new QWidget(documentsSlot_);
+        documentsSlotLayout->addWidget(documents_, 1);
+        documentsFold_ = new QWidget(documentsSlot_);
+        documentsFold_->setObjectName(QStringLiteral("LunaDocumentsFold"));
+        documentsFold_->setFixedWidth(foldWidth_);
+        auto* documentsFoldLayout = new QVBoxLayout(documentsFold_);
+        documentsFoldLayout->setContentsMargins(3, 5, 3, 0);
+        documentsFoldLayout->setSpacing(0);
+        documentsFold_->hide();
+        documentsSlotLayout->addWidget(documentsFold_);
+        split_->addWidget(documentsSlot_);
+        split_->setCollapsible(1, false);
         documents_->setObjectName(QStringLiteral("LunaDocuments"));
         documents_->setMinimumWidth(195);
         auto* docs = new QVBoxLayout(documents_);
@@ -1608,6 +1643,12 @@ public:
         metadataFetcher_ = new luna::MetadataFetcher(this);
         selectRoot(start);
         split_->restoreState(settings.value(QStringLiteral("library/splitter")).toByteArray());
+        // Restore only the two original expanded widths. The old splitter
+        // state has two children, so it remains compatible with this wrapper.
+        expandedNavWidth_ = qBound(225, settings.value(
+            QStringLiteral("library/expandedNavigationWidth"), 225).toInt(), 300);
+        expandedDocumentsWidth_ = qBound(195, settings.value(
+            QStringLiteral("library/expandedDocumentsWidth"), 325).toInt(), 650);
     }
     std::function<void(const QString&)> openHandler;
     std::function<bool(const QString&)> activateElsewhere;
@@ -1652,50 +1693,78 @@ public:
             }
         }
     }
+    static constexpr int foldWidth_ = 36;
+    QWidget* navigationFold() const { return navigationFold_; }
+    QWidget* documentsFold() const { return documentsFold_; }
     void updateMinimum() {
-        const bool hasNavigation = !navigation_->isHidden();
-        const bool hasDocuments = !documents_->isHidden();
-        QSettings preferences(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
-        const int savedWidth = qBound(432, preferences.value(
-            QStringLiteral("library/expandedDockWidth"), 562).toInt(), 850);
-        navigation_->setMaximumWidth(hasDocuments ? 300 : 850);
-        setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12);
-        setMaximumWidth(850);
+        const QScopedValueRollback<bool> updating(adjustingPanels_, true);
+        const bool showNav = !navigation_->isHidden();
+        const bool showDocs = !documents_->isHidden();
+        navigationFold_->setVisible(!showNav);
+        documentsFold_->setVisible(!showDocs);
+        // QSplitter children are never removed or reordered. Unlike a
+        // floating global restore bar, each fold stays at its old x position.
+        navigationSlot_->setMinimumWidth(showNav ? 225 : foldWidth_);
+        navigationSlot_->setMaximumWidth(showNav ? 300 : foldWidth_);
+        documentsSlot_->setMinimumWidth(showDocs ? 195 : foldWidth_);
+        documentsSlot_->setMaximumWidth(showDocs ? 850 : foldWidth_);
+        const int collapsedTarget = (showNav ? expandedNavWidth_ : foldWidth_) +
+                                    (showDocs ? expandedDocumentsWidth_ : foldWidth_) +
+                                    split_->handleWidth() + 12;
+        const int minWidth = (showNav ? 225 : foldWidth_) +
+                             (showDocs ? 195 : foldWidth_) + 12;
+        setMinimumWidth(minWidth);
+        setMaximumWidth(showNav && showDocs ? 850 : qMax(minWidth, collapsedTarget));
         updateGeometry();
         if (auto* dock = qobject_cast<QDockWidget*>(parentWidget())) {
-            dock->setVisible(hasNavigation || hasDocuments);
-            if (!(hasNavigation || hasDocuments)) return;
             dock->setMinimumWidth(1);
-            dock->setMaximumWidth(850);
+            dock->setMaximumWidth(showNav && showDocs ? 850 : qMax(minWidth, collapsedTarget));
+            dock->show(); // Both folded rails remain visible, never disappear.
             dock->updateGeometry();
             if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget())) {
-                const int width = savedWidth;
-                main->resizeDocks({dock}, {width}, Qt::Horizontal);
-                QTimer::singleShot(0, dock, [dock, width] {
+                const int requested = showNav && showDocs ?
+                    qBound(432, QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+                        .value(QStringLiteral("library/expandedDockWidth"), 562).toInt(), 850) :
+                    collapsedTarget;
+                main->resizeDocks({dock}, {requested}, Qt::Horizontal);
+                QTimer::singleShot(0, dock, [dock, requested, showNav, showDocs] {
                     if (!dock->isVisible()) return;
-                    dock->setMinimumWidth(1);
-                    dock->setMaximumWidth(850);
-                    if (auto* window = qobject_cast<QMainWindow*>(dock->parentWidget()))
-                        window->resizeDocks({dock}, {width}, Qt::Horizontal);
+                    if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget()))
+                        main->resizeDocks({dock}, {requested}, Qt::Horizontal);
+                    Q_UNUSED(showNav);
+                    Q_UNUSED(showDocs);
                 });
             }
         }
     }
-    void toggleNavigation() { savePanelState(); navigation_->setVisible(navigation_->isHidden()); updateMinimum(); }
-    void toggleDocuments() { savePanelState(); documents_->setVisible(documents_->isHidden()); updateMinimum(); }
+    void toggleNavigation() {
+        if (!navigation_->isHidden() && !documents_->isHidden()) savePanelState();
+        navigation_->setVisible(navigation_->isHidden());
+        updateMinimum();
+    }
+    void toggleDocuments() {
+        if (!navigation_->isHidden() && !documents_->isHidden()) savePanelState();
+        documents_->setVisible(documents_->isHidden());
+        updateMinimum();
+    }
     void showBothPanels() { navigation_->show(); documents_->show(); updateMinimum(); }
     void focusSearch() { documents_->show(); updateMinimum(); query_->setFocus(); query_->selectAll(); }
     QLineEdit* searchEdit() const { return query_; }
     void savePanelState() {
-        QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
-        // Preserve inner proportions only while both panels are visible, but
-        // retain the user's width even when resizing a single remaining panel.
-        if (!navigation_->isHidden() && !documents_->isHidden())
+        if (adjustingPanels_ || navigation_->isHidden() || documents_->isHidden()) return;
+        QSettings settings(QSettings::defaultFormat(), QSettings::UserScope,
+                           QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        const auto sizes = split_->sizes();
+        if (sizes.size() == 2 && sizes[0] >= 225 && sizes[1] >= 195) {
+            expandedNavWidth_ = qBound(225, sizes[0], 300);
+            expandedDocumentsWidth_ = qBound(195, sizes[1], 650);
             settings.setValue(QStringLiteral("library/splitter"), split_->saveState());
-        if ((!navigation_->isHidden() || !documents_->isHidden()))
-            if (auto* dock = qobject_cast<QDockWidget*>(parentWidget()))
-                if (dock->width() >= 432 && dock->width() <= 850)
-                    settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width());
+            settings.setValue(QStringLiteral("library/expandedNavigationWidth"), expandedNavWidth_);
+            settings.setValue(QStringLiteral("library/expandedDocumentsWidth"), expandedDocumentsWidth_);
+        }
+        if (auto* dock = qobject_cast<QDockWidget*>(parentWidget()))
+            if (dock->width() >= 432 && dock->width() <= 850)
+                settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width());
     }
 private:
     QStringList savedPaths(const QString& key) const {
@@ -2353,7 +2422,7 @@ private:
     }
     bool eventFilter(QObject* observed, QEvent* event) override {
         if (observed == parentWidget() && event->type() == QEvent::Resize) {
-            if (!navigation_->isHidden() || !documents_->isHidden())
+            if (!navigation_->isHidden() && !documents_->isHidden() && !adjustingPanels_)
                 widthSaveTimer_.start();
             return QWidget::eventFilter(observed, event);
         }
@@ -3144,6 +3213,10 @@ private:
     QMetaObject::Connection documentTitleConnection_, cropConnection_;
     QSplitter* split_ = nullptr;
     QTimer widthSaveTimer_;
+    QWidget *navigationSlot_ = nullptr, *documentsSlot_ = nullptr;
+    QWidget *navigationFold_ = nullptr, *documentsFold_ = nullptr;
+    int expandedNavWidth_ = 225, expandedDocumentsWidth_ = 325;
+    bool adjustingPanels_ = false;
     QWidget* navigation_ = nullptr;
     QWidget* documents_ = nullptr;
     QLabel* rootLabel_ = nullptr;
@@ -3301,34 +3374,20 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         paperHeading->addWidget(panelButton(paperHeading->parentWidget(), documents,
             QStringLiteral("LunaDocumentsCollapseButton")));
     }
-    // Show a compact restore rail at the reader's LEFT EDGE only when a
-    // panel is collapsed. The actual PDF tab strip remains PDF-only.
-    auto* restoreRail = new QWidget(&window);
-    restoreRail->setObjectName(QStringLiteral("LunaPanelRestoreRail"));
-    auto* restoreRow = new QHBoxLayout(restoreRail);
-    restoreRow->setContentsMargins(3, 2, 3, 2); restoreRow->setSpacing(2);
-    auto* restoreNav = panelButton(restoreRail, folders, QStringLiteral("LunaNavigationRestoreButton"));
-    auto* restoreDocs = panelButton(restoreRail, documents, QStringLiteral("LunaDocumentsRestoreButton"));
-    restoreRow->addWidget(restoreNav); restoreRow->addWidget(restoreDocs);
-    auto syncRestore = [=, &window] {
-        const auto* nav = library->findChild<QWidget*>(QStringLiteral("LunaNavigation"));
-        const auto* papers = library->findChild<QWidget*>(QStringLiteral("LunaDocuments"));
-        const bool showNav = nav && nav->isHidden() && !focus->isChecked();
-        const bool showPapers = papers && papers->isHidden() && !focus->isChecked();
-        restoreNav->setVisible(showNav); restoreDocs->setVisible(showPapers);
-        restoreRail->setVisible(showNav || showPapers);
-        if (showNav || showPapers) {
-            restoreRail->adjustSize();
-            if (restoreRail->parentWidget() == &window) {
-                restoreRail->move(8, window.menuBar()->height() + 95);
-                restoreRail->raise();
-            }
-        }
-    };
-    for (auto* action : {folders, documents, focus})
-        QObject::connect(action, &QAction::triggered, restoreRail,
-            [=, &window] { QTimer::singleShot(0, &window, syncRestore); });
-    restoreRail->hide();
+    // Restore controls live INSIDE the original two splitter slots, never
+    // float above PDF or jump to the far side of the paper list.
+    auto* restoreNav = panelButton(library->navigationFold(), folders,
+        QStringLiteral("LunaNavigationRestoreButton"));
+    auto* restoreDocs = panelButton(library->documentsFold(), documents,
+        QStringLiteral("LunaDocumentsRestoreButton"));
+    library->navigationFold()->layout()->addWidget(restoreNav);
+    library->documentsFold()->layout()->addWidget(restoreDocs);
+    restoreNav->setToolTip(QStringLiteral("라이브러리 펼치기"));
+    restoreDocs->setToolTip(QStringLiteral("논문 목록 펼치기"));
+    library->navigationFold()->setStyleSheet(QStringLiteral(
+        "#LunaNavigationFold {background-color: #F7FAFF; border-right: 1px solid #DDE7F5;}"));
+    library->documentsFold()->setStyleSheet(QStringLiteral(
+        "#LunaDocumentsFold {background-color: #F7FAFF; border-right: 1px solid #DDE7F5;}"));
     // One filename search field in the paper panel; no duplicate toolbar row.
     auto* globalSearch = library->searchEdit();
     auto* search = new QAction(QStringLiteral("라이브러리 검색"), &window);
@@ -3880,29 +3939,46 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     auto* documentsToggle = window.findChild<QToolButton*>(QStringLiteral("LunaDocumentsCollapseButton"));
     auto* restoreNav = window.findChild<QToolButton*>(QStringLiteral("LunaNavigationRestoreButton"));
     auto* restoreDocs = window.findChild<QToolButton*>(QStringLiteral("LunaDocumentsRestoreButton"));
-    auto* restoreRail = window.findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail"));
-    if (!navigationToggle || !documentsToggle || !restoreNav || !restoreDocs || !restoreRail ||
+    auto* navSlot = window.findChild<QWidget*>(QStringLiteral("LunaNavigationSlot"));
+    auto* docsSlot = window.findChild<QWidget*>(QStringLiteral("LunaDocumentsSlot"));
+    auto* navFold = window.findChild<QWidget*>(QStringLiteral("LunaNavigationFold"));
+    auto* docsFold = window.findChild<QWidget*>(QStringLiteral("LunaDocumentsFold"));
+    if (!navigationToggle || !documentsToggle || !restoreNav || !restoreDocs ||
+        !navSlot || !docsSlot || !navFold || !docsFold ||
         !navigationToggle->isVisible() || !documentsToggle->isVisible() ||
         navigationToggle->parentWidget()->objectName() != QStringLiteral("LunaLibraryHeader") ||
-        documentsToggle->parentWidget()->objectName() != QStringLiteral("LunaPaperHeader"))
-        return fail("Independent controls missing from panel headers");
+        documentsToggle->parentWidget()->objectName() != QStringLiteral("LunaPaperHeader") ||
+        restoreNav->parentWidget() != navFold || restoreDocs->parentWidget() != docsFold ||
+        navFold->parentWidget() != navSlot || docsFold->parentWidget() != docsSlot ||
+        navSlot->x() >= docsSlot->x())
+        return fail("Independent folding controls not anchored to original panel slots");
     navigationToggle->click();
     QCoreApplication::processEvents();
     if (!navigation->isHidden() || documents->isHidden() || dock->isHidden() ||
-        !restoreNav->isVisible() || !restoreRail->isVisible())
-        return fail("Collapsing library navigation hid papers or lost restore rail");
+        !restoreNav->isVisible() || restoreDocs->isVisible() ||
+        navSlot->width() != 36 || navSlot->x() >= docsSlot->x())
+        return fail("Collapsing navigation did not leave its 36px fold on the left");
     documentsToggle->click();
     QCoreApplication::processEvents();
-    if (!dock->isHidden() || !restoreNav->isVisible() || !restoreDocs->isVisible())
-        return fail("Both collapsed panels lost edge restore controls");
+    if (!navigation->isHidden() || !documents->isHidden() || dock->isHidden() ||
+        !restoreNav->isVisible() || !restoreDocs->isVisible() ||
+        navSlot->width() != 36 || docsSlot->width() != 36 ||
+        dock->width() > 100 ||
+        restoreNav->mapTo(dock, QPoint()).x() >= restoreDocs->mapTo(dock, QPoint()).x())
+        return fail("Both folded panels did not remain in order beside the PDF");
     restoreNav->click();
     QCoreApplication::processEvents();
-    if (navigation->isHidden() || !documents->isHidden() || dock->isHidden())
-        return fail("Edge navigation restore unexpectedly expanded papers");
+    if (navigation->isHidden() || !documents->isHidden() || dock->isHidden() ||
+        !restoreDocs->isVisible() || restoreNav->isVisible() ||
+        docsSlot->width() != 36 || navSlot->width() < 225 ||
+        navSlot->x() >= docsSlot->x())
+        return fail("Opening navigation moved the folded paper list or opened the wrong panel");
     restoreDocs->click();
     QCoreApplication::processEvents();
-    if (dock->isHidden() || navigation->isHidden() || documents->isHidden() || restoreRail->isVisible())
-        return fail("Both panels did not restore independently");
+    if (dock->isHidden() || navigation->isHidden() || documents->isHidden() ||
+        restoreNav->isVisible() || restoreDocs->isVisible() ||
+        navSlot->x() >= docsSlot->x())
+        return fail("Inline restore did not reopen both original panel slots");
     // Exercise the real viewport crop and asynchronous hover in the temporary
     // synthetic library. Nothing here reads or modifies a user's library.
     auto* library = dynamic_cast<LibraryPanel*>(dock->widget());

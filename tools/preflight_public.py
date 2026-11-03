@@ -76,6 +76,7 @@ APPROVED = {
     ".github/workflows/build-windows.yml",
     ".github/workflows/manager8-dispatch-once.yml",
     ".github/workflows/hidden-storage-build-once.yml",
+    ".github/workflows/inline-panel-build-once.yml",
     ".github/workflows/metadata-live-validate-once.yml",
     ".github/workflows/metadata-native-quickcheck-once.yml",
     "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunabibliography.h", "src/lunafirstpage.h", "src/lunathumbnailcache.h",
@@ -114,7 +115,9 @@ APPROVED = {
 APPROVED_BINARY = {'assets/icons/LUNA-Moon.ico': '5c1dec76af47b7c37e3d41e5fb05d62a02783f4f4af0247503096feb4cd7b51f', 'assets/icons/LUNA-Moon.png': '2d08386badd6d1d3a80f6d53213ccc53296fb46590a6c45b734a83e457aba4c3'}
 APPROVED.update(APPROVED_BINARY)
 # Keep the default cap; allow a tightly scoped larger Qt UI source after review.
-SOURCE_SIZE_CAPS = {"src/lunalibrary.cpp": 248_000}
+# The original-position folded panel widgets and native UI smoke add about 5 KB
+# of source. Keep a narrow single-file 256 KB limit; all other caps unchanged.
+SOURCE_SIZE_CAPS = {"src/lunalibrary.cpp": 256_000}
 FORBIDDEN = [
     ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)),
     ("phone", re.compile(r"(?<!\d)01[016789][-. ]?\d{3,4}[-. ]?\d{4}(?!\d)")),

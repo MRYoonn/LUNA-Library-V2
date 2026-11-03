@@ -167,10 +167,8 @@ public:
         auto* initial = createEditor();
         performanceEvent("native-shell-before-library", performanceNow());
         installLibraryShell(*this, *initial);
-        // Restore controls belong to the left end of the PDF tab strip,
-        // not a floating overlay in the middle of the reader.
-        if (auto* rail = findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail")))
-            tabs_->setCornerWidget(rail, Qt::TopLeftCorner);
+        // Each collapsed panel now owns its restore button within the left
+        // dock's original splitter slot; PDF tabs have no left-corner rail.
         performanceEvent("native-shell-after-library", performanceNow());
         auto* frame = centralWidget();
         static_cast<QVBoxLayout*>(frame->layout())->addWidget(tabs_);
@@ -1095,20 +1093,27 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             auto* libraryDock = host.findChild<QDockWidget*>(QStringLiteral("LunaLibraryDock"));
             auto* navHeader = host.findChild<QWidget*>(QStringLiteral("LunaLibraryHeader"));
             auto* paperHeader = host.findChild<QWidget*>(QStringLiteral("LunaPaperHeader"));
-            auto* restoreRail = host.findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail"));
+            auto* navSlot = host.findChild<QWidget*>(QStringLiteral("LunaNavigationSlot"));
+            auto* docsSlot = host.findChild<QWidget*>(QStringLiteral("LunaDocumentsSlot"));
+            auto* navFold = host.findChild<QWidget*>(QStringLiteral("LunaNavigationFold"));
+            auto* docsFold = host.findChild<QWidget*>(QStringLiteral("LunaDocumentsFold"));
             integrationRequire(navigationToggle && documentsToggle && navRestore && docsRestore &&
                                navigationPanel && documentsPanel && libraryDock && navHeader &&
-                               paperHeader && restoreRail,
-                               "Independent pane-header controls or edge restore rail missing");
+                               paperHeader && navSlot && docsSlot && navFold && docsFold,
+                               "Original panel slots or inline folded restore buttons missing");
             integrationRequire(navigationToggle->parentWidget() == navHeader &&
                                documentsToggle->parentWidget() == paperHeader &&
+                               navRestore->parentWidget() == navFold && docsRestore->parentWidget() == docsFold &&
+                               navFold->parentWidget() == navSlot && docsFold->parentWidget() == docsSlot &&
                                !navigationToggle->icon().isNull() && !documentsToggle->icon().isNull() &&
                                !host.findChild<QWidget*>(QStringLiteral("LunaTabCorner")),
-                               "Panel buttons leaked into PDF-only tab header");
+                               "Panel controls floated away from their original slots");
             auto buttonsVisible = [&] {
                 return (navigationPanel->isHidden() ? navRestore->isVisible() : navigationToggle->isVisible()) &&
                        (documentsPanel->isHidden() ? docsRestore->isVisible() : documentsToggle->isVisible()) &&
-                       (navigationPanel->isHidden() || documentsPanel->isHidden() ? restoreRail->isVisible() : !restoreRail->isVisible());
+                       (navFold->isVisible() == navigationPanel->isHidden()) &&
+                       (docsFold->isVisible() == documentsPanel->isHidden()) &&
+                       navSlot->x() < docsSlot->x();
             };
             integrationRequire(buttonsVisible() && !navigationPanel->isHidden() &&
                                !documentsPanel->isHidden() && libraryDock->isVisible(),
@@ -1132,40 +1137,46 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                     .value(QStringLiteral("library/expandedDockWidth")).toInt() == userDockWidth;
             }), "Expanded dock width was not persisted after manual resize");
             for (int turn = 0; turn < 10; ++turn) {
-                const bool paperOnlyExpandable = integrationPanelClick(host, navigationToggle) &&
+                const bool paperOnlyFoldedInPlace = integrationPanelClick(host, navigationToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
                         !documentsPanel->isHidden() && libraryDock->isVisible() &&
-                        libraryDock->maximumWidth() == 850 &&
-                        libraryDock->width() >= 432 && buttonsVisible(); });
+                        navSlot->width() == 36 && docsSlot->x() > navSlot->x() &&
+                        libraryDock->width() < userDockWidth && buttonsVisible(); });
                 result["paperOnlyDockGeometry"] = QJsonObject{
                     {"cycle", turn}, {"dockWidth", libraryDock->width()},
                     {"dockMinWidth", libraryDock->minimumWidth()},
-                    {"dockMinHint", libraryDock->minimumSizeHint().width()},
-                    {"dockSizeHint", libraryDock->sizeHint().width()},
                     {"dockMaxWidth", libraryDock->maximumWidth()},
-                    {"contentWidth", libraryDock->widget()->width()},
-                    {"contentMinWidth", libraryDock->widget()->minimumWidth()},
-                    {"contentMinHint", libraryDock->widget()->minimumSizeHint().width()},
-                    {"contentMaxWidth", libraryDock->widget()->maximumWidth()},
+                    {"navigationSlotWidth", navSlot->width()},
+                    {"documentsSlotWidth", docsSlot->width()},
+                    {"foldNavX", navRestore->mapTo(libraryDock, QPoint()).x()},
+                    {"foldDocsX", docsRestore->mapTo(libraryDock, QPoint()).x()},
                     {"navigationHidden", navigationPanel->isHidden()},
                     {"documentsHidden", documentsPanel->isHidden()},
                     {"restoreButtonsVisible", buttonsVisible()}};
-                integrationRequire(paperOnlyExpandable,
-                    "Paper-only dock cannot retain and expand to the full 850-pixel width");
+                integrationRequire(paperOnlyFoldedInPlace,
+                    "Folding library moved the button to the wrong side of papers");
                 integrationRequire(integrationPanelClick(host, documentsToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
-                        documentsPanel->isHidden() && libraryDock->isHidden() && buttonsVisible(); }),
-                    "Both collapsed: left-edge restore rail disappeared");
+                        documentsPanel->isHidden() && libraryDock->isVisible() &&
+                        libraryDock->width() <= 100 &&
+                        navSlot->width() == 36 && docsSlot->width() == 36 &&
+                        navRestore->mapTo(libraryDock, QPoint()).x() <
+                            docsRestore->mapTo(libraryDock, QPoint()).x() &&
+                        buttonsVisible(); }),
+                    "Both folded slots were not adjacent at the window's left edge");
                 integrationRequire(integrationPanelClick(host, navRestore) &&
                     integrationWait([&] { return !navigationPanel->isHidden() &&
-                        documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
-                    "Left-edge navigation restore failed");
+                        documentsPanel->isHidden() && libraryDock->isVisible() &&
+                        navSlot->width() >= 225 && docsSlot->width() == 36 &&
+                        navSlot->x() < docsSlot->x() && buttonsVisible(); }),
+                    "Restoring navigation displaced the folded paper-list slot");
                 integrationRequire(integrationPanelClick(host, docsRestore) &&
                     integrationWait([&] { return !navigationPanel->isHidden() &&
-                        !documentsPanel->isHidden() && libraryDock->isVisible() && buttonsVisible(); }),
-                    "Left-edge paper-list restore failed");
+                        !documentsPanel->isHidden() && libraryDock->isVisible() &&
+                        buttonsVisible(); }),
+                    "Restoring papers did not reopen their original slot");
                 integrationRequire(qAbs(libraryDock->width() - userDockWidth) <= 4,
-                    "Collapsing and reopening panels lost the exact user width");
+                    "Folding and restoring panels lost the user's saved dock width");
                 integrationRequire(!focus->isChecked(),
                     "Panel controls unexpectedly activated focus mode");
             }

@@ -148,6 +148,24 @@ class SnapshotSourceContract(unittest.TestCase):
                       "Wiley article number identified while legacy page view remains stable"):
             self.assertIn(token, native)
 
+    def test_proven_main_reclassification_does_not_override_manual_si(self):
+        bibliography = (ROOT / "src" / "lunabibliography.h").read_text(encoding="utf-8")
+        firstpage = (ROOT / "src" / "lunafirstpage.h").read_text(encoding="utf-8")
+        native = NATIVE.read_text(encoding="utf-8")
+        self.assertIn("static bool verifiedMainFrontMatter(", bibliography)
+        self.assertIn('value["documentKindSource"] = QStringLiteral("first_page_verified")', bibliography)
+        self.assertIn('entry["documentKind"] = QStringLiteral("main_article")', bibliography)
+        self.assertIn("protectedManual || !verifiedMainFrontMatter(proposal)", bibliography)
+        self.assertIn("!verifiedMainFrontMatter(proposal)", bibliography)
+        self.assertIn('evidence["documentKind"]=QStringLiteral("main_article")', firstpage)
+        self.assertIn('evidence["documentKindSource"]=QStringLiteral("first_page_verified")', firstpage)
+        for token in ("trusted new front matter repairs stale automatic SI",
+                      "human-confirmed SI cannot be silently reclassified",
+                      "low-confidence DOI cannot repair SI classification",
+                      "explicit first-page refresh repairs stale machine SI",
+                      "explicit refresh does not erase manual SI classification"):
+            self.assertIn(token, native)
+
     def test_native_regressions_seed_isolated_settings(self):
         code = NATIVE.read_text(encoding="utf-8")
         for expected in ('QTemporaryDir', 'Hao Fang', 'legacy author must not reappear',

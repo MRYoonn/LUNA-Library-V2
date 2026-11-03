@@ -53,6 +53,36 @@ int main(int argc, char** argv) {
               "Photocatalytic Acceptorless Conversion of Carboxylic Acids")),
           "real article title remains credible");
 
+    // Recover only a cover's printed title. A provider outage should not
+    // promote an ACS PDF Info job name; ambiguous covers must abstain.
+    check(luna::Bibliography::firstPageAcsTitle(QStringLiteral(
+              "pubs.acs.org/joc\nArticle\n"
+              "Photocatalytic Acceptorless Conversion of Carboxylic Acids,\n"
+              "Aldehydes, and Alcohols to Alkenes by a TiO2 and Cobaloxime Dual-\n"
+              "Catalyst System\n"
+              "Eiki Maruyama, Xiongjie Jin,* and Kyoko Nozaki*\n"
+              "Cite This: J. Org. Chem. 2025, 90, 10416-10424\n"
+              "Article Recommendations\nSupporting Information")) ==
+          QStringLiteral("Photocatalytic Acceptorless Conversion of Carboxylic Acids, "
+                         "Aldehydes, and Alcohols to Alkenes by a TiO2 and Cobaloxime Dual-Catalyst System"),
+          "offline ACS main title from printed front matter");
+    check(luna::Bibliography::firstPageAcsTitle(QStringLiteral(
+              "pubs.acs.org/OrgLett\nLetter\n"
+              "Deaminative Cyanation of Anilines by Oxylanion Radical Transfer\n"
+              "Deepak Behera, Tim Schulte, Ahmet Altun, and Tobias Ritter*\n"
+              "Cite This: Org. Lett. 2025, 27, 8921-8926")) ==
+          QStringLiteral("Deaminative Cyanation of Anilines by Oxylanion Radical Transfer"),
+          "single-line ACS letter title from front matter");
+    check(luna::Bibliography::firstPageAcsTitle(QStringLiteral(
+              "pubs.acs.org/joc\nArticle\nUnverified Lines Without Author Evidence\n"
+              "Cite This: J. Org. Chem. 2025, 90, 10-12")).isEmpty(),
+          "unverified ACS cover abstains rather than guessing title");
+    check(luna::Bibliography::firstPageAcsTitle(QStringLiteral(
+              "Supporting Information\nA Synthetic Title\nFake Author, Test Name\n"
+              "Cite This: J. Org. Chem. 2025, 90, 10-12")).isEmpty(),
+          "ACS title fallback never parses SI");
+
+
     // A second OS process must reload the relocated record from an isolated
     // INI file, not from the parent process's QSettings cache or aliases_.
     const QStringList arguments = app.arguments();

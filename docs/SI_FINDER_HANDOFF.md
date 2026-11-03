@@ -1022,3 +1022,13 @@ any verified SI link or enabling local SI move UI.
 - Next run: inspect CI for HEAD, run `python -B -m unittest discover -s
   tests -p 'test_si_display_model.py' -v`, then confirm public ACS/Figshare
   API/landing reachability separately without downloading SI PDFs.
+
+
+## 2026-11-03 — fail-closed public SI display verification (CI pending)
+
+- **Cause:** Python projection accepted a caller-provided `live_landing_check_completed=True` and a restored candidate's `landing_verified` string as sufficient to display a verified SI link. An untrusted caller/restored state could therefore claim HTTP verification without a network request. The QtCore projection already withheld promotion.
+- **Reproduce:** Construct a synthetic `SiLookupResult` with status `verified`, a candidate with status `landing_verified`, and invoke `project_si_rows(index, main_id, lookup, live_landing_check_completed=True)`. Before this patch, the row status was `landing_verified` despite no HTTP request.
+- **Fix:** Retain the Boolean argument for compatibility but never promote public SI rows from it; all public rows stay `unconfirmed`. This intentionally matches the QtCore fail-closed boundary. Existing DOI extraction, Figshare metadata lookup, move engine, UI and other PR branches were not changed.
+- **Test:** Updated the existing synthetic regression to require `unconfirmed` even for a true Boolean; earlier non-Boolean spoof tests remain. Execute `python -B -m unittest discover -s tests -p 'test_si_display_model.py' -v` and check exact-HEAD CI before PASS claims.
+- **Limitations:** No trusted HTTP-proof handoff has been implemented, so a genuinely opened landing is still displayed as unconfirmed. Actual ACS/Figshare API, individual SI-file reachability, Windows UI, and paired PDF/sidecar move/restart remain unverified.
+- **Next:** Check exact-HEAD Python/privacy and Linux/Windows Qt CI. Design an immutable per-candidate verifier result produced inside the network boundary and bound to parent DOI, article ID, canonical URL, response status and observation time; only then allow verified UI status. Run permitted live probe without PDF downloads. Coordinate Issue #9 Windows acceptance. Keep PR #17 Draft; no merge or Release.

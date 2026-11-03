@@ -168,12 +168,12 @@ jobs:
         run: |
           New-Item -Force -ItemType Directory -Path $env:RUNNER_TEMP/luna-249-evidence | Out-Null
           "Release Windows offline candidate verification: job=$env:GITHUB_JOB; run=$env:GITHUB_RUN_ID; SHA=809a76df1e12238921768cddc2c84422f950fd4b. Inspect the first failed step in the GitHub job log before attributing a failure root cause." |
-            Set-Content -Path $env:RUNNER_TEMP/luna-246-evidence/failure-analysis.md
+            Set-Content -Path $env:RUNNER_TEMP/luna-249-evidence/failure-analysis.md
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: LUNA-v090249-Windows-Prepublish-Diagnostics
-          path: ${{ runner.temp }}/luna-246-evidence/failure-analysis.md
+          path: ${{ runner.temp }}/luna-249-evidence/failure-analysis.md
           retention-days: 90
 
   create-draft:

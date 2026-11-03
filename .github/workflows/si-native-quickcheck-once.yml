@@ -45,7 +45,7 @@ jobs:
           cmake --build $probe --target luna_metadata_native --config Release --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Qt metadata MSVC C++ compilation failed' }
           ctest --test-dir $probe -C Release --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'SI original-paper native Qt behavior failed; inspect LUNA_SI_EVIDENCE fields in CTest stderr' }
+          if ($LASTEXITCODE -ne 0) { throw 'SI original-paper native Qt behavior failed; verify corrected SI author-row regex and inspect LUNA_SI_EVIDENCE' }
       - name: Preserve SI native test diagnostics
         if: always()
         shell: pwsh

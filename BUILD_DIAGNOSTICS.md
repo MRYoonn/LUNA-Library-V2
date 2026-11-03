@@ -244,3 +244,13 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 
 **Release gate:** Real Windows Qt native CTest, full PDF4QT/MSVC, PDF/annotation/reopen/tabs/synthetic UI tests and portable ZIP must pass on the identical final source SHA before publishing. Previous stable v0.9.0.249 remains unchanged. Do not infer Windows physical-user acceptance or MYBOX two-PC sync from synthetic tests.
 
+
+### Manual SI same-folder reuse — revised behavior (2026-11-04)
+
+**User clarification:** SI selected from the original paper's own folder must NOT be copied back into the same folder. Reuse the existing PDF; if needed rename it in place to the article-derived SI filename. SI from another folder is still copied while its original remains unchanged.
+
+- The manual SI context menu now calls ManualSI::placeNextToParent, which compares canonical folders. For an already correctly named SI, reusedExisting=true without changing any file. Otherwise, chooses the first collision-free sanitized filename and calls the existing no-overwrite Windows renameWithNoReplacement operation. Source == article is rejected.
+- A target with an existing PDF, old/new portable metadata, or any PNG/JPG/JPEG crop sidecar is skipped; no stale user data is adopted. Source metadata and thumb links are checked for symlink tampering before rename.
+- After a same-folder rename, the UI calls reconcileExplorerRename(old,new,bibliography) to move .luna metadata, thumbnails, QSettings memo, favorites, opened dates and bibliography record. If reconciliation fails, it attempts a no-overwrite reverse rename and reverse reconciliation, and reports failures rather than deleting the user's existing PDF or sidecars.
+- The action refuses to rename an SI that is open in the PDF editor and refuses to steal an SI already manually linked to another article. Only files newly copied from a different directory can be deleted on failed metadata attachment; an existing same-folder SI is never deleted.
+- Extended Windows Qt native manualsi.cpp checks no duplicate file counts, same-folder rename and idempotent reuse, true metadata/thumbnail/memo persistence and foreign-folder copy with original preservation. Source privacy gate and full PDF4QT/MSVC application build still required before release. Existing public v0.9.0.249 is unchanged.

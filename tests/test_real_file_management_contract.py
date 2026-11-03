@@ -40,7 +40,7 @@ class NativeFileManagementContracts(unittest.TestCase):
         for token in (
             "FileCopyResult copyPdfWithThumbnails(",
             "copies.append(qMakePair(source.canonicalFilePath()",
-            "QStringLiteral(\".luna-thumb\")",
+            "SidecarStorage::companions(path, targetPdf, false)",
             "if (destination.exists() || destination.isSymLink())",
             "QFile::copy(pair.first, pair.second)",
             "QFile::remove(item)",
@@ -108,7 +108,7 @@ class NativeFileManagementContracts(unittest.TestCase):
         for token in (
             "[](const QString& item) { return QFile::moveToTrash(item); }",
             "if (!recycler(item.first))",
-            "const QString portable=",
+            "SidecarStorage::allCompanions(pdf)",
             "destination.exists() || destination.isSymLink()",
             "if (!QFile::copy(item.second, item.first))",
             "void clear()",

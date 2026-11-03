@@ -201,6 +201,74 @@ public:
         return {};
     }
 
+    // Elsevier's front cover separates the headline and its author list from
+    // affiliations. Never collect further names after the affiliation boundary
+    // (e.g. an institution or city), or infer an author from PDF Info Author.
+    // Require the publisher masthead and two distinct printed author names.
+    static QVariantMap firstPageElsevierIdentity(const QString& firstPageText) {
+        if (isSupportingInformationCover(firstPageText)) return {};
+        const auto lines=firstPageText.left(16000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")),Qt::SkipEmptyParts);
+        if(lines.size()<8 || !lines.value(0).contains(
+                QRegularExpression(QStringLiteral(R"(\s+\((?:19|20)\d{2}\)\s+\d{5,8}$)"))) ||
+           lines.value(1).simplified().compare(
+                QStringLiteral("Contents lists available at ScienceDirect"),
+                Qt::CaseInsensitive)!=0 ||
+           !lines.value(3).simplified().startsWith(
+                QStringLiteral("journal homepage: www.elsevier.com/locate/"),
+                Qt::CaseInsensitive))
+            return {};
+        static const QRegularExpression person(QStringLiteral(
+            R"([\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,4})"));
+        static const QRegularExpression affiliation(QStringLiteral(
+            R"(^(?:[a-d]\s+\p{Lu}|(?:School|Department|College|Institute|University|Faculty)\s+of\b|A\s+R\s+T\s+I\s+C\s+L\s+E|A\s+B\s+S\s+T\s+R\s+A\s+C\s+T))"),
+            QRegularExpression::CaseInsensitiveOption);
+        QStringList titleLines,authorLines;
+        bool inAuthors=false, stoppedAtAffiliation=false;
+        for(qsizetype i=4;i<lines.size() && i<18;++i) {
+            const QString line=lines[i].simplified();
+            if (line.compare(QStringLiteral("Review"),Qt::CaseInsensitive)==0 ||
+                line.compare(QStringLiteral("Research paper"),Qt::CaseInsensitive)==0 ||
+                line.compare(QStringLiteral("Article"),Qt::CaseInsensitive)==0)
+                continue;
+            if (inAuthors && affiliation.match(line).hasMatch()) {
+                stoppedAtAffiliation=true;break;
+            }
+            if (!inAuthors) {
+                auto names=person.globalMatch(line);
+                int count=0;bool firstAtStart=false;
+                while(names.hasNext()) {
+                    const auto name=names.next();
+                    if(count==0) firstAtStart=(name.capturedStart()==0);
+                    ++count;
+                }
+                if(firstAtStart && count>=2) inAuthors=true;
+            }
+            if (inAuthors) {
+                if(authorLines.size()>=4) return {};
+                authorLines.append(line);
+            } else {
+                if(line.isEmpty() || line.size()>190 || titleLines.size()>=4)
+                    return {};
+                titleLines.append(line);
+            }
+        }
+        if(!inAuthors || !stoppedAtAffiliation || titleLines.isEmpty() ||
+           authorLines.isEmpty()) return {};
+        const QString allAuthors=authorLines.join(QLatin1Char(' '));
+        auto names=person.globalMatch(allAuthors);
+        QString last;int count=0;
+        while(names.hasNext()) {last=names.next().captured().simplified();++count;}
+        QString title=titleLines.join(QLatin1Char(' ')).simplified();
+        title.replace(QRegularExpression(QStringLiteral(R"(-\s+(?=\p{L}))")),
+                      QStringLiteral("-"));
+        title.remove(QRegularExpression(QStringLiteral(R"([†‡☆\s]+$)")));
+        if(count<2 || !credibleTitle(title) || !credibleAuthor(last)) return {};
+        return {{"title",title},
+                {"authors",last},
+                {"authorEvidence",QStringLiteral("first-page-elsevier-author-block")}};
+    }
+
     // Conservative citation extraction from the printed first page only.
     // Only known journal patterns are accepted; unknown text is left untouched.
     // No DOI parsing or online queries are performed.
@@ -583,7 +651,9 @@ public:
         // supersedes an earlier incomplete/incorrect AUTO value such as Hao Fang,
         // but never changes a user-entered manual author.
         const QString proposedAuthor = proposal.value("authors").toString().simplified();
-        if (proposal.value("authorEvidence").toString() == QStringLiteral("first-page-terminal-and") &&
+        const QString authorEvidence=proposal.value("authorEvidence").toString();
+        if ((authorEvidence == QStringLiteral("first-page-terminal-and") ||
+             authorEvidence == QStringLiteral("first-page-elsevier-author-block")) &&
             credibleAuthor(proposedAuthor) &&
             value.value("authorsSource").toString() != QStringLiteral("manual") &&
             value.value("authorsSource").toString() != QStringLiteral("Crossref") &&
@@ -592,7 +662,7 @@ public:
             value.value("authors").toString().simplified() != proposedAuthor) {
             value["authors"] = proposedAuthor;
             value["authorsSource"] = QStringLiteral("first_page_verified");
-            value["authorEvidence"] = QStringLiteral("first-page-terminal-and");
+            value["authorEvidence"] = authorEvidence;
             changedField = true;
         }
         fill("journal", !proposal.value("journal").toString().isEmpty());
@@ -937,8 +1007,9 @@ public:
             changed = true;
         };
         replace("title", credibleTitle(proposal.value("title").toString()));
-        replace("authors", proposal.value("authorEvidence").toString() ==
-                           QStringLiteral("first-page-terminal-and") &&
+        const QString authorEvidence=proposal.value("authorEvidence").toString();
+        replace("authors", (authorEvidence == QStringLiteral("first-page-terminal-and") ||
+                            authorEvidence == QStringLiteral("first-page-elsevier-author-block")) &&
                            credibleAuthor(proposal.value("authors").toString()));
         replace("journal", !proposal.value("journal").toString().isEmpty());
         static const QRegularExpression year(QStringLiteral(R"(^[12]\d{3}$)"));

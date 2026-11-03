@@ -74,6 +74,7 @@ APPROVED = {
     "README.md", "SECURITY_POLICY.md", "LICENSE_NOTICE.md", ".gitignore",
     "USER_GUIDE_KO.md",
     ".github/workflows/build-windows.yml",
+    ".github/workflows/manager8-dispatch-once.yml",
     "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunabibliography.h", "src/lunafirstpage.h", "src/lunathumbnailcache.h",
     "src/lunametadataengine.h", "src/lunametadatafetch.h", "src/lunatitleextractor.h",
     "tests/test_title_extractor_contract.py",

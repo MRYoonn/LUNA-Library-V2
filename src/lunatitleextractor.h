@@ -2,6 +2,7 @@
 #pragma once
 // Offline, first-page-only title candidate analysis for scientific PDF layouts.
 // No PDF content, filenames, user notes or candidates leave this machine.
+#include "lunafrontmatter.h"
 #include <QList>
 #include <QRegularExpression>
 #include <QString>
@@ -37,13 +38,12 @@ inline bool isExcluded(QString text) {
 }
 
 inline bool isSupportingInformation(const QList<Line>& lines) {
-    // Supplementary covers often quote the parent article's DOI and title.
-    // Never attribute that DOI or a guessed title to the SI PDF itself.
-    for (int i=0; i<lines.size() && i<18; ++i)
-        if (lines[i].text.contains(QStringLiteral("Supporting Information"), Qt::CaseInsensitive) ||
-            lines[i].text.contains(QStringLiteral("Supplementary Information"), Qt::CaseInsensitive))
-            return true;
-    return false;
+    // A main article may have an ACS/RSC "Supporting Information" link.
+    // Only a verified SI COVER can suppress a scientific title candidate.
+    QStringList front;
+    for (int i=0; i<lines.size() && i<24; ++i)
+        front.append(lines[i].text);
+    return FrontMatter::isSupplementCover(front.join(QLatin1Char('\n')));
 }
 
 // Return "title" only when layout evidence is strong and unambiguous.

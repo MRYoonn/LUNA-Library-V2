@@ -1,0 +1,87 @@
+name: LUNA manual SI attachment and grouped paper UI - exact Windows check
+on:
+  push:
+    branches:
+      - feature/manual-si-attach-card-grouping-20261104
+    paths:
+      - .github/workflows/manual-si-build-once.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  public-source-gate:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public source privacy guard and entire Python contract suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Record exact source diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'LUNA manual SI source SHA %s, run %s, check first failed step; no private PDF attached.\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-Manual-SI-Source-Diagnostics
+          path: evidence/failure-analysis.md
+          retention-days: 90
+
+  native-manual-si:
+    needs: public-source-gate
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Build and run real Qt native manual SI copy and persistence test
+        shell: pwsh
+        run: |
+          $probe=Join-Path $env:RUNNER_TEMP 'luna-manual-si-native'
+          cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Manual SI Qt native CMake configure failed' }
+          cmake --build $probe --target luna-native-manualsi --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Manual SI Qt native C++ MSVC compile failed' }
+          ctest --test-dir $probe -C Release -R '^native_manual_si_attachment$' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Manual SI on-disk native Qt regression failed' }
+
+  full-pdf4qt-dispatch:
+    needs: public-source-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch complete exact-branch PDF4QT Windows build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$BRANCH" = feature/manual-si-attach-card-grouping-20261104
+          test "${#HEAD}" -eq 40
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$HEAD"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
+          echo "Exact-source PDF4QT Windows build dispatched for $HEAD; user release blocked until all GUI/native/PDF/annotation tests and portable checksum pass."

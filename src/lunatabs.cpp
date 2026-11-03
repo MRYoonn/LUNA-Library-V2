@@ -6,6 +6,7 @@
 #include "lunareadertoolbar.h"
 #include "lunaupdater.h"
 #include "lunadocumentclaim.h"
+#include "lunasidecarpaths.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
 #include "pdfdrawwidget.h"
@@ -936,7 +937,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         if (restore) {
             integrationRequire(paper->data(Qt::UserRole + 4).toString() == memo, "Paper memo did not survive process restart");
             integrationRequire(integrationHighlights(a) == 1, "Saved A highlight did not survive process restart");
-            const QString thumb = QFileInfo(files[0]).absolutePath() + "/A.luna-thumb.png";
+            const QString thumb = luna::SidecarStorage::thumbnail(files[0], QStringLiteral(".png"));
             integrationRequire(QFileInfo::exists(thumb) && !QImage(thumb).isNull(), "Moved thumbnail missing after restart");
             result["freshProcessMemoPdfAndThumbnail"] = true;
         } else {
@@ -1205,14 +1206,14 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             preview->trigger();
             integrationRequire(!preview->isChecked() && !grid->isVisible(),
                 "Native page grid did not return to the clean paper-list view");
-            collapse(); const QString thumbnail = QFileInfo(files[0]).absolutePath() + "/A.luna-thumb.png";
+            collapse(); const QString thumbnail = luna::SidecarStorage::thumbnail(files[0], QStringLiteral(".png"));
             auto* crop = a->findChild<QAction*>(QStringLiteral("LunaCropThumbnail")); integrationRequire(crop && crop->isEnabled(), "Active thumbnail crop action disabled"); crop->trigger();
             auto* draw = integrationSurface(a); QWidget* overlay = nullptr;
             integrationRequire(integrationWait([&] { overlay = draw->findChild<QWidget*>(QStringLiteral("LunaThumbnailCrop")); return overlay && overlay->isVisible(); }), "Shared library crop did not target A");
             integrationMouse(overlay, QEvent::MouseButtonPress, {50, 80}, Qt::LeftButton, Qt::LeftButton);
             integrationMouse(overlay, QEvent::MouseMove, {200, 200}, Qt::NoButton, Qt::LeftButton);
             integrationMouse(overlay, QEvent::MouseButtonRelease, {200, 200}, Qt::LeftButton, Qt::NoButton);
-            integrationRequire(integrationWait([&] { return QFileInfo::exists(thumbnail) && !QImage(thumbnail).isNull(); }) && !QFileInfo::exists(QFileInfo(files[1]).absolutePath() + "/B.luna-thumb.png"), "Crop wrote to the wrong PDF or no image");
+            integrationRequire(integrationWait([&] { return QFileInfo::exists(thumbnail) && !QImage(thumbnail).isNull(); }) && !QFileInfo::exists(luna::SidecarStorage::thumbnail(files[1], QStringLiteral(".png"))), "Crop wrote to the wrong PDF or no image");
             result["activeNativePagesAndCrop"] = true;
             phase("A highlight and real Ctrl+S"); integrationHighlight(host, a, report); result["realDragBlueBorderlessSelectionAndCtrlC"] = true;
             integrationRequire(integrationHighlights(b) == 0, "Integrated A annotation crossed to B");
@@ -1456,7 +1457,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             moveUi.start(30);
             integrationRequire(integrationClick(host, moveList->viewport(), movePoint, true),
                 "Real move context-menu mouse input failed");
-            const QString movedPdf = moved + "/A.pdf", movedThumb = moved + "/A.luna-thumb.png";
+            const QString movedPdf = moved + "/A.pdf";
+            const QString movedThumb = luna::SidecarStorage::thumbnail(movedPdf, QStringLiteral(".png"));
             const bool moveReopened = integrationWait([&] {
                 return QFileInfo::exists(movedPdf) && ready(a) &&
                     !a->property("LunaMoveRestorePending").toBool() &&

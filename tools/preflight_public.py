@@ -76,6 +76,7 @@ APPROVED = {
     ".github/workflows/build-windows.yml",
     ".github/workflows/manager8-dispatch-once.yml",
     ".github/workflows/metadata-live-validate-once.yml",
+    ".github/workflows/metadata-native-quickcheck-once.yml",
     "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunabibliography.h", "src/lunafirstpage.h", "src/lunathumbnailcache.h",
     "src/lunafrontmatter.h",
     "src/lunametadataengine.h", "src/lunametadatafetch.h", "src/lunatitleextractor.h",

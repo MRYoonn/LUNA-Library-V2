@@ -10,6 +10,7 @@ import argparse
 from datetime import datetime, timezone
 import json
 import os
+import re
 from pathlib import Path
 import sys
 
@@ -29,8 +30,57 @@ def identity() -> dict:
     }
 
 
+
+def classify_native_failure(evidence: Path) -> dict:
+    """Only fixed categorical fields are admitted; never copy paths, PDF data or stderr."""
+    failure_file = evidence / "luna-native-failure.json"
+    probe_file = evidence / "luna-print-probe.txt"
+    result = {"evidence_found": False, "checkpoint": "unavailable",
+              "exit_code": None, "print_probe": {}, "classification": "not_established"}
+    if failure_file.is_file() and failure_file.stat().st_size <= 4096:
+        try:
+            item = json.loads(failure_file.read_text(encoding="utf-8"))
+            if isinstance(item, dict):
+                result["evidence_found"] = True
+                status = str(item.get("status", ""))
+                match = re.fullmatch(r"exit ([0-9]{1,10})", status)
+                if match:
+                    result["exit_code"] = int(match.group(1))
+                stage = str(item.get("last_native_stage", ""))
+                if "print" in stage.lower() or stage == "ui-done":
+                    result["checkpoint"] = "native-print-or-end-of-smoke"
+                elif "count" in stage.lower():
+                    result["checkpoint"] = "native-folder-count"
+                elif stage:
+                    result["checkpoint"] = "other-native-smoke"
+        except (OSError, UnicodeError, ValueError, TypeError):
+            pass
+    if probe_file.is_file() and probe_file.stat().st_size <= 4096:
+        try:
+            raw = probe_file.read_text(encoding="utf-8")
+            for name in ("ownedDialogs", "cancelRequests", "seen", "finished",
+                         "actionTriggers", "actionEnabledBefore", "printersAvailable"):
+                match = re.search(r"\\b" + name + r"=([0-9]{1,5})\\b", raw)
+                if match:
+                    result["print_probe"][name] = int(match.group(1))
+        except (OSError, UnicodeError):
+            pass
+    p = result["print_probe"]
+    if p.get("seen") == 0:
+        result["checkpoint"] = "native-print"
+        if p.get("actionTriggers") == 0:
+            result["classification"] = "ctrl_p_shortcut_not_dispatched"
+        elif p.get("actionTriggers") == 1:
+            result["classification"] = "print_action_dispatched_no_native_dialog_observed"
+        else:
+            result["classification"] = "native_print_dialog_not_observed_dispatch_unknown"
+    elif p.get("seen", 0) > 0 and p.get("cancelRequests", 0) > 0:
+        result["classification"] = "native_print_dialog_observed_and_cancel_requested"
+    return result
+
+
 def record(output: Path, phase: str, *, status: str = "unknown",
-           gates: str = "") -> dict:
+           gates: str = "", native_evidence: Path | None = None) -> dict:
     if phase not in {"start", "finish"}:
         raise ValueError("Invalid phase")
     if status not in {"unknown", "success", "failure", "cancelled", "skipped"}:
@@ -106,6 +156,18 @@ def record(output: Path, phase: str, *, status: str = "unknown",
             "On CI failure a copy is also posted as a GitHub issue for durable review.",
             "",
         ]
+        if status == "failure" and native_evidence is not None:
+            summary = classify_native_failure(native_evidence)
+            lines.extend(["", "## Native failure verifier (bounded synthetic diagnostics)", ""])
+            lines.append("- Classification: **" + summary["classification"] + "**")
+            lines.append("- Checkpoint: " + summary["checkpoint"])
+            lines.append("- Exit code: " + str(summary["exit_code"]))
+            for name, value in summary["print_probe"].items():
+                lines.append("- " + name + ": " + str(value))
+            lines += ["", "Classification is evidence-based, not proof of the underlying "
+                      "platform or Qt root cause; inspect source and rerun the failed gate.", ""]
+            (output / "native-failure-verifier.json").write_text(
+                json.dumps(summary, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
         report = output / "failure-analysis.md"
         report.write_text("\n".join(lines), encoding="utf-8")
     return document
@@ -117,8 +179,10 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--status", default="unknown")
     parser.add_argument("--gates", default="")
+    parser.add_argument("--native-evidence", type=Path)
     args = parser.parse_args()
-    result = record(args.output, args.phase, status=args.status, gates=args.gates)
+    result = record(args.output, args.phase, status=args.status, gates=args.gates,
+                    native_evidence=args.native_evidence)
     print("[LUNA DIAG]", json.dumps(
         {"phase": result["phase"], "status": result["status"],
          "source_sha": result["source_sha"], "gates": result["gates"]},

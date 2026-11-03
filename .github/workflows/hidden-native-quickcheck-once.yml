@@ -1,4 +1,4 @@
-name: LUNA hidden sidecar native Windows preflight - exact tested source
+name: LUNA hidden sidecar native Windows quickcheck - regression #247 fix
 on:
   push:
     branches:
@@ -16,12 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 29c0d9b57f6d9bb2c6b0f18de754bf6d4c7d4c87
+          ref: 4483314601c3e704dd1b4b8d3fbbaa43d4fdf88b
           persist-credentials: false
       - name: Exact source security and contract preflight
         shell: pwsh
         run: |
-          if ((git rev-parse HEAD).Trim() -cne '29c0d9b57f6d9bb2c6b0f18de754bf6d4c7d4c87') { throw 'Wrong source SHA' }
+          if ((git rev-parse HEAD).Trim() -cne '4483314601c3e704dd1b4b8d3fbbaa43d4fdf88b') { throw 'Wrong source SHA' }
           python -B tools/preflight_public.py
           if ($LASTEXITCODE -ne 0) { throw 'Public preflight failed' }
           python -B -m unittest discover -s tests -p test_hidden_storage_contract.py -v
@@ -50,7 +50,7 @@ jobs:
         if: always()
         run: |
           New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/hidden-sidecar-quickcheck" | Out-Null
-          "Quickcheck exact LUNA source SHA 29c0d9b57f6d9bb2c6b0f18de754bf6d4c7d4c87. Inspect first failed step and CTest log for root cause; do not infer from workflow conclusion alone." |
+          "Quickcheck exact LUNA source SHA 4483314601c3e704dd1b4b8d3fbbaa43d4fdf88b. Inspect first failed step and CTest log for root cause; do not infer from workflow conclusion alone." |
             Set-Content -Path "$env:RUNNER_TEMP/hidden-sidecar-quickcheck/failure-analysis.md" -Encoding UTF8
       - uses: actions/upload-artifact@v4
         if: always()

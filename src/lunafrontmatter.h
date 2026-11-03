@@ -157,7 +157,10 @@ inline QVariantMap publisherCitation(const QString& text) {
         front.contains(QStringLiteral("Organic & Biomolecular Chemistry"),Qt::CaseInsensitive);
     const bool nature=front.contains(QStringLiteral("Nature Chemistry"),Qt::CaseInsensitive) ||
         front.contains(QStringLiteral("Nature Synthesis"),Qt::CaseInsensitive) ||
-        front.contains(QStringLiteral("Nature Communications"),Qt::CaseInsensitive);
+        front.contains(QStringLiteral("Nature Communications"),Qt::CaseInsensitive) ||
+        // Nature Communications sometimes prints only "Article" above the
+        // heading; the publisher DOI prefix is present instead.
+        front.contains(QStringLiteral("10.1038/s41467-"),Qt::CaseInsensitive);
     static const QRegularExpression cc(QStringLiteral(
         R"(^\d{1,7}\s*\|\s*Chem\.\s*Commun\.,\s*(?<year>(?:19|20)\d{2}),\s*(?<volume>\d{1,4}),\s*(?<page>\d{1,7}\s*[-–]\s*\d{1,7})$)"),
         QRegularExpression::CaseInsensitiveOption);
@@ -178,27 +181,27 @@ inline QVariantMap publisherCitation(const QString& text) {
                 QString page=a.captured(QStringLiteral("page"));
                 page.replace(QChar(0x2013),QLatin1Char('-')).remove(QLatin1Char(' '));
                 return {{"journal",QStringLiteral("Chemical Communications")},
-                        {"year",a.captured("year")},{"volume",a.captured("volume")},{"page",page}};
+                        {"year",a.captured(QStringLiteral("year"))},{"volume",a.captured(QStringLiteral("volume"))},{"page",page}};
             }
             const auto b=obc.match(row);
             if(b.hasMatch()) {
-                QString page=b.captured("page");
+                QString page=b.captured(QStringLiteral("page"));
                 page.replace(QChar(0x2013),QLatin1Char('-')).remove(QLatin1Char(' '));
                 return {{"journal",QStringLiteral("Organic & Biomolecular Chemistry")},
-                        {"year",b.captured("year")},{"volume",b.captured("volume")},{"page",page}};
+                        {"year",b.captured(QStringLiteral("year"))},{"volume",b.captured(QStringLiteral("volume"))},{"page",page}};
             }
         }
         if(nature) {
             const auto a=nc.match(row);
             if(a.hasMatch()) return {{"journal",QStringLiteral("Nature Communications")},
-                {"year",a.captured("year")},{"volume",a.captured("volume")},
-                {"article_number",a.captured("article")}};
+                {"year",a.captured(QStringLiteral("year"))},{"volume",a.captured(QStringLiteral("volume"))},
+                {"article_number",a.captured(QStringLiteral("article"))}};
             const auto b=ns.match(row);
             if(b.hasMatch()) {
-                QString page=b.captured("page");
+                QString page=b.captured(QStringLiteral("page"));
                 page.replace(QChar(0x2013),QLatin1Char('-')).remove(QLatin1Char(' '));
-                return {{"journal",b.captured("journal")},{"year",b.captured("year")},
-                        {"volume",b.captured("volume")},{"page",page}};
+                return {{"journal",b.captured(QStringLiteral("journal"))},{"year",b.captured(QStringLiteral("year"))},
+                        {"volume",b.captured(QStringLiteral("volume"))},{"page",page}};
             }
         }
     }

@@ -26,7 +26,7 @@ inline bool isArticleTitle(const QString& value) {
     if (title.size()<25 || title.size()>230 ||
         title.split(QLatin1Char(' '), Qt::SkipEmptyParts).size()<4) return false;
     static const QRegularExpression noise(QStringLiteral(
-        R"(\b(?:contents|table of contents|supplementary|supporting information|experimental|general methods|materials and methods|references|appendix|copyright|article recommendations|corresponding author|university|institute|department|figure s\d+|table s\d+|scheme s\d+)\b|(?:@|https?://|doi\.org))"),
+        R"(^(?:contents|table of contents|supplementary information|supporting information|general methods|materials and methods|references|appendix|copyright|article recommendations|corresponding author|figure s\d+|table s\d+|scheme s\d+)\b|\b(?:university|institute|department)\b|(?:@|https?://|doi\.org))"),
         QRegularExpression::CaseInsensitiveOption);
     return !noise.match(title).hasMatch();
 }
@@ -42,6 +42,7 @@ inline QString coverTitle(const QString& text) {
         if(heading.match(lines[i]).hasMatch()){headingIndex=i;break;}
     if(headingIndex<0) return {};
     QStringList titleLines;
+    QString best;
     // Only the cover's first short block, never a body heading, reference,
     // experimental procedure or caption. Ambiguity stays unverified.
     for(int i=headingIndex+1;i<lines.size() && i<=headingIndex+5;++i) {
@@ -58,21 +59,19 @@ inline QString coverTitle(const QString& text) {
            line.startsWith(QStringLiteral("Table "),Qt::CaseInsensitive) ||
            line.startsWith(QStringLiteral("Figure "),Qt::CaseInsensitive) ||
            line.startsWith(QStringLiteral("General "),Qt::CaseInsensitive)) break;
-        // Typical author row follows the paper title. Never concatenate it.
-        if(!titleLines.isEmpty() && line.contains(QLatin1Char(',')) &&
-           QRegularExpression(QStringLiteral(R"(^[\p{Lu}][\p{L} .,'’\-]+(?:,| and )[\p{Lu}])"))
-               .match(line).hasMatch()) break;
-        if(line.size()>135) break;
+        // A title can span two or three PDF4QT text rows. Keep the longest
+        // plausible title, stopping *before* a recognizable author block.
+        // Return the latest clean candidate, not the first short line.
+        static const QRegularExpression authorList(QStringLiteral(
+            R"(^[\p{Lu}][\p{L}.'’\-]+(?:\s+[\p{Lu}][\p{L}.'’\-]+){1,2}(?:,\s*| and )(?:[\p{Lu}][\p{L}.'’\-]+(?:\s+[\p{Lu}][\p{L}.'’\-]+){1,2}))+)"));
+        if(!titleLines.isEmpty() && authorList.match(line).hasMatch()) break;
+        if(line.size()>135 || line.contains(QLatin1Char('@'))) break;
         titleLines.append(line);
         const QString proposed=titleLines.join(QLatin1Char(' '));
-        if(isArticleTitle(proposed)) {
-            // A full 4+ word printed title is preferable to swallowing
-            // author/affiliation text as another title line.
-            return proposed;
-        }
+        if(isArticleTitle(proposed)) best=proposed;
         if(titleLines.size()>=3) break;
     }
-    return {};
+    return best;
 }
 
 inline QString filenameDoiHint(const QString& fileName) {

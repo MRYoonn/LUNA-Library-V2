@@ -84,7 +84,7 @@ class NativeFileManagementContracts(unittest.TestCase):
             "luna::RecentTrashUndo recentUndo_",
             'undoTrash->setShortcut(QKeySequence::Undo)',
             "undoTrash->setShortcutContext(Qt::WidgetWithChildrenShortcut)",
-            "recentUndo_.trash(path, &error)",
+            "recentUndo_.trashBatch(paths, &error)",
             "recentUndo_.undo(&error)",
             "for (const QString& restored : restoredPaths)",
             "if (undoFavorites_.contains(restored)",

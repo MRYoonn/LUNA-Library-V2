@@ -1652,7 +1652,7 @@ public:
                     QStringList{QStringLiteral("*.pdf"),QStringLiteral("*.PDF")},QDir::Files);
                 while(pdfs.hasNext()) {
                     const QString child=pdfs.next();
-                    if(child==after)continue;
+                    if(child==after || QFileInfo(child).isSymLink())continue;
                     const QString id=DocumentClaim::identity(child);
                     const QVariantMap data=bibliography_.record(id);
                     if(data.value("manualSI").toBool() &&

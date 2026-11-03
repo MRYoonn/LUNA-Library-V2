@@ -43,7 +43,7 @@ inline bool isSupplementCover(const QString& firstPage) {
     }
     if (mainArticle) return false;
     // A real cover may have a short publisher banner before the SI heading.
-    for (qsizetype i=1; i<rows.size() && i<7; ++i) {
+    for (qsizetype i=0; i<rows.size() && i<7; ++i) {
         if (cover.match(rows[i]).hasMatch()) return true;
         if (rows[i].compare(QStringLiteral("Abstract"),Qt::CaseInsensitive)==0 ||
             rows[i].compare(QStringLiteral("Introduction"),Qt::CaseInsensitive)==0) break;

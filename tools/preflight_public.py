@@ -6,7 +6,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
-    "README.md", "BUILD_HANDOFF_KO.md", "SECURITY_POLICY.md", "LICENSE_NOTICE.md", ".gitignore",
+    "README.md", "AGENTS.md", "BUILD_HANDOFF_KO.md", "SECURITY_POLICY.md", "LICENSE_NOTICE.md", ".gitignore",
     ".github/workflows/build-windows.yml",
     "src/lunalibrary.cpp", "src/lunalibrary.h",
     "tools/apply_overlay.py", "tools/preflight_public.py",

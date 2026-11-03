@@ -38,7 +38,7 @@ jobs:
           test "${#EXACT_SHA}" -eq 40
           test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$EXACT_SHA"
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
-          echo "Dispatched full Windows PDF4QT validation at immutable SHA $EXACT_SHA; check build-windows artifact, native UI fold/restore order, all 10 tab cycles and DPI."
+          echo "Dispatched Windows PDF4QT exact SHA $EXACT_SHA after repairing an obsolete global-rail source assertion; require full native UI fold/restore 10 cycles and DPI PASS."
       - name: Persist source diagnostics even if source gate fails
         if: always()
         shell: bash

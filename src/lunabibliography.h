@@ -9,6 +9,7 @@
 #include <QVariantMap>
 #include <QString>
 #include "lunametadataengine.h"
+#include "lunafrontmatter.h"
 #include <functional>
 
 namespace luna {
@@ -46,15 +47,14 @@ public:
             text.replace(mark, QLatin1Char('-'));
         text.replace(QChar(0x00a0), QLatin1Char(' '));
         const auto lines = text.split(QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
-        // SI pages can cite the main article or references. They are not
-        // reliable evidence for the SI PDF's own publication fields.
-        for (qsizetype i = 0; i < lines.size() && i < 16; ++i) {
-            const QString heading = lines[i].simplified();
-            if (heading.compare(QStringLiteral("Supporting Information"), Qt::CaseInsensitive) == 0 ||
-                heading.compare(QStringLiteral("Revised Supporting Information"), Qt::CaseInsensitive) == 0 ||
-                heading.compare(QStringLiteral("Supplementary Information"), Qt::CaseInsensitive) == 0)
-                return {}; // SI metadata must remain unverified without explicit evidence.
-        }
+        // ACS main PDFs often contain a "Supporting Information" navigation
+        // link. The independent SI Finder/Lab module found substring-based
+        // classification incorrectly discarded ordinary article metadata.
+        if (FrontMatter::isSupplementCover(text)) return {};
+        // Exact publisher footer evidence beats truncated "Cite this" first-page
+        // fragments; abstain when the matching publisher masthead is absent.
+        const QVariantMap printed = FrontMatter::publisherCitation(text);
+        if (!printed.isEmpty()) return printed;
         static const QRegularExpression pattern(QStringLiteral(
             R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|J\.?\s*Phys\.?\s*Chem\.?\s*[ABC]\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Org\.?\s*Biomol\.?\s*Chem\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
             QRegularExpression::CaseInsensitiveOption);
@@ -161,11 +161,7 @@ public:
         }
         // Supplementary information often has no original article metadata.
         // Do not mine captions, instructions or the body for fake title/authors.
-        for (qsizetype i = 0; i < lines.size() && i < 16; ++i) {
-            if (lines[i].contains(QStringLiteral("Supporting Information"), Qt::CaseInsensitive) ||
-                lines[i].contains(QStringLiteral("Supplementary Information"), Qt::CaseInsensitive))
-                return {};
-        }
+        if (FrontMatter::isSupplementCover(text)) return {};
         if (firstPageCitation(text).value("journal").toString().isEmpty()) return {};
         const QString explicitLastAuthor = firstPageLastAuthor(text);
         if (explicitLastAuthor.isEmpty()) return {};
@@ -234,6 +230,9 @@ public:
     static bool credibleTitle(const QString& value) {
         const QString text = value.simplified();
         if (text.size() < 12 || text.size() > 240) return false;
+        // Publisher PDF Info /Title sometimes contains only an ACS printer
+        // spool name (e.g. jo5c01153 1..9), not a paper headline.
+        if (FrontMatter::isPrinterJobTitle(text)) return false;
         static const QRegularExpression placeholder(QStringLiteral(
             R"((?:^|\b)(?:No Job Name|Microsoft Word|Untitled|New Document|Document1|Supporting Information|Revised Supporting Information)(?:\b|$))"),
             QRegularExpression::CaseInsensitiveOption);
@@ -292,7 +291,8 @@ public:
             const bool strongerPrintedTitle =
                 field == QStringLiteral("title") &&
                 value.value(QStringLiteral("titleSource")).toString() == QStringLiteral("pdf_metadata") &&
-                proposal.value("titleSource").toString() == QStringLiteral("first_page_layout") &&
+                (proposal.value("titleSource").toString() == QStringLiteral("first_page_layout") ||
+                 proposal.value("titleSource").toString() == QStringLiteral("publisher_cover_verified")) &&
                 !Metadata::compatibleTitle(old,next);
             if (!old.isEmpty() && !strongerPrintedTitle) return;
             value[field] = next.left(4096);
@@ -300,6 +300,8 @@ public:
             value[field + QStringLiteral("Source")] =
                 field == QStringLiteral("title") && suggestedSource == QStringLiteral("first_page_layout")
                     ? QStringLiteral("first_page_layout") :
+                  field == QStringLiteral("title") && suggestedSource == QStringLiteral("publisher_cover_verified")
+                    ? QStringLiteral("publisher_cover_verified") :
                   field == QStringLiteral("title") && suggestedSource == QStringLiteral("pdf_metadata")
                     ? QStringLiteral("pdf_metadata") : QStringLiteral("first_page_verified");
             changedField = true;
@@ -330,6 +332,11 @@ public:
         static const QRegularExpression pagePattern(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,7})(?:[-–]\d{1,7})?$)"),
                                                     QRegularExpression::CaseInsensitiveOption);
         fill("page", pagePattern.match(proposal.value("page").toString()).hasMatch());
+        // Nature Communications publishes article numbers rather than a
+        // conventional page interval. Keep a provider/print-sourced number.
+        static const QRegularExpression articleNumberPattern(QStringLiteral(R"(^[1-9]\d{0,8}$)"));
+        fill("article_number", articleNumberPattern.match(
+            proposal.value("article_number").toString()).hasMatch());
         if (!changedField) return false;
         value["source"] = QStringLiteral("PDF first-page evidence");
         // Preserve prior manual ownership, but never mark machine extraction manual.

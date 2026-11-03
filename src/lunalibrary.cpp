@@ -2540,6 +2540,106 @@ private:
             list->viewport()->update();
         }
     }
+
+    void arrangeManualSIRows(QListWidget* list) {
+        if(!list)return;
+        QHash<QString,QListWidgetItem*> items;
+        for(int i=0;i<list->count();++i) {
+            auto* row=list->item(i);
+            row->setData(Qt::UserRole+10,false); // inline child
+            row->setData(Qt::UserRole+11,0);     // parent SI count
+            row->setData(Qt::UserRole+12,false); // parent expanded
+            row->setData(Qt::UserRole+13,QString());
+            items.insert(row->data(Qt::UserRole).toString().toCaseFolded(),row);
+        }
+        QHash<QListWidgetItem*,QList<QListWidgetItem*>> grouped;
+        for(int i=0;i<list->count();++i) {
+            auto* si=list->item(i);
+            const QVariantMap info=si->data(Qt::UserRole+5).toMap();
+            if(!info.value("manualSI").toBool())continue;
+            const QString parentName=info.value("manualSiParentFile").toString();
+            if(!luna::ManualSI::validParentFileName(parentName))continue;
+            const QString siPath=si->data(Qt::UserRole).toString();
+            const QString fullParent=QDir(QFileInfo(siPath).absolutePath())
+                .filePath(parentName).toCaseFolded();
+            auto* parent=items.value(fullParent,nullptr);
+            if(!parent || parent==si || parent->data(Qt::UserRole+5).toMap()
+                .value("manualSI").toBool())continue;
+            grouped[parent].append(si);
+        }
+        if(grouped.isEmpty())return;
+        // Keep the top-level paper model intact: only physically associated
+        // SI PDFs are re-ordered immediately beneath their manual parent.
+        for(auto it=grouped.cbegin();it!=grouped.cend();++it) {
+            auto* parent=it.key();
+            const QString parentPath=parent->data(Qt::UserRole).toString();
+            const bool expanded=expandedSIParents_.contains(parentPath);
+            parent->setData(Qt::UserRole+11,it.value().size());
+            parent->setData(Qt::UserRole+12,expanded);
+            int offset=0;
+            for(auto* si:it.value()) {
+                const int oldIndex=list->row(si);
+                if(oldIndex<0)continue;
+                auto* moved=list->takeItem(oldIndex);
+                moved->setData(Qt::UserRole+10,true);
+                moved->setData(Qt::UserRole+13,parentPath);
+                list->insertItem(list->row(parent)+1+offset++,moved);
+                moved->setHidden(!expanded && query_->text().isEmpty());
+            }
+        }
+        QMetaObject::invokeMethod(list,"doItemsLayout",Qt::QueuedConnection);
+    }
+    void toggleManualSIGroup(const QString& parent) {
+        if(expandedSIParents_.contains(parent))expandedSIParents_.remove(parent);
+        else expandedSIParents_.insert(parent);
+        for(auto* list:{folderPdfs_,allPdfs_,historyPdfs_}) {
+            if(!list)continue;
+            for(int i=0;i<list->count();++i) {
+                auto* row=list->item(i);
+                if(row->data(Qt::UserRole).toString()==parent &&
+                   row->data(Qt::UserRole+11).toInt()>0)
+                    row->setData(Qt::UserRole+12,expandedSIParents_.contains(parent));
+                if(row->data(Qt::UserRole+10).toBool() &&
+                   row->data(Qt::UserRole+13).toString()==parent)
+                    row->setHidden(!expandedSIParents_.contains(parent) &&
+                                  query_->text().isEmpty());
+            }
+            list->viewport()->update();
+        }
+    }
+    void addManualSI(const QString& parent) {
+        const QFileInfo paper(parent);
+        if(!paper.isFile() || paper.isSymLink())return;
+        const QString selected=QFileDialog::getOpenFileName(this,
+            QStringLiteral("Supporting Information 추가 · PDF 선택"),
+            paper.absolutePath(),QStringLiteral("PDF 파일 (*.pdf *.PDF)"));
+        if(selected.isEmpty())return;
+        const QString title=bibliography_.record(DocumentClaim::identity(parent))
+            .value("title",paper.completeBaseName()).toString();
+        const auto copied=luna::ManualSI::copyNextToParent(selected,parent,title);
+        if(!copied.success) {
+            QMessageBox::warning(this,QStringLiteral("SI 추가 실패"),copied.error);
+            return;
+        }
+        const QString siId=DocumentClaim::identity(copied.path);
+        if(!bibliography_.attachManualSI(siId,paper.fileName())) {
+            QFile::remove(copied.path); // only our newly created PDF
+            QMessageBox::warning(this,QStringLiteral("SI 연결 실패"),
+                QStringLiteral("원본 PDF는 보존됐습니다. 서지정보 연결을 저장하지 못했습니다."));
+            return;
+        }
+        if(localSync_)localSync_->publish(copied.path);
+        expandedSIParents_.insert(parent);
+        model_->refreshPdfCounts(root_);
+        pages_->setCurrentIndex(0);
+        selectFolder(paper.absolutePath());
+    }
+    void detachManualSI(const QString& path) {
+        if(!bibliography_.detachManualSI(DocumentClaim::identity(path)))return;
+        if(localSync_)localSync_->publish(path);
+        refreshFileLists();
+    }
+
     QListWidget* makePdfList(QWidget* parent) {
         auto* list = new PaperFileList(parent);
         list->setMouseTracking(true);
@@ -2904,6 +3004,7 @@ private:
             // Sort once after scanning, but keep auto-sorting disabled.
             // Metadata title updates must not relocate the visible card.
             list->sortItems(Qt::AscendingOrder);
+            arrangeManualSIRows(list);
             count->setText(QStringLiteral("%1 PDF · %2개")
                 .arg(all ? QStringLiteral("전체") : QStringLiteral("현재 폴더"))
                 .arg(list->count()));

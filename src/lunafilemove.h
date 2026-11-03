@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #pragma once
+#include "lunasidecarpaths.h"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -55,42 +56,40 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
     const QString targetRoot = folder.canonicalFilePath();
     const QString originalRoot = source.canonicalPath();
     if (targetRoot == originalRoot) { result.success = true; return result; }
+    const QString targetPdf = QDir(targetRoot).filePath(source.fileName());
+    if (!SidecarStorage::safeManagedDirectory(path) ||
+        !SidecarStorage::safeManagedDirectory(targetPdf)) {
+        result.error = QStringLiteral("LUNA 관리 폴더가 연결 폴더이므로 안전한 이동을 중단했습니다.");
+        return result;
+    }
     QList<QPair<QString, QString>> moves;
-    // Move optional sidecars first and the PDF last. On error, roll back in
-    // reverse order without ever overwriting files created by another process.
-    for (const QString& extension : {QStringLiteral(".png"), QStringLiteral(".jpg"), QStringLiteral(".jpeg")}) {
-        const QString name = source.completeBaseName() + QStringLiteral(".luna-thumb") + extension;
-        const QFileInfo targetSidecar(QDir(targetRoot).filePath(name));
-        if (targetSidecar.exists() || targetSidecar.isSymLink()) {
-            result.error = QStringLiteral("대상 폴더에 같은 이름의 썸네일이 있어 이동하지 않았습니다.\n%1").arg(targetSidecar.absoluteFilePath());
-            return result;
-        }
-        const QFileInfo sidecar(QDir(originalRoot).filePath(name));
+    // Check BOTH the old visible and new hidden sidecar layouts. Any
+    // destination collision prevents all moves, even for a source with no
+    // companion, so an orphan cannot be attached to another PDF.
+    for (const auto& pair : SidecarStorage::companions(path, targetPdf)) {
+        const QFileInfo sidecar(pair.first), targetSidecar(pair.second);
         if (sidecar.isSymLink() || (sidecar.exists() && !sidecar.isFile())) {
-            result.error = QStringLiteral("썸네일이 일반 파일이 아니므로 이동하지 않았습니다.");
+            result.error = QStringLiteral("메타데이터·썸네일이 일반 파일이 아니므로 이동하지 않았습니다.");
             return result;
         }
-        if (sidecar.exists()) moves.append({sidecar.absoluteFilePath(), QDir(targetRoot).filePath(name)});
+        if (targetSidecar.exists() || targetSidecar.isSymLink()) {
+            result.error = QStringLiteral("대상 폴더에 같은 이름의 관리 파일이 있어 이동하지 않았습니다.\\n%1")
+                .arg(pair.second);
+            return result;
+        }
+        if (sidecar.isFile()) moves.append(pair);
     }
-    // MYBOX portable citation/memo sidecar follows a physical MOVE.
-    const QString metadataName=source.completeBaseName()+QStringLiteral(".luna-meta.json");
-    const QFileInfo metadata(QDir(originalRoot).filePath(metadataName));
-    const QFileInfo targetMetadata(QDir(targetRoot).filePath(metadataName));
-    if(targetMetadata.exists() || targetMetadata.isSymLink()) {
-        result.error=QStringLiteral("대상 폴더에 같은 이름의 메타데이터가 있어 이동하지 않았습니다.");
-        return result;
-    }
-    if(metadata.isSymLink() || (metadata.exists() && !metadata.isFile())) {
-        result.error=QStringLiteral("메타데이터 연결 파일은 이동하지 않습니다.");
-        return result;
-    }
-    if(metadata.isFile()) moves.append({metadata.canonicalFilePath(),
-                                      QDir(targetRoot).filePath(metadataName)});
-    moves.append({source.canonicalFilePath(), QDir(targetRoot).filePath(source.fileName())});
+    moves.append({source.canonicalFilePath(), targetPdf});
     for (const auto& pair : moves) {
         const QFileInfo target(pair.second);
         if (target.exists() || target.isSymLink()) {
-            result.error = QStringLiteral("같은 이름의 대상이 있어 이동하지 않았습니다.\n%1").arg(pair.second);
+            result.error = QStringLiteral("같은 이름의 대상이 있어 이동하지 않았습니다.\\n%1").arg(pair.second);
+            return result;
+        }
+    }
+    for (const auto& pair : moves) {
+        if (!SidecarStorage::prepareTarget(targetPdf, pair.second)) {
+            result.error = QStringLiteral("대상 LUNA 숨김 관리 폴더를 안전하게 준비하지 못했습니다.");
             return result;
         }
     }
@@ -136,33 +135,43 @@ inline FileCopyResult copyPdfWithThumbnails(const QString& path, const QString& 
         result.error = QStringLiteral("같은 폴더로 복사할 수 없습니다.");
         return result;
     }
+    const QString targetPdf = QDir(targetRoot).filePath(source.fileName());
+    if (!SidecarStorage::safeManagedDirectory(path) ||
+        !SidecarStorage::safeManagedDirectory(targetPdf)) {
+        result.error = QStringLiteral("관리 폴더 링크를 통해 복사하지 않습니다.");
+        return result;
+    }
     QList<QPair<QString, QString>> copies;
-    copies.append(qMakePair(source.canonicalFilePath(),
-                           QDir(targetRoot).filePath(source.fileName())));
-    for (const QString& ext : {QStringLiteral(".png"), QStringLiteral(".jpg"),
-                               QStringLiteral(".jpeg")}) {
-        const QString name = source.completeBaseName() + QStringLiteral(".luna-thumb") + ext;
-        const QFileInfo sidecar(QDir(originalRoot).filePath(name));
+    copies.append(qMakePair(source.canonicalFilePath(), targetPdf));
+    // Copies retain user-cropped thumbnails from either format, but do NOT
+    // adopt the original metadata UUID; the new PDF gets its own identity.
+    for (const auto& pair : SidecarStorage::companions(path, targetPdf, false)) {
+        const QFileInfo sidecar(pair.first), dest(pair.second);
         if (sidecar.isSymLink() || (sidecar.exists() && !sidecar.isFile())) {
             result.error = QStringLiteral("썸네일이 일반 파일이 아닙니다.");
             return result;
         }
-        if (sidecar.isFile())
-            copies.append(qMakePair(sidecar.absoluteFilePath(),
-                                    QDir(targetRoot).filePath(name)));
+        if (dest.exists() || dest.isSymLink()) {
+            result.error = QStringLiteral("대상 폴더에 이미 썸네일이 있습니다: ") + pair.second;
+            return result;
+        }
+        if (sidecar.isFile()) copies.append(pair);
     }
-    // Copies get a NEW portable document UUID when LUNA publishes metadata.
-    // Never adopt a pre-existing destination sidecar from an unrelated paper.
-    const QFileInfo targetMetadata(QDir(targetRoot).filePath(
-        source.completeBaseName()+QStringLiteral(".luna-meta.json")));
-    if (targetMetadata.exists() || targetMetadata.isSymLink()) {
-        result.error=QStringLiteral("대상 폴더에 같은 이름의 서지정보 파일이 있습니다.");
-        return result;
+    for (const QString& stale : {SidecarStorage::metadata(targetPdf),
+                                 SidecarStorage::legacyMetadata(targetPdf)}) {
+        if (QFileInfo(stale).exists() || QFileInfo(stale).isSymLink()) {
+            result.error=QStringLiteral("대상 폴더에 같은 이름의 서지정보 파일이 있습니다.");
+            return result;
+        }
     }
     for (const auto& pair : copies) {
         const QFileInfo destination(pair.second);
         if (destination.exists() || destination.isSymLink()) {
             result.error = QStringLiteral("대상 폴더에 이미 같은 이름이 있습니다: ") + pair.second;
+            return result;
+        }
+        if (!SidecarStorage::prepareTarget(targetPdf, pair.second)) {
+            result.error = QStringLiteral("대상 LUNA 썸네일 숨김 폴더를 준비할 수 없습니다.");
             return result;
         }
     }

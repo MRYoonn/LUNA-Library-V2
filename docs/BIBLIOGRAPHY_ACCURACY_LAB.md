@@ -909,3 +909,28 @@ later in the same `main()` scope. Reproduce by compiling
 `tests/native_accuracy` with MSVC. Commit `88415499` renamed only the new
 fixture to `capturePdfBytes`; verify the subsequent exact-HEAD Windows CI
 before treating the repair as PASS. No production logic was changed.
+
+## Follow-up 2026-11-03 — SI parent metadata must not satisfy main-paper field coverage
+
+The `--field-coverage-gate` publisher-specific core-field counts now use
+**main articles only** (`expected.document_kind == "main_article"`). An SI
+may legitimately mention its parent's DOI, title, journal, year, and authors,
+but those labels are not proof that the publisher's **main-paper** extractor
+was evaluated. Previously an ACS SI carrying parent metadata could satisfy
+the ACS core-field coverage quota even if every ACS main paper lacked a DOI,
+title, or terminal-author gold label. Global field label totals still include
+all labeled documents, and SI document-kind labels remain separately scored.
+
+Synthetic-only regression: `test_si_metadata_cannot_satisfy_main_publisher_core_coverage`
+confirms that an SI's positive parent DOI/title are counted globally but
+cannot inflate ACS main-paper denominators; adding an independently labeled
+main DOI changes only the correct publisher/main denominator. This is a
+collection-readiness correction, **not** an actual publisher PDF precision
+or recall measurement. Existing DOI/Crossref/OpenAlex extraction and the
+native UI remain untouched.
+
+Verify exact-HEAD Python/Windows QtCore CI. Then collect 20+ distinct
+authorized/public PDF copies with independent per-field evidence, capture
+read-only records from an exact PR #16 Windows build, and run the local
+goldset and snapshot scorer. Real provider HTTP 429/404, personal legacy
+QSettings, physical PDF/sidecar moves, and Windows GUI remain unverified.

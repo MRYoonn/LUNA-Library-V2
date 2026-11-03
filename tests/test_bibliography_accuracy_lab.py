@@ -748,6 +748,46 @@ class BibliographyAccuracyLabTests(unittest.TestCase):
         self.assertTrue(labels["ready"])
         self.assertEqual(labels["positive_labels"]["journal_abbreviation"], 1)
 
+    def test_si_metadata_cannot_satisfy_main_publisher_core_coverage(self):
+        # Fabricated labels only: SI can repeat its parent DOI/title/authors,
+        # but must not prove main-article extraction for that publisher.
+        gold, _ = sample()
+        main = copy.deepcopy(next(case for case in gold["cases"]
+                                  if case["publisher"] == "ACS"
+                                  and case["expected"].get("document_kind") == "main_article"))
+        si = copy.deepcopy(next(case for case in gold["cases"]
+                                if case["expected"].get("document_kind") == "supporting_information"))
+        main["id"] = "fabricated-acs-main-with-unknown-fields"
+        main["expected"] = {"document_kind": "main_article"}
+        si["id"] = "fabricated-acs-si-with-parent-metadata"
+        si["publisher"] = "ACS"
+        si["expected"] = {
+            "document_kind": "supporting_information",
+            "doi": "10.1021/fabricated-si-parent",
+            "title": "Fabricated SI parent title",
+            "terminal_author": "Fabricated Last Author",
+            "journal": "Fabricated Journal",
+            "year": "2026",
+        }
+        for index, case in enumerate((main, si), 1):
+            case["source"] = {"kind": "public", "sha256": f"{index:064x}"}
+            case["evidence"] = {field: "fabricated contract-only label"
+                                for field in case["expected"]}
+        gold["cases"] = [main, si]
+        report = lab.audit_field_label_coverage(gold)
+        self.assertEqual(report["positive_labels"]["doi"], 1)
+        self.assertEqual(report["core_positive_by_publisher"]["ACS"]["doi"], 0)
+        self.assertEqual(report["core_positive_by_publisher"]["ACS"]["title"], 0)
+        self.assertEqual(report["core_positive_by_publisher"]["ACS"]["document_kind"], 1)
+        self.assertIn({"criterion": "publisher_core_positive_labels",
+                       "publisher": "ACS", "field": "doi", "actual": 0,
+                       "required": 1}, report["gaps"])
+        self.assertFalse(report["ready"])
+        main["expected"]["doi"] = "10.1021/fabricated-main"
+        main["evidence"]["doi"] = "fabricated contract-only label"
+        self.assertEqual(lab.audit_field_label_coverage(gold)
+                         ["core_positive_by_publisher"]["ACS"]["doi"], 1)
+
     def test_field_label_gate_requires_existing_real_coverage_gate(self):
         gold, predictions = sample()
         with tempfile.TemporaryDirectory() as folder:

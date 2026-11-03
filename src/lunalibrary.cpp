@@ -2531,8 +2531,7 @@ private:
             if (!delegate) continue;
             QListWidgetItem* anchor = list->itemAt(QPoint(10, 5));
             delegate->setCompact(compact);
-            list->setUniformItemSizes(false);
-            list->setUniformItemSizes(true);
+            list->setUniformItemSizes(false); // SI child rows and parent footers have different heights
             // doItemsLayout is a Qt virtual slot, not a public C++ method.
             // Invoke through the meta-object after changing uniform size.
             QMetaObject::invokeMethod(list, "doItemsLayout", Qt::DirectConnection);
@@ -2650,7 +2649,7 @@ private:
         list->setFlow(QListView::TopToBottom);
         list->setWrapping(false);
         list->setSpacing(0);
-        list->setUniformItemSizes(true);
+        list->setUniformItemSizes(false); // allow small SI children and 29px expandable parent footer
         list->setResizeMode(QListView::Adjust);
         list->setSelectionMode(QAbstractItemView::ExtendedSelection);
         list->setDragEnabled(true);
@@ -2716,6 +2715,14 @@ private:
             auto* refreshCitation = menu.addAction(QStringLiteral("원본 서지정보로 새로고침"));
             refreshCitation->setObjectName(QStringLiteral("LunaRefreshMetadata"));
             menu.addSeparator();
+            const bool manualChild=item->data(Qt::UserRole+5).toMap().value("manualSI").toBool();
+            auto* addSI=menu.addAction(QStringLiteral("SI 추가…"));
+            addSI->setObjectName(QStringLiteral("LunaAddManualSI"));
+            addSI->setEnabled(!manualChild);
+            auto* unlinkSI=menu.addAction(QStringLiteral("SI 연결 해제 (파일 유지)"));
+            unlinkSI->setObjectName(QStringLiteral("LunaDetachManualSI"));
+            unlinkSI->setEnabled(manualChild);
+            menu.addSeparator();
             auto* copy = menu.addAction(QStringLiteral("PDF 복사 (Ctrl+C)"));
             auto* paste = menu.addAction(QStringLiteral("현재 폴더에 붙여넣기 (Ctrl+V)"));
             auto* copyTo = menu.addAction(QStringLiteral("PDF와 썸네일 복사 위치…"));
@@ -2735,6 +2742,8 @@ private:
             else if (chosen == citation) editBibliography(path);
             else if (chosen == extractCitation) extractBibliography(path);
             else if (chosen == refreshCitation) refreshOriginalBibliography(path);
+            else if (chosen == addSI) addManualSI(path);
+            else if (chosen == unlinkSI) detachManualSI(path);
             else if (chosen == copy) {
                 if (list->selectedItems().isEmpty()) list->setCurrentItem(item);
                 copySelectedPdfs(list);
@@ -2752,6 +2761,12 @@ private:
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
             const QPoint cursor = list->viewport()->mapFromGlobal(QCursor::pos());
             const QRect rect = list->visualItemRect(item);
+            if(!item->data(Qt::UserRole+10).toBool() &&
+               item->data(Qt::UserRole+11).toInt()>0 &&
+               DocumentCard::siFooterRect(rect).contains(cursor)) {
+                toggleManualSIGroup(item->data(Qt::UserRole).toString());
+                return;
+            }
             const auto* delegate = static_cast<DocumentCard*>(list->itemDelegate());
             const QRect hit = delegate && delegate->compact() ?
                 DocumentCard::compactFavoriteRect(rect) : DocumentCard::favoriteRect(rect);
@@ -3279,6 +3294,7 @@ private:
     pdfviewer::PDFEditorMainWindow* viewer_;
     luna::Bibliography bibliography_;
     bool compactPaperMode_ = false;
+    QSet<QString> expandedSIParents_;
     luna::MetadataFetcher* metadataFetcher_ = nullptr;
     QQueue<QPair<QString, bool>> pendingImportedMetadata_;
     bool importMetadataRunning_ = false;

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #pragma once
+#include "lunasidecarpaths.h"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -49,18 +50,16 @@ public:
             if (pdfPaths.contains(source.absoluteFilePath())) continue;
             pdfPaths.append(source.absoluteFilePath());
             QStringList paths{canonical};
-            for (const QString& extension : {QStringLiteral(".png"), QStringLiteral(".jpg"), QStringLiteral(".jpeg")}) {
-                const QString sidecar = QDir(source.absolutePath()).filePath(
-                    source.completeBaseName() + QStringLiteral(".luna-thumb") + extension);
+            // Back up both legacy visible and new hidden management files.
+            // Ignore absent companions, never follow symlinks or overwrite.
+            if (!SidecarStorage::safeManagedDirectory(pdf))
+                return reject(error, QStringLiteral("관리 폴더가 연결되어 있어 삭제하지 않습니다."));
+            for (const QString& sidecar : SidecarStorage::allCompanions(pdf)) {
                 const QFileInfo item(sidecar);
-                if (item.isSymLink()) return reject(error, QStringLiteral("연결된 썸네일은 삭제하지 않습니다."));
-                if (item.exists() && item.isFile()) paths.append(item.canonicalFilePath());
+                if (item.isSymLink() || (item.exists() && !item.isFile()))
+                    return reject(error, QStringLiteral("연결된 메타데이터·썸네일은 삭제하지 않습니다."));
+                if (item.isFile()) paths.append(item.canonicalFilePath());
             }
-            const QString portable=QDir(source.absolutePath()).filePath(
-                source.completeBaseName()+QStringLiteral(".luna-meta.json"));
-            if (QFileInfo(portable).isSymLink())
-                return reject(error, QStringLiteral("연결된 메타데이터 파일은 삭제하지 않습니다."));
-            if (QFileInfo(portable).isFile()) paths.append(QFileInfo(portable).canonicalFilePath());
             for (const QString& item : paths) {
                 if (sourcePaths.contains(item))
                     return reject(error, QStringLiteral("삭제 대상 사이에 중복 파일이 있습니다."));

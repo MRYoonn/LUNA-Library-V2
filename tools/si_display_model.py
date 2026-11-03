@@ -29,10 +29,7 @@ def project_si_rows(index: AssociationIndex, main_id: str,
                     *, live_landing_check_completed: bool = False) -> dict:
     """Build privacy-minimal display data without associating any new files.
 
-    A caller may set live_landing_check_completed only after the existing
-    bounded HTTP landing verifier returned its result. A metadata-only lookup,
-    restored JSON, offline/error result, or DOI mismatch must not imply a
-    verified landing. This flag is an integration contract, not a proof token.
+    A caller-supplied flag is never sufficient evidence of a live HTTP check.\n    This projection intentionally fails closed until a trusted verifier-to-UI\n    handoff exists; the parameter is retained for API compatibility.
     """
     if not isinstance(index, AssociationIndex):
         raise ValueError("invalid_index")
@@ -101,9 +98,7 @@ def project_si_rows(index: AssociationIndex, main_id: str,
                    unicodedata.normalize("NFKC", c.filename).casefold())] > 1
                 or (c.file_id is not None and ids[c.file_id] > 1)):
             continue
-        verified = (collection_complete and live_landing_check_completed is True
-                    and lookup.status in VERIFIED_STATUSES
-                    and c.status == "landing_verified")
+        verified = False  # No caller-controlled proof may promote an HTTP claim.
         result["public_si"].append({
             "article_id": c.article_id, "file_id": c.file_id,
             "filename": c.filename, "title": c.title,

@@ -225,8 +225,13 @@ public:
               f.canonicalFilePath()==root_)) return false;
         QJsonObject data = localSnapshot(pdf);
         if (data.isEmpty()) return false;
-        // Relocate old same-folder files without overwriting conflicts.
-        SidecarStorage::migrateLegacy(pdf);
+        // A legacy/new metadata collision means two possibly divergent user
+        // edits. Preserve BOTH records and refuse publishing rather than
+        // overwriting the managed copy with a new snapshot or a different UUID.
+        if (!SidecarStorage::migrateLegacy(pdf)) {
+            if (error) *error = QStringLiteral("LUNA 관리 파일 충돌: 기존 JSON/썸네일은 원본 위치에 보존했습니다.");
+            return false;
+        }
         const QString previousOutput=portableSidecarForRead(pdf);
         const QString output=portableSidecar(pdf);
         if (!SidecarStorage::ensureArea(pdf, true) || QFileInfo(output).isSymLink()) {

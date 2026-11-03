@@ -34,6 +34,16 @@ class ReleaseUpdateTests(unittest.TestCase):
             path.write_bytes(fake_pe())
         for name in REQUIRED_NOTICES:
             (self.portable / name).write_text("synthetic public notice", encoding="utf-8")
+        # The real portable includes this helper, but older shipped updaters
+        # refuse it as a release asset. The release packager must inline it.
+        helper = "function Get-LunaCdb { 'cdb' }\nfunction Get-LunaProcDump { 'procdump' }\n"
+        (self.portable / "Luna-Crash-Tools.ps1").write_text(helper, encoding="utf-8")
+        for script in ("Analyze-Luna-Crash.ps1", "Start-Luna-Crash-Diagnostics.ps1"):
+            (self.portable / script).write_text(
+                "# synthetic local diagnostics\n"
+                ". (Join-Path $PSScriptRoot 'Luna-Crash-Tools.ps1')\n",
+                encoding="utf-8",
+            )
         license_dir = self.portable / "third_party_licenses"
         license_dir.mkdir()
         (license_dir / "mit.txt").write_text("MIT test")
@@ -66,6 +76,34 @@ class ReleaseUpdateTests(unittest.TestCase):
             self.assertIn("LUNA-Update.ps1", names)
             self.assertNotIn("test.pdf", names)
             self.assertEqual(len(names), len(set(names)))
+
+    def test_first_public_updater_compatibility_in_release_payload(self):
+        manifest = prepare(self.portable, self.root / "compatible", "v0.9.1.135", self.run, self.commit)
+        with zipfile.ZipFile(self.root / "compatible" / "LUNA-Windows-Portable.zip") as archive:
+            names = set(archive.namelist())
+            self.assertNotIn("Luna-Crash-Tools.ps1", names)
+            for name in ("Analyze-Luna-Crash.ps1", "Start-Luna-Crash-Diagnostics.ps1"):
+                body = archive.read(name).decode("utf-8")
+                self.assertIn("function Get-LunaCdb", body)
+                self.assertIn("function Get-LunaProcDump", body)
+                self.assertNotIn(". (Join-Path $PSScriptRoot 'Luna-Crash-Tools.ps1')", body)
+            # These are the precise helper-script names already allowlisted by
+            # the published v0.9.0.243 updater (no widening its trust policy).
+            allowed = {
+                "LUNA-Update.ps1", "Analyze-Luna-Crash.ps1", "Analyze-Luna-Crash.cmd",
+                "Start-Luna-Diagnostics.ps1", "Start-Luna-Diagnostics.cmd",
+                "Start-Luna-Crash-Diagnostics.ps1", "Start-Luna-Crash-Diagnostics.cmd",
+            }
+            for name in names:
+                if name.lower().endswith((".ps1", ".cmd")):
+                    self.assertIn(name, allowed, name)
+            self.assertEqual({f["path"] for f in manifest["files"]}, names)
+
+    def test_crash_script_import_shape_change_fails_closed(self):
+        (self.portable / "Analyze-Luna-Crash.ps1").write_text(
+            "# changed helper reference without explicit review", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Crash script source"):
+            prepare(self.portable, self.root / "bad-import", "v0.9.1.136", self.run, self.commit)
 
     def test_wrong_tag_run_commit_or_exe_is_rejected(self):
         with self.assertRaises(ValueError):

@@ -731,7 +731,7 @@ jobs:
         shell: pwsh
         run: |
           if (Test-Path tools/build_diagnostics.py) {
-            python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "checkout=${{ steps.checkout.outcome }};source=${{ steps.source-check.outcome }};metadata=${{ steps.metadata-test.outcome }};dialog=${{ steps.dialog-test.outcome }};compile=${{ steps.native-compile.outcome }};portable=${{ steps.portable-check.outcome }};native-ui=${{ steps.native-ui.outcome }};tabs=${{ steps.tabs-test.outcome }};installer=${{ steps.installer-test.outcome }}"
+            python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "checkout=${{ steps.checkout.outcome }};source=${{ steps.source-check.outcome }};metadata=${{ steps.metadata-test.outcome }};dialog=${{ steps.dialog-test.outcome }};compile=${{ steps.native-compile.outcome }};portable=${{ steps.portable-check.outcome }};native-ui=${{ steps.native-ui.outcome }};tabs=${{ steps.tabs-test.outcome }};installer=${{ steps.installer-test.outcome }}" --native-evidence "$env:RUNNER_TEMP/luna-ui"
             if ($LASTEXITCODE -ne 0) { throw 'Could not finalize build diagnostics' }
           } else {
             $trace = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics'

@@ -84,4 +84,4 @@ jobs:
           test "${#HEAD}" -eq 40
           test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$HEAD"
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
-          echo "Exact-source PDF4QT Windows build dispatched for $HEAD; native SI dynamic-height test corrected; release blocked until full GUI/native/PDF/annotation and ZIP checks pass."
+          echo "Same-folder SI reuse/rename with Explorer metadata reconciliation and outside-folder copy, exact source $HEAD: require Qt native no-duplicate/crop/memo tests plus full PDF4QT build before release."

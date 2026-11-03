@@ -1,0 +1,53 @@
+name: LUNA inline folding panels - Windows full verification (one-shot)
+on:
+  push:
+    branches:
+      - feature/inline-panel-fold-20261103
+    paths:
+      - .github/workflows/inline-panel-build-once.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  source-guard-and-windows-dispatch:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source allowlist and all Python UI/regression contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Dispatch exact-source full Windows Qt and PDF4QT build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          EXACT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$BRANCH" = feature/inline-panel-fold-20261103
+          test "${#EXACT_SHA}" -eq 40
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$EXACT_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
+          echo "Dispatched full Windows PDF4QT validation at immutable SHA $EXACT_SHA; check build-windows artifact, native UI fold/restore order, all 10 tab cycles and DPI."
+      - name: Persist source diagnostics even if source gate fails
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'LUNA inline panel folding source gate, SHA=%s, workflow=%s. Determine root cause from the exact first failed job step; do not assert GUI acceptance from this bridge.\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-Inline-Panel-Source-Diagnostics
+          path: evidence/failure-analysis.md
+          retention-days: 90

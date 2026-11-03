@@ -119,6 +119,31 @@ public:
         const auto lines = text.split(QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
         // SI pages can cite the main paper; do not import these as SI's own fields.
         if (isSupportingInformationCover(text)) return {};
+        // RSC footers carry the complete printed page range. The "Cite this"
+        // masthead often exposes only the first page, and text columns may be
+        // interleaved between its year/volume/page fragments. Prefer the
+        // publisher's own exact footer over a partial front-matter match.
+        static const QRegularExpression chemCommFooter(QStringLiteral(
+            R"(^\d{1,7}\s*\|\s*Chem\.\s*Commun\.,\s*(?<year>(?:19|20)\d{2}),\s*(?<volume>\d{1,4}),\s*(?<page>\d{1,7}-\d{1,7})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression obcFooter(QStringLiteral(
+            R"(^Org\.\s*Biomol\.\s*Chem\.,\s*(?<year>(?:19|20)\d{2}),\s*(?<volume>\d{1,4}),\s*(?<page>\d{1,7}-\d{1,7})\s*\|\s*\d{1,7}$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        for (qsizetype i=0; i<lines.size() && i<160; ++i) {
+            const QString row=lines[i].simplified();
+            const auto cc=chemCommFooter.match(row);
+            if (cc.hasMatch())
+                return {{"journal",QStringLiteral("Chemical Communications")},
+                        {"year",cc.captured(QStringLiteral("year"))},
+                        {"volume",cc.captured(QStringLiteral("volume"))},
+                        {"page",cc.captured(QStringLiteral("page"))}};
+            const auto ob=obcFooter.match(row);
+            if (ob.hasMatch())
+                return {{"journal",QStringLiteral("Organic & Biomolecular Chemistry")},
+                        {"year",ob.captured(QStringLiteral("year"))},
+                        {"volume",ob.captured(QStringLiteral("volume"))},
+                        {"page",ob.captured(QStringLiteral("page"))}};
+        }
         static const QRegularExpression pattern(QStringLiteral(
             R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|ACS\s+Med\.?\s*Chem\.?\s*Lett\.?|J\.?\s*Phys\.?\s*Chem\.?\s*[ABC]\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Org\.?\s*Biomol\.?\s*Chem\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
             QRegularExpression::CaseInsensitiveOption);

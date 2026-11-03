@@ -3374,34 +3374,20 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         paperHeading->addWidget(panelButton(paperHeading->parentWidget(), documents,
             QStringLiteral("LunaDocumentsCollapseButton")));
     }
-    // Show a compact restore rail at the reader's LEFT EDGE only when a
-    // panel is collapsed. The actual PDF tab strip remains PDF-only.
-    auto* restoreRail = new QWidget(&window);
-    restoreRail->setObjectName(QStringLiteral("LunaPanelRestoreRail"));
-    auto* restoreRow = new QHBoxLayout(restoreRail);
-    restoreRow->setContentsMargins(3, 2, 3, 2); restoreRow->setSpacing(2);
-    auto* restoreNav = panelButton(restoreRail, folders, QStringLiteral("LunaNavigationRestoreButton"));
-    auto* restoreDocs = panelButton(restoreRail, documents, QStringLiteral("LunaDocumentsRestoreButton"));
-    restoreRow->addWidget(restoreNav); restoreRow->addWidget(restoreDocs);
-    auto syncRestore = [=, &window] {
-        const auto* nav = library->findChild<QWidget*>(QStringLiteral("LunaNavigation"));
-        const auto* papers = library->findChild<QWidget*>(QStringLiteral("LunaDocuments"));
-        const bool showNav = nav && nav->isHidden() && !focus->isChecked();
-        const bool showPapers = papers && papers->isHidden() && !focus->isChecked();
-        restoreNav->setVisible(showNav); restoreDocs->setVisible(showPapers);
-        restoreRail->setVisible(showNav || showPapers);
-        if (showNav || showPapers) {
-            restoreRail->adjustSize();
-            if (restoreRail->parentWidget() == &window) {
-                restoreRail->move(8, window.menuBar()->height() + 95);
-                restoreRail->raise();
-            }
-        }
-    };
-    for (auto* action : {folders, documents, focus})
-        QObject::connect(action, &QAction::triggered, restoreRail,
-            [=, &window] { QTimer::singleShot(0, &window, syncRestore); });
-    restoreRail->hide();
+    // Restore controls live INSIDE the original two splitter slots, never
+    // float above PDF or jump to the far side of the paper list.
+    auto* restoreNav = panelButton(library->navigationFold(), folders,
+        QStringLiteral("LunaNavigationRestoreButton"));
+    auto* restoreDocs = panelButton(library->documentsFold(), documents,
+        QStringLiteral("LunaDocumentsRestoreButton"));
+    library->navigationFold()->layout()->addWidget(restoreNav);
+    library->documentsFold()->layout()->addWidget(restoreDocs);
+    restoreNav->setToolTip(QStringLiteral("라이브러리 펼치기"));
+    restoreDocs->setToolTip(QStringLiteral("논문 목록 펼치기"));
+    library->navigationFold()->setStyleSheet(QStringLiteral(
+        "#LunaNavigationFold {background-color: #F7FAFF; border-right: 1px solid #DDE7F5;}"));
+    library->documentsFold()->setStyleSheet(QStringLiteral(
+        "#LunaDocumentsFold {background-color: #F7FAFF; border-right: 1px solid #DDE7F5;}"));
     // One filename search field in the paper panel; no duplicate toolbar row.
     auto* globalSearch = library->searchEdit();
     auto* search = new QAction(QStringLiteral("라이브러리 검색"), &window);

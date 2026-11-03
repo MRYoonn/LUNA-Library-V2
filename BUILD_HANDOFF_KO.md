@@ -1,8 +1,45 @@
-# LUNA Library V2 — Windows 빌드·오류 분석 인수인계
+# LUNA Library V2 — 자율 개발·빌드 매니저 인수인계
 
-> **다음 매니저 필독.** 실제 소스 확인 → 최소 수정 → 회귀 테스트 → **정확한 커밋의 Windows 전체 빌드** → 네이티브 GUI 검증 → ZIP 무결성 확인 → 원인 분석 보존의 순서를 지킨다.
+> **가장 중요한 지시: 사용자가 직접 GitHub에서 빌드를 누르게 하지 말 것.** 다음 매니저는 사용자 요청을 받으면 **스스로 실제 코드를 읽고 고치고 GitHub에 커밋하고, Windows Actions 빌드를 직접 실행하고, 로그를 분석해 수정·재빌드하고, 성공한 포터블 ZIP까지 검증하여 사용자에게 전달한다.** 이것이 기본 업무이며, 단순한 안내문 작성이나 'Run workflow를 누르세요'라고 대답하는 것은 업무 미완료다.
 >
-> 기준일: 2026-11-03. 이 문서는 *빌드 운영 규칙*이다. 이력에 기록된 성공 커밋을 현재 브랜치의 성공으로 잘못 적용하지 않는다.
+> 예외: 연결 도구 권한이 실제로 부족하거나 외부 장애 등으로 실행 불가능한 경우에는 **어느 단계가 막혔는지와 확인한 근거**를 밝힌다. 성공하지 않은 빌드를 성공했다고 말하지 않는다. 코드가 변경되지 않은 문서 작업은 불필요하게 EXE 빌드하지 않는다.
+>
+> 기준일: 2026-11-03. **'코드 수정 → 직접 빌드 실행 → 실패 원인 파일 기록 → 바로 수정 → 새 SHA로 재빌드 → ZIP 검증'을 한 작업의 완료 조건**으로 한다. 과거 성공 빌드를 새 코드의 성공으로 대체하지 않는다.
+
+## A. 실제로 할 행동 — 다음 매니저의 실행 계약
+
+사용자의 '수정해', '이어서 해', '빌드해', 'ㅅㅍ' 등은 **진행과 검증을 맡기겠다는 요청**이다. 새 매니저는 사용자를 Github Actions 화면 조작자로 취급하지 말고 작업 실행 주체가 된다.
+
+1. **직접 조사:** 연결된 GitHub 저장소의 최신 브랜치/PR/소스/CI를 읽는다. 다른 매니저의 병렬 작업과 충돌하지 않는 작업 브랜치를 선택한다.
+2. **직접 구현:** 코드와 회귀 테스트를 바꿔 GitHub에 커밋한다. 코드를 수정하지 않은 채 구현했다고 보고하지 않는다.
+3. **직접 CI 실행:** 적절한 권한이 있는 GitHub 연동/CLI로 `build-windows.yml`을 해당 브랜치에서 실행한다. 클릭 방법만 설명하고 중단하지 않는다.
+4. **직접 상태 확인:** 만들어진 실제 workflow run ID, `head_sha`, Job/Step 및 로그를 추적한다. **dispatch 성공은 build 성공이 아니다.**
+5. **직접 고장 해결:** 실패하면 진단 Artifact·CDB·로그·테스트를 읽어 `BUILD_DIAGNOSTICS.md`에 실제 원인과 증거를 남긴 다음 수정, 테스트, 새 커밋, **새 전체 Windows run**으로 다시 검증한다. 재실행만 반복하지 않는다.
+6. **직접 산출물 검사:** 전체 CI가 성공하면 `LUNA-Windows-Portable` Artifact를 내려받아 ZIP 검사, `LUNA.exe` SHA256 확인, `build-info.json`의 run/commit 일치를 검증하고, 실제 다운로드 가능한 ZIP이나 Artifact 링크를 전달한다.
+7. **완료 보고:** 확인된 기능, 새 Windows build 번호, 정확한 SHA, 실험 증거, 아직 검증 못 한 사항을 구분해서 짧게 보고한다. 중간 진행 내용은 필요할 때 알려주되 최종 결과를 사용자에게 떠넘기지 않는다.
+
+**성공 예시:** Build #237 / #238의 실패 기록을 조사 → 테스트 포인터 수명 및 감시 폴더 정리 문제를 분석 → 소스와 회귀 테스트 수정 → GitHub Actions #239, #240을 직접 실행하고 Windows 전체 PASS 확인 → 최종 포터블 Artifact 다운로드·검증 → PR에 분석 기록까지 남겼다. 앞으로도 이 방식으로 끝까지 처리한다.
+
+### B. 빌드를 실제로 실행하는 방법 — 매니저 작업용
+
+먼저 연결된 GitHub 앱/도구에서 **workflow dispatch 실행**이 가능한지 확인한다. 가능하면 해당 도구로 실행한다. CLI를 사용할 수 있는 실행 환경이면 다음 흐름을 **매니저가 직접 실행**한다(명령어는 사용자에게 입력시키는 절차가 아니다).
+
+```bash
+REPO=MRYoonn/LUNA-Library-V2
+BRANCH=manager8/folder-count-verifier-20261103   # 실제 작업 브랜치로 교체
+gh workflow run build-windows.yml --repo "$REPO" --ref "$BRANCH"
+gh run list --repo "$REPO" --workflow build-windows.yml --branch "$BRANCH" --limit 10
+# 새 run ID를 확인한 뒤:
+gh run view RUN_ID --repo "$REPO" --json headSha,status,conclusion,jobs
+gh run view RUN_ID --repo "$REPO" --log-failed   # 실패 시 원문 확인
+gh run download RUN_ID --repo "$REPO" --name LUNA-Windows-Portable -D ./verified-build
+```
+
+- **연동 앱이 workflow_dispatch를 직접 제공하지 않는 경우:** 실제 #240에 사용한 `.github/workflows/manager8-dispatch-once.yml`처럼 **특정 작업 브랜치와 특정 파일 변경에만 반응하는 최소 범위의 Actions 브리지**를 사용해 매니저가 GitHub 코드 변경으로 빌드를 직접 요청할 수 있다. `actions: write` 권한·브랜치·리포지토리 제한·실제 dispatch 성공 여부를 확인한다. 브리지는 빌드가 아니라 요청 통로이므로 반드시 뒤이어 생성된 `LUNA Library V2 - Windows Portable` run의 **정확한 SHA와 결과**를 확인한다.
+- GitHub 도구에 재실행 기능만 있고 새 workflow dispatch는 없다면 **'rerun failed jobs'가 수정한 새 커밋을 검증해 주는 것은 아니다.** 권한 내 브리지/허용된 자동화 실행 경로를 찾아 실제 새 SHA run을 생성한다. 무리한 관리자 권한 변경이나 보안 우회를 하지 않는다.
+- 독립 빌드에는 **매니저가 직접 실행하는 승인된 CI 도구**를 사용한다. 매번 사용자에게 '초록색 버튼 클릭'을 요청하는 것은 금지한다.
+- 다른 작업자가 동시 수정 중이라면 실행 직전에 브랜치 HEAD를 재확인하고, 실행 뒤 `run.head_sha`가 구현한 SHA와 다르면 해당 결과를 내 검증으로 채택하지 않는다.
+- 테스트 실패가 나오면 원인이 밝혀지기 전까지 `PASS`라 쓰지 않는다. 새로운 커밋에는 **반드시 새 빌드 실행**이 필요하다.
 
 ## 0. 코드와 검증 상태부터 확인
 
@@ -20,7 +57,7 @@
 2. **원인 추적:** 실제 C++/Qt 클래스, QSettings 키, 이벤트/시그널, 모델 수명, 비동기 작업 및 관련 테스트를 읽는다. 코드를 보지 않고 원인을 확정하지 않는다.
 3. **최소 수정:** 문제를 직접 해결하고 재현 방지 테스트를 추가한다. 이미 성공한 부분을 무분별하게 재작성하지 않는다. 테스트가 새 요구사항과 충돌하면 **테스트의 계약을 정확히 수정**한다. 단지 초록불을 만들기 위해 테스트·크래시 관찰·보안 게이트를 우회하지 않는다.
 4. **공개 소스 게이트:** `tools/preflight_public.py`, `tests/test_public_gate.py`와 관련 Python 회귀 검사를 확인한다. 새 공개 텍스트 파일은 명시적 허용 목록에 추가하고, 실제 필요한 경우에만 근거 있는 파일 크기 한도를 조정한다. 사용자 PDF, 원본 메모, 경로, 인증정보, DB는 커밋하지 않는다.
-5. **정확한 브랜치로 실행:** GitHub → Actions → **LUNA Library V2 - Windows Portable** → **Run workflow** → 해당 변경사항이 있는 브랜치를 선택한다. 현재 HEAD와 워크플로 실행 `head_sha`가 정확히 일치하는지 확인한다. main/오래된 기능 브랜치로 대신 실행하지 않는다.
+5. **매니저가 직접 빌드 실행:** 위 'B. 빌드를 실제로 실행하는 방법'에 따라 GitHub workflow dispatch 또는 좁게 제한된 브리지를 **직접** 사용한다. 실제 빌드 run ID를 확보하고 해당 실행의 `head_sha`가 변경 코드의 SHA와 일치하는지 검증한다. **사용자에게 Actions 버튼을 대신 누르라고 요구하지 않는다.**
 6. **전체 관문 검증:** Preflight → native Qt/Save As → MSVC 컴파일·DLL → 포터블 구성 → 실제 창 시작 → PDF 열기 성능 → 네이티브 문서/인쇄·주석 왕복 → 프로덕션 다중 탭·라이브러리·새 프로세스 메모 복원 → Qt 배율 → CDB/Full Page Heap 종료 → ZIP 해시/Artifact 업로드 순으로 결과를 기록한다. 요구사항과 관련된 UI 동작을 실제 Qt 이벤트로 테스트하는 것이 우선이다.
 7. **최종 성공 판정:** 전체 Workflow `completed/success`, 필수 Job `success`, 실패 Step 없음, `LUNA-Windows-Portable` Artifact 존재를 확인한다. ZIP 다운로드 후 손상 여부를 검사하고 `build-info.json`의 `commit`/`run`이 CI 실행과 일치하는지, `LUNA.exe` SHA-256이 `exeSha256`과 일치하는지 비교한다. **성공 컴파일 ≠ 전체 빌드 성공 ≠ 제품 정식 출시**.
 8. **최종 보고:** 변경 내용, 실패 원인, 회귀 범위, 빌드 번호·run ID·정확한 SHA·Job 결과, Artifact, 검증하지 못한 항목을 PR에 남긴다. 본진에 병합할지는 **Draft PR 의존성**을 확인한 후 별도 결정한다.
@@ -67,7 +104,7 @@ with ZipFile(p) as z:
 ## 3. 작업 분리·자동화·릴리스 정책
 
 - 브랜치/PR 의존성이 쌓여 있으므로 독립 모듈을 개발할 때 기존 Draft PR 또는 main과 충돌/중복을 조사한다. **새 코드의 직접 반영·main 병합·Release 게시를 자동으로 해서는 안 된다.**
-- `.github/workflows/build-windows.yml`은 수동 실행이 원칙이다. Manager 8에서만 사용한 `.github/workflows/manager8-dispatch-once.yml`은 특정 브랜치/파일 변경으로 수동 빌드 요청을 이어주는 **한시적 브리지**다. 일반 빌드 자동화의 표준이나 모든 브랜치용 트리거로 복제하지 않는다.
+- `.github/workflows/build-windows.yml`은 기본적으로 `workflow_dispatch`지만, **'수동 트리거'는 사용자가 수동 클릭해야 한다는 뜻이 아니다.** 다음 매니저가 연결된 GitHub 도구 또는 실행 환경의 CLI/API로 **직접** 트리거한다. Manager 8에서 사용한 `.github/workflows/manager8-dispatch-once.yml`은 특정 브랜치/파일로 제한한 **한시적 트리거 브리지** 사례다. 브리지의 보안 경계를 유지하고 모든 브랜치에서 무제한 자동 실행되게 만들지 않는다.
 - `.github/workflows/draft-release.yml`은 별도 수동 검증을 거쳐 **Draft Release만** 만든다. 정식 Release 게시, 실제 자동 업데이트 교체, 설치 프로그램 배포는 각각 별도 검증·승인이 필요하다.
 - 진단 Artifact는 만료될 수 있다. 완료된 증거는 커밋 이력·`BUILD_DIAGNOSTICS.md`·PR/Issue·run 링크에 남겨야 한다.
 - 개발 실행 결과는 반드시 구분한다: **코드 작성**, **Python/소스 검사**, **C++ 컴파일**, **전체 Windows CI**, **물리 Windows 사용자 검증**, **정식 배포**. 뒤 단계를 앞 단계의 결과로 대신 보고하지 않는다.
@@ -87,4 +124,4 @@ failure-analysis.md / BUILD_DIAGNOSTICS.md / Issue 보존 여부:
 남은 미검증 항목 / main 병합 여부:
 ```
 
-**최종 원칙:** 실패하면 원인 파일을 남기고 다시 수정한다. **정확한 SHA의 Windows 전체 빌드가 통과하고 검증된 포터블 ZIP이 있어야만 “빌드 성공”이라고 말한다.**
+**최종 원칙:** **사용자가 빌드 버튼을 누르지 않아도 매니저가 직접 코드 수정·GitHub 커밋·CI 실행·오류 해결·재빌드·포터블 ZIP 검증을 마친다.** 실패 원인 파일을 반드시 남긴다. 정확한 SHA의 Windows 전체 빌드가 통과하고 검증된 포터블 ZIP이 있어야만 '빌드 성공'이라고 말한다.

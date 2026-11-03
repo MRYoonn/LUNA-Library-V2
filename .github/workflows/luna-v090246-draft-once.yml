@@ -1,0 +1,222 @@
+name: LUNA v0.9.0.246 - audited release draft (one-shot)
+# Opt-in release bridge. The original Windows executable comes ONLY from
+# full Windows CI #246, not from this orchestration commit.
+on:
+  push:
+    branches:
+      - release/luna-v0.9.0.246-20261103
+    paths:
+      - .github/workflows/luna-v090246-draft-once.yml
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  REPO: MRYoonn/LUNA-Library-V2
+  SOURCE_SHA: 24e00a79fad0aecf3286695d94800f24862b8501
+  SOURCE_RUN: '41592183528'
+  SOURCE_BRANCH: feature/bibliography-scheduled-module-integration-20261103
+  VERSION_TAG: v0.9.0.246
+
+jobs:
+  create-candidate:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact validated PDF application source
+        uses: actions/checkout@v4
+        with:
+          ref: 24e00a79fad0aecf3286695d94800f24862b8501
+          persist-credentials: false
+      - name: Verify immutable Windows evidence and the current release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.status')" = completed
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.conclusion')" = success
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.head_sha')" = "$SOURCE_SHA"
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.head_branch')" = "$SOURCE_BRANCH"
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.path')" = '.github/workflows/build-windows.yml'
+          gh api "repos/$REPO/actions/runs/$SOURCE_RUN/jobs?per_page=100" |
+            jq -e '([.jobs[] | select(.name == "windows-packaging-preflight" or .name == "build-windows") | .conclusion] | sort) == ["success","success"]' >/dev/null
+          test "$(gh api "repos/$REPO/releases/latest" --jq '.tag_name')" = v0.9.0.244
+          test "$(gh api "repos/$REPO/releases?per_page=100" --jq '[.[] | select(.tag_name=="v0.9.0.246")] | length')" = 0
+          if gh api "repos/$REPO/git/ref/tags/$VERSION_TAG" >/dev/null 2>&1; then
+            echo 'Version tag already exists; refusing overwrite' >&2
+            exit 1
+          fi
+      - name: Retrieve exact successful build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging/portable
+          gh run download "$SOURCE_RUN" --repo "$REPO" --name LUNA-Windows-Portable --dir staging/portable
+      - name: Repackage audited compatible updater release and verify every byte
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m tools.prepare_release --portable staging/portable --destination dist --tag "$VERSION_TAG" --source-run "$SOURCE_RUN" --commit "$SOURCE_SHA"
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,json,zipfile
+          dst=Path('dist')
+          zpath=dst/'LUNA-Windows-Portable.zip'
+          manifest=json.loads((dst/'LUNA-Release.json').read_text('utf-8'))
+          assert manifest['schema']==2
+          assert manifest['tag']=='v0.9.0.246'
+          assert manifest['source_run']==41592183528
+          assert manifest['commit']=='24e00a79fad0aecf3286695d94800f24862b8501'
+          assert hashlib.sha256(zpath.read_bytes()).hexdigest()==manifest['sha256']
+          with zipfile.ZipFile(zpath) as archive:
+              assert archive.testzip() is None
+              names=archive.namelist()
+              assert len(names)==135==len(set(names))==len(manifest['files'])
+              assert 'Luna-Crash-Tools.ps1' not in names
+              assert all(not n.lower().endswith(('.pdf','.png','.jpg','.db','.sqlite')) for n in names)
+              info=json.loads(archive.read('build-info.json'))
+              assert info['version']=='v0.9.0.246'
+              assert str(info['run'])=='41592183528'
+              assert info['commit']=='24e00a79fad0aecf3286695d94800f24862b8501'
+              assert info['validation']['windowsCpp']=='passed'
+              assert info['betaComplete'] is False
+              assert info['exeSha256']=='f4899afd7e32a1d88624d50373541b68d39b182cc75f479f50925711b6f75a42'
+              assert hashlib.sha256(archive.read('LUNA.exe')).hexdigest()==info['exeSha256']
+              for rec in manifest['files']:
+                  data=archive.read(rec['path'])
+                  assert len(data)==rec['size']
+                  assert hashlib.sha256(data).hexdigest()==rec['sha256']
+              for script in ('Analyze-Luna-Crash.ps1','Start-Luna-Crash-Diagnostics.ps1'):
+                  src=archive.read(script).decode('utf-8')
+                  assert 'function Get-LunaCdb' in src
+                  assert 'function Get-LunaProcDump' in src
+                  assert ". (Join-Path $PSScriptRoot 'Luna-Crash-Tools.ps1')" not in src
+          print('PASS: 135 compatible assets, original #246 executable, exact provenance, every digest')
+          PY
+      - name: Upload candidate for independent Windows package validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-Release-Candidate-v090246
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Preserve source / packaging diagnosis
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf '%s\n' "Release v0.9.0.246: original Windows source SHA $SOURCE_SHA, Windows run $SOURCE_RUN, current orchestration run $GITHUB_RUN_ID." > evidence/failure-analysis.md
+          printf '%s\n' 'If this job failed, the first failed GitHub Actions step and corresponding trace are the evidence; do not assert an unverified root cause.' >> evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v090246-Package-Diagnostics
+          path: evidence/failure-analysis.md
+          retention-days: 90
+
+  windows-candidate:
+    needs: create-candidate
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Checkout matching audited release and updater contract tests
+        uses: actions/checkout@v4
+        with:
+          ref: 24e00a79fad0aecf3286695d94800f24862b8501
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: LUNA-Release-Candidate-v090246
+          path: dist/
+      - name: Run Windows PowerShell syntax and full release manifest verification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s tests -p test_updater.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Offline updater regressions failed' }
+          $root=Join-Path $env:RUNNER_TEMP 'LUNA-246-candidate'
+          New-Item -ItemType Directory -Force $root | Out-Null
+          Expand-Archive -LiteralPath (Join-Path $PWD 'dist/LUNA-Windows-Portable.zip') -DestinationPath $root -Force
+          $manifest = Get-Content -Raw -Encoding UTF8 'dist/LUNA-Release.json' | ConvertFrom-Json
+          if ($manifest.tag -cne 'v0.9.0.246' -or $manifest.commit -cne '24e00a79fad0aecf3286695d94800f24862b8501') { throw 'Manifest mismatch' }
+          foreach ($f in $manifest.files) {
+            $path=Join-Path $root ($f.path.Replace('/', '\'))
+            if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing file: $($f.path)" }
+            if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$f.sha256) { throw "Digest mismatch: $($f.path)" }
+          }
+          foreach ($script in @('LUNA-Update.ps1','Analyze-Luna-Crash.ps1','Start-Luna-Crash-Diagnostics.ps1')) {
+            $errors=$null; $tokens=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $script),[ref]$tokens,[ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { throw "Invalid Windows PowerShell: $script" }
+          }
+          $info=Get-Content -LiteralPath (Join-Path $root 'build-info.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($info.version -cne 'v0.9.0.246' -or $info.betaComplete -ne $false) { throw 'Release metadata mismatch' }
+          Write-Host 'PASS: Windows candidate portable expansion, all hashes, PowerShell parsing, updater regression'
+      - name: Save Windows candidate validation record
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -Force -ItemType Directory -Path $env:RUNNER_TEMP/luna-246-evidence | Out-Null
+          "Release Windows offline candidate verification: job=$env:GITHUB_JOB; run=$env:GITHUB_RUN_ID; SHA=24e00a79fad0aecf3286695d94800f24862b8501. Inspect the first failed step in the GitHub job log before attributing a failure root cause." |
+            Set-Content -Path $env:RUNNER_TEMP/luna-246-evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v090246-Windows-Prepublish-Diagnostics
+          path: ${{ runner.temp }}/luna-246-evidence/failure-analysis.md
+          retention-days: 90
+
+  create-draft:
+    needs: [create-candidate, windows-candidate]
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: LUNA-Release-Candidate-v090246
+          path: dist/
+      - name: Create one immutable release DRAFT after independent Windows PASS
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.conclusion')" = success
+          test "$(gh api "repos/$REPO/releases/latest" --jq '.tag_name')" = v0.9.0.244
+          test "$(gh api "repos/$REPO/releases?per_page=100" --jq '[.[] | select(.tag_name=="v0.9.0.246")] | length')" = 0
+          gh release create "$VERSION_TAG" dist/LUNA-Windows-Portable.zip dist/LUNA-Release.json \
+            --repo "$REPO" --target "$SOURCE_SHA" --draft \
+            --title "LUNA Library v0.9.0.246 — verified Windows Portable" \
+            --notes "Verified Windows Build #246 (run 41592183528); integrates conservative DOI-less bibliography, publisher title and SI-cover handling. PDF4QT native and Windows synthetic UI tests passed. The downloaded executable is original CI-validated binary. Real-world publisher PDF accuracy and long physical-PC sessions are not fully validated; betaComplete remains false. This draft MUST be verified before it becomes the latest release."
+          gh api "repos/$REPO/releases?per_page=100" | jq -e \
+            --arg tag "$VERSION_TAG" --arg source "$SOURCE_SHA" \
+            --arg zip "sha256:$(sha256sum dist/LUNA-Windows-Portable.zip | cut -d' ' -f1)" \
+            --arg manifest "sha256:$(sha256sum dist/LUNA-Release.json | cut -d' ' -f1)" \
+            '[.[] | select(.tag_name==$tag and .draft==true and .target_commitish==$source and
+              ([.assets[] | {name,digest}] | sort_by(.name)) == [
+                {name:"LUNA-Release.json",digest:$manifest},
+                {name:"LUNA-Windows-Portable.zip",digest:$zip}
+              ])] | length==1' >/dev/null
+          echo "PASS: Verified immutable draft $VERSION_TAG. Publishing is a separate gated operation."
+      - name: Preserve release draft diagnostics on failure or success
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'Release draft v0.9.0.246 source=%s run=%s, orchestration=%s. Consult exact failed GitHub Actions step and artifacts if unsuccessful.\n' "$SOURCE_SHA" "$SOURCE_RUN" "$GITHUB_RUN_ID" > evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v090246-Draft-Diagnostics
+          path: evidence/failure-analysis.md
+          retention-days: 90

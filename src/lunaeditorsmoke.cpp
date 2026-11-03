@@ -1255,8 +1255,18 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     checkpoint("Reader phase: native print dialog open and cancel");
     if (!QPrinterInfo::availablePrinters().isEmpty()) {
         auto* printAction = action("actionPrint");
-        if (!printAction || !printAction->isEnabled())
-            return fail("Native print QAction unavailable after PDF reopen");
+        if (!printAction)
+            return fail("Native print QAction missing after PDF reopen");
+        // PDF4QT independently tracks its asynchronous document future. A
+        // reopened PDF can satisfy canClose() and getIsBusy()==false before
+        // updateActionsAvailability() enables printing on the next GUI turn.
+        // Do not synthesize Ctrl+P while the real QAction is still disabled.
+        if (!waitFor([&] { return printAction->isEnabled(); })) {
+            error = QStringLiteral("Native print QAction stayed disabled after PDF reopen: busy=%1 canClose=%2 document=%3")
+                .arg(controller->getIsBusy()).arg(controller->canClose())
+                .arg(bool(controller->getDocument()));
+            return false;
+        }
         std::atomic_int nativePrintTriggers{0};
         const bool printActionEnabledBefore = printAction->isEnabled();
         const int printerCandidates = QPrinterInfo::availablePrinters().size();

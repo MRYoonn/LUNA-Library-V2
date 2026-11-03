@@ -9,6 +9,8 @@ on:
       - 'src/lunasiidentity.h'
       - 'tests/native_si_identity/**'
       - 'tests/native_si_move/**'
+      - 'src/lunasirows.h'
+      - 'tests/native_si_rows/**'
       - 'tools/preflight_public.py'
       - '.github/workflows/si-isolated.yml'
   workflow_dispatch:
@@ -62,6 +64,12 @@ jobs:
           cmake -S tests/native_si_identity -B "${RUNNER_TEMP}/luna-si-identity-linux" -DCMAKE_BUILD_TYPE=Release
           cmake --build "${RUNNER_TEMP}/luna-si-identity-linux" --config Release
           ctest --test-dir "${RUNNER_TEMP}/luna-si-identity-linux" -C Release --output-on-failure
+
+      - name: Compile and run read-only QtCore SI rows (Linux)
+        run: |
+          cmake -S tests/native_si_rows -B "${RUNNER_TEMP}/luna-si-rows-linux" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "${RUNNER_TEMP}/luna-si-rows-linux" --config Release
+          ctest --test-dir "${RUNNER_TEMP}/luna-si-rows-linux" -C Release --output-on-failure
 
       - uses: actions/checkout@v4
         with:
@@ -120,3 +128,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'SI identity QtCore compile failed' }
           ctest --test-dir $build -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'SI identity QtCore regression failed' }
+      - name: Compile and run read-only QtCore SI rows (Windows)
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP 'luna-si-rows-native'
+          cmake -S tests/native_si_rows -B $build -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'SI rows QtCore configure failed' }
+          cmake --build $build --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'SI rows QtCore compile failed' }
+          ctest --test-dir $build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'SI rows QtCore regression failed' }

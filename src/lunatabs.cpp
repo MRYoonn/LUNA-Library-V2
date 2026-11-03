@@ -1115,6 +1115,23 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(isolatedBibliography(), "Repeated tab switches changed another paper's author");
             auto* tabBar = tabs->tabBar();
             integrationRequire(tabBar->usesScrollButtons() && tabBar->elideMode() == Qt::ElideMiddle, "Tab scroll/elision mode changed");
+            // Real Qt GUI: the selected tab must carry a distinctly BLUE
+            // hollow moon; another tab has the soft grey version. Switching
+            // tabs must update both icons and text shades, not the app icon.
+            const int activeMoon=tabs->currentIndex();
+            const int inactiveMoon=activeMoon==0?1:0;
+            integrationRequire(activeMoon>=0 && inactiveMoon<tabs->count() &&
+                !tabs->tabIcon(activeMoon).isNull() && !tabs->tabIcon(inactiveMoon).isNull() &&
+                tabBar->tabTextColor(activeMoon)==QColor(QStringLiteral("#193E71")) &&
+                tabBar->tabTextColor(inactiveMoon)==QColor(QStringLiteral("#89929F")) &&
+                tabs->tabIcon(activeMoon).pixmap(48,48).toImage()!=
+                    tabs->tabIcon(inactiveMoon).pixmap(48,48).toImage(),
+                "Blue active / grey inactive outline-moon tabs did not render");
+            tabs->setCurrentIndex(inactiveMoon); QCoreApplication::processEvents();
+            integrationRequire(tabBar->tabTextColor(inactiveMoon)==QColor(QStringLiteral("#193E71")) &&
+                tabBar->tabTextColor(activeMoon)==QColor(QStringLiteral("#89929F")),
+                "Moon tab color did not follow actual active document");
+            tabs->setCurrentIndex(activeMoon); QCoreApplication::processEvents();
             integrationRequire(tabBar->tabRect(4).width() >= 88 &&
                 tabBar->tabRect(4).width() <= 218 &&
                 !tabs->tabText(4).isEmpty() && !tabs->tabToolTip(4).isEmpty(),

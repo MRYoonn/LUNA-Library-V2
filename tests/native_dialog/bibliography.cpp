@@ -346,6 +346,16 @@ int main(int argc, char** argv) {
     if (!luna::FrontMatter::isSupplementCover(QStringLiteral(
         "Supplementary Information (SI) for Organic & Biomolecular Chemistry.\n"
         "Table of Contents\nMaterials and Methods\n"))) return 108;
+    // Both single-line and two-line OBC mastheads are used in RSC PDFs.
+    const QString obcCover = QStringLiteral(
+        "Organic & Biomolecular Chemistry\nPAPER\n"
+        "Photoredox Functionalization of N-Heterocycles\n"
+        "through Radical C-C Bond Formation\n"
+        "Jane Chemist, Alex Researcher\n"
+        "DOI: 10.1039/D6OB00864F\n");
+    if (luna::FrontMatter::rscTitle(obcCover) != QStringLiteral(
+        "Photoredox Functionalization of N-Heterocycles through Radical C-C Bond Formation"))
+        return 109;
     qInfo() << "[PASS] Local-only citation paste/format, override, move/restart, collision and PDF info";
     return 0;
 }

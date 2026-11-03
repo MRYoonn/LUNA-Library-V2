@@ -11,6 +11,10 @@ import json
 import zlib
 from pathlib import Path
 import sys
+try:
+    from .generate_pdf_icon import make_icon
+except ImportError:
+    from generate_pdf_icon import make_icon
 
 PIN = "67b6b9903cb4e318803342f2d428f02e1bb124e3"
 BLOBS = {
@@ -22,6 +26,9 @@ CMAKE_ADDITION = """
 add_executable(LUNA luna_main.cpp lunalibrary.cpp lunareadertoolbar.cpp lunaeditorsmoke.cpp lunatabs.cpp luna_icon.rc app.qrc luna_resources.qrc luna_folder_icons.qrc luna_symbol_icons.qrc)
 target_link_libraries(LUNA PRIVATE Pdf4QtLibCore Pdf4QtLibWidgets Pdf4QtLibGui
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::PrintSupport Qt6::Network Qt6::Svg)
+if(WIN32)
+    target_link_libraries(LUNA PRIVATE advapi32 shell32)
+endif()
 if(MSVC)
     target_compile_options(LUNA PRIVATE /utf-8)
 endif()
@@ -277,6 +284,8 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "lunafilemove.h": (own / "lunafilemove.h").read_bytes(),
         folder / "lunasidecarpaths.h": (own / "lunasidecarpaths.h").read_bytes(),
         folder / "lunamanualsi.h": (own / "lunamanualsi.h").read_bytes(),
+        folder / "lunatabmoon.h": (own / "lunatabmoon.h").read_bytes(),
+        folder / "lunapdfassociation.h": (own / "lunapdfassociation.h").read_bytes(),
         folder / "lunatrashundo.h": (own / "lunatrashundo.h").read_bytes(),
         folder / "lunalocalsync.h": (own / "lunalocalsync.h").read_bytes(),
         folder / "lunadocumentclaim.h": (own / "lunadocumentclaim.h").read_bytes(),
@@ -284,8 +293,11 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "lunalibrary.h": (own / "lunalibrary.h").read_bytes(),
         folder / "lunalibrary.qss": (own / "lunalibrary.qss").read_bytes(),
         folder / "LUNA-Moon.ico": (own.parent / "assets/icons/LUNA-Moon.ico").read_bytes(),
+        # Resource 1 = original blue EXE, 2 = red PDF document only.
+        # The PDF icon is embedded; legacy auto-updaters reject standalone .ico.
+        folder / "LUNA-PDF.ico": make_icon(),
         folder / "LUNA-Moon.png": (own.parent / "assets/icons/LUNA-Moon.png").read_bytes(),
-        folder / "luna_icon.rc": b'IDI_ICON1 ICON DISCARDABLE "LUNA-Moon.ico"\n',
+        folder / "luna_icon.rc": b'1 ICON DISCARDABLE "LUNA-Moon.ico"\\n2 ICON DISCARDABLE "LUNA-PDF.ico"\\n',
         folder / "luna_resources.qrc": b'<RCC><qresource prefix="/luna"><file>lunalibrary.qss</file><file>LUNA-Moon.ico</file><file>LUNA-Moon.png</file></qresource></RCC>\n',
         folder / "luna_main.cpp": make_main(main.read_text(encoding="utf-8")
             .replace("\r\n", "\n")).encode("utf-8"),

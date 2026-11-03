@@ -91,6 +91,55 @@ int main(int argc, char** argv) {
               "References\nJones, Chem. Commun., 2025, 61, 17870-17873"))
               .isEmpty(), "unanchored body citation cannot be imported");
 
+    // Synthetic publisher cover structures; never embed real user PDFs or
+    // private extracted titles. Detect line-interleaving safely.
+    const QString chemCommCover = QStringLiteral(
+        "ChemComm\nPublished on 14 October 2025\nCOMMUNICATION\n"
+        "Licence and permissions\n"
+        "Light-driven formation of fused heterocycles\n"
+        "through cascade photoactivation\n"
+        "Cite this: Chem. Commun., 2025,\n"
+        "and oxidative ring closure\n"
+        "61, 17870\nReceived 6th October 2025,\n"
+        "Alex Example,a Taylor Scientist,b\n"
+        "*a and\nAccepted 13th October 2025\n*ab\n"
+        "Jordan Reviewer\nDOI: 10.1039/d5ccsynthetic");
+    check(luna::Bibliography::firstPageRscTitle(chemCommCover) ==
+          QStringLiteral("Light-driven formation of fused heterocycles "
+                         "through cascade photoactivation and oxidative ring closure"),
+          "ChemComm interleaved title safely reconstructed");
+    check(luna::Bibliography::firstPageRscLastAuthor(chemCommCover) ==
+          QStringLiteral("Jordan Reviewer"),
+          "ChemComm separated terminal author");
+    const QString obcCover = QStringLiteral(
+        "Organic &\nBiomolecular Chemistry\n"
+        "Published on 21 February 2025\nPAPER\nLicensed under CC-BY 4.0\n"
+        "Efficient cyclotrimerization of functionalized substrates†\n"
+        "Cite this: Org. Biomol. Chem., 2025,\n23, 3131\n"
+        "Alex Example, Taylor Scientist\nand\n*\nJordan Reviewer\n"
+        "DOI: 10.1039/d5obsynthetic");
+    check(luna::Bibliography::firstPageRscTitle(obcCover) ==
+          QStringLiteral("Efficient cyclotrimerization of functionalized substrates"),
+          "RSC Organic Biomolecular Chemistry main title");
+    check(luna::Bibliography::firstPageRscLastAuthor(obcCover) ==
+          QStringLiteral("Jordan Reviewer"),
+          "RSC author after stand-alone and");
+    check(luna::Bibliography::firstPageRscTitle(QStringLiteral(
+              "Organic &\nBiomolecular Chemistry\nPAPER\n"
+              "Unverified title\nNo DOI, no author evidence")).isEmpty(),
+          "RSC fallback requires DOI and verifiable author list");
+    check(!luna::Bibliography::credibleTitle(QStringLiteral(
+              "d5ob00162e 3131..3136 ++")),
+          "RSC PDF printer spool title rejected");
+    const auto obcFullPages = luna::Bibliography::firstPageCitation(QStringLiteral(
+        "Organic &\nBiomolecular Chemistry\nPAPER\n"
+        "Cite this: Org. Biomol. Chem., 2025,\n23, 3131\n"
+        "Org. Biomol. Chem., 2025, 23, 3131–3136 | 3131"));
+    check(obcFullPages.value("journal").toString() ==
+          QStringLiteral("Organic & Biomolecular Chemistry") &&
+          obcFullPages.value("page").toString() == QStringLiteral("3131-3136"),
+          "RSC complete footer page range outranks short cite header");
+
     // Publisher-front-matter regression: ACS PDFs have a visible SI link
     // even though the first page is a MAIN article. No PDF bytes are used
     // here; the actual 27-file real-PDF4QT experiment is still outstanding.

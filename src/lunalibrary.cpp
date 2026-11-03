@@ -3,6 +3,7 @@
 #include "lunalibrary.h"
 #include "lunathumbnailcache.h"
 #include "lunafilemove.h"
+#include "lunamanualsi.h"
 #include "lunatrashundo.h"
 #include "lunalocalsync.h"
 #include "lunadocumentclaim.h"
@@ -339,10 +340,18 @@ public:
     using QStyledItemDelegate::QStyledItemDelegate;
     static constexpr int kCardHeight = 322;
     static constexpr int kCompactHeight = 112;
+    static constexpr int kSIRowHeight = 46;
+    static constexpr int kSIFooterHeight = 29;
     void setCompact(bool compact) { compact_ = compact; }
     bool compact() const { return compact_; }
-    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override {
-        return {1, compact_ ? kCompactHeight : kCardHeight};
+    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex& index) const override {
+        if(index.data(Qt::UserRole + 10).toBool())return {1,kSIRowHeight};
+        return {1,(compact_ ? kCompactHeight : kCardHeight) +
+            (index.data(Qt::UserRole + 11).toInt()>0 ? kSIFooterHeight : 0)};
+    }
+    static QRect siFooterRect(const QRect& r) {
+        return QRect(r.left()+12,r.bottom()-kSIFooterHeight+1,
+                     qMax(1,r.width()-24),kSIFooterHeight);
     }
     std::function<void(const QString&, const QString&)> saveMemo;
     static QRect contentRect(const QRect& r) {

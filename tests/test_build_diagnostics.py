@@ -73,6 +73,15 @@ class BuildDiagnosticsContracts(unittest.TestCase):
             self.assertNotIn("never-copy-private-path", analysis)
             self.assertTrue((output / "native-failure-verifier.json").is_file())
 
+    def test_native_print_smoke_waits_for_action_and_uses_real_root_hwnd(self):
+        root = Path(__file__).resolve().parents[1]
+        smoke = (root / "src/lunaeditorsmoke.cpp").read_text(encoding="utf-8")
+        self.assertIn('if (!waitFor([&] { return printAction->isEnabled(); }))', smoke)
+        self.assertIn('const HWND printOwner = GetAncestor(editorWindow, GA_ROOT);', smoke)
+        self.assertIn('nativePrintTriggers.load() != 1', smoke)
+        self.assertIn('if (!sawPrint) return fail(', smoke)
+        self.assertIn('finished = true; cancelPrint.join();', smoke)
+
     def test_native_shortcut_failure_and_no_evidence_remain_distinct(self):
         from tools.build_diagnostics import classify_native_failure
         with tempfile.TemporaryDirectory() as folder:

@@ -87,6 +87,8 @@ APPROVED = {
     "tests/native_metadata/CMakeLists.txt", "tests/native_metadata/main.cpp",
     "tests/native_dialog/thumbnails.cpp",
     "src/lunafilemove.h", "src/lunatrashundo.h", "src/lunalocalsync.h", "tests/native_dialog/filemoves.cpp",
+    "src/lunasidecarpaths.h", "tests/native_dialog/sidecarstorage.cpp",
+    "tests/test_hidden_storage_contract.py",
     "src/lunadocumentclaim.h", "tests/native_dialog/documentclaims.cpp",
     "tools/probe_documents_windows.py",
     "tools/probe_research_windows.py",

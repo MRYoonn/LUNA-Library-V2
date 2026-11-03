@@ -134,6 +134,22 @@ class SiDisplayModelTests(unittest.TestCase):
         self.assertEqual(len(report["public_si"]), 1)
         self.assertEqual(report["public_si"][0]["status"], "unconfirmed")
 
+    def test_restored_unknown_status_fails_closed(self):
+        report = project_si_rows(self.index, MAIN, self.lookup("unexpected_state"))
+        self.assertEqual(report["lookup_status"], "needs_review")
+        self.assertEqual(report["public_si"], [])
+        self.assertEqual(len(report["local_si"]), 2)
+
+    def test_nonboolean_live_proof_cannot_promote_link(self):
+        verified = SiCandidate(12345, DOI, "Example public SI", "si.pdf", URL,
+                               status="landing_verified", file_id=123)
+        for fake_proof in ("true", 1, ["success"], {"ok": True}):
+            with self.subTest(fake_proof=fake_proof):
+                report = project_si_rows(self.index, MAIN,
+                                         self.lookup("verified", (verified,)),
+                                         live_landing_check_completed=fake_proof)
+                self.assertEqual(report["public_si"][0]["status"], "unconfirmed")
+
     def test_unconfirmed_and_invalid_graph_cannot_be_rendered_as_confirmed(self):
         self.index.links[SI1] = self.index.links[SI1].__class__(
             SI2, SI1, DOI)

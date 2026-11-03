@@ -2,6 +2,7 @@
 #include "lunamanualsi.h"
 #include "lunabibliography.h"
 #include "lunadocumentclaim.h"
+#include "lunalocalsync.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QFile>
@@ -71,6 +72,63 @@ int main(int argc,char** argv) {
     if(!third.success || QFileInfo(third.path).fileName().contains(QStringLiteral("(3)")) ||
        read(meta)!="orphan user metadata")
         return fail("SI copy overwrote or adopted stale unrelated sidecar");
-    qInfo()<<"[PASS] manual SI copy, numbered names, Windows sanitization, explicit link/unlink, orphan sidecar preservation";
+    // Same-folder user selection must reuse the existing PDF rather than
+    // creating another copy, while all existing annotations/metadata follow
+    // a different sanitized filename through Explorer's rename reconciliation.
+    const QString oldId=luna::DocumentClaim::identity(input);
+    const QString oldMeta=luna::SidecarStorage::metadata(input);
+    const QString oldThumb=luna::SidecarStorage::thumbnail(input,QStringLiteral(".png"));
+    const QByteArray metaBytes("{\"original\":\"research-metadata\",\"memo\":\"keep\"}");
+    const QByteArray thumbnailBytes("synthetic saved crop");
+    if(!luna::SidecarStorage::ensureArea(input,true) ||
+       !luna::SidecarStorage::ensureArea(input,false) ||
+       !write(oldMeta,metaBytes) || !write(oldThumb,thumbnailBytes))
+        return fail("Cannot prepare existing same-folder SI user data");
+    if(!bibliography.save(oldId,QVariantMap{
+        {"title",QStringLiteral("SI user-edited NMR description")},
+        {"titleSource",QStringLiteral("manual")}},true))
+        return fail("Cannot prepare SI manual bibliography");
+    const QString noteKey=QStringLiteral("library/memos/")+luna::lunaPathKey(input);
+    luna::lunaLocalStore().setValue(noteKey,QStringLiteral("Original SI user memo"));
+    const int beforeCount=QDir(root).entryList(
+        QStringList{QStringLiteral("*.pdf")},QDir::Files).size();
+    const auto renamed=luna::ManualSI::placeNextToParent(input,parent,title);
+    if(!renamed.success || !renamed.renamedExisting || renamed.reusedExisting ||
+       renamed.previousPath!=QFileInfo(input).absoluteFilePath() ||
+       QFileInfo::exists(input) || read(renamed.path)!=bytes ||
+       QDir(root).entryList(QStringList{QStringLiteral("*.pdf")},QDir::Files).size()!=beforeCount)
+        return fail("Same-folder manual SI created a duplicate or lost original PDF");
+    QString renameError;
+    if(!luna::reconcileExplorerRename(input,renamed.path,bibliography,&renameError)) {
+        qCritical().noquote()<<renameError;
+        return fail("Existing SI rename could not reconcile user data");
+    }
+    if(QFileInfo::exists(oldMeta) || QFileInfo::exists(oldThumb) ||
+       read(luna::SidecarStorage::metadata(renamed.path))!=metaBytes ||
+       read(luna::SidecarStorage::thumbnail(renamed.path,QStringLiteral(".png")))!=thumbnailBytes ||
+       bibliography.record(luna::DocumentClaim::identity(renamed.path))
+          .value("title").toString()!=QStringLiteral("SI user-edited NMR description") ||
+       luna::lunaLocalStore().value(
+          QStringLiteral("library/memos/")+luna::lunaPathKey(renamed.path)).toString()!=
+          QStringLiteral("Original SI user memo"))
+        return fail("Same-folder rename lost crop, manual bibliography or memo");
+    const auto reused=luna::ManualSI::placeNextToParent(renamed.path,parent,title);
+    if(!reused.success || !reused.reusedExisting || reused.renamedExisting ||
+       reused.path!=renamed.path || QFileInfo::exists(input) ||
+       QDir(root).entryList(QStringList{QStringLiteral("*.pdf")},QDir::Files).size()!=beforeCount)
+        return fail("Selecting already named same-folder SI must reuse without another rename/copy");
+    // Different folder always imports a COPY. The source and its path must
+    // stay untouched; same-folder reuse must not leak into this branch.
+    const QString externalDir=QDir(root).filePath(QStringLiteral("external-source"));
+    if(!QDir().mkpath(externalDir))return fail("Cannot create external SI folder");
+    const QString external=QDir(externalDir).filePath(QStringLiteral("outside SI.pdf"));
+    if(!write(external,"external SI user PDF"))return fail("Cannot write external SI fixture");
+    const auto imported=luna::ManualSI::placeNextToParent(external,parent,title);
+    if(!imported.success || imported.renamedExisting || imported.reusedExisting ||
+       imported.path==external || read(external)!="external SI user PDF" ||
+       read(imported.path)!="external SI user PDF" ||
+       QFileInfo(imported.path).absolutePath()!=root)
+        return fail("Outside-folder SI must be copied into article folder without moving source");
+    qInfo()<<"[PASS] manual SI: same-folder rename/reuse, legacy/hidden metadata and cropped thumbnail, manual edits, memo, outside-folder copy";
     return 0;
 }

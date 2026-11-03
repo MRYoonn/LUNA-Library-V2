@@ -311,6 +311,112 @@ int main(int argc,char** argv){
            QStringLiteral("Recovered from printed first page of the paper"),
            "manual title is restored from trusted first-page title");
 
+    checkpoint("si-parent-bibliography");
+    const QString originalTitle=QStringLiteral(
+        "Visible-Light-Driven C5 Functionalization of Thiouracils by a Photoredox Process");
+    const QString siCover=QStringLiteral("Supporting Information\n") + originalTitle +
+        QStringLiteral("\nAlice Brown, Clara Green\nDOI: 10.1021/acs.joc.5c01153\nContents");
+    const auto si=SIIdentity::evidence(siCover,QStringLiteral("jo5c01153_si_001.pdf"));
+    expect(si.value("documentKind")==QStringLiteral("supporting_information") &&
+           si.value("siCoverTitle")==originalTitle &&
+           si.value("siArticleDoiCandidate")==QStringLiteral("10.1021/acs.joc.5c01153") &&
+           si.value("siEvidenceSource")==QStringLiteral("si_cover_explicit_doi"),
+           "ACS SI cover DOI/title extracted independently");
+    expect(SIIdentity::filenameDoiHint(QStringLiteral("jo5c01153_si_001.pdf"))==
+           QStringLiteral("10.1021/acs.joc.5c01153"),"ACS JOC SI filename DOI hint");
+    expect(SIIdentity::filenameDoiHint(QStringLiteral("jm5c01788_si_002.pdf"))==
+           QStringLiteral("10.1021/acs.jmedchem.5c01788"),"ACS medicinal SI filename DOI hint");
+    expect(SIIdentity::filenameDoiHint(QStringLiteral("d5ob00864f1_suppl.pdf"))==
+           QStringLiteral("10.1039/d5ob00864f"),"RSC ESI filename DOI hint");
+    expect(SIIdentity::filenameDoiHint(QStringLiteral("random_notes_si.pdf")).isEmpty(),
+           "unknown SI names are not article DOI identities");
+    expect(SIIdentity::evidence(QStringLiteral(
+           "J. Org. Chem. 2025, 90, 1234\nCite This: J. Org. Chem.\nSupporting Information\nAbstract"),
+           QStringLiteral("jo5c01153_si_001.pdf")).isEmpty(),
+           "ACS main PDF navbar is not SI even when filename is suspicious");
+    const auto onlyHint=SIIdentity::evidence(QStringLiteral(
+        "Supporting Information\nContents\nGeneral experimental procedures"),
+        QStringLiteral("jo5c01153_si_001.pdf"));
+    expect(onlyHint.value("siCoverTitle").toString().isEmpty() &&
+           onlyHint.value("siLinkStatus")==QStringLiteral("needs_review") &&
+           !onlyHint.contains("doi"),"filename-only SI stays review-only without cover title");
+
+    Bibliography siStore;
+    const QString originalIdentity=QStringLiteral("synthetic:si:verified-original");
+    const QString siIdentity=QStringLiteral("synthetic:si:acs-cover");
+    QVariantMap parentArticle{{"title",originalTitle},
+                              {"titleSource",QStringLiteral("Crossref")},
+                              {"doi",QStringLiteral("10.1021/acs.joc.5c01153")},
+                              {"doiSource",QStringLiteral("Crossref")},
+                              {"journal",QStringLiteral("Journal of Organic Chemistry")},
+                              {"journalSource",QStringLiteral("Crossref")},
+                              {"year",QStringLiteral("2025")},
+                              {"authors",QStringLiteral("Alice Brown, Clara Green")},
+                              {"authorsSource",QStringLiteral("Crossref")},
+                              {"metadata_status",QStringLiteral("complete")}};
+    expect(siStore.save(originalIdentity,parentArticle,false),
+           "synthetic original article available locally");
+    expect(siStore.enrichFromFirstPage(siIdentity,si),"SI first-page document-kind saved");
+    expect(siStore.record(siIdentity).value("title").toString().isEmpty(),
+           "unverified SI never automatically becomes article title");
+    expect(siStore.linkSIFromLocal(siIdentity),
+           "strong cover title and exact DOI link local original");
+    const QVariantMap linked=siStore.record(siIdentity);
+    expect(linked.value("siLinkStatus")==QStringLiteral("verified") &&
+           linked.value("siParentDoi")==QStringLiteral("10.1021/acs.joc.5c01153") &&
+           linked.value("documentKind")==QStringLiteral("supporting_information") &&
+           linked.value("journal")==QStringLiteral("Journal of Organic Chemistry") &&
+           linked.value("title")==originalTitle,
+           "SI inherits original paper title, journal and DOI but retains SI kind");
+    expect(!siStore.enrichFromFirstPage(siIdentity,si) &&
+           siStore.record(siIdentity).value("siLinkStatus")==QStringLiteral("verified"),
+           "reopening SI does not clear verified original metadata");
+
+    const QString rscTitle=QStringLiteral(
+        "Site-Selective Photocatalytic Activation of Pyrimidine Derivatives under Visible Light");
+    const QString rscIdentity=QStringLiteral("synthetic:si:rsc-cover");
+    auto rsc=SIIdentity::evidence(QStringLiteral("Electronic Supplementary Material (ESI)\n")+
+        rscTitle+QStringLiteral("\nJane Miller, Peter Hill\nDOI: 10.1039/d5ob00864f"),
+        QStringLiteral("d5ob00864f1_suppl.pdf"));
+    expect(rsc.value("siArticleDoiCandidate")==QStringLiteral("10.1039/d5ob00864f") &&
+           rsc.value("siCoverTitle")==rscTitle,"RSC ESI cover parsed");
+    expect(siStore.enrichFromFirstPage(rscIdentity,rsc),
+           "RSC SI saved without inventing article fields");
+    QVariantMap remote=parentArticle;
+    remote["title"]=rscTitle;
+    remote["doi"]=QStringLiteral("10.1039/d5ob00864f");
+    remote["metadata_source"]=QStringLiteral("Crossref");
+    expect(!siStore.linkSIToParent(rscIdentity,parentArticle,
+                                  QStringLiteral("10.1039/d5ob00864f"),false),
+           "SI cannot attach an unrelated article DOI/title");
+    auto fakeSupplement=remote;
+    fakeSupplement["title"]=QStringLiteral("Supporting Information");
+    expect(!siStore.linkSIToParent(rscIdentity,fakeSupplement,
+                                  QStringLiteral("10.1039/d5ob00864f"),false),
+           "provider SI metadata cannot masquerade as original paper");
+    expect(siStore.linkSIToParent(rscIdentity,remote,
+                                 QStringLiteral("10.1039/d5ob00864f"),false),
+           "verified Crossref article connects to matching SI cover");
+    expect(siStore.record(rscIdentity).value("siParentSource")==QStringLiteral("Crossref"),
+           "provider provenance saved with SI parent link");
+
+    const QString conflictIdentity=QStringLiteral("synthetic:si:manual-conflict");
+    expect(siStore.enrichFromFirstPage(conflictIdentity,rsc),"conflicting SI evidence saved");
+    expect(siStore.saveEdits(conflictIdentity,{},
+        {{"title",QStringLiteral("Manually Corrected Alternative Publication Title")}}),
+        "manual SI edit saved");
+    expect(!siStore.linkSIToParent(conflictIdentity,remote,
+                                  QStringLiteral("10.1039/d5ob00864f"),false) &&
+           siStore.record(conflictIdentity).value("title")==
+               QStringLiteral("Manually Corrected Alternative Publication Title"),
+           "SI parent enrichment cannot overwrite conflicting manual title");
+    auto changedCover=rsc;
+    changedCover["siArticleDoiCandidate"]=QStringLiteral("10.1039/d5ob00865g");
+    expect(siStore.enrichFromFirstPage(rscIdentity,changedCover) &&
+           siStore.record(rscIdentity).value("siLinkStatus")==QStringLiteral("needs_review") &&
+           siStore.record(rscIdentity).value("title")==rscTitle,
+           "changed DOI on linked SI marks review but preserves bibliography");
+
     checkpoint("offline-fallback");
     MetadataFetcher offline;
     qputenv("LUNA_METADATA_OFFLINE","1");

@@ -954,3 +954,14 @@ Next: check CI on this exact HEAD, then prioritize the read-only Windows
 capture binding to an actual extracted PDF and 20+ authorized/public goldset
 PDFs. Record errors and actual source evidence locally; do not upload user
 settings, private documents, or credentials. PR remains Draft.
+
+
+### 2026-11-03 follow-up: incomplete positive-field capture
+
+**Cause:** The scorer previously flagged an omitted snapshot key only when the gold label was blank. When a known-positive field (for example a title) was absent from the native snapshot, it was counted as an FN but did not raise a snapshot-integrity error. A capture adapter silently dropping a field was indistinguishable from an explicit extractor abstention.
+
+**Change:** Missing observed keys now produce `missing_snapshot_field` for both positive and negative gold labels. Positive omissions additionally contribute FN; explicit `null` or `""` still represents a measured abstention and contributes FN without a snapshot-integrity error. A synthetic regression covers both outcomes.
+
+**Reproduce:** Run `python -B -m unittest discover -s tests -p 'test_bibliography_accuracy_lab.py' -v`. Remove `title` from the first synthetic prediction case and score again; the report must contain `missing_snapshot_field` and a title FN. Restore the key with `null`; the report must contain `missing` and a title FN, with no `missing_snapshot` increment.
+
+**Pending:** Check this HEAD's Python/Windows CI; connect read-only native capture to the actual PDF SHA256 on Windows; verify real persisted QSettings/manual edits, HTTP 429/404, restart/move; collect permissioned/public publisher PDFs and independently audit evidence. No real accuracy measurement was performed in this change.

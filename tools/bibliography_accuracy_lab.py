@@ -263,12 +263,15 @@ def score(gold: dict, predictions: dict, *, require_real: bool = False,
             got = normalize(field, observed_fields.get(field))
             stats[field]["scored"] += 1
             by_publisher_fields[publisher][field]["scored"] += 1
-            # An omitted snapshot key is not evidence that an absent field
-            # was actually checked. In particular, a missing SI DOI must
-            # never inflate true negatives or produce a false PASS.
-            if field not in observed_fields and not want:
+            # A missing snapshot key is not evidence of an observed blank,
+            # whether the gold label is positive or negative. A known-positive
+            # field must also contribute a false negative to recall.
+            if field not in observed_fields:
                 stats[field]["missing_snapshot"] += 1
                 by_publisher_fields[publisher][field]["missing_snapshot"] += 1
+                if want:
+                    stats[field]["fn"] += 1
+                    by_publisher_fields[publisher][field]["fn"] += 1
                 by_publisher[publisher]["errors"] += 1
                 errors.append({"case_id": ident, "publisher": publisher, "field": field,
                                "expected": case["expected"][field], "observed": None,

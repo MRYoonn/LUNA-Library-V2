@@ -1,0 +1,111 @@
+name: LUNA - backward-compatible updater package draft (one-shot)
+
+# Never edit the existing published v0.9.0.243 assets.
+# Original Windows EXE is unchanged; only standalone crash diagnostics
+# helper packaging is made compatible with the shipped v0.9.0.243 updater.
+on:
+  push:
+    branches:
+      - agent/luna-first-release-20261103
+    paths:
+      - .github/workflows/luna-compat-hotfix-draft-once.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release-hotfix-draft:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PACKAGING_SHA: '3a75ab036181ffe2c577064a5997bf8c0653800d'
+      SOURCE_SHA: '0550c5a2b57e4704c6e1a255a3abfe0094880dbe'
+      SOURCE_RUN: '41577602717'
+      VERSION_TAG: 'v0.9.0.244'
+    steps:
+      - name: Checkout audited compatibility packaging code
+        uses: actions/checkout@v4
+        with:
+          ref: 3a75ab036181ffe2c577064a5997bf8c0653800d
+          persist-credentials: false
+      - name: Verify packaging code, source Windows run and previous public version
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$REPO" = 'MRYoonn/LUNA-Library-V2'
+          test "$(git rev-parse HEAD)" = "$PACKAGING_SHA"
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.conclusion')" = success
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.head_sha')" = "$SOURCE_SHA"
+          gh api "repos/$REPO/actions/runs/$SOURCE_RUN/jobs?per_page=100" |
+            jq -e '([.jobs[] | select(.name == "windows-packaging-preflight" or .name == "build-windows") | .conclusion] | sort) == ["success","success"]' >/dev/null
+          test "$(gh api "repos/$REPO/releases/latest" --jq '.tag_name')" = v0.9.0.243
+          if gh release view "$VERSION_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo 'New hotfix release already exists; do not overwrite'
+            exit 1
+          fi
+          test -z "$(git ls-remote --tags origin "refs/tags/$VERSION_TAG")"
+      - name: Download original successful Windows Portable unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging/portable
+          gh run download "$SOURCE_RUN" --repo "$REPO" --name LUNA-Windows-Portable --dir staging/portable
+      - name: Build compatible versioned ZIP and verify every digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m tools.prepare_release --portable staging/portable --destination dist \
+            --tag "$VERSION_TAG" --source-run "$SOURCE_RUN" --commit "$SOURCE_SHA"
+          python - <<'PY'
+          import json,hashlib,zipfile
+          from pathlib import Path
+          m=json.loads(Path("dist/LUNA-Release.json").read_text("utf-8"))
+          z=Path("dist/LUNA-Windows-Portable.zip")
+          assert hashlib.sha256(z.read_bytes()).hexdigest()==m["sha256"]
+          assert m["tag"]=="v0.9.0.244" and m["source_run"]==41577602717
+          assert m["commit"]=="0550c5a2b57e4704c6e1a255a3abfe0094880dbe"
+          with zipfile.ZipFile(z) as arc:
+              assert arc.testzip() is None
+              names=set(arc.namelist())
+              assert len(names)==len(m["files"])==135
+              assert "Luna-Crash-Tools.ps1" not in names
+              for entry in m["files"]:
+                  body=arc.read(entry["path"])
+                  assert len(body)==entry["size"]
+                  assert hashlib.sha256(body).hexdigest()==entry["sha256"]
+              for name in ("Analyze-Luna-Crash.ps1","Start-Luna-Crash-Diagnostics.ps1"):
+                  body=arc.read(name).decode("utf-8")
+                  assert "function Get-LunaCdb" in body
+                  assert "function Get-LunaProcDump" in body
+                  assert ". (Join-Path $PSScriptRoot 'Luna-Crash-Tools.ps1')" not in body
+              info=json.loads(arc.read("build-info.json"))
+              assert info["version"]=="v0.9.0.244" and info["run"]=="41577602717"
+              assert info["commit"]=="0550c5a2b57e4704c6e1a255a3abfe0094880dbe"
+              assert hashlib.sha256(arc.read("LUNA.exe")).hexdigest()==info["exeSha256"]
+              assert info["exeSha256"]=="9b55f64929dc97bf8a5ec78c172b0bf97091a9940096bd2b0e8c09497297ae0d"
+          print("PASS: original validated EXE; 135 allowed files; bundled crash tool functions; every digest")
+          PY
+      - name: Create second DRAFT only; verify it by numeric listing, not draft-by-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$VERSION_TAG" dist/LUNA-Windows-Portable.zip dist/LUNA-Release.json \
+            --repo "$REPO" --target "$SOURCE_SHA" --draft \
+            --title "LUNA Library $VERSION_TAG — updater compatibility" \
+            --notes "Compatibility maintenance release. Original Build #243 Windows EXE is unchanged; updater ZIP only uses filenames already accepted by v0.9.0.243. Crash helpers are bundled into the existing local diagnostic scripts. Draft until exact asset verification; no private PDF was included."
+          gh api "repos/$REPO/releases?per_page=30" | jq -e \
+            --arg tag "$VERSION_TAG" --arg sha "$SOURCE_SHA" \
+            --arg zip "$(sha256sum dist/LUNA-Windows-Portable.zip | cut -d' ' -f1)" \
+            --arg manifest "$(sha256sum dist/LUNA-Release.json | cut -d' ' -f1)" '
+            [.[] | select(.tag_name==$tag and .draft==true and .target_commitish==$sha and
+              ([.assets[] | {name,size,digest}] | sort_by(.name)) == [
+               {name:"LUNA-Release.json",size:(.assets[] | select(.name=="LUNA-Release.json") | .size),digest:("sha256:"+$manifest)},
+               {name:"LUNA-Windows-Portable.zip",size:(.assets[] | select(.name=="LUNA-Windows-Portable.zip") | .size),digest:("sha256:"+$zip)}])]
+             | length==1' >/dev/null
+          echo "COMPATIBLE DRAFT READY: $VERSION_TAG; pending explicit existing-ID publication."

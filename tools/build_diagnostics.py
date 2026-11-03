@@ -60,7 +60,7 @@ def classify_native_failure(evidence: Path) -> dict:
             raw = probe_file.read_text(encoding="utf-8")
             for name in ("ownedDialogs", "cancelRequests", "seen", "finished",
                          "actionTriggers", "actionEnabledBefore", "printersAvailable"):
-                match = re.search(r"\\b" + name + r"=([0-9]{1,5})\\b", raw)
+                match = re.search(r"\b" + name + r"=([0-9]{1,5})\b", raw)
                 if match:
                     result["print_probe"][name] = int(match.group(1))
         except (OSError, UnicodeError):
@@ -167,7 +167,7 @@ def record(output: Path, phase: str, *, status: str = "unknown",
             lines += ["", "Classification is evidence-based, not proof of the underlying "
                       "platform or Qt root cause; inspect source and rerun the failed gate.", ""]
             (output / "native-failure-verifier.json").write_text(
-                json.dumps(summary, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+                json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         report = output / "failure-analysis.md"
         report.write_text("\n".join(lines), encoding="utf-8")
     return document

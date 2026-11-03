@@ -86,7 +86,10 @@ class CitationContractTests(unittest.TestCase):
     def test_no_prose_or_missing_info_is_invented(self):
         self.assertIn("credibleTitle(const QString& value)", self.model)
         self.assertIn("credibleAuthor(const QString& value)", self.model)
-        self.assertIn('QStringLiteral("Supporting Information")', self.model)
+        # The parser now uses a strict shared SI-cover classifier instead of
+        # an unsafe substring check in the bibliography model.
+        self.assertIn('FrontMatter::isSupplementCover(text)', self.model)
+        self.assertIn('FrontMatter::isSupplementCover(first)', self.extractor)
         self.assertIn('QStringLiteral("No Job Name")', self.native)
         self.assertIn('QStringLiteral("J. Phys. Chem. B")', self.native)
 

@@ -5,6 +5,8 @@
 #include "lunalibrary.h"
 #include "lunareadertoolbar.h"
 #include "lunaupdater.h"
+#include "lunapdfassociation.h"
+#include "lunatabmoon.h"
 #include "lunadocumentclaim.h"
 #include "lunasidecarpaths.h"
 #include "pdfeditormainwindow.h"
@@ -16,6 +18,8 @@
 #include <QAction>
 #include <QCloseEvent>
 #include <QDialog>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QDockWidget>
 #include <QDropEvent>
 #include <QFileDialog>
@@ -160,6 +164,7 @@ public:
         tabs_->setElideMode(Qt::ElideMiddle);
         tabs_->tabBar()->setObjectName(QStringLiteral("LunaPdfTabBar"));
         tabs_->tabBar()->setDrawBase(false); // Qt native tab-base draws the unwanted dark top rule.
+        tabs_->tabBar()->setIconSize(QSize(23,23)); // one hollow crescent per PDF tab
         tabs_->tabBar()->setExpanding(false);
         tabs_->tabBar()->setUsesScrollButtons(true);
         tabs_->setAcceptDrops(true);
@@ -230,7 +235,9 @@ public:
                 s->claim = std::move(claim); s->identity = DocumentClaim::identity(destination); s->loading = true;
                 return true;
             });
-        connect(tabs_, &QTabWidget::currentChanged, this, [this](int) { activateCurrent(); });
+        connect(tabs_, &QTabWidget::currentChanged, this, [this](int) { updateMoonTabStates(); activateCurrent(); });
+        connect(tabs_->tabBar(), &QTabBar::tabMoved, this,
+                [this](int, int) { updateMoonTabStates(); });
         connect(tabs_, &QTabWidget::tabCloseRequested, this, [this](int index) { closeTab(index); });
         setAcceptDrops(true); qApp->installEventFilter(this);
         connect(&poll_, &QTimer::timeout, this, [this] { synchronize(); }); poll_.start(100);
@@ -366,7 +373,7 @@ private:
         connect(editor, &QObject::destroyed, this, [this, serial] { setProperty("LunaLastDestroyedEditor", serial); trace("editor-destroyed"); });
         editor->setAttribute(Qt::WA_DeleteOnClose, false); editor->setAttribute(Qt::WA_QuitOnClose, false); editor->installEventFilter(this);
         auto s = std::make_unique<Session>(); s->editor = editor; sessions_.push_back(std::move(s));
-        tabs_->addTab(editor, QApplication::windowIcon(), QStringLiteral("PDF 열기"));
+        tabs_->addTab(editor, luna::tabMoonIcon(tabs_->count()==0), QStringLiteral("PDF 열기"));
         const int index = tabs_->indexOf(editor);
         for (auto side : {QTabBar::LeftSide, QTabBar::RightSide}) if (auto* old = tabs_->tabBar()->tabButton(index, side)) {
             tabs_->tabBar()->setTabButton(index, side, nullptr); old->deleteLater();
@@ -375,6 +382,7 @@ private:
         close->setAccessibleName(QStringLiteral("이 PDF 탭 닫기")); close->setIcon(readerIcon(QStringLiteral("close"))); close->setIconSize(QSize(14, 14)); close->setFixedSize(18, 18); close->setToolTip(QStringLiteral("이 PDF 탭 닫기"));
         QPointer<Editor> guarded(editor); connect(close, &QToolButton::clicked, this, [this, guarded] { if (guarded) closeTab(tabs_->indexOf(guarded)); });
         tabs_->tabBar()->setTabButton(index, QTabBar::RightSide, close);
+        updateMoonTabStates();
         trace("editor-created", editor); return editor;
     }
     void finishEditor(Editor* editor) {
@@ -477,6 +485,38 @@ private:
                 if (popup->isVisible() && popup->windowFlags().testFlag(Qt::Popup)) popup->reject();
         bindLibraryEditor(*this, *editor);
         menuBar()->clear(); for (auto* action : editor->menuBar()->actions()) menuBar()->addAction(action);
+        // An explicit user action registers LUNA as an eligible Windows .pdf
+        // app without ever replacing the Windows UserChoice default.
+        auto* associationAction=findChild<QAction*>(QStringLiteral("LunaRegisterPdfAssociation"));
+        if(!associationAction) {
+            associationAction=new QAction(QStringLiteral("PDF 기본 앱으로 설정…"),this);
+            associationAction->setObjectName(QStringLiteral("LunaRegisterPdfAssociation"));
+            connect(associationAction,&QAction::triggered,this,[this] {
+                QString failure;
+                const QString exe=QCoreApplication::applicationFilePath();
+                const QString documentIcon=QDir(QCoreApplication::applicationDirPath())
+                    .filePath(QStringLiteral("LUNA-PDF.ico"));
+                if(!luna::PdfAssociation::registerCurrentUser(exe,documentIcon,&failure)) {
+                    QMessageBox::warning(this,QStringLiteral("PDF 기본 앱 등록 실패"),failure);
+                    return;
+                }
+                QMessageBox::information(this,QStringLiteral("LUNA PDF 파일 연결 등록"),
+                    QStringLiteral("LUNA Library가 Windows의 PDF 기본 앱 후보로 등록됐습니다.\n\n"
+                        "설정 → 앱 → 기본 앱에서 LUNA Library를 선택하고 .pdf를 지정해 주세요.\n"
+                        "Windows 정책상 앱이 사용자의 기본 앱을 강제로 바꾸지는 않습니다.\n\n"
+                        "LUNA 포터블 폴더를 이동했다면 여기서 다시 등록해야 합니다."));
+                if(!QDesktopServices::openUrl(QUrl(QStringLiteral("ms-settings:defaultapps"))))
+                    QMessageBox::information(this,QStringLiteral("Windows 기본 앱"),
+                        QStringLiteral("Windows 설정 → 앱 → 기본 앱을 직접 열어 주세요."));
+            });
+        }
+        auto* associationMenu=editor->findChild<QMenu*>(QStringLiteral("menuFile"));
+        if(!associationMenu)
+            associationMenu=editor->findChild<QMenu*>(QStringLiteral("menuHelp"));
+        if(associationMenu && !associationMenu->actions().contains(associationAction)) {
+            associationMenu->addSeparator();
+            associationMenu->addAction(associationAction);
+        }
         if (auto* help = editor->findChild<QMenu*>(QStringLiteral("menuHelp"))) {
             // The LUNA shell owns the user-facing identity. Keep third-party
             // licenses accessible, but do not open the PDF engine's About,
@@ -528,6 +568,17 @@ private:
         }
         bindCommonReaderToolbar(*this, *editor);
         editor->getProgramController()->getPdfWidget()->setFocus(); updateTitle(editor);
+    }
+    void updateMoonTabStates() {
+        if(!tabs_)return;
+        const int active=tabs_->currentIndex();
+        for(int i=0;i<tabs_->count();++i) {
+            const bool selected=i==active;
+            tabs_->setTabIcon(i,luna::tabMoonIcon(selected));
+            tabs_->tabBar()->setTabTextColor(i,
+                selected?QColor(QStringLiteral("#193E71")):
+                         QColor(QStringLiteral("#89929F")));
+        }
     }
     void updateTitle(Editor* editor) {
         auto* s = session(editor); if (!s || closing_) return;

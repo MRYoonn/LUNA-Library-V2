@@ -38,7 +38,7 @@ jobs:
           test "${#SOURCE_SHA}" -eq 40
           test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$SOURCE_SHA"
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
-          echo "SI parent bibliography final native scope: multiline cover titles, full verified author lists, and stale-review reset; dispatch exact-source Windows full compile at $SOURCE_SHA"
+          echo "SI parent bibliography regex-fixed and native-instrumented final source: multiline cover stops before author names; require complete Windows Build, Qt native, GUI and ZIP on $SOURCE_SHA"
           echo "REQUIRE metadata Qt native regression, PDF4QT, tabs, annotations, portable ZIP before release."
       - name: Preserve analysis artifact even on failure
         if: always()

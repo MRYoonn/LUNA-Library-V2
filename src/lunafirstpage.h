@@ -3,6 +3,7 @@
 #include "lunabibliography.h"
 #include "lunametadataengine.h"
 #include "lunatitleextractor.h"
+#include "lunasiidentity.h"
 #include "pdfdocument.h"
 #include "pdftextlayoutgenerator.h"
 #include "pdffont.h"
@@ -15,7 +16,8 @@ namespace luna {
 // Worker-owned PDF4QT snapshot; process only the first three pages. Neither PDF
 // bytes nor page text leave the computer. Return an evidence-ranked DOI only
 // when strong unambiguous front matter supports that paper's identity.
-inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnostic = nullptr) {
+inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnostic = nullptr,
+                                    const QString& fileName = {}) {
     const auto* catalog=document.getCatalog();
     if(!catalog || catalog->getPageCount()<1) return {};
     pdf::PDFFontCache fonts(128,128);
@@ -89,8 +91,7 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
     const auto candidates=Metadata::collectCandidates(pages,infoText);
     // Do not classify an ACS main-paper navbar hyperlink as an SI cover.
     if (FrontMatter::isSupplementCover(first))
-        return {{"documentKind",QStringLiteral("supporting_information")},
-                {"doiStatus",QStringLiteral("needs_review")}};
+        return SIIdentity::evidence(first,fileName);
     QVariantMap evidence=Bibliography::firstPageCitation(first);
     const QVariantMap titleLayout=TitleExtraction::infer(firstPageLines,firstPageHeight);
     const QVariantMap textualTitle=Bibliography::firstPageIdentity(first);

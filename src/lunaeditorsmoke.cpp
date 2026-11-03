@@ -1286,7 +1286,7 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
                     .arg(cancellation.ownedDialogs.load())
                     .arg(cancellation.cancelRequests.load())
                     .arg(cancellation.seen.load()).arg(finished.load()).toUtf8());
-                diagnostic.write(QStringLiteral("actionTriggers=%1 actionEnabledBefore=%2 printersAvailable=%3\\n")
+                diagnostic.write(QStringLiteral("actionTriggers=%1 actionEnabledBefore=%2 printersAvailable=%3\n")
                     .arg(nativePrintTriggers.load()).arg(printActionEnabledBefore)
                     .arg(printerCandidates).toUtf8());
             }

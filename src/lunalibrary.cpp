@@ -2316,43 +2316,6 @@ private:
         favorites_ = QSet<QString>(favorites.cbegin(), favorites.cend());
         refreshFileLists();
     }
-    void trashDocument(const QString& path, bool confirmed = false) {
-        const QFileInfo source(path);
-        if (!source.isFile() || source.isSymLink()) return;
-        if (!confirmed && QMessageBox::question(this, QStringLiteral("Windows 휴지통으로 이동"),
-            QStringLiteral("PDF와 썸네일을 휴지통으로 보낼까요?\nCtrl+Z로 직전 삭제를 복원할 수 있습니다.\n%1")
-                .arg(source.fileName()),
-            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes) return;
-        const QString identity = DocumentClaim::identity(path);
-        if ((activateElsewhere && activateElsewhere(path)) ||
-            (independentDocuments(*viewer_) && independentDocuments(*viewer_)->openElsewhere(path)) ||
-            (viewer_->getProgramController()->getDocument() &&
-             DocumentClaim::identity(viewer_->getProgramController()->getOriginalFileName()) == identity)) {
-            QMessageBox::information(this, QStringLiteral("열린 PDF"),
-                QStringLiteral("현재 열린 PDF를 닫은 뒤 삭제해 주세요."));
-            return;
-        }
-        const QStringList oldFavorites = savedPaths(QStringLiteral("library/favorites"));
-        const QStringList oldRecent = savedPaths(QStringLiteral("library/recent"));
-        QString error;
-        if (!recentUndo_.trash(path, &error)) {
-            QMessageBox::warning(this, QStringLiteral("휴지통 이동 실패"), error);
-            return;
-        }
-        undoFavorites_ = oldFavorites;
-        undoRecent_ = oldRecent;
-        QSettings store(QSettings::defaultFormat(), QSettings::UserScope,
-                        QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
-        for (const QString& key : {QStringLiteral("library/favorites"), QStringLiteral("library/recent")}) {
-            QStringList paths = store.value(key).toStringList();
-            paths.removeAll(path);
-            store.setValue(key, paths);
-        }
-        store.sync();
-        const QStringList favorites = store.value(QStringLiteral("library/favorites")).toStringList();
-        favorites_ = QSet<QString>(favorites.cbegin(), favorites.cend());
-        refreshFileLists();
-    }
     void importPdfs() {
         const QStringList files = QFileDialog::getOpenFileNames(this,
             QStringLiteral("PDF 추가 · 원본을 유지하고 현재 폴더에 복사"), current_, QStringLiteral("PDF (*.pdf *.PDF)"));

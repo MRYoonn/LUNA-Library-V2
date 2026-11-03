@@ -126,6 +126,28 @@ class SnapshotSourceContract(unittest.TestCase):
         self.assertIn("offline ACS main title from printed front matter", native)
         self.assertIn("unverified ACS cover abstains rather than guessing title", native)
 
+    def test_publisher_citation_title_and_author_guards(self):
+        bibliography = (ROOT / "src" / "lunabibliography.h").read_text(encoding="utf-8")
+        firstpage = (ROOT / "src" / "lunafirstpage.h").read_text(encoding="utf-8")
+        native = NATIVE.read_text(encoding="utf-8")
+        for token in ("chemCommFooter", "obcFooter", "naturePage",
+                      "natureArticle", "elsevier.match(line)", "springer.match(line)",
+                      'fill("article_number"', 'replace("article_number"',
+                      "static QString firstPageRscTitle(",
+                      "static QString firstPageRscLastAuthor(",
+                      "static QVariantMap firstPageElsevierIdentity(",
+                      "first-page-elsevier-author-block", "printerSpool.match(text)"):
+            self.assertIn(token, bibliography)
+        self.assertIn("Bibliography::firstPageRscTitle(first)", firstpage)
+        self.assertIn("Bibliography::firstPageRscLastAuthor(first)", firstpage)
+        self.assertIn("Bibliography::firstPageElsevierIdentity(first)", firstpage)
+        self.assertIn("elsevierIdentity.value(QStringLiteral(", firstpage)
+        for token in ("ChemComm interleaved title safely reconstructed",
+                      "Elsevier last author excludes next institutional affiliation",
+                      "RSC complete footer page range outranks short cite header",
+                      "Wiley article number identified while legacy page view remains stable"):
+            self.assertIn(token, native)
+
     def test_native_regressions_seed_isolated_settings(self):
         code = NATIVE.read_text(encoding="utf-8")
         for expected in ('QTemporaryDir', 'Hao Fang', 'legacy author must not reappear',

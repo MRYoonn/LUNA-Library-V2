@@ -1001,3 +1001,24 @@ any verified SI link or enabling local SI move UI.
 
 
 **Exact-code CI acceptance (2026-11-03):** [SI isolated #41556715957](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41556715957) on code/workflow commit `abed3e2fb79730ae9dd50ed88d573b8800c4718b` completed **SUCCESS**: offline Python integration + public-source privacy gate PASS; Linux Qt6 native identity, SI rows and pinned PR16 paired-move contract PASS; Windows Qt6/MSVC native identity, SI rows and pinned PR16 paired-move contract PASS. Later commits only append this handoff documentation; they do not change tested code. These are synthetic/isolated tests, **not** production Windows UI, live API, individual SI file accessibility, or actual user-PC acceptance. The PR remains Draft/non-mergeable.
+
+
+## Follow-up: restored lookup state / live-proof type guard (2026-11-03)
+
+- Root cause: Python display projection previously passed through unknown restored
+  lookup statuses without a `needs_review` downgrade, unlike the native Qt
+  projection. Also a truthy non-boolean `live_landing_check_completed` value
+  (e.g. `"true"` or `1`) could promote a candidate labeled
+  `landing_verified` without a strictly boolean verifier result.
+- Reproduction: project a synthetic `SiLookupResult` with status
+  `unexpected_state`, or status `verified` and a candidate labeled
+  `landing_verified` while passing `live_landing_check_completed="true"`.
+- Fix: unknown statuses now become `needs_review`; promotion requires
+  `live_landing_check_completed is True`. Synthetic regression tests cover
+  unknown state and several truthy non-boolean values.
+- Validation: GitHub source commits recorded; exact-HEAD Python/Qt CI and
+  real HTTP reachability **not yet confirmed in this run**. Do not report
+  verified live links based on these synthetic tests.
+- Next run: inspect CI for HEAD, run `python -B -m unittest discover -s
+  tests -p 'test_si_display_model.py' -v`, then confirm public ACS/Figshare
+  API/landing reachability separately without downloading SI PDFs.

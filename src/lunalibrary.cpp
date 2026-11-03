@@ -940,7 +940,8 @@ public:
 protected:
     void mousePressEvent(QMouseEvent* e) override {
         if (e->button() == Qt::RightButton) {
-            if (auto* item = itemAt(e->position().toPoint()); item && item->isSelected()) {
+            if (auto* item = itemAt(e->position().toPoint());
+                selectedItems().size() > 1 || (item && item->isSelected())) {
                 e->accept();
                 return;
             }
@@ -1518,8 +1519,6 @@ public:
         connect(tree_, &QTreeView::clicked, this, [this](const QModelIndex& index) {
             const QString path = model_->filePath(index);
             if (!QFileInfo(path).isDir()) return;
-            tree_->selectionModel()->select(index, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
-            folderTab_->setChecked(true);
             pages_->setCurrentIndex(0);
             selectFolder(path);
         });
@@ -1557,6 +1556,9 @@ public:
             QTimer::singleShot(0, this, [this] { rememberOpenedDocument(); });
         });
         connect(split_, &QSplitter::splitterMoved, this, [this] { savePanelState(); });
+        widthSaveTimer_.setSingleShot(true);
+        widthSaveTimer_.setInterval(250);
+        connect(&widthSaveTimer_, &QTimer::timeout, this, [this] { savePanelState(); });
         QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
         QString start = settings.value(QStringLiteral("library/root")).toString();
         if (!QFileInfo(start).isDir()) start = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
@@ -1651,27 +1653,26 @@ public:
     void updateMinimum() {
         const bool hasNavigation = !navigation_->isHidden();
         const bool hasDocuments = !documents_->isHidden();
-        const bool wide = hasNavigation;
         QSettings preferences(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
         const int savedWidth = qBound(432, preferences.value(
             QStringLiteral("library/expandedDockWidth"), 562).toInt(), 850);
         navigation_->setMaximumWidth(hasDocuments ? 300 : 850);
         setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12);
-        setMaximumWidth(wide ? 850 : 290);
+        setMaximumWidth(850);
         updateGeometry();
         if (auto* dock = qobject_cast<QDockWidget*>(parentWidget())) {
             dock->setVisible(hasNavigation || hasDocuments);
             if (!(hasNavigation || hasDocuments)) return;
             dock->setMinimumWidth(1);
-            dock->setMaximumWidth(wide ? 850 : 300);
+            dock->setMaximumWidth(850);
             dock->updateGeometry();
             if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget())) {
-                const int width = hasNavigation ? savedWidth : 240;
+                const int width = savedWidth;
                 main->resizeDocks({dock}, {width}, Qt::Horizontal);
-                QTimer::singleShot(0, dock, [dock, width, wide] {
-                    if (!dock->isVisible() || (dock->widget()->maximumWidth() == 850) != wide) return;
+                QTimer::singleShot(0, dock, [dock, width] {
+                    if (!dock->isVisible()) return;
                     dock->setMinimumWidth(1);
-                    dock->setMaximumWidth(wide ? 850 : 300);
+                    dock->setMaximumWidth(850);
                     if (auto* window = qobject_cast<QMainWindow*>(dock->parentWidget()))
                         window->resizeDocks({dock}, {width}, Qt::Horizontal);
                 });
@@ -2253,15 +2254,14 @@ private:
         undoFavorites_.clear(); undoRecent_.clear();
         refreshFileLists();
     }
-    void trashSelectedDocuments(QListWidget* list, const QString& clicked) {
+    void trashSelectedDocuments(const QStringList& selection, const QString& clicked) {
         QStringList paths;
         QSet<QString> seen;
-        for (auto* item : list->selectedItems()) {
-            const QString path = item->data(Qt::UserRole).toString();
+        for (const QString& path : selection) {
             const QString id = DocumentClaim::identity(path);
             if (!id.isEmpty() && !seen.contains(id)) { seen.insert(id); paths.append(path); }
         }
-        if (!seen.contains(DocumentClaim::identity(clicked))) paths = {clicked};
+        if (paths.isEmpty()) paths = {clicked};
         if (paths.isEmpty()) return;
         if (QMessageBox::question(this, QStringLiteral("PDF 휴지통 이동"),
             QStringLiteral("선택한 PDF %1개와 썸네일을 삭제할까요?\n"
@@ -2340,6 +2340,11 @@ private:
         openPdf(opened);
     }
     bool eventFilter(QObject* observed, QEvent* event) override {
+        if (observed == parentWidget() && event->type() == QEvent::Resize) {
+            if (!navigation_->isHidden() && !documents_->isHidden())
+                widthSaveTimer_.start();
+            return QWidget::eventFilter(observed, event);
+        }
         if (observed == folderTab_ &&
             (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove ||
              event->type() == QEvent::Drop)) {
@@ -2534,6 +2539,11 @@ private:
             auto* item = list->itemAt(point);
             if (!item) return;
             const QString path = item->data(Qt::UserRole).toString();
+            // Snapshot the Shift selection before a modal context menu or
+            // background folder rescan can rebuild QListWidgetItem pointers.
+            QStringList contextSelection;
+            for (auto* selected : list->selectedItems())
+                contextSelection.append(selected->data(Qt::UserRole).toString());
             QMenu menu(this);
             auto* favorite = menu.addAction(item->data(Qt::UserRole + 2).toBool() ? QStringLiteral("즐겨찾기 해제") : QStringLiteral("즐겨찾기 추가"));
             auto* crop = menu.addAction(QStringLiteral("현재 PDF의 썸네일 지정…"));
@@ -2566,8 +2576,7 @@ private:
             else if (chosen == extractCitation) extractBibliography(path);
             else if (chosen == refreshCitation) refreshOriginalBibliography(path);
             else if (chosen == copy) {
-                list->setCurrentItem(item);
-                if (!item->isSelected()) item->setSelected(true);
+                if (list->selectedItems().isEmpty()) list->setCurrentItem(item);
                 copySelectedPdfs(list);
             }
             else if (chosen == paste) pastePdfs(current_);
@@ -2577,7 +2586,7 @@ private:
                 if (!target.isEmpty()) copyDocumentTo(path, target);
             }
             else if (chosen == move) moveDocument(path);
-            else if (chosen == trash) trashSelectedDocuments(list, path);
+            else if (chosen == trash) trashSelectedDocuments(contextSelection, path);
             else if (chosen == undoTrash) undoRecentTrash();
         });
         connect(list, &QListWidget::itemClicked, this, [this, list](QListWidgetItem* item) {
@@ -2747,6 +2756,23 @@ private:
         hideThumbnail();
         if (!QFileInfo(path).isDir()) return;
         current_ = path;
+        const bool isRoot = QFileInfo(path).canonicalFilePath() == root_;
+        if (isRoot) folderTab_->setChecked(true);
+        else if (auto* group = folderTab_->group()) {
+            // The root shortcut is not the selected child folder.
+            group->setExclusive(false);
+            for (auto* button : group->buttons()) button->setChecked(false);
+            group->setExclusive(true);
+        }
+        if (auto* selection = tree_->selectionModel()) {
+            if (isRoot) selection->clearSelection();
+            else {
+                const QModelIndex index = model_->index(path);
+                if (index.isValid())
+                    selection->setCurrentIndex(index,
+                        QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+            }
+        }
         folderTimer_->stop();
         folderIterator_.reset();
         folderPdfs_->clear();
@@ -3104,6 +3130,7 @@ private:
     QAction* pagePreviewAction_ = nullptr;
     QMetaObject::Connection documentTitleConnection_, cropConnection_;
     QSplitter* split_ = nullptr;
+    QTimer widthSaveTimer_;
     QWidget* navigation_ = nullptr;
     QWidget* documents_ = nullptr;
     QLabel* rootLabel_ = nullptr;
@@ -3180,9 +3207,12 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     dock->setContentsMargins(0, 0, 0, 0);
     auto* library = new LibraryPanel(&viewer, dock);
     dock->setWidget(library);
+    dock->installEventFilter(library);
     window.addDockWidget(Qt::LeftDockWidgetArea, dock);
     dock->show();
-    window.resizeDocks({dock}, {562}, Qt::Horizontal);
+    const int storedWidth = qBound(432, QSettings(QStringLiteral("LUNA"),
+        QStringLiteral("LUNA Library")).value(QStringLiteral("library/expandedDockWidth"), 562).toInt(), 850);
+    window.resizeDocks({dock}, {storedWidth}, Qt::Horizontal);
     auto* controls = new QToolBar(QStringLiteral("라이브러리"), &window);
     controls->setObjectName(QStringLiteral("LunaLibraryToolbar"));
     controls->setMovable(false);

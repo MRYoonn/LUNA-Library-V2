@@ -4127,7 +4127,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     beforePdf.close(); beforePng.close();
     const QString movedFolder = pdf.absolutePath() + QStringLiteral("/Synthetic examples");
     const QString movedPath = QDir(movedFolder).filePath(pdf.fileName());
-    const QString movedThumbnail = QDir(movedFolder).filePath(QFileInfo(thumbnail).fileName());
+    const QString movedThumbnail = SidecarStorage::thumbnail(movedPath, QStringLiteral(".png"));
     auto reopened = [&](const QString& expectedPath) {
         return wait([&] {
             auto* c = window.getProgramController();

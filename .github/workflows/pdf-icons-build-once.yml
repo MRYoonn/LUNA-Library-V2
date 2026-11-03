@@ -84,4 +84,4 @@ jobs:
           test "${#SHA}" -eq 40
           test "$(gh api "repos/$REPO/branches/$BRANCH" --jq .commit.sha)" = "$SHA"
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
-          echo "PDF icon source contract corrected; full Windows PDF4QT build on SHA $SHA validates embedded resource ID 1/2, tab state, original updater and no external .ico."
+          echo "Win32 Shell registration now imports shlobj.h to resolve SHChangeNotify; rerun native HKCU CTest and embedded EXE icons/tabs full Build at $SHA."

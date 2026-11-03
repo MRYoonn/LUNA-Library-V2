@@ -367,6 +367,14 @@ int main(int argc, char** argv) {
           store.record(weakSiId).value(QStringLiteral("documentKind")).toString() ==
           QStringLiteral("supporting_information"),
           "low-confidence DOI cannot repair SI classification");
+    check(store.restoreFromFirstPage(weakSiId, trustedMain) &&
+          store.record(weakSiId).value(QStringLiteral("documentKind")).toString() ==
+          QStringLiteral("main_article"),
+          "explicit first-page refresh repairs stale machine SI with strong evidence");
+    check(!store.restoreFromFirstPage(manualSiId, trustedMain) &&
+          store.record(manualSiId).value(QStringLiteral("documentKind")).toString() ==
+          QStringLiteral("supporting_information"),
+          "explicit refresh does not erase manual SI classification");
 
     QVariantMap paper;
     paper["doi"] = QStringLiteral("10.1000/synthetic");

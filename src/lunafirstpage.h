@@ -117,6 +117,13 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
         evidence["authorEvidence"]=authorEvidence;
     }
     if(Metadata::acceptableIdentity(candidates)) {
+        // A trusted publisher-cover title plus this document's front-matter
+        // DOI is positive MAIN evidence. It permits recovery of stale
+        // automatically misclassified SI records, never manual SI labels.
+        if(!printedTitle.isEmpty()) {
+            evidence["documentKind"]=QStringLiteral("main_article");
+            evidence["documentKindSource"]=QStringLiteral("first_page_verified");
+        }
         evidence["doi"]=candidates.first().doi;
         evidence["doiSource"]=candidates.first().location;
         evidence["doiScore"]=candidates.first().score;

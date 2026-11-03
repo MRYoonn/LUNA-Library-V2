@@ -61,6 +61,53 @@ public:
         return false;
     }
 
+    // A narrow offline fallback for an ACS *main* first page. The document
+    // must have the pubs.acs.org masthead, a Cite This publication line, and
+    // an author-like boundary after the printed title. Other publisher pages,
+    // SI covers, and ambiguous layouts deliberately abstain. This does NOT
+    // replace DOI-matched provider metadata.
+    static QString firstPageAcsTitle(const QString& firstPageText) {
+        if (isSupportingInformationCover(firstPageText)) return {};
+        const auto lines = firstPageText.left(12000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
+        qsizetype masthead = -1, citation = -1;
+        for (qsizetype i = 0; i < lines.size() && i < 24; ++i) {
+            const QString line = lines[i].simplified();
+            if (i < 8 && line.startsWith(QStringLiteral("pubs.acs.org/"),
+                                          Qt::CaseInsensitive)) masthead = i;
+            if (line.startsWith(QStringLiteral("Cite This:"), Qt::CaseInsensitive))
+                citation = i;
+        }
+        if (masthead < 0 || citation < masthead + 3 || citation > masthead + 15)
+            return {};
+        static const QRegularExpression authors(QStringLiteral(
+            R"([,;]\s*[*#†‡∇\d]*\s*[\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,4})"));
+        QStringList titleLines;
+        bool sawAuthors = false;
+        for (qsizetype i = masthead + 1; i < citation; ++i) {
+            const QString line = lines[i].simplified();
+            if (line.compare(QStringLiteral("Article"), Qt::CaseInsensitive) == 0 ||
+                line.compare(QStringLiteral("Letter"), Qt::CaseInsensitive) == 0 ||
+                line.compare(QStringLiteral("Communication"), Qt::CaseInsensitive) == 0 ||
+                line.compare(QStringLiteral("Research Article"), Qt::CaseInsensitive) == 0)
+                continue;
+            if (authors.match(line).hasMatch()) {
+                sawAuthors = true;
+                break;
+            }
+            if (line.size() > 180 || titleLines.size() >= 4 ||
+                line.contains(QStringLiteral("Downloaded from"), Qt::CaseInsensitive))
+                return {};
+            titleLines.append(line);
+        }
+        if (!sawAuthors || titleLines.isEmpty()) return {};
+        QString title = titleLines.join(QLatin1Char(' ')).simplified();
+        // ACS line breaks sometimes split a retained chemical hyphen.
+        title.replace(QRegularExpression(QStringLiteral(R"(-\s+(?=\p{L}))")),
+                      QStringLiteral("-"));
+        return credibleTitle(title) ? title : QString();
+    }
+
     // Conservative citation extraction from the printed first page only.
     // Only known journal patterns are accepted; unknown text is left untouched.
     // No DOI parsing or online queries are performed.

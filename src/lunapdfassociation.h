@@ -2,6 +2,7 @@
 #pragma once
 // Register LUNA as a PER-USER .pdf candidate. Windows 10/11 owns the actual
 // UserChoice association: never write UserChoice or hijack the default app.
+#include <QDir>
 #include <QFileInfo>
 #include <QString>
 #ifdef Q_OS_WIN

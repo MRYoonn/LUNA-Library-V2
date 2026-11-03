@@ -64,3 +64,7 @@ library icons are unchanged.
 - Failures must be diagnosed from exact first-failed step, compile log, CTest
   output and source SHA; never claim physical Windows user acceptance from
   synthetic test alone.
+
+## First Windows CI compiler failure — resolved in subsequent source revision
+
+[CI #41724677280](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41724677280) passed its Python/privacy gate, but the independent native HKCU CTest failed at the C++ compile step, **before any registry mutation**. MSVC error C2065 for SHCNE_ASSOCCHANGED / SHCNF_IDLIST and C3861 SHChangeNotify. Root cause: shellapi.h does not declare the SHChangeNotify API family; shlobj.h is the appropriate Win32 header. Added shlobj.h to src/lunapdfassociation.h and retained full CTest. The first failure was not due to user PDFs, icon artwork, registry permissions or a live default-app change. Older in-flight full Windows Build #257 was dispatched at the prior SHA and is **not valid acceptance evidence** for this fix; new final-source CI is required.

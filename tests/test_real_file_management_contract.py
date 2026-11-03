@@ -86,11 +86,24 @@ class NativeFileManagementContracts(unittest.TestCase):
             "undoTrash->setShortcutContext(Qt::WidgetWithChildrenShortcut)",
             "recentUndo_.trash(path, &error)",
             "recentUndo_.undo(&error)",
-            "if(undoFavorites_.contains(restored)",
-            "if(order>=0 && !recent.contains(restored))",
+            "for (const QString& restored : restoredPaths)",
+            "if (undoFavorites_.contains(restored)",
+            "if (order >= 0 && !recent.contains(restored))",
             "store.setValue(QStringLiteral(\"library/favorites\"),favorites)",
         ):
             self.assertIn(token, UI, token)
+        # Group deletion must be atomic and Ctrl+Z must restore every PDF.
+        for token in (
+            "bool trashBatch(const QStringList& pdfs, QString* error,",
+            "QStringList pdfPaths() const { return pdfPaths_; }",
+            "if (sourcePaths.contains(item))",
+            "for (const auto& item : saved)",
+            "pdfPaths_.clear()",
+        ):
+            self.assertIn(token, UNDO, token)
+        self.assertIn("undo.trashBatch(batch,&renameError,recycle)", FILES)
+        self.assertIn("undo.pdfPaths().size()!=2", FILES)
+        self.assertIn("undo.trashBatch(batch,&renameError,failAfterOne)", FILES)
         for token in (
             "[](const QString& item) { return QFile::moveToTrash(item); }",
             "if (!recycler(item.first))",

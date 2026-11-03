@@ -122,6 +122,18 @@ class SiDisplayModelTests(unittest.TestCase):
                                          self.lookup(candidates=candidates))
                 self.assertEqual(report["public_si"], [])
 
+    def test_mixed_valid_and_invalid_restored_verified_set_is_downgraded(self):
+        good = SiCandidate(12345, DOI, "Example", "SI1.pdf", URL,
+                           status="landing_verified", file_id=123)
+        bad = SiCandidate(12346, DOI, "Example", "SI2.pdf", URL,
+                          status="landing_verified", file_id=124)
+        report = project_si_rows(self.index, MAIN,
+                                 self.lookup("verified", (good, bad)),
+                                 live_landing_check_completed=True)
+        self.assertEqual(report["lookup_status"], "needs_review")
+        self.assertEqual(len(report["public_si"]), 1)
+        self.assertEqual(report["public_si"][0]["status"], "unconfirmed")
+
     def test_unconfirmed_and_invalid_graph_cannot_be_rendered_as_confirmed(self):
         self.index.links[SI1] = self.index.links[SI1].__class__(
             SI2, SI1, DOI)

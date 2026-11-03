@@ -108,3 +108,11 @@ The first print-diagnostic attempt (SHA `bb3b8ce`) again failed native UI smoke 
 8. **Automatic stable update checking:** The Help menu toggle remains saved in QSettings; the new implementation synchronizes the setting and restores the toggle with a visible error when saving fails. Release ZIP digest, manifest verification, explicit approval, rollback, and startup acknowledgement remain mandatory. There is **no published stable release yet**, so a real published-release-to-release update cannot be declared validated until a manually approved Release exists.
 
 Every Windows job writes a synthetic `failure-analysis.md` and `build-diagnostics.json`, with optional `native-failure-verifier.json`. These fixes are **not Windows-validated** until a new exact-commit Windows workflow run has concluded successfully. A source test does not substitute for that run.
+
+## Manager 8 — Windows Build #237 native crash (2026-11-03)
+
+Failed run: https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41562960971, SHA `15d5fa5c71cc86fdb1c8b1220b92da9e89ea2c5b`. Source/Python preflight, Qt metadata/dialog checks, MSVC compile, portable verification, ordinary GUI launch and benchmark all passed. The native UI smoke failed with `0xC0000005` immediately after checkpoint `count-recovered`.
+
+The captured native CDB stack in `LUNA-UI-Synthetic/native-crash-replay/cdb-stack.txt` identifies `Qt6Widgets!QAbstractItemView::model` called by `Qt6Widgets!QListWidget::visualItemRect` in the GUI test. The new child/root folder selection test invoked `selectFolder` twice, destroying and recreating `QListWidgetItem` objects. Subsequent hover/memo tests dereferenced the earlier stale `item` pointer, causing a native test use-after-free. This stack does not implicate the actual Windows Recycle Bin operation.
+
+Fix: after return to the root and asynchronous scan completion, reacquire `item = list->item(0)`, verify its expected source path, then continue tests. This is a direct source-cause correction, not a bypass; a new exact-SHA Windows build is required. The failed run remains preserved with the CDB evidence and its permanent `failure-analysis.md`.

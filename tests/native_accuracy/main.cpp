@@ -24,6 +24,35 @@ static void check(bool yes, const char* message) {
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
+    // Publisher-front-matter regression: ACS PDFs have a visible SI link
+    // even though the first page is a MAIN article. No PDF bytes are used
+    // here; the actual 27-file real-PDF4QT experiment is still outstanding.
+    const QString acsMain = QStringLiteral(
+        "pubs.acs.org/joc\nArticle\nPhotocatalytic Acceptorless Conversion\n"
+        "Eiki Maruyama, Xiongjie Jin, and Kyoko Nozaki\n"
+        "Cite This: J. Org. Chem. 2025, 90, 10416-10424\n"
+        "Article Recommendations\nSupporting Information\nABSTRACT");
+    check(!luna::Bibliography::isSupportingInformationCover(acsMain),
+          "ACS main navigation SI link is not an SI cover");
+    check(luna::Bibliography::isSupportingInformationCover(QStringLiteral(
+              "Supporting Information\nPhotocatalytic Acceptorless Conversion\nTable of Contents")),
+          "ACS SI cover correctly identified");
+    check(luna::Bibliography::isSupportingInformationCover(QStringLiteral(
+              "Supplementary Information (SI) for Organic & Biomolecular Chemistry.\n"
+              "Table of Contents\nMaterials and Methods")),
+          "RSC SI cover correctly identified");
+    check(!luna::Bibliography::isSupportingInformationCover(QStringLiteral(
+              "Article\nAngewandte Chemie International Edition\n"
+              "Additional supporting information can be found online")),
+          "Wiley main article mention is not SI cover");
+    check(!luna::Bibliography::credibleTitle(QStringLiteral("jo5c01153 1..9")),
+          "JOC printer job cannot be title");
+    check(!luna::Bibliography::credibleTitle(QStringLiteral("ml5c00120 1..7")),
+          "ACS medicinal printer job cannot be title");
+    check(luna::Bibliography::credibleTitle(QStringLiteral(
+              "Photocatalytic Acceptorless Conversion of Carboxylic Acids")),
+          "real article title remains credible");
+
     // A second OS process must reload the relocated record from an isolated
     // INI file, not from the parent process's QSettings cache or aliases_.
     const QStringList arguments = app.arguments();

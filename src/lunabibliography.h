@@ -173,8 +173,7 @@ public:
             R"(^[\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}\s*,)"));
         static const QRegularExpression trailingAnd(QStringLiteral(
             R"((?:^|\s)\band\s*$)"),QRegularExpression::CaseInsensitiveOption);
-        static const QRegularExpression decor(QStringLiteral(
-            R"(^[\s*†‡a-z0-9]+|[\s*†‡a-z0-9]+$)"));
+
         bool authorListBefore=false;
         for(qsizetype i=0;i<lines.size() && i<22;++i) {
             const QString row=lines[i].simplified();

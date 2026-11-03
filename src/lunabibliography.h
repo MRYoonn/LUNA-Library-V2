@@ -137,10 +137,12 @@ public:
                     {"journal", match.captured(QStringLiteral("journal")).simplified()},
                     {"year", match.captured(QStringLiteral("year"))},
                     {"volume", match.captured(QStringLiteral("volume"))}};
+                // Preserve the legacy firstPageCitation() "page=e..." view
+                // for existing native callers, but also identify the actual
+                // article-number field for accurate persistence and scoring.
+                citation["page"] = pages;
                 if (pages.startsWith(QLatin1Char('e'), Qt::CaseInsensitive))
                     citation["article_number"] = pages;
-                else
-                    citation["page"] = pages;
                 return citation;
             }
         }
@@ -469,7 +471,10 @@ public:
         fill("volume", volumePattern.match(proposal.value("volume").toString()).hasMatch());
         static const QRegularExpression pagePattern(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,7})(?:[-–]\d{1,7})?$)"),
                                                     QRegularExpression::CaseInsensitiveOption);
-        fill("page", pagePattern.match(proposal.value("page").toString()).hasMatch());
+        const QString proposedPage = proposal.value("page").toString();
+        const bool articleInLegacyPage = !proposal.value("article_number").toString().isEmpty() &&
+            proposedPage.compare(proposal.value("article_number").toString(),Qt::CaseInsensitive)==0;
+        fill("page", !articleInLegacyPage && pagePattern.match(proposedPage).hasMatch());
         static const QRegularExpression articlePattern(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,8})$)"),
                                                        QRegularExpression::CaseInsensitiveOption);
         fill("article_number", articlePattern.match(proposal.value("article_number").toString()).hasMatch());
@@ -810,7 +815,13 @@ public:
         replace("volume", volume.match(proposal.value("volume").toString()).hasMatch());
         static const QRegularExpression pages(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,7})(?:[-–]\d{1,7})?$)"),
                                                QRegularExpression::CaseInsensitiveOption);
-        replace("page", pages.match(proposal.value("page").toString()).hasMatch());
+        const QString proposedPage = proposal.value("page").toString();
+        const bool articleInLegacyPage = !proposal.value("article_number").toString().isEmpty() &&
+            proposedPage.compare(proposal.value("article_number").toString(),Qt::CaseInsensitive)==0;
+        replace("page", !articleInLegacyPage && pages.match(proposedPage).hasMatch());
+        static const QRegularExpression articles(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,8})$)"),
+                                                 QRegularExpression::CaseInsensitiveOption);
+        replace("article_number", articles.match(proposal.value("article_number").toString()).hasMatch());
         if (!changed) return false;
         entry.remove("citation");
         entry.remove("citationSource");

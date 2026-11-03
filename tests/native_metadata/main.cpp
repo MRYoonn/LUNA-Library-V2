@@ -322,6 +322,12 @@ int main(int argc,char** argv){
            si.value("siArticleDoiCandidate")==QStringLiteral("10.1021/acs.joc.5c01153") &&
            si.value("siEvidenceSource")==QStringLiteral("si_cover_explicit_doi"),
            "ACS SI cover DOI/title extracted independently");
+    const QString splitCover=QStringLiteral(
+        "Supporting Information\nVisible-Light-Driven C5 Functionalization of\n"
+        "Thiouracils by a Photoredox Process\nAlice Brown, Clara Green\n"
+        "DOI: 10.1021/acs.joc.5c01153");
+    expect(SIIdentity::evidence(splitCover).value("siCoverTitle")==originalTitle,
+           "two-line SI paper title excludes cover author row");
     expect(SIIdentity::filenameDoiHint(QStringLiteral("jo5c01153_si_001.pdf"))==
            QStringLiteral("10.1021/acs.joc.5c01153"),"ACS JOC SI filename DOI hint");
     expect(SIIdentity::filenameDoiHint(QStringLiteral("jm5c01788_si_002.pdf"))==
@@ -352,6 +358,7 @@ int main(int argc,char** argv){
                               {"journalSource",QStringLiteral("Crossref")},
                               {"year",QStringLiteral("2025")},
                               {"authors",QStringLiteral("Alice Brown, Clara Green")},
+                              {"authors_structured",QStringList{QStringLiteral("Alice Brown"),QStringLiteral("Clara Green")}},
                               {"authorsSource",QStringLiteral("Crossref")},
                               {"metadata_status",QStringLiteral("complete")}};
     expect(siStore.save(originalIdentity,parentArticle,false),
@@ -366,8 +373,9 @@ int main(int argc,char** argv){
            linked.value("siParentDoi")==QStringLiteral("10.1021/acs.joc.5c01153") &&
            linked.value("documentKind")==QStringLiteral("supporting_information") &&
            linked.value("journal")==QStringLiteral("Journal of Organic Chemistry") &&
-           linked.value("title")==originalTitle,
-           "SI inherits original paper title, journal and DOI but retains SI kind");
+           linked.value("title")==originalTitle &&
+           linked.value("authors").toString()==QStringLiteral("Alice Brown, Clara Green"),
+           "SI inherits original paper title, authors, journal and DOI but retains SI kind");
     expect(!siStore.enrichFromFirstPage(siIdentity,si) &&
            siStore.record(siIdentity).value("siLinkStatus")==QStringLiteral("verified"),
            "reopening SI does not clear verified original metadata");

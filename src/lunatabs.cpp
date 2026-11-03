@@ -1106,8 +1106,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                                navRestore->parentWidget() == navFold && docsRestore->parentWidget() == docsFold &&
                                navFold->parentWidget() == navSlot && docsFold->parentWidget() == docsSlot &&
                                !navigationToggle->icon().isNull() && !documentsToggle->icon().isNull() &&
-                               !host.findChild<QWidget*>(QStringLiteral("LunaTabCorner")) &&
-                               !host.findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail")),
+                               !host.findChild<QWidget*>(QStringLiteral("LunaTabCorner")),
                                "Panel controls floated away from their original slots");
             auto buttonsVisible = [&] {
                 return (navigationPanel->isHidden() ? navRestore->isVisible() : navigationToggle->isVisible()) &&

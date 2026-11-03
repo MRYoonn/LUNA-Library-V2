@@ -113,8 +113,10 @@ inline QString rscTitle(const QString& text) {
     if (rows.size()<6 || !text.left(12000).contains(QStringLiteral("10.1039/"),Qt::CaseInsensitive))
         return {};
     const bool chemcomm=rows.first().compare(QStringLiteral("ChemComm"),Qt::CaseInsensitive)==0;
-    const bool obc=rows.first().compare(QStringLiteral("Organic &"),Qt::CaseInsensitive)==0 &&
-        rows.value(1).compare(QStringLiteral("Biomolecular Chemistry"),Qt::CaseInsensitive)==0;
+    const bool obc=rows.first().compare(
+            QStringLiteral("Organic & Biomolecular Chemistry"),Qt::CaseInsensitive)==0 ||
+        (rows.first().compare(QStringLiteral("Organic &"),Qt::CaseInsensitive)==0 &&
+         rows.value(1).compare(QStringLiteral("Biomolecular Chemistry"),Qt::CaseInsensitive)==0);
     if (!chemcomm && !obc) return {};
     qsizetype kind=-1;
     for(qsizetype i=0; i<rows.size() && i<8; ++i)

@@ -20,6 +20,8 @@ APPROVED = {
     "tests/native_accuracy/main.cpp",
     "tests/native_accuracy/CMakeLists.txt",
     "tests/test_accuracy_snapshot_source_contract.py",
+    "tools/bibliography_si_risk_probe.py",
+    "tests/test_bibliography_si_risk_probe.py",
     "tools/bibliography_accuracy_lab.py",
     "tools/bibliography_goldset_audit.py",
     "tests/test_bibliography_goldset_audit.py",

@@ -9,6 +9,7 @@
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
 #include <shellapi.h>
+#include <shlobj.h> // SHChangeNotify / SHCNE_ASSOCCHANGED
 #endif
 
 namespace luna::PdfAssociation {

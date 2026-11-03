@@ -103,6 +103,22 @@ class SnapshotSourceContract(unittest.TestCase):
         self.assertIn("fresh process preserves deliberate empty manual author", native)
         self.assertIn("fresh process preserves one-word manual author", native)
 
+    def test_first_page_si_cover_and_printer_job_regressions(self):
+        """Source safety contract; Qt behavior is checked by the native harness."""
+        bibliography = (ROOT / "src" / "lunabibliography.h").read_text(encoding="utf-8")
+        firstpage = (ROOT / "src" / "lunafirstpage.h").read_text(encoding="utf-8")
+        native = NATIVE.read_text(encoding="utf-8")
+        self.assertIn("static bool isSupportingInformationCover(", bibliography)
+        self.assertIn("Cite This:", bibliography)
+        self.assertIn("Article Recommendations", bibliography)
+        self.assertIn("printerJob.match(text).hasMatch()", bibliography)
+        self.assertIn("if (isSupportingInformationCover(text)) return {};", bibliography)
+        self.assertIn("if(Bibliography::isSupportingInformationCover(first))", firstpage)
+        self.assertIn('!Bibliography::credibleTitle(evidence.value("title").toString())', firstpage)
+        self.assertIn("ACS main navigation SI link is not an SI cover", native)
+        self.assertIn("RSC SI cover correctly identified", native)
+        self.assertIn("JOC printer job cannot be title", native)
+
     def test_native_regressions_seed_isolated_settings(self):
         code = NATIVE.read_text(encoding="utf-8")
         for expected in ('QTemporaryDir', 'Hao Fang', 'legacy author must not reappear',

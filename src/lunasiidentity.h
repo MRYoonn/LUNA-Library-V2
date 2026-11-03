@@ -63,7 +63,8 @@ inline QString coverTitle(const QString& text) {
         // plausible title, stopping *before* a recognizable author block.
         // Return the latest clean candidate, not the first short line.
         static const QRegularExpression authorList(QStringLiteral(
-            R"(^[\p{Lu}][\p{L}.'’\-]+(?:\s+[\p{Lu}][\p{L}.'’\-]+){1,2}(?:,\s*| and )(?:[\p{Lu}][\p{L}.'’\-]+(?:\s+[\p{Lu}][\p{L}.'’\-]+){1,2}))+)"));
+            R"(^[\p{Lu}][\p{L}.'’\-]+(?:\s+[\p{Lu}][\p{L}.'’\-]+){1,2}(?:,\s*| and )[\p{Lu}][\p{L}.'’\-]+(?:\s+[\p{Lu}][\p{L}.'’\-]+){1,2})"));
+        if(!authorList.isValid()) return {}; // fail closed on malformed patterns
         if(!titleLines.isEmpty() && authorList.match(line).hasMatch()) break;
         if(line.size()>135 || line.contains(QLatin1Char('@'))) break;
         titleLines.append(line);

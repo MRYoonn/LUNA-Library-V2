@@ -62,7 +62,7 @@ jobs:
           cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
           if ($LASTEXITCODE -ne 0) { throw 'Manual SI Qt native CMake configure failed' }
           cmake --build $probe --target luna-native-manualsi --config Release --parallel 2
-          if ($LASTEXITCODE -ne 0) { throw 'Manual SI Qt native C++ MSVC compile failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'Manual SI Qt native C++ MSVC compile failed; Qt6 Network link was added for DocumentClaim' }
           ctest --test-dir $probe -C Release -R '^native_manual_si_attachment$' --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Manual SI on-disk native Qt regression failed' }
 

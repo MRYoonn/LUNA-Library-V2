@@ -32,7 +32,7 @@ class ManualSIContracts(unittest.TestCase):
 
     def test_copy_no_overwrite_filename_and_unlink_preserve_data(self):
         for token in (
-            'QFile::copy(source,target)', 'if(QFileInfo(target).exists()',
+            'QFile::copy(source,target)', 'if(pdf.exists() || pdf.isSymLink())',
             'QStringLiteral("SI · ")', 'QStringLiteral(" (%1)")',
             'SidecarStorage::safeManagedDirectory(target)',
             'SidecarStorage::allCompanions(target)',

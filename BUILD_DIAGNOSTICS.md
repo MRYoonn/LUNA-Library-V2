@@ -195,3 +195,8 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 
 ### Metadata native quickcheck #2 — preflight ran after Qt installation
 - [Run 41591472586](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41591472586), exact SHA `0b2bc781e7ece0ce062acaeadbe6e1746fd9c4d7`: pinned aqtinstall successfully installed Qt 6.11.3, but source-only security preflight ran **after** `jurplel/install-qt-action@v4`. Qt files placed under repository `qt/Qt/...` were correctly flagged as hundreds of **unallowlisted external files**, so the runner stopped before native C++ compilation. Root cause is one-shot QA workflow ordering, not a security false-positive in LUNA source. Move Python preflight and source contract tests ahead of Qt installation; do NOT exempt the Qt directory from the public fail-closed release gate. The full Windows production workflow already executes preflight before dependencies and is unaffected.
+
+
+### Metadata quickcheck #3 — exact-source native validation PASS
+- [Windows QtCore quickcheck #3, run 41591815772](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41591815772), exact SHA `715d1bf3279932063d1e8cdb61c0ffdff56f59b9` was **completed / success**. Source security preflight and Python scheduled metadata/title contracts passed **before** installing Qt, then pinned Qt 6.11.3 downloaded and Windows MSVC compiled the real `tests/native_dialog/bibliography.cpp` target successfully. Qt native `ctest -R '^native_bibliography$'` passed, including new ACS/RSC/SI/Nature/manual-owner regression cases.
+- This is a real Windows C++ fixture, not proof of precision/recall on the user's real PDFs. Full production PDF4QT compile, executable and UI integration remain a separate required release gate.

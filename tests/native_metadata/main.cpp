@@ -317,6 +317,19 @@ int main(int argc,char** argv){
     const QString siCover=QStringLiteral("Supporting Information\n") + originalTitle +
         QStringLiteral("\nAlice Brown, Clara Green\nDOI: 10.1021/acs.joc.5c01153\nContents");
     const auto si=SIIdentity::evidence(siCover,QStringLiteral("jo5c01153_si_001.pdf"));
+    if(si.value("documentKind")!=QStringLiteral("supporting_information") ||
+       si.value("siCoverTitle")!=originalTitle ||
+       si.value("siArticleDoiCandidate")!=QStringLiteral("10.1021/acs.joc.5c01153") ||
+       si.value("siEvidenceSource")!=QStringLiteral("si_cover_explicit_doi")) {
+        for(const QString& name:{QStringLiteral("documentKind"),QStringLiteral("siCoverTitle"),
+                                 QStringLiteral("siArticleDoiCandidate"),QStringLiteral("siEvidenceSource")}) {
+            const QByteArray bytes=si.value(name).toString().toUtf8();
+            std::fprintf(stderr,"LUNA_SI_EVIDENCE[%s]=%s\n",
+                         name.toUtf8().constData(),bytes.constData());
+        }
+        std::fprintf(stderr,"LUNA_SI_EXPECTED_TITLE=%s\n",originalTitle.toUtf8().constData());
+        std::fflush(stderr);
+    }
     expect(si.value("documentKind")==QStringLiteral("supporting_information") &&
            si.value("siCoverTitle")==originalTitle &&
            si.value("siArticleDoiCandidate")==QStringLiteral("10.1021/acs.joc.5c01153") &&

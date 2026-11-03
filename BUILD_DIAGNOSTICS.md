@@ -222,3 +222,9 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 - Additional risk discovered in review: `LocalFolderSync::publish` called migration without examining failure. When a legacy and managed metadata JSON existed simultaneously, it could silently overwrite the managed record. Changed publishing to reject such conflicts and retain BOTH files with an explicit error; added a Windows native mixed-version MYBOX collision regression. `safeManagedDirectory` now rejects reparse points in nested `metadata` and `thumbnails` directories as well as the parent `.luna`.
 - Verification requirement: run all exact-source Python/preflight, native Qt (including the new MYBOX conflict case), full PDF4QT native UI/annotations/tabs and portable artifact checks again on a new SHA. Only then may a new version be proposed. User PCs and real MYBOX clients remain unverified.
 
+### Additional hidden-thumbnail integration audit after #247
+
+- Whole-source check found **three more legacy direct thumbnail paths** in `src/lunatabs.cpp`'s native multi-tab integration checks: saved thumbnail after process restart, newly cropped A/B thumbnail isolation, and A.pdf paired move destination `movedThumb`. These assertions would target the old same-directory file instead of the actual `.luna/thumbnails` location.
+- Updated only the test/fixture paths to `SidecarStorage::thumbnail(pdf, ".png")` in the same source used by production, preserving all existing checks (crop dimensions, tab ownership, EXE save/reopen, exact PDF and PNG bytes). Added source-level regression assertions so old direct paths cannot silently return.
+- First rerun Build #248 was dispatched before this additional audit and therefore **does not contain the multi-tab smoke correction**; its outcome cannot validate final source HEAD. A new exact-branch full Windows build is mandatory.
+

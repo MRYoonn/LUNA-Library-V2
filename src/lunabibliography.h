@@ -5,6 +5,7 @@
 #include <QCryptographicHash>
 #include <QHash>
 #include <QRegularExpression>
+#include <QFileInfo>
 #include <QSet>
 #include <QVariantMap>
 #include <QString>
@@ -693,6 +694,32 @@ public:
         entry["manual"] = false;
         entry["source"] = QStringLiteral("PDF first-page refresh");
         return save(identity, entry, false);
+    }
+
+    // Only user-selected PDFs create these links. Persist in the existing SI
+    // bibliography sidecar so another PC can recognize a same-folder parent.
+    bool attachManualSI(const QString& identity, const QString& parentPdfName) {
+        if(identity.isEmpty() || parentPdfName.isEmpty() ||
+           QFileInfo(parentPdfName).fileName()!=parentPdfName ||
+           parentPdfName.contains(QLatin1Char('/')) ||
+           parentPdfName.contains(QLatin1Char('\\')) ||
+           QFileInfo(parentPdfName).suffix().compare(
+               QStringLiteral("pdf"),Qt::CaseInsensitive)!=0)return false;
+        QVariantMap item=record(identity);
+        item["documentKind"]=QStringLiteral("supporting_information");
+        item["manualSI"]=true;
+        item["manualSiParentFile"]=parentPdfName;
+        item["manualSiRelationSource"]=QStringLiteral("user_selected_pdf");
+        return save(identity,item,false);
+    }
+    bool detachManualSI(const QString& identity) {
+        if(identity.isEmpty())return false;
+        QVariantMap item=record(identity);
+        if(!item.value("manualSI").toBool())return false;
+        item.remove("manualSI");
+        item.remove("manualSiParentFile");
+        item.remove("manualSiRelationSource");
+        return save(identity,item,false);
     }
 
     // Copy bibliography without changing either source or field provenance.

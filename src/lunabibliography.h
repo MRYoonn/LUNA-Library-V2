@@ -146,9 +146,13 @@ public:
         for(qsizetype i=kind+1;i<lines.size() && i<24;++i) {
             const QString line=lines[i].simplified();
             if (authorStart.match(line).hasMatch()) {sawAuthor=true;break;}
+            // In ChemComm's two-column cover, Received/Accepted dates can
+            // appear before the final author line. Skip, do not terminate.
             if (line.startsWith(QStringLiteral("Received"),Qt::CaseInsensitive) ||
-                line.startsWith(QStringLiteral("Accepted"),Qt::CaseInsensitive) ||
-                line.startsWith(QStringLiteral("DOI:"),Qt::CaseInsensitive)) break;
+                line.startsWith(QStringLiteral("Accepted"),Qt::CaseInsensitive))
+                continue;
+            if (line.startsWith(QStringLiteral("DOI:"),Qt::CaseInsensitive))
+                break;
             if (line.compare(QStringLiteral("Licence and permissions"),Qt::CaseInsensitive)==0 ||
                 line.startsWith(QStringLiteral("Licensed under"),Qt::CaseInsensitive) ||
                 line.startsWith(QStringLiteral("Cite this:"),Qt::CaseInsensitive) ||

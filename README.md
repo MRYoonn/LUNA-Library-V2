@@ -1,5 +1,10 @@
 # LUNA Library V2
 
+## 개발 매니저·빌드 인수인계 (필독)
+
+새 기능 개발이나 Windows 빌드를 시작하기 전에 **[Windows 빌드·실패 원인 분석 인수인계](BUILD_HANDOFF_KO.md)**를 읽으세요. 정확한 GitHub SHA 검증, 실제 Qt/Windows 통합 테스트, 실패 시 원인 분석 파일 보존, 포터블 ZIP 해시 확인, Draft PR/Release 구분을 규정합니다. 2026-11-03의 최신 통합 검증 예시는 [Build #240](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41567734959)이며, 당시 대상은 아직 `main`에 병합되지 않은 기능 브랜치였습니다.
+
+
 **PDF4QT 기반 Windows용 LUNA Library** — 2열 인터페이스 (왼쪽 폴더/PDF 목록, 오른쪽 PDF 본문)
 
 This is a **public source-only build repository**. It does not store, synchronize or receive your PDF files, annotations, research notes, cloud credentials or local databases.

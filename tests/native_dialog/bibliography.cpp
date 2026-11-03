@@ -336,6 +336,16 @@ int main(int argc, char** argv) {
         store.record("nature-article").value("article_number") != QStringLiteral("12345"))
         return 106;
 
+    // PDF4QT y-order can place a sidebar SI hyperlink above the article
+    // masthead; its first row alone must NOT turn the article into SI.
+    if (luna::FrontMatter::isSupplementCover(QStringLiteral(
+        "Supporting Information\npubs.acs.org/joc\nArticle\n"
+        "Photoredox Coupling of Thiouracils\n"
+        "Cite This: J. Org. Chem. 2026, 91, 1234–1242\n"))) return 107;
+    // Real RSC supplementary covers frequently use this exact first line.
+    if (!luna::FrontMatter::isSupplementCover(QStringLiteral(
+        "Supplementary Information (SI) for Organic & Biomolecular Chemistry.\n"
+        "Table of Contents\nMaterials and Methods\n"))) return 108;
     qInfo() << "[PASS] Local-only citation paste/format, override, move/restart, collision and PDF info";
     return 0;
 }

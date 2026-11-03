@@ -12,11 +12,11 @@ import unicodedata
 
 try:
     from tools.si_associations import AssociationIndex, document_id
-    from tools.si_finder import (SiLookupResult, safe_figshare_landing,
+    from tools.si_finder import (SiCandidate, SiLookupResult, safe_figshare_landing,
                                  safe_si_filename, safe_si_title)
 except ImportError:
     from si_associations import AssociationIndex, document_id
-    from si_finder import (SiLookupResult, safe_figshare_landing,
+    from si_finder import (SiCandidate, SiLookupResult, safe_figshare_landing,
                            safe_si_filename, safe_si_title)
 
 DISPLAY_STATUSES = frozenset(("candidates", "partial", "verified",
@@ -56,6 +56,11 @@ def project_si_rows(index: AssociationIndex, main_id: str,
     if not isinstance(lookup, SiLookupResult) or lookup.doi != parent.doi:
         result["lookup_status"] = "needs_review"
         return result
+    if (not isinstance(lookup.status, str)
+            or not isinstance(lookup.candidates, (tuple, list))
+            or len(lookup.candidates) > 800):
+        result["lookup_status"] = "needs_review"
+        return result
     result["lookup_status"] = lookup.status
     if lookup.status not in DISPLAY_STATUSES:
         return result
@@ -64,7 +69,8 @@ def project_si_rows(index: AssociationIndex, main_id: str,
     # *all* colliding file identities, rather than picking the first entry.
     candidates = []
     for candidate in lookup.candidates:
-        if (candidate.resource_doi != parent.doi
+        if (not isinstance(candidate, SiCandidate)
+                or candidate.resource_doi != parent.doi
                 or type(candidate.article_id) is not int
                 or not 0 < candidate.article_id < 10**15
                 or (candidate.file_id is not None and

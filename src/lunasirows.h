@@ -93,7 +93,7 @@ inline bool officialLanding(const QString& url, qint64 articleId) {
     if (articleId <= 0 || articleId >= 1000000000000000LL || url.size() > 2048)
         return false;
     static const QRegularExpression re(
-        QStringLiteral(R"(^https://(?:acs\\.)?figshare\\.com/articles/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*/[1-9][0-9]*$)"));
+        QStringLiteral(R"(^https://(?:acs\.)?figshare\.com/articles/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*/[1-9][0-9]*$)"));
     if (!re.match(url).hasMatch()) return false;
     return url.mid(url.lastIndexOf(QLatin1Char('/')) + 1) == QString::number(articleId);
 }

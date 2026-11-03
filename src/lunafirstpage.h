@@ -77,27 +77,53 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
         }
     }
     const auto candidates=Metadata::collectCandidates(pages,infoText);
-    const auto headings=first.split(QLatin1Char('\n'),Qt::SkipEmptyParts);
-    for(qsizetype i=0;i<headings.size() && i<16;++i)
-        if(headings[i].contains(QStringLiteral("Supporting Information"),Qt::CaseInsensitive) ||
-           headings[i].contains(QStringLiteral("Supplementary Information"),Qt::CaseInsensitive))
-            return {{"documentKind",QStringLiteral("supporting_information")},
-                    {"doiStatus",QStringLiteral("needs_review")}};
+    if(Bibliography::isSupportingInformationCover(first))
+        return {{"documentKind",QStringLiteral("supporting_information")},
+                {"doiStatus",QStringLiteral("needs_review")}};
     QVariantMap evidence=Bibliography::firstPageCitation(first);
+    const QString printedAcsTitle = Bibliography::firstPageAcsTitle(first);
+    const QString printedRscTitle = printedAcsTitle.isEmpty()
+        ? Bibliography::firstPageRscTitle(first) : QString();
+    const QVariantMap elsevierIdentity =
+        (printedAcsTitle.isEmpty() && printedRscTitle.isEmpty())
+        ? Bibliography::firstPageElsevierIdentity(first) : QVariantMap();
+    const QString printedTitle = !printedAcsTitle.isEmpty() ? printedAcsTitle
+        : !printedRscTitle.isEmpty() ? printedRscTitle
+        : elsevierIdentity.value(QStringLiteral("title")).toString();
+    if(!printedTitle.isEmpty()) {
+        evidence["title"] = printedTitle;
+        evidence["titleSource"] = QStringLiteral("first_page_verified");
+    }
     // Preserve pre-integration behavior for PDFs with neither own journal
     // evidence nor an unambiguous DOI. PDF printer metadata alone is not a
     // publication identity.
     if(evidence.isEmpty() && !Metadata::acceptableIdentity(candidates))return {};
-    if(const auto* info=document.getInfo(); info && Bibliography::credibleTitle(info->title)) {
+    // Verified first-page evidence outranks PDF printer metadata.
+    if(const auto* info=document.getInfo(); info &&
+       !Bibliography::credibleTitle(evidence.value("title").toString()) &&
+       Bibliography::credibleTitle(info->title)) {
         evidence["title"]=info->title.simplified();
         evidence["titleSource"]=QStringLiteral("pdf_metadata");
     }
-    const auto author=Bibliography::firstPageLastAuthor(first);
+    QString author=elsevierIdentity.value(QStringLiteral("authors")).toString();
+    QString authorEvidence=elsevierIdentity.value(QStringLiteral("authorEvidence")).toString();
+    if(author.isEmpty()) {
+        author=Bibliography::firstPageLastAuthor(first);
+        if(author.isEmpty()) author=Bibliography::firstPageRscLastAuthor(first);
+        authorEvidence=QStringLiteral("first-page-terminal-and");
+    }
     if(!author.isEmpty()) {
         evidence["authors"]=author;
-        evidence["authorEvidence"]=QStringLiteral("first-page-terminal-and");
+        evidence["authorEvidence"]=authorEvidence;
     }
     if(Metadata::acceptableIdentity(candidates)) {
+        // A trusted publisher-cover title plus this document's front-matter
+        // DOI is positive MAIN evidence. It permits recovery of stale
+        // automatically misclassified SI records, never manual SI labels.
+        if(!printedTitle.isEmpty()) {
+            evidence["documentKind"]=QStringLiteral("main_article");
+            evidence["documentKindSource"]=QStringLiteral("first_page_verified");
+        }
         evidence["doi"]=candidates.first().doi;
         evidence["doiSource"]=candidates.first().location;
         evidence["doiScore"]=candidates.first().score;

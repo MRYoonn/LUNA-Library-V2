@@ -37,6 +37,238 @@ public:
         return result;
     }
 
+    // A SI cover is not the same as an article's Supporting Information link.
+    // ACS article navigation includes that standalone phrase in the first
+    // 16 y-sorted text rows; using "contains" there corrupts main-paper cards.
+    static bool isSupportingInformationCover(const QString& firstPageText) {
+        const auto lines = firstPageText.left(12000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
+        // These are article navigation / publisher citation cues, not SI
+        // headers. Search the same front-matter window before interpreting
+        // a generic "Supporting Information" hyperlink as a cover.
+        for (qsizetype i = 0; i < lines.size() && i < 24; ++i) {
+            const QString item = lines[i].simplified();
+            if (item.startsWith(QStringLiteral("Cite This:"), Qt::CaseInsensitive) ||
+                item.compare(QStringLiteral("Article Recommendations"), Qt::CaseInsensitive) == 0 ||
+                item.startsWith(QStringLiteral("pubs.acs.org/"), Qt::CaseInsensitive))
+                return false;
+        }
+        static const QRegularExpression cover(QStringLiteral(
+            R"(^(?:(?:Revised|Electronic)\s+)?(?:Supporting|Supplementary)\s+Information(?:\s*\((?:SI|ESI)\))?(?:\s+for(?:\s+.+)?)?\.?$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        for (qsizetype i = 0; i < lines.size() && i < 24; ++i)
+            if (cover.match(lines[i].simplified()).hasMatch()) return true;
+        return false;
+    }
+
+    // A narrow offline fallback for an ACS *main* first page. The document
+    // must have the pubs.acs.org masthead, a Cite This publication line, and
+    // an author-like boundary after the printed title. Other publisher pages,
+    // SI covers, and ambiguous layouts deliberately abstain. This does NOT
+    // replace DOI-matched provider metadata.
+    static QString firstPageAcsTitle(const QString& firstPageText) {
+        if (isSupportingInformationCover(firstPageText)) return {};
+        const auto lines = firstPageText.left(12000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
+        qsizetype masthead = -1, citation = -1;
+        for (qsizetype i = 0; i < lines.size() && i < 24; ++i) {
+            const QString line = lines[i].simplified();
+            if (i < 8 && line.startsWith(QStringLiteral("pubs.acs.org/"),
+                                          Qt::CaseInsensitive)) masthead = i;
+            if (line.startsWith(QStringLiteral("Cite This:"), Qt::CaseInsensitive))
+                citation = i;
+        }
+        if (masthead < 0 || citation < masthead + 3 || citation > masthead + 15)
+            return {};
+        static const QRegularExpression authors(QStringLiteral(
+            R"([,;]\s*[*#†‡∇\d]*\s*[\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,4})"));
+        QStringList titleLines;
+        bool sawAuthors = false;
+        for (qsizetype i = masthead + 1; i < citation; ++i) {
+            const QString line = lines[i].simplified();
+            if (line.compare(QStringLiteral("Article"), Qt::CaseInsensitive) == 0 ||
+                line.compare(QStringLiteral("Letter"), Qt::CaseInsensitive) == 0 ||
+                line.compare(QStringLiteral("Communication"), Qt::CaseInsensitive) == 0 ||
+                line.compare(QStringLiteral("Research Article"), Qt::CaseInsensitive) == 0)
+                continue;
+            if (authors.match(line).hasMatch()) {
+                sawAuthors = true;
+                break;
+            }
+            if (line.size() > 180 || titleLines.size() >= 4 ||
+                line.contains(QStringLiteral("Downloaded from"), Qt::CaseInsensitive))
+                return {};
+            titleLines.append(line);
+        }
+        if (!sawAuthors || titleLines.isEmpty()) return {};
+        QString title = titleLines.join(QLatin1Char(' ')).simplified();
+        // ACS line breaks sometimes split a retained chemical hyphen.
+        title.replace(QRegularExpression(QStringLiteral(R"(-\s+(?=\p{L}))")),
+                      QStringLiteral("-"));
+        return credibleTitle(title) ? title : QString();
+    }
+
+    // Royal Society of Chemistry first pages have a publisher masthead and
+    // a printed DOI, but title/author lines may be interleaved with two-column
+    // "Cite this" metadata. Return nothing for unknown or ambiguous layouts.
+    static bool isRscArticleCover(const QString& firstPageText) {
+        const QStringList lines=firstPageText.left(8000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")),Qt::SkipEmptyParts);
+        if (lines.size()<5 || !firstPageText.left(8000).contains(
+                QStringLiteral("10.1039/"),Qt::CaseInsensitive)) return false;
+        const QString first=lines.first().simplified();
+        return first.compare(QStringLiteral("ChemComm"),Qt::CaseInsensitive)==0 ||
+               (first.compare(QStringLiteral("Organic &"),Qt::CaseInsensitive)==0 &&
+                lines.value(1).simplified().compare(
+                    QStringLiteral("Biomolecular Chemistry"),Qt::CaseInsensitive)==0);
+    }
+
+    static QString firstPageRscTitle(const QString& firstPageText) {
+        if (!isRscArticleCover(firstPageText) ||
+            isSupportingInformationCover(firstPageText)) return {};
+        const auto lines=firstPageText.left(12000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")),Qt::SkipEmptyParts);
+        qsizetype kind=-1;
+        for (qsizetype i=0;i<lines.size() && i<8;++i) {
+            const QString label=lines[i].simplified();
+            if (label.compare(QStringLiteral("PAPER"),Qt::CaseInsensitive)==0 ||
+                label.compare(QStringLiteral("COMMUNICATION"),Qt::CaseInsensitive)==0) {
+                kind=i;break;
+            }
+        }
+        if(kind<0) return {};
+        static const QRegularExpression authorStart(QStringLiteral(
+            R"(^[\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}\s*,)"));
+        static const QRegularExpression volumeOnly(QStringLiteral(
+            R"(^\d{1,4}\s*,\s*\d{1,7}$)"));
+        QStringList titleLines;
+        bool sawAuthor=false;
+        for(qsizetype i=kind+1;i<lines.size() && i<24;++i) {
+            const QString line=lines[i].simplified();
+            if (authorStart.match(line).hasMatch()) {sawAuthor=true;break;}
+            // In ChemComm's two-column cover, Received/Accepted dates can
+            // appear before the final author line. Skip, do not terminate.
+            if (line.startsWith(QStringLiteral("Received"),Qt::CaseInsensitive) ||
+                line.startsWith(QStringLiteral("Accepted"),Qt::CaseInsensitive))
+                continue;
+            if (line.startsWith(QStringLiteral("DOI:"),Qt::CaseInsensitive))
+                break;
+            if (line.compare(QStringLiteral("Licence and permissions"),Qt::CaseInsensitive)==0 ||
+                line.startsWith(QStringLiteral("Licensed under"),Qt::CaseInsensitive) ||
+                line.startsWith(QStringLiteral("Cite this:"),Qt::CaseInsensitive) ||
+                volumeOnly.match(line).hasMatch()) continue;
+            if (line.size()<4 || line.size()>180 || titleLines.size()>=4) return {};
+            titleLines.append(line);
+        }
+        if(!sawAuthor || titleLines.isEmpty()) return {};
+        QString title=titleLines.join(QLatin1Char(' ')).simplified();
+        title.replace(QRegularExpression(QStringLiteral(R"(-\s+(?=\p{L}))")),
+                      QStringLiteral("-"));
+        title.remove(QRegularExpression(QStringLiteral(R"([†‡]\s*$)")));
+        return credibleTitle(title) ? title : QString();
+    }
+
+    static QString firstPageRscLastAuthor(const QString& firstPageText) {
+        if (!isRscArticleCover(firstPageText) ||
+            isSupportingInformationCover(firstPageText)) return {};
+        const auto lines=firstPageText.left(12000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")),Qt::SkipEmptyParts);
+        static const QRegularExpression authorList(QStringLiteral(
+            R"(^[\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}\s*,)"));
+        static const QRegularExpression trailingAnd(QStringLiteral(
+            R"((?:^|\s)\band\s*$)"),QRegularExpression::CaseInsensitiveOption);
+
+        bool authorListBefore=false;
+        for(qsizetype i=0;i<lines.size() && i<22;++i) {
+            const QString row=lines[i].simplified();
+            if(authorList.match(row).hasMatch()) authorListBefore=true;
+            if(!authorListBefore || !trailingAnd.match(row).hasMatch()) continue;
+            // A separate centered author name can follow the ampersand/and
+            // after publisher footnotes, acceptance metadata or asterisks.
+            for(qsizetype j=i+1;j<lines.size() && j<=i+4;++j) {
+                QString next=lines[j].simplified();
+                if(next.startsWith(QStringLiteral("Received"),Qt::CaseInsensitive) ||
+                   next.startsWith(QStringLiteral("Accepted"),Qt::CaseInsensitive) ||
+                   next.startsWith(QStringLiteral("Published"),Qt::CaseInsensitive) ||
+                   next.startsWith(QStringLiteral("DOI:"),Qt::CaseInsensitive) ||
+                   next.size()<=3) continue;
+                next.remove(QRegularExpression(QStringLiteral(R"(^[*†‡\s\d]+)")));
+                next.remove(QRegularExpression(QStringLiteral(R"([*†‡\s\d]+$)")));
+                if(credibleAuthor(next)) return next;
+                break;
+            }
+        }
+        return {};
+    }
+
+    // Elsevier's front cover separates the headline and its author list from
+    // affiliations. Never collect further names after the affiliation boundary
+    // (e.g. an institution or city), or infer an author from PDF Info Author.
+    // Require the publisher masthead and two distinct printed author names.
+    static QVariantMap firstPageElsevierIdentity(const QString& firstPageText) {
+        if (isSupportingInformationCover(firstPageText)) return {};
+        const auto lines=firstPageText.left(16000).split(
+            QRegularExpression(QStringLiteral(R"([\r\n]+)")),Qt::SkipEmptyParts);
+        if(lines.size()<8 || !lines.value(0).contains(
+                QRegularExpression(QStringLiteral(R"(\s+\((?:19|20)\d{2}\)\s+\d{5,8}$)"))) ||
+           lines.value(1).simplified().compare(
+                QStringLiteral("Contents lists available at ScienceDirect"),
+                Qt::CaseInsensitive)!=0 ||
+           !lines.value(3).simplified().startsWith(
+                QStringLiteral("journal homepage: www.elsevier.com/locate/"),
+                Qt::CaseInsensitive))
+            return {};
+        static const QRegularExpression person(QStringLiteral(
+            R"([\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,4})"));
+        static const QRegularExpression affiliation(QStringLiteral(
+            R"(^(?:[a-d]\s+\p{Lu}|(?:School|Department|College|Institute|University|Faculty)\s+of\b|A\s+R\s+T\s+I\s+C\s+L\s+E|A\s+B\s+S\s+T\s+R\s+A\s+C\s+T))"),
+            QRegularExpression::CaseInsensitiveOption);
+        QStringList titleLines,authorLines;
+        bool inAuthors=false, stoppedAtAffiliation=false;
+        for(qsizetype i=4;i<lines.size() && i<18;++i) {
+            const QString line=lines[i].simplified();
+            if (line.compare(QStringLiteral("Review"),Qt::CaseInsensitive)==0 ||
+                line.compare(QStringLiteral("Research paper"),Qt::CaseInsensitive)==0 ||
+                line.compare(QStringLiteral("Article"),Qt::CaseInsensitive)==0)
+                continue;
+            if (inAuthors && affiliation.match(line).hasMatch()) {
+                stoppedAtAffiliation=true;break;
+            }
+            if (!inAuthors) {
+                auto names=person.globalMatch(line);
+                int count=0;bool firstAtStart=false;
+                while(names.hasNext()) {
+                    const auto name=names.next();
+                    if(count==0) firstAtStart=(name.capturedStart()==0);
+                    ++count;
+                }
+                if(firstAtStart && count>=2) inAuthors=true;
+            }
+            if (inAuthors) {
+                if(authorLines.size()>=4) return {};
+                authorLines.append(line);
+            } else {
+                if(line.isEmpty() || line.size()>190 || titleLines.size()>=4)
+                    return {};
+                titleLines.append(line);
+            }
+        }
+        if(!inAuthors || !stoppedAtAffiliation || titleLines.isEmpty() ||
+           authorLines.isEmpty()) return {};
+        const QString allAuthors=authorLines.join(QLatin1Char(' '));
+        auto names=person.globalMatch(allAuthors);
+        QString last;int count=0;
+        while(names.hasNext()) {last=names.next().captured().simplified();++count;}
+        QString title=titleLines.join(QLatin1Char(' ')).simplified();
+        title.replace(QRegularExpression(QStringLiteral(R"(-\s+(?=\p{L}))")),
+                      QStringLiteral("-"));
+        title.remove(QRegularExpression(QStringLiteral(R"([†‡☆\s]+$)")));
+        if(count<2 || !credibleTitle(title) || !credibleAuthor(last)) return {};
+        return {{"title",title},
+                {"authors",last},
+                {"authorEvidence",QStringLiteral("first-page-elsevier-author-block")}};
+    }
+
     // Conservative citation extraction from the printed first page only.
     // Only known journal patterns are accepted; unknown text is left untouched.
     // No DOI parsing or online queries are performed.
@@ -46,17 +278,35 @@ public:
             text.replace(mark, QLatin1Char('-'));
         text.replace(QChar(0x00a0), QLatin1Char(' '));
         const auto lines = text.split(QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
-        // SI pages can cite the main article or references. They are not
-        // reliable evidence for the SI PDF's own publication fields.
-        for (qsizetype i = 0; i < lines.size() && i < 16; ++i) {
-            const QString heading = lines[i].simplified();
-            if (heading.compare(QStringLiteral("Supporting Information"), Qt::CaseInsensitive) == 0 ||
-                heading.compare(QStringLiteral("Revised Supporting Information"), Qt::CaseInsensitive) == 0 ||
-                heading.compare(QStringLiteral("Supplementary Information"), Qt::CaseInsensitive) == 0)
-                return {}; // SI metadata must remain unverified without explicit evidence.
+        // SI pages can cite the main paper; do not import these as SI's own fields.
+        if (isSupportingInformationCover(text)) return {};
+        // RSC footers carry the complete printed page range. The "Cite this"
+        // masthead often exposes only the first page, and text columns may be
+        // interleaved between its year/volume/page fragments. Prefer the
+        // publisher's own exact footer over a partial front-matter match.
+        static const QRegularExpression chemCommFooter(QStringLiteral(
+            R"(^\d{1,7}\s*\|\s*Chem\.\s*Commun\.,\s*(?<year>(?:19|20)\d{2}),\s*(?<volume>\d{1,4}),\s*(?<page>\d{1,7}-\d{1,7})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression obcFooter(QStringLiteral(
+            R"(^Org\.\s*Biomol\.\s*Chem\.,\s*(?<year>(?:19|20)\d{2}),\s*(?<volume>\d{1,4}),\s*(?<page>\d{1,7}-\d{1,7})\s*\|\s*\d{1,7}$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        for (qsizetype i=0; i<lines.size() && i<160; ++i) {
+            const QString row=lines[i].simplified();
+            const auto cc=chemCommFooter.match(row);
+            if (cc.hasMatch())
+                return {{"journal",QStringLiteral("Chemical Communications")},
+                        {"year",cc.captured(QStringLiteral("year"))},
+                        {"volume",cc.captured(QStringLiteral("volume"))},
+                        {"page",cc.captured(QStringLiteral("page"))}};
+            const auto ob=obcFooter.match(row);
+            if (ob.hasMatch())
+                return {{"journal",QStringLiteral("Organic & Biomolecular Chemistry")},
+                        {"year",ob.captured(QStringLiteral("year"))},
+                        {"volume",ob.captured(QStringLiteral("volume"))},
+                        {"page",ob.captured(QStringLiteral("page"))}};
         }
         static const QRegularExpression pattern(QStringLiteral(
-            R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|J\.?\s*Phys\.?\s*Chem\.?\s*[ABC]\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Org\.?\s*Biomol\.?\s*Chem\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
+            R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|ACS\s+Med\.?\s*Chem\.?\s*Lett\.?|J\.?\s*Phys\.?\s*Chem\.?\s*[ABC]\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Org\.?\s*Biomol\.?\s*Chem\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
             QRegularExpression::CaseInsensitiveOption);
         int checked = 0;
         for (qsizetype i = 0; i < lines.size() && checked < 40; ++i, ++checked) {
@@ -68,10 +318,104 @@ public:
                 if (candidate.size() > 320) break;
                 const auto match = pattern.match(candidate);
                 if (!match.hasMatch()) continue;
-                return {{"journal", match.captured(QStringLiteral("journal")).simplified()},
-                        {"year", match.captured(QStringLiteral("year"))},
-                        {"volume", match.captured(QStringLiteral("volume"))},
-                        {"page", match.captured(QStringLiteral("page")).remove(QLatin1Char(' '))}};
+                // Journal-year-volume appearing in a title, author reference,
+                // or early body citation is not the paper's publication data.
+                // Keep printed header lines and explicit publisher "Cite" cues.
+                const QString prefix = candidate.left(
+                    match.capturedStart(QStringLiteral("journal"))).simplified();
+                static const QRegularExpression printedCitationCue(QStringLiteral(
+                    R"(^(?:Cite\s+(?:This|this article)|How to cite)\s*:)$"),
+                    QRegularExpression::CaseInsensitiveOption);
+                if (!prefix.isEmpty() && !printedCitationCue.match(prefix).hasMatch())
+                    continue;
+                const QString pages = match.captured(QStringLiteral("page")).remove(QLatin1Char(' '));
+                QVariantMap citation = {
+                    {"journal", match.captured(QStringLiteral("journal")).simplified()},
+                    {"year", match.captured(QStringLiteral("year"))},
+                    {"volume", match.captured(QStringLiteral("volume"))}};
+                // Preserve the legacy firstPageCitation() "page=e..." view
+                // for existing native callers, but also identify the actual
+                // article-number field for accurate persistence and scoring.
+                citation["page"] = pages;
+                if (pages.startsWith(QLatin1Char('e'), Qt::CaseInsensitive))
+                    citation["article_number"] = pages;
+                return citation;
+            }
+        }
+        // Publisher-specific front-page citation formats that do not follow
+        // "Journal YEAR, VOLUME, PAGES". Match only clearly printed metadata,
+        // not reference lists or inferred DOI content.
+        static const QRegularExpression elsevier(QStringLiteral(
+            R"(^(?<journal>Tetrahedron Letters|Bioorg\. Med\. Chem\. Lett\.|Bioorg\. Med\. Chem\.|Bioorganic Chemistry|European Journal of Medicinal Chemistry)\s+(?<volume>\d{1,4})\s*\((?<year>(?:19|20)\d{2})\)\s+(?<article_number>\d{5,8})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression springer(QStringLiteral(
+            R"(^(?<journal>Medicinal Chemistry Research|Silicon)\s*\((?<year>(?:19|20)\d{2})\)\s*(?<volume>\d{1,4}):(?<page>\d{1,7}[-–]\d{1,7})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        // Elsevier and Springer header records are at the very top (not the
+        // body reference list). Do not use a later matching citation.
+        for (qsizetype i=0; i<lines.size() && i<5; ++i) {
+            const QString line = lines[i].simplified();
+            const auto e = elsevier.match(line);
+            if (e.hasMatch()) {
+                QString journal = e.captured(QStringLiteral("journal"));
+                if (journal.compare(QStringLiteral("Bioorg. Med. Chem. Lett."),Qt::CaseInsensitive)==0)
+                    journal = QStringLiteral("Bioorganic & Medicinal Chemistry Letters");
+                else if (journal.compare(QStringLiteral("Bioorg. Med. Chem."),Qt::CaseInsensitive)==0)
+                    journal = QStringLiteral("Bioorganic & Medicinal Chemistry");
+                return {{"journal",journal},
+                        {"year",e.captured(QStringLiteral("year"))},
+                        {"volume",e.captured(QStringLiteral("volume"))},
+                        {"article_number",e.captured(QStringLiteral("article_number"))}};
+            }
+            const auto s = springer.match(line);
+            if (s.hasMatch()) {
+                QString page=s.captured(QStringLiteral("page"));
+                page.replace(QChar(0x2013),QLatin1Char('-'));
+                return {{"journal",s.captured(QStringLiteral("journal"))},
+                        {"year",s.captured(QStringLiteral("year"))},
+                        {"volume",s.captured(QStringLiteral("volume"))},
+                        {"page",page}};
+            }
+        }
+        // Nature publication metadata lives in the printed footer, frequently
+        // >40 layout lines after the title/abstract. Require the exact journal
+        // heading and footer format; never treat a random body citation as own.
+        static const QRegularExpression naturePage(QStringLiteral(
+            R"(^(?<journal>Nature Chemistry|Nature Synthesis)\s*\|\s*Volume\s+(?<volume>\d{1,4})\s*\|\s*[A-Za-z]+\s+(?<year>(?:19|20)\d{2})\s*\|\s*(?<page>\d{1,7}[-–]\d{1,7})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression natureArticle(QStringLiteral(
+            R"(^Nature Communications\s*\|\s*\((?<year>(?:19|20)\d{2})\)\s*(?<volume>\d{1,4}):(?<article_number>\d{1,7})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression rscFooter(QStringLiteral(
+            R"(^\d+\s*\|\s*Chem\.\s*Commun\.,\s*(?<year>(?:19|20)\d{2}),\s*(?<volume>\d{1,4}),\s*(?<page>\d{1,7}[-–]\d{1,7})$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        for (qsizetype i=0; i<lines.size() && i<160; ++i) {
+            const QString line=lines[i].simplified();
+            const auto n=naturePage.match(line);
+            if (n.hasMatch()) {
+                QString page=n.captured(QStringLiteral("page"));
+                page.replace(QChar(0x2013),QLatin1Char('-'));
+                return {{"journal",n.captured(QStringLiteral("journal"))},
+                        {"year",n.captured(QStringLiteral("year"))},
+                        {"volume",n.captured(QStringLiteral("volume"))},
+                        {"page",page}};
+            }
+            const auto a=natureArticle.match(line);
+            if (a.hasMatch())
+                return {{"journal",QStringLiteral("Nature Communications")},
+                        {"year",a.captured(QStringLiteral("year"))},
+                        {"volume",a.captured(QStringLiteral("volume"))},
+                        {"article_number",a.captured(QStringLiteral("article_number"))}};
+            // RSC "Cite this:" lines can have intervening title columns.
+            // A printed footer provides the unambiguous complete page range.
+            const auto r=rscFooter.match(line);
+            if (r.hasMatch()) {
+                QString page=r.captured(QStringLiteral("page"));
+                page.replace(QChar(0x2013),QLatin1Char('-'));
+                return {{"journal",QStringLiteral("Chemical Communications")},
+                        {"year",r.captured(QStringLiteral("year"))},
+                        {"volume",r.captured(QStringLiteral("volume"))},
+                        {"page",page}};
             }
         }
         // Some publisher proofs show the journal name, but deliberately do
@@ -159,13 +503,8 @@ public:
             if (!line.isEmpty()) lines.append(line);
             if (lines.size() >= 55) break;
         }
-        // Supplementary information often has no original article metadata.
-        // Do not mine captions, instructions or the body for fake title/authors.
-        for (qsizetype i = 0; i < lines.size() && i < 16; ++i) {
-            if (lines[i].contains(QStringLiteral("Supporting Information"), Qt::CaseInsensitive) ||
-                lines[i].contains(QStringLiteral("Supplementary Information"), Qt::CaseInsensitive))
-                return {};
-        }
+        // Do not mine an SI cover for the parent article's title/authors.
+        if (isSupportingInformationCover(text)) return {};
         if (firstPageCitation(text).value("journal").toString().isEmpty()) return {};
         const QString explicitLastAuthor = firstPageLastAuthor(text);
         if (explicitLastAuthor.isEmpty()) return {};
@@ -234,6 +573,17 @@ public:
     static bool credibleTitle(const QString& value) {
         const QString text = value.simplified();
         if (text.size() < 12 || text.size() > 240) return false;
+        // ACS PDF Info titles like "jo5c01153 1..9" and "ml5c00120 1..7"
+        // are printer job names, not scientific titles. They MUST NOT
+        // displace a visible first-page title or DOI-matched provider title.
+        static const QRegularExpression printerJob(QStringLiteral(
+            R"(^(?:[A-Za-z]{1,18}\.)?[A-Za-z]{1,20}\d[A-Za-z0-9.]*\s+\d+\s*\.{2,}\s*\d+$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression printerSpool(QStringLiteral(
+            R"(^[A-Za-z0-9_.-]{7,70}\s+\d{1,7}\s*\.{2,}\s*\d{1,7}\s*(?:\+\+)?$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        if (printerJob.match(text).hasMatch() || printerSpool.match(text).hasMatch())
+            return false;
         static const QRegularExpression placeholder(QStringLiteral(
             R"((?:^|\b)(?:No Job Name|Microsoft Word|Untitled|New Document|Document1|Supporting Information|Revised Supporting Information)(?:\b|$))"),
             QRegularExpression::CaseInsensitiveOption);
@@ -260,6 +610,20 @@ public:
             R"(^[\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}$)"));
         return name.match(text).hasMatch();
     }
+    // Never clear an existing SI label from weak context, an online title
+    // alone, an unmatched DOI, or a missing/ambiguous printed cover.
+    static bool verifiedMainFrontMatter(const QVariantMap& proposal) {
+        return proposal.value(QStringLiteral("documentKind")).toString() ==
+                   QStringLiteral("main_article") &&
+               proposal.value(QStringLiteral("documentKindSource")).toString() ==
+                   QStringLiteral("first_page_verified") &&
+               credibleTitle(proposal.value(QStringLiteral("title")).toString()) &&
+               proposal.value(QStringLiteral("titleSource")).toString() ==
+                   QStringLiteral("first_page_verified") &&
+               proposal.value(QStringLiteral("doiScore")).toInt()>=70 &&
+               !proposal.value(QStringLiteral("doi")).toString().isEmpty();
+    }
+
     // Reuse Recall's field-level conflict protection. Only fill missing/known-bad
     // values, never replace a plausible manual correction or invent absent data.
     bool enrichFromFirstPage(const QString& identity, const QVariantMap& proposal) {
@@ -267,6 +631,8 @@ public:
         QVariantMap value = record(identity);
         bool changedField = false;
         if (proposal.value("documentKind").toString() == QStringLiteral("supporting_information")) {
+            if (value.value(QStringLiteral("documentKindSource")).toString() ==
+                QStringLiteral("manual")) return false;
             // Preserve all previous data for recovery; suppress only machine-owned
             // paper fields after the page explicitly identifies itself as SI.
             QVariantMap archived = value.value("unverifiedSiMetadata").toMap();
@@ -280,8 +646,23 @@ public:
             }
             changedField = changedField || value.value("documentKind") != proposal.value("documentKind");
             value["documentKind"] = proposal.value("documentKind");
+            value["documentKindSource"] = QStringLiteral("first_page_verified");
             value["unverifiedSiMetadata"] = archived;
             return changedField && save(identity, value, false);
+        }
+        if (value.value(QStringLiteral("documentKind")).toString() ==
+            QStringLiteral("supporting_information")) {
+            const bool protectedManual =
+                value.value(QStringLiteral("manual")).toBool() ||
+                value.value(QStringLiteral("documentKindSource")).toString() ==
+                    QStringLiteral("manual");
+            if (protectedManual || !verifiedMainFrontMatter(proposal)) return false;
+            // Previously machine-classified ACS main files can be repaired by
+            // a new DOI/printed-title-backed local rescan. Do not resurrect
+            // unverified archived SI fields; fill only current verified data.
+            value["documentKind"] = QStringLiteral("main_article");
+            value["documentKindSource"] = QStringLiteral("first_page_verified");
+            changedField = true;
         }
         const auto fill = [&value, &proposal, &changedField](const char* key, bool good) {
             const QString field = QString::fromLatin1(key);
@@ -301,7 +682,9 @@ public:
         // supersedes an earlier incomplete/incorrect AUTO value such as Hao Fang,
         // but never changes a user-entered manual author.
         const QString proposedAuthor = proposal.value("authors").toString().simplified();
-        if (proposal.value("authorEvidence").toString() == QStringLiteral("first-page-terminal-and") &&
+        const QString authorEvidence=proposal.value("authorEvidence").toString();
+        if ((authorEvidence == QStringLiteral("first-page-terminal-and") ||
+             authorEvidence == QStringLiteral("first-page-elsevier-author-block")) &&
             credibleAuthor(proposedAuthor) &&
             value.value("authorsSource").toString() != QStringLiteral("manual") &&
             value.value("authorsSource").toString() != QStringLiteral("Crossref") &&
@@ -310,7 +693,7 @@ public:
             value.value("authors").toString().simplified() != proposedAuthor) {
             value["authors"] = proposedAuthor;
             value["authorsSource"] = QStringLiteral("first_page_verified");
-            value["authorEvidence"] = QStringLiteral("first-page-terminal-and");
+            value["authorEvidence"] = authorEvidence;
             changedField = true;
         }
         fill("journal", !proposal.value("journal").toString().isEmpty());
@@ -321,7 +704,13 @@ public:
         fill("volume", volumePattern.match(proposal.value("volume").toString()).hasMatch());
         static const QRegularExpression pagePattern(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,7})(?:[-–]\d{1,7})?$)"),
                                                     QRegularExpression::CaseInsensitiveOption);
-        fill("page", pagePattern.match(proposal.value("page").toString()).hasMatch());
+        const QString proposedPage = proposal.value("page").toString();
+        const bool articleInLegacyPage = !proposal.value("article_number").toString().isEmpty() &&
+            proposedPage.compare(proposal.value("article_number").toString(),Qt::CaseInsensitive)==0;
+        fill("page", !articleInLegacyPage && pagePattern.match(proposedPage).hasMatch());
+        static const QRegularExpression articlePattern(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,8})$)"),
+                                                       QRegularExpression::CaseInsensitiveOption);
+        fill("article_number", articlePattern.match(proposal.value("article_number").toString()).hasMatch());
         if (!changedField) return false;
         value["source"] = QStringLiteral("PDF first-page evidence");
         // Preserve prior manual ownership, but never mark machine extraction manual.
@@ -640,6 +1029,17 @@ public:
             return false;
         QVariantMap entry = record(identity);
         bool changed = false;
+        if (entry.value(QStringLiteral("documentKind")).toString() ==
+            QStringLiteral("supporting_information")) {
+            if (entry.value(QStringLiteral("documentKindSource")).toString() ==
+                    QStringLiteral("manual") || !verifiedMainFrontMatter(proposal))
+                return false;
+            // Explicit refresh also repairs stale automatic SI classifications
+            // only with positive first-page title plus strong DOI evidence.
+            entry["documentKind"] = QStringLiteral("main_article");
+            entry["documentKindSource"] = QStringLiteral("first_page_verified");
+            changed = true;
+        }
         const auto replace = [&entry, &proposal, &changed](const char* name, bool valid) {
             const QString field = QString::fromLatin1(name);
             const QString next = proposal.value(field).toString().simplified();
@@ -649,8 +1049,9 @@ public:
             changed = true;
         };
         replace("title", credibleTitle(proposal.value("title").toString()));
-        replace("authors", proposal.value("authorEvidence").toString() ==
-                           QStringLiteral("first-page-terminal-and") &&
+        const QString authorEvidence=proposal.value("authorEvidence").toString();
+        replace("authors", (authorEvidence == QStringLiteral("first-page-terminal-and") ||
+                            authorEvidence == QStringLiteral("first-page-elsevier-author-block")) &&
                            credibleAuthor(proposal.value("authors").toString()));
         replace("journal", !proposal.value("journal").toString().isEmpty());
         static const QRegularExpression year(QStringLiteral(R"(^[12]\d{3}$)"));
@@ -659,7 +1060,13 @@ public:
         replace("volume", volume.match(proposal.value("volume").toString()).hasMatch());
         static const QRegularExpression pages(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,7})(?:[-–]\d{1,7})?$)"),
                                                QRegularExpression::CaseInsensitiveOption);
-        replace("page", pages.match(proposal.value("page").toString()).hasMatch());
+        const QString proposedPage = proposal.value("page").toString();
+        const bool articleInLegacyPage = !proposal.value("article_number").toString().isEmpty() &&
+            proposedPage.compare(proposal.value("article_number").toString(),Qt::CaseInsensitive)==0;
+        replace("page", !articleInLegacyPage && pages.match(proposedPage).hasMatch());
+        static const QRegularExpression articles(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,8})$)"),
+                                                 QRegularExpression::CaseInsensitiveOption);
+        replace("article_number", articles.match(proposal.value("article_number").toString()).hasMatch());
         if (!changed) return false;
         entry.remove("citation");
         entry.remove("citationSource");

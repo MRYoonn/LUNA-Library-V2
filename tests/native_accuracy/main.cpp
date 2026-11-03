@@ -24,6 +24,72 @@ static void check(bool yes, const char* message) {
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
+    // Printed publisher citation formats from synthetic cover snippets.
+    // Each requires real publication syntax, not an inferred DOI or source.
+    const auto elsevier = luna::Bibliography::firstPageCitation(QStringLiteral(
+        "Bioorg. Med. Chem. Lett. 121 (2025) 130154\n"
+        "Contents lists available at ScienceDirect\n"
+        "Bioorganic & Medicinal Chemistry Letters\n"));
+    check(elsevier.value("journal").toString() ==
+          QStringLiteral("Bioorganic & Medicinal Chemistry Letters"),
+          "Elsevier abbreviated journal expanded");
+    check(elsevier.value("volume").toString() == QStringLiteral("121") &&
+          elsevier.value("year").toString() == QStringLiteral("2025") &&
+          elsevier.value("article_number").toString() == QStringLiteral("130154") &&
+          !elsevier.contains("page"),
+          "Elsevier six-digit article identifier not page");
+
+    const auto springer = luna::Bibliography::firstPageCitation(QStringLiteral(
+        "Medicinal Chemistry Research (2025) 34:2299–2308\n"
+        "https://doi.org/10.1007/s00044-025-03464-8"));
+    check(springer.value("journal").toString() ==
+          QStringLiteral("Medicinal Chemistry Research") &&
+          springer.value("page").toString() == QStringLiteral("2299-2308"),
+          "Springer volume-colon-pages header");
+
+    const auto nature = luna::Bibliography::firstPageCitation(
+        QStringLiteral("nature chemistry\nArticle\n")
+        + QStringLiteral("Cover placeholder\n").repeated(59)
+        + QStringLiteral("Nature Chemistry | Volume 17 | September 2025 | 1383–1390\n"));
+    check(nature.value("journal").toString() == QStringLiteral("Nature Chemistry") &&
+          nature.value("volume").toString() == QStringLiteral("17") &&
+          nature.value("page").toString() == QStringLiteral("1383-1390"),
+          "Nature Chemistry footer beyond 40 rows");
+
+    const auto natureComms = luna::Bibliography::firstPageCitation(
+        QStringLiteral("Article\n")
+        + QStringLiteral("Body placeholder\n").repeated(68)
+        + QStringLiteral("Nature Communications | (2025)16:1797\n"));
+    check(natureComms.value("journal").toString() ==
+          QStringLiteral("Nature Communications") &&
+          natureComms.value("article_number").toString() == QStringLiteral("1797") &&
+          !natureComms.contains("page"),
+          "Nature Communications article number footer");
+
+    const auto rsc = luna::Bibliography::firstPageCitation(
+        QStringLiteral("ChemComm\nCOMMUNICATION\nCite this: Chem. Commun., 2025,\n")
+        + QStringLiteral("Other layout column\n").repeated(88)
+        + QStringLiteral("17870 |  Chem. Commun., 2025, 61, 17870–17873\n"));
+    check(rsc.value("journal").toString() == QStringLiteral("Chemical Communications") &&
+          rsc.value("page").toString() == QStringLiteral("17870-17873"),
+          "RSC ChemComm printer footer survives interleaved title columns");
+
+    const auto acsLetters = luna::Bibliography::firstPageCitation(QStringLiteral(
+        "Cite This: ACS Med. Chem. Lett. 2025, 16, 984−990"));
+    check(acsLetters.value("journal").toString() ==
+          QStringLiteral("ACS Med. Chem. Lett.") &&
+          acsLetters.value("page").toString() == QStringLiteral("984-990"),
+          "ACS medicinal chemistry short journal citation");
+
+    const auto wiley = luna::Bibliography::firstPageCitation(QStringLiteral(
+        "How to cite: Angew. Chem. Int. Ed. 2025, 64, e202509974"));
+    check(wiley.value("article_number").toString() == QStringLiteral("e202509974") &&
+          !wiley.contains("page"), "Wiley e-article is not page range");
+
+    check(luna::Bibliography::firstPageCitation(QStringLiteral(
+              "References\nJones, Chem. Commun., 2025, 61, 17870-17873"))
+              .isEmpty(), "unanchored body citation cannot be imported");
+
     // Publisher-front-matter regression: ACS PDFs have a visible SI link
     // even though the first page is a MAIN article. No PDF bytes are used
     // here; the actual 27-file real-PDF4QT experiment is still outstanding.

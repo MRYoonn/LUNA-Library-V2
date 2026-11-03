@@ -1,0 +1,35 @@
+name: LUNA metadata - exact-branch Windows validation dispatch
+
+# Narrow one-shot trigger: full PDF4QT build remains manual-only.
+on:
+  push:
+    branches:
+      - feature/bibliography-scheduled-module-integration-20261103
+    paths:
+      - .github/workflows/metadata-live-validate-once.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Request full Windows regression on this exact feature branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = 'MRYoonn/LUNA-Library-V2'
+          test "$REF_NAME" = 'feature/bibliography-scheduled-module-integration-20261103'
+          test "${#SOURCE_SHA}" -eq 40
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
+          echo "LUNA bibliography scheduled module + strict SI cover Windows CI requested at SHA $SOURCE_SHA"
+          echo "Inspect full preflight/Python/native Qt/PDF4QT/UI/ZIP result, never treat dispatch as PASS."

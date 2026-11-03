@@ -3916,24 +3916,6 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             library->model_->pdfCount(countRoot) == baselineCount &&
             library->model_->pdfCount(subfolder.path()) == 1; }, 10000))
             return fail("Child PDF changed parent direct count or missed child count");
-        library->selectFolder(subfolder.path());
-        if (!wait([&] { return library->folderPdfs_->count() == 1 &&
-            !library->folderTimer_->isActive(); }, 10000) ||
-            library->folderTab_->isChecked() ||
-            !library->tree_->selectionModel()->isSelected(library->model_->index(subfolder.path())))
-            return fail("Child selection left root toggled or wrong PDF list");
-        library->selectFolder(countRoot);
-        if (!wait([&] { return library->folderPdfs_->count() == 1 &&
-            !library->folderTimer_->isActive(); }, 10000) ||
-            !library->folderTab_->isChecked() ||
-            !library->tree_->selectionModel()->selectedIndexes().isEmpty())
-            return fail("Root shortcut did not clear child-folder highlight");
-        // selectFolder() rebuilds QListWidgetItem objects. Every pointer
-        // captured before the child/root switch is stale, including 'item'
-        // used by the subsequent memo and thumbnail native smoke checks.
-        item = list->item(0);
-        if (!item || item->data(Qt::UserRole).toString() != path)
-            return fail("Rebound root paper item missing after child-folder test");
     }
     checkpoint("count-deleted");
     library->model_->refreshPdfCounts(countRoot);
@@ -4240,6 +4222,25 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     // Drive the same signal/slot used by double-click, including the save guard.
     window.getProgramController()->closeDocument();
     list->itemDoubleClicked(item);
+    // Last destructive list-resetting test. All earlier hover/memo checks hold
+    // QListWidgetItem* pointers and must finish BEFORE changing folders.
+    QTemporaryDir selectionFolder(pdf.absolutePath() + QStringLiteral("/luna-selection-XXXXXX"));
+    if (!selectionFolder.isValid() ||
+        !QFile::copy(path, QDir(selectionFolder.path()).filePath(QStringLiteral("child.pdf"))))
+        return fail("Child selection fixture unavailable");
+    library->selectFolder(selectionFolder.path());
+    if (!wait([&] { return list->count() == 1 &&
+        !library->folderTimer_->isActive(); }, 10000) ||
+        library->folderTab_->isChecked() ||
+        !library->tree_->selectionModel()->isSelected(library->model_->index(selectionFolder.path())))
+        return fail("Child selection left root toggled or wrong PDF list");
+    library->selectFolder(pdf.absolutePath());
+    if (!wait([&] { return list->count() == 1 &&
+        !library->folderTimer_->isActive(); }, 10000) ||
+        !library->folderTab_->isChecked() ||
+        !library->tree_->selectionModel()->selectedIndexes().isEmpty())
+        return fail("Root shortcut did not clear child-folder highlight");
+    // No previously captured QListWidgetItem* is referenced after this point.
     checkpoint("ui-done");
     return true;
 }

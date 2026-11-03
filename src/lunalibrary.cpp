@@ -3939,29 +3939,46 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     auto* documentsToggle = window.findChild<QToolButton*>(QStringLiteral("LunaDocumentsCollapseButton"));
     auto* restoreNav = window.findChild<QToolButton*>(QStringLiteral("LunaNavigationRestoreButton"));
     auto* restoreDocs = window.findChild<QToolButton*>(QStringLiteral("LunaDocumentsRestoreButton"));
-    auto* restoreRail = window.findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail"));
-    if (!navigationToggle || !documentsToggle || !restoreNav || !restoreDocs || !restoreRail ||
+    auto* navSlot = window.findChild<QWidget*>(QStringLiteral("LunaNavigationSlot"));
+    auto* docsSlot = window.findChild<QWidget*>(QStringLiteral("LunaDocumentsSlot"));
+    auto* navFold = window.findChild<QWidget*>(QStringLiteral("LunaNavigationFold"));
+    auto* docsFold = window.findChild<QWidget*>(QStringLiteral("LunaDocumentsFold"));
+    if (!navigationToggle || !documentsToggle || !restoreNav || !restoreDocs ||
+        !navSlot || !docsSlot || !navFold || !docsFold ||
         !navigationToggle->isVisible() || !documentsToggle->isVisible() ||
         navigationToggle->parentWidget()->objectName() != QStringLiteral("LunaLibraryHeader") ||
-        documentsToggle->parentWidget()->objectName() != QStringLiteral("LunaPaperHeader"))
-        return fail("Independent controls missing from panel headers");
+        documentsToggle->parentWidget()->objectName() != QStringLiteral("LunaPaperHeader") ||
+        restoreNav->parentWidget() != navFold || restoreDocs->parentWidget() != docsFold ||
+        navFold->parentWidget() != navSlot || docsFold->parentWidget() != docsSlot ||
+        navSlot->x() >= docsSlot->x())
+        return fail("Independent folding controls not anchored to original panel slots");
     navigationToggle->click();
     QCoreApplication::processEvents();
     if (!navigation->isHidden() || documents->isHidden() || dock->isHidden() ||
-        !restoreNav->isVisible() || !restoreRail->isVisible())
-        return fail("Collapsing library navigation hid papers or lost restore rail");
+        !restoreNav->isVisible() || restoreDocs->isVisible() ||
+        navSlot->width() != 36 || navSlot->x() >= docsSlot->x())
+        return fail("Collapsing navigation did not leave its 36px fold on the left");
     documentsToggle->click();
     QCoreApplication::processEvents();
-    if (!dock->isHidden() || !restoreNav->isVisible() || !restoreDocs->isVisible())
-        return fail("Both collapsed panels lost edge restore controls");
+    if (!navigation->isHidden() || !documents->isHidden() || dock->isHidden() ||
+        !restoreNav->isVisible() || !restoreDocs->isVisible() ||
+        navSlot->width() != 36 || docsSlot->width() != 36 ||
+        dock->width() > 100 ||
+        restoreNav->mapTo(dock, QPoint()).x() >= restoreDocs->mapTo(dock, QPoint()).x())
+        return fail("Both folded panels did not remain in order beside the PDF");
     restoreNav->click();
     QCoreApplication::processEvents();
-    if (navigation->isHidden() || !documents->isHidden() || dock->isHidden())
-        return fail("Edge navigation restore unexpectedly expanded papers");
+    if (navigation->isHidden() || !documents->isHidden() || dock->isHidden() ||
+        !restoreDocs->isVisible() || restoreNav->isVisible() ||
+        docsSlot->width() != 36 || navSlot->width() < 225 ||
+        navSlot->x() >= docsSlot->x())
+        return fail("Opening navigation moved the folded paper list or opened the wrong panel");
     restoreDocs->click();
     QCoreApplication::processEvents();
-    if (dock->isHidden() || navigation->isHidden() || documents->isHidden() || restoreRail->isVisible())
-        return fail("Both panels did not restore independently");
+    if (dock->isHidden() || navigation->isHidden() || documents->isHidden() ||
+        restoreNav->isVisible() || restoreDocs->isVisible() ||
+        navSlot->x() >= docsSlot->x())
+        return fail("Inline restore did not reopen both original panel slots");
     // Exercise the real viewport crop and asynchronous hover in the temporary
     // synthetic library. Nothing here reads or modifies a user's library.
     auto* library = dynamic_cast<LibraryPanel*>(dock->widget());

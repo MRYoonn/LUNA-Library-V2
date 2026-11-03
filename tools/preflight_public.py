@@ -17,6 +17,7 @@ APPROVED = {
     "tests/test_symbol_icons.py",
     "tools/compare_ui_reference.py",
     "BUILD_DIAGNOSTICS.md",
+    "RELEASE_DIAGNOSTICS.md",
     "tools/probe_native_crash_windows.py",
     "tools/build_diagnostics.py",
     "tests/test_build_diagnostics.py",

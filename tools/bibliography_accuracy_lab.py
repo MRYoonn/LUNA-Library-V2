@@ -463,7 +463,12 @@ def audit_field_label_coverage(gold: dict, *, minimum_positive_per_field: int = 
                 unknown[field] += 1
             elif normalize(field, labels[field]):
                 positive[field] += 1
-                if publisher in core_by_publisher and field in core:
+                # Per-publisher core denominators must come from MAIN papers.
+                # An SI can carry a parent DOI or citation metadata, but it
+                # cannot establish that the main-article extractor works for
+                # that publisher. Global field counts still include SI labels.
+                if (publisher in core_by_publisher and field in core
+                        and labels.get("document_kind") == "main_article"):
                     core_by_publisher[publisher][field] += 1
             else:
                 negative[field] += 1

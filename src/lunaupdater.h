@@ -16,6 +16,7 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QSignalBlocker>
 #include <QSettings>
 #include <QStringList>
 #include <QTimer>
@@ -30,11 +31,19 @@ public:
         action_->setObjectName(QStringLiteral("LunaCheckUpdates"));
         automatic_->setObjectName(QStringLiteral("LunaAutoUpdateCheck"));
         automatic_->setCheckable(true);
+        automatic_->setToolTip(QStringLiteral("공개된 정식 버전을 하루 한 번 자동 확인합니다. 다운로드와 설치는 동의 후에만 진행합니다."));
         automatic_->setChecked(QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
             .value(QStringLiteral("updater/autoCheckEnabled"), true).toBool());
-        QObject::connect(automatic_, &QAction::toggled, this, [](bool enabled) {
-            QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
-                .setValue(QStringLiteral("updater/autoCheckEnabled"), enabled);
+        QObject::connect(automatic_, &QAction::toggled, this, [this](bool enabled) {
+            QSettings settings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+            settings.setValue(QStringLiteral("updater/autoCheckEnabled"), enabled);
+            settings.sync();
+            if (settings.status() != QSettings::NoError) {
+                const QSignalBlocker block(automatic_);
+                automatic_->setChecked(!enabled);
+                QMessageBox::warning(&shell_, QStringLiteral("자동 업데이트 설정 오류"),
+                    QStringLiteral("자동 업데이트 확인 설정을 저장하지 못했습니다."));
+            }
         });
         QObject::connect(action_, &QAction::triggered, this, [this] { check(true); });
         QObject::connect(qApp, &QCoreApplication::aboutToQuit, this, [this] {

@@ -31,5 +31,5 @@ jobs:
           test "$REF_NAME" = 'feature/bibliography-scheduled-module-integration-20261103'
           test "${#SOURCE_SHA}" -eq 40
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
-          echo "LUNA bibliography native Windows rerun after #244 obsolete SI contract assertion fix: SHA $SOURCE_SHA"
+          echo "LUNA bibliography production Windows exact-final verification after metadata quickcheck #3 MSVC PASS: $SOURCE_SHA"
           echo "Inspect full preflight/Python/native Qt/PDF4QT/UI/ZIP result, never treat dispatch as PASS."

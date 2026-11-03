@@ -102,6 +102,20 @@ int main(int argc, char** argv) {
     bridge.configure(renamedDir,true);
     if(!bridge.publish(oldName) || !QFileInfo::exists(luna::portableSidecar(oldName)))
         return fail("Portable MYBOX metadata was not written");
+    // A mixed-version MYBOX client may write the old visible file again.
+    // In that case publishing must never clobber the newer managed record.
+    const QByteArray originalPublished=read(luna::portableSidecar(oldName));
+    const QString conflictingLegacy=luna::SidecarStorage::legacyMetadata(oldName);
+    if(!write(conflictingLegacy,"synthetic divergent legacy metadata"))
+        return fail("Cannot set up mixed-version MYBOX collision");
+    QString conflictError;
+    if(bridge.publish(oldName,&conflictError) ||
+       conflictError.isEmpty() ||
+       read(luna::portableSidecar(oldName))!=originalPublished ||
+       read(conflictingLegacy)!="synthetic divergent legacy metadata")
+        return fail("Mixed-version MYBOX publish overwrote a conflicting user record");
+    if(!QFile::remove(conflictingLegacy))
+        return fail("Cannot clean up isolated MYBOX collision");
     const QString id=luna::fileObjectId(oldName);
     if(!luna::renameWithoutReplacement(oldName,newName))
         return fail("Cannot simulate native Explorer rename");

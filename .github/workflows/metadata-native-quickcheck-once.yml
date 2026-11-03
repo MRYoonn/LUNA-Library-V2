@@ -27,6 +27,7 @@ jobs:
           arch: win64_msvc2022_64
           dir: '${{ github.workspace }}/qt/'
           install-deps: 'true'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
       - name: Public source gate and title/metadata regression
         shell: pwsh
         run: |

@@ -63,6 +63,9 @@ def project_si_rows(index: AssociationIndex, main_id: str,
         return result
     result["lookup_status"] = lookup.status
     if lookup.status not in DISPLAY_STATUSES:
+        if lookup.status not in ("offline", "not_found", "rate_limited",
+                                 "provider_unavailable", "unsupported_publisher"):
+            result["lookup_status"] = "needs_review"
         return result
 
     # Revalidate untrusted metadata at the final display boundary. Suppress
@@ -98,7 +101,7 @@ def project_si_rows(index: AssociationIndex, main_id: str,
                    unicodedata.normalize("NFKC", c.filename).casefold())] > 1
                 or (c.file_id is not None and ids[c.file_id] > 1)):
             continue
-        verified = (collection_complete and live_landing_check_completed
+        verified = (collection_complete and live_landing_check_completed is True
                     and lookup.status in VERIFIED_STATUSES
                     and c.status == "landing_verified")
         result["public_si"].append({

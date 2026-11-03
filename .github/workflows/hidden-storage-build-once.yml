@@ -38,5 +38,5 @@ jobs:
           test "${#EXACT_SHA}" -eq 40
           test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$EXACT_SHA"
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
-          echo "Full Windows build requested for $BRANCH SHA $EXACT_SHA"
+          echo "Full Windows build requested for $BRANCH SHA $EXACT_SHA; regression fixes include hidden moved-thumbnail path, MYBOX collision fail-closed, and nested reparse protection."
           echo "Do not label PASS until that exact Windows run completes and its artifact is checked."

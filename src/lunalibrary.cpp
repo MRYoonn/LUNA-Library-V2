@@ -2890,16 +2890,36 @@ private:
         if (!result.success) QMessageBox::warning(this, QStringLiteral("파일 이동 실패"), result.error);
     }
     void filter(QListWidget* list, const QString& word) {
-        for (int i = 0; i < list->count(); ++i) {
-            QListWidgetItem* item = list->item(i);
-            item->setHidden(!word.isEmpty() &&
-                            !item->text().contains(word, Qt::CaseInsensitive) &&
-                            !QFileInfo(item->data(Qt::UserRole).toString()).completeBaseName().contains(word, Qt::CaseInsensitive) &&
-                            !item->data(Qt::UserRole + 4).toString().contains(word, Qt::CaseInsensitive) &&
-                            !item->data(Qt::UserRole + 5).toMap().value("authors").toString().contains(word, Qt::CaseInsensitive) &&
-                            !item->data(Qt::UserRole + 5).toMap().value("journal").toString().contains(word, Qt::CaseInsensitive) &&
-                            !luna::Bibliography::citation(item->data(Qt::UserRole + 5).toMap()).contains(word, Qt::CaseInsensitive));
+        if(!list)return;
+        QSet<QString> matchedSIParents;
+        for(int i=0;i<list->count();++i) {
+            auto* item=list->item(i);
+            const bool child=item->data(Qt::UserRole+10).toBool();
+            const bool matches=word.isEmpty() ||
+                item->text().contains(word,Qt::CaseInsensitive) ||
+                QFileInfo(item->data(Qt::UserRole).toString()).completeBaseName()
+                    .contains(word,Qt::CaseInsensitive) ||
+                item->data(Qt::UserRole+4).toString().contains(word,Qt::CaseInsensitive) ||
+                item->data(Qt::UserRole+5).toMap().value("authors").toString()
+                    .contains(word,Qt::CaseInsensitive) ||
+                item->data(Qt::UserRole+5).toMap().value("journal").toString()
+                    .contains(word,Qt::CaseInsensitive) ||
+                luna::Bibliography::citation(item->data(Qt::UserRole+5).toMap())
+                    .contains(word,Qt::CaseInsensitive);
+            const bool visible=matches && (!child || !word.isEmpty() ||
+                expandedSIParents_.contains(item->data(Qt::UserRole+13).toString()));
+            item->setHidden(!visible);
+            if(child && visible && !word.isEmpty())
+                matchedSIParents.insert(item->data(Qt::UserRole+13).toString());
         }
+        // Searching a child SI always exposes its parent card as context,
+        // without silently modifying the user's ordinary folded state.
+        if(!word.isEmpty() && !matchedSIParents.isEmpty())
+            for(int i=0;i<list->count();++i) {
+                auto* item=list->item(i);
+                if(matchedSIParents.contains(item->data(Qt::UserRole).toString()))
+                    item->setHidden(false);
+            }
     }
     void selectRoot(const QString& path) {
         QFileInfo info(path);

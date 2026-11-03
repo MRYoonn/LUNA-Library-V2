@@ -99,6 +99,18 @@ class SiDisplayModelTests(unittest.TestCase):
                                          self.lookup(candidates=(candidate,)))
                 self.assertEqual(report["public_si"], [])
 
+    def test_malformed_restored_lookup_never_crashes_or_claims_verified(self):
+        malformed = self.lookup("verified", (None, {"status": "landing_verified"}))
+        report = project_si_rows(self.index, MAIN, malformed,
+                                 live_landing_check_completed=True)
+        self.assertEqual(report["public_si"], [])
+        bad_collection = SiLookupResult(DOI, "verified", None,
+                                        "https://doi.org/" + DOI)
+        report = project_si_rows(self.index, MAIN, bad_collection,
+                                 live_landing_check_completed=True)
+        self.assertEqual(report["lookup_status"], "needs_review")
+        self.assertEqual(report["public_si"], [])
+
     def test_ambiguous_public_names_and_file_ids_fail_closed(self):
         duplicate_names = (self.candidate("SI.pdf", 123),
                            self.candidate("ＳＩ.pdf", 124))

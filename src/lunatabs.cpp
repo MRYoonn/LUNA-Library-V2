@@ -1112,11 +1112,19 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(buttonsVisible() && !navigationPanel->isHidden() &&
                                !documentsPanel->isHidden() && libraryDock->isVisible(),
                                "Initial pane header geometry invalid");
-            // Exercise a USER-chosen width rather than only the default 562px.
-            // This must survive repeated navigation/paper panel collapse.
+            // The preceding five-tab snapshots restore a compact 660px
+            // shell. Expand the whole application BEFORE requesting a 690px
+            // sidebar: a dock cannot exceed its enclosing window width.
+            host.resize(host.screen()->availableGeometry().size() - QSize(48, 80));
+            host.move(16, 16);
+            QCoreApplication::processEvents();
             host.resizeDocks({libraryDock}, {690}, Qt::Horizontal);
+            result["manualDockWidthDiagnostics"] = QJsonObject{
+                {"requestedWidth", 690}, {"windowWidth", host.width()},
+                {"dockWidth", libraryDock->width()}, {"dockMax", libraryDock->maximumWidth()},
+                {"availableWidth", host.screen()->availableGeometry().width()}};
             integrationRequire(integrationWait([&] { return libraryDock->width() >= 620; }),
-                "Library dock refused user-requested expansion");
+                "Expanded window library dock refused user-requested width");
             const int userDockWidth = libraryDock->width();
             integrationRequire(integrationWait([&] {
                 return QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))

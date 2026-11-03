@@ -41,16 +41,27 @@ inline bool safeExistingFile(const QString& path) {
     return f.isFile() && !f.isSymLink();
 }
 inline bool safeManagedDirectory(const QString& pdf) {
-    const QFileInfo root(managementRoot(pdf));
-    if (root.isSymLink() || (root.exists() && !root.isDir())) return false;
+    // A normal-looking file inside a reparse-point SUBDIRECTORY is not
+    // itself a symlink. Validate every managed parent before reading, moving,
+    // deleting or writing a sidecar.
+    const auto safeDirectory = [](const QFileInfo& dir) {
+        if (dir.isSymLink() || (dir.exists() && !dir.isDir())) return false;
 #ifdef Q_OS_WIN
-    if (root.exists()) {
-        const QString native = QDir::toNativeSeparators(root.absoluteFilePath());
-        const DWORD attributes = GetFileAttributesW(reinterpret_cast<LPCWSTR>(native.utf16()));
-        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        if (dir.exists()) {
+            const QString native = QDir::toNativeSeparators(dir.absoluteFilePath());
+            const DWORD attributes = GetFileAttributesW(reinterpret_cast<LPCWSTR>(native.utf16()));
+            if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+                return false;
+        }
+#endif
+        return true;
+    };
+    const QFileInfo root(managementRoot(pdf));
+    if (!safeDirectory(root)) return false;
+    for (const QString& area : {QStringLiteral("metadata"), QStringLiteral("thumbnails")}) {
+        if (!safeDirectory(QFileInfo(QDir(root.absoluteFilePath()).filePath(area))))
             return false;
     }
-#endif
     return true;
 }
 inline QString metadataForRead(const QString& pdf) {

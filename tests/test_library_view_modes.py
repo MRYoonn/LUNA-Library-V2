@@ -89,21 +89,30 @@ class LibraryModes(unittest.TestCase):
             self.assertIn('assets/icons/ui-'+name+'.svg', whitelist)
             self.assertIn('readerIcon(QStringLiteral("'+name+'"))', self.cpp)
 
-    def test_paper_only_window_can_shrink_without_hidden_navigation_minimum(self):
-        self.assertIn('split_->setChildrenCollapsible(true);', self.cpp)
+    def test_both_panels_fold_in_place_instead_of_moving_to_reader_overlay(self):
+        self.assertIn('split_->setChildrenCollapsible(false);', self.cpp)
+        self.assertIn('split_->setCollapsible(0, false)', self.cpp)
+        self.assertIn('split_->setCollapsible(1, false)', self.cpp)
         self.assertIn('setMinimumWidth(0);', self.cpp)
         self.assertNotIn('setMinimumWidth(432);', self.cpp)
-        self.assertIn('setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12)', self.cpp)
-        self.assertIn('setMaximumWidth(850)', self.cpp)
-        self.assertIn('dock->setMinimumWidth(1)', self.cpp)
-        self.assertIn('dock->setMaximumWidth(850)', self.cpp)
-        self.assertIn('dock->updateGeometry()', self.cpp)
-        self.assertIn('const int width = savedWidth', self.cpp)
-        self.assertIn('QTimer::singleShot(0, dock, [dock, width]', self.cpp)
-        self.assertIn('if (!dock->isVisible()) return', self.cpp)
-        self.assertIn('window->resizeDocks({dock}, {width}, Qt::Horizontal)', self.cpp)
-        self.assertIn('navigation_->setVisible(navigation_->isHidden())', self.cpp)
-        self.assertIn('documents_->setVisible(documents_->isHidden())', self.cpp)
+        for token in (
+            'QStringLiteral("LunaNavigationSlot")',
+            'QStringLiteral("LunaDocumentsSlot")',
+            'QStringLiteral("LunaNavigationFold")',
+            'QStringLiteral("LunaDocumentsFold")',
+            'static constexpr int foldWidth_ = 36;',
+            'navigationSlot_->setMaximumWidth(showNav ? 300 : foldWidth_)',
+            'documentsSlot_->setMaximumWidth(showDocs ? 850 : foldWidth_)',
+            'dock->setMaximumWidth(showNav && showDocs ? 850 : qMax(minWidth, collapsedTarget))',
+            'dock->show(); // Both folded rails remain visible',
+            'const int requested = showNav && showDocs ?',
+            'settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width())',
+            'navigation_->setVisible(navigation_->isHidden())',
+            'documents_->setVisible(documents_->isHidden())',
+        ):
+            self.assertIn(token, self.cpp, token)
+        self.assertNotIn('restoreRail->move(', self.cpp)
+        self.assertNotIn('LunaPanelRestoreRail', self.cpp)
 
     def test_folder_is_direct_only_single_selection_and_bulk_trash(self):
         folder = self.cpp.split('void selectFolder(const QString& path)')[1].split('void scanAll()')[0]
@@ -155,15 +164,15 @@ class LibraryModes(unittest.TestCase):
             'titleRow->insertStretch(0, 1)',
             'QStringLiteral("library/expandedDockWidth")',
             'widthSaveTimer_.setInterval(250)',
-            'if (!navigation_->isHidden() || !documents_->isHidden())',
+            'if (!navigation_->isHidden() && !documents_->isHidden() && !adjustingPanels_)',
             'settings.setValue(QStringLiteral("library/splitter"), split_->saveState())',
             'dock->installEventFilter(library)',
             'const int storedWidth = qBound(432',
             'settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width())',
             'dock->installEventFilter(library)',
-            'navigation_->setMaximumWidth(hasDocuments ? 300 : 850)',
+            'navigationSlot_->setMaximumWidth(showNav ? 300 : foldWidth_)',
             'setMaximumWidth(850)',
-            'dock->setMaximumWidth(850)',
+            'dock->setMaximumWidth(showNav && showDocs ? 850 : qMax(minWidth, collapsedTarget))',
         ):
             self.assertIn(token, self.cpp, token)
         self.assertIn('tabs_->setCornerWidget(rail, Qt::TopLeftCorner)', tabs)
@@ -187,10 +196,12 @@ class LibraryModes(unittest.TestCase):
             'QStringLiteral("LunaDocumentsRestoreButton")',
             'QStringLiteral("LunaLibraryHeader")',
             'QStringLiteral("LunaPaperHeader")',
-            'QStringLiteral("LunaPanelRestoreRail")',
+            'QStringLiteral("LunaNavigationFold")',
+            'QStringLiteral("LunaDocumentsFold")',
             'libraryHeading->layout()->addWidget(panelButton(',
             'paperHeading->addWidget(panelButton(',
-            'restoreRail->move(8, window.menuBar()->height() + 95)',
+            'library->navigationFold()->layout()->addWidget(restoreNav)',
+            'library->documentsFold()->layout()->addWidget(restoreDocs)',
             'void toggleNavigation()', 'void toggleDocuments()',
         ):
             self.assertIn(token, self.cpp, token)
@@ -230,7 +241,8 @@ class LibraryModes(unittest.TestCase):
         for term in (
             'QStringLiteral("LunaNavigationCollapseButton")',
             'QStringLiteral("LunaDocumentsCollapseButton")',
-            'QStringLiteral("LunaPanelRestoreRail")',
+            'QStringLiteral("LunaNavigationFold")',
+            'QStringLiteral("LunaDocumentsFold")',
             'QStringLiteral("LunaLibraryHeader")',
             'QStringLiteral("LunaPaperHeader")',
             'Panel heading control is clipped or detached',

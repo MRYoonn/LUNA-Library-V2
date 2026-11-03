@@ -367,7 +367,7 @@ def score_regressions(regressions: object) -> dict:
             # Require an explicit captured null/blank value to avoid a false PASS.
             if field not in after:
                 failures.append({"case_id": ident, "field": field, "reason": "missing_asserted_field"})
-            elif after[field] not in (None, "", []):
+            elif not (after[field] is None or type(after[field]) is str and after[field] == ""\n                      or type(after[field]) is list and after[field] == []):
                 failures.append({"case_id": ident, "field": field, "reason": "unexpected_value"})
         if "expected_status" in case and case["expected_status"] != case.get("actual_status"):
             failures.append({"case_id": ident, "field": "status", "reason": "wrong_status"})

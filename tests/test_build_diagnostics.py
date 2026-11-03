@@ -47,6 +47,44 @@ class BuildDiagnosticsContracts(unittest.TestCase):
             part = workflow.split("name: " + name, 1)[1][:230]
             self.assertIn("retention-days: 90", part)
 
+    def test_native_print_failure_classified_without_private_path(self):
+        import json
+        from tools.build_diagnostics import classify_native_failure
+        with tempfile.TemporaryDirectory() as folder:
+            evidence = Path(folder) / "evidence"
+            evidence.mkdir()
+            (evidence / "luna-native-failure.json").write_text(json.dumps({
+                "status": "exit 9", "last_native_stage": "ui-done",
+                "leak": "never-copy-private-path"
+            }), encoding="utf-8")
+            (evidence / "luna-print-probe.txt").write_text(
+                "ownedDialogs=0 cancelRequests=0 seen=0 finished=1\n"
+                "actionTriggers=1 actionEnabledBefore=1 printersAvailable=1\n"
+                "leak=never-copy-private-path", encoding="utf-8")
+            summary = classify_native_failure(evidence)
+            self.assertEqual(summary["exit_code"], 9)
+            self.assertEqual(summary["classification"],
+                             "print_action_dispatched_no_native_dialog_observed")
+            output = Path(folder) / "report"
+            record(output, "finish", status="failure", gates="native-ui=failure",
+                   native_evidence=evidence)
+            analysis = (output / "failure-analysis.md").read_text(encoding="utf-8")
+            self.assertIn("print_action_dispatched_no_native_dialog_observed", analysis)
+            self.assertNotIn("never-copy-private-path", analysis)
+            self.assertTrue((output / "native-failure-verifier.json").is_file())
+
+    def test_native_shortcut_failure_and_no_evidence_remain_distinct(self):
+        from tools.build_diagnostics import classify_native_failure
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)
+            self.assertEqual(classify_native_failure(path)["classification"], "not_established")
+            (path / "luna-print-probe.txt").write_text(
+                "ownedDialogs=0 cancelRequests=0 seen=0 finished=1\n"
+                "actionTriggers=0 actionEnabledBefore=1 printersAvailable=1\n",
+                encoding="utf-8")
+            self.assertEqual(classify_native_failure(path)["classification"],
+                             "ctrl_p_shortcut_not_dispatched")
+
     def test_missing_start_can_still_record_failed_job(self):
         with tempfile.TemporaryDirectory() as folder:
             finished = record(Path(folder), "finish", status="failure",

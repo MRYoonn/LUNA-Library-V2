@@ -114,7 +114,10 @@ class LibraryModes(unittest.TestCase):
         self.assertIn('selection->clearSelection()', folder)
         self.assertIn('selection->setCurrentIndex(index,', folder)
         self.assertIn('Child selection left root toggled or wrong PDF list', self.cpp)
-        self.assertIn('Rebound root paper item missing after child-folder test', self.cpp)
+        self.assertIn('No previously captured QListWidgetItem* is referenced after this point.', self.cpp)
+        self.assertIn('QTemporaryDir selectionFolder(', self.cpp)
+        self.assertLess(self.cpp.index('list->itemDoubleClicked(item);'),
+                        self.cpp.index('QTemporaryDir selectionFolder('))
         self.assertIn('QDirIterator::Subdirectories', all_docs)
         counts = self.cpp.split('void beginRecount()')[1].split('connect(worker, &QThread::finished')[0]
         self.assertIn('result->insert(folder, result->value(folder) + 1)', counts)

@@ -153,6 +153,36 @@ int main(int argc, char** argv) {
     if(!undo.trash(newName,&renameError,recycle)) return fail("Second delete failed");
     if(!write(newName,"collision") || undo.undo(&renameError) || read(newName)!="collision")
         return fail("Ctrl+Z overwrote an existing PDF");
+    // Atomic multi-PDF deletion: all PDFs and sidecars disappear together,
+    // and one Ctrl+Z restores the entire Shift selection byte for byte.
+    const QString batchA=QDir(root).filePath(QStringLiteral("batch-first.pdf"));
+    const QString batchB=QDir(root).filePath(QStringLiteral("batch-second.pdf"));
+    const QString batchThumb=QDir(root).filePath(QStringLiteral("batch-second.luna-thumb.png"));
+    const QString batchMeta=QDir(root).filePath(QStringLiteral("batch-first.luna-meta.json"));
+    if(!write(batchA,"batch-first-bytes") || !write(batchB,"batch-second-bytes") ||
+       !write(batchThumb,"batch-thumbnail") || !write(batchMeta,"batch-metadata"))
+        return fail("Cannot prepare multi-delete files");
+    QStringList batch{batchA,batchB};
+    if(!undo.trashBatch(batch,&renameError,recycle) ||
+       QFileInfo::exists(batchA) || QFileInfo::exists(batchB) ||
+       QFileInfo::exists(batchThumb) || QFileInfo::exists(batchMeta) ||
+       undo.pdfPaths().size()!=2 || !undo.available())
+        return fail("Multi-PDF delete did not remove the complete selected group");
+    if(!undo.undo(&renameError) || read(batchA)!="batch-first-bytes" ||
+       read(batchB)!="batch-second-bytes" || read(batchThumb)!="batch-thumbnail" ||
+       read(batchMeta)!="batch-metadata")
+        return fail("Ctrl+Z did not restore all selected PDFs and sidecars");
+    // If recycling any member fails, already-removed members must be
+    // restored. The former successfully undone batch must not be lost.
+    int recycled=0;
+    const auto failAfterOne=[&recycled](const QString& item) {
+        if(++recycled>1) return false;
+        return QFile::remove(item);
+    };
+    if(undo.trashBatch(batch,&renameError,failAfterOne) ||
+       read(batchA)!="batch-first-bytes" || read(batchB)!="batch-second-bytes" ||
+       read(batchThumb)!="batch-thumbnail" || read(batchMeta)!="batch-metadata")
+        return fail("Failed multi-PDF delete left an unexpected partially deleted group");
     // End-to-end regression: the previous tests called reconcileExplorerRename
     // directly and could not catch a missing folder watcher. Reproduce a real
     // Explorer rename in a nested PDF folder and wait for the live callback.

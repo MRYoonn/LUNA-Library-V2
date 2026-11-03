@@ -3640,6 +3640,34 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
     auto* list = pages->widget(0)->findChild<QListWidget*>();
     if (!list || list->count() != 1) return fail("Synthetic library must contain exactly one PDF");
     auto* item = list->item(0);
+    // Real Qt viewport event: preserve three Shift-selected items when
+    // right-clicking another row. No actual user PDFs are deleted.
+    auto* selectedA = new QListWidgetItem(QStringLiteral("selection A"), list);
+    auto* selectedB = new QListWidgetItem(QStringLiteral("selection B"), list);
+    auto* outside = new QListWidgetItem(QStringLiteral("unselected target"), list);
+    list->selectionModel()->select(list->model()->index(0, 0), QItemSelectionModel::ClearAndSelect);
+    list->selectionModel()->select(list->model()->index(1, 0), QItemSelectionModel::Select);
+    list->selectionModel()->select(list->model()->index(2, 0), QItemSelectionModel::Select);
+    list->scrollToItem(outside, QAbstractItemView::PositionAtTop);
+    QCoreApplication::processEvents();
+    const QPoint clickAt = list->visualItemRect(outside).topLeft() + QPoint(25, 20);
+    if (list->itemAt(clickAt) != outside)
+        return fail("Synthetic unselected context row was not visible");
+    QMouseEvent rightDown(QEvent::MouseButtonPress, QPointF(clickAt),
+        QPointF(list->viewport()->mapToGlobal(clickAt)),
+        Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+    QApplication::sendEvent(list->viewport(), &rightDown);
+    QMouseEvent rightUp(QEvent::MouseButtonRelease, QPointF(clickAt),
+        QPointF(list->viewport()->mapToGlobal(clickAt)),
+        Qt::RightButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(list->viewport(), &rightUp);
+    if (list->selectedItems().size() != 3 || outside->isSelected())
+        return fail("Right-click collapsed a multi-selected PDF group");
+    delete list->takeItem(list->row(outside));
+    delete list->takeItem(list->row(selectedB));
+    delete list->takeItem(list->row(selectedA));
+    list->clearSelection();
+    list->scrollToItem(item, QAbstractItemView::PositionAtTop);
     int searchBindings = 0;
     const QKeySequence searchKey(QStringLiteral("Ctrl+K"));
     for (auto* action : window.findChildren<QAction*>())
@@ -3885,6 +3913,18 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             library->model_->pdfCount(countRoot) == baselineCount &&
             library->model_->pdfCount(subfolder.path()) == 1; }, 10000))
             return fail("Child PDF changed parent direct count or missed child count");
+        library->selectFolder(subfolder.path());
+        if (!wait([&] { return library->folderPdfs_->count() == 1 &&
+            !library->folderTimer_->isActive(); }, 10000) ||
+            library->folderTab_->isChecked() ||
+            !library->tree_->selectionModel()->isSelected(library->model_->index(subfolder.path())))
+            return fail("Child selection left root toggled or wrong PDF list");
+        library->selectFolder(countRoot);
+        if (!wait([&] { return library->folderPdfs_->count() == 1 &&
+            !library->folderTimer_->isActive(); }, 10000) ||
+            !library->folderTab_->isChecked() ||
+            !library->tree_->selectionModel()->selectedIndexes().isEmpty())
+            return fail("Root shortcut did not clear child-folder highlight");
     }
     checkpoint("count-deleted");
     library->model_->refreshPdfCounts(countRoot);

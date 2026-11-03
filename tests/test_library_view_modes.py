@@ -143,6 +143,8 @@ class LibraryModes(unittest.TestCase):
             'titleRow->insertStretch(0, 1)',
             'QStringLiteral("library/expandedDockWidth")',
             'widthSaveTimer_.setInterval(250)',
+            'if (!navigation_->isHidden() || !documents_->isHidden())',
+            'settings.setValue(QStringLiteral("library/splitter"), split_->saveState())',
             'dock->installEventFilter(library)',
             'const int storedWidth = qBound(432',
             'settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width())',

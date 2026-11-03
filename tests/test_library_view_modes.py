@@ -175,7 +175,8 @@ class LibraryModes(unittest.TestCase):
             'dock->setMaximumWidth(showNav && showDocs ? 850 : qMax(minWidth, collapsedTarget))',
         ):
             self.assertIn(token, self.cpp, token)
-        self.assertIn('tabs_->setCornerWidget(rail, Qt::TopLeftCorner)', tabs)
+        self.assertNotIn('tabs_->setCornerWidget(rail, Qt::TopLeftCorner)', tabs)
+        self.assertNotIn('LunaPanelRestoreRail', tabs)
 
     def test_paper_header_and_pdf_tabs_share_top_alignment_and_no_native_tab_rule(self):
         tabs = (ROOT/'src/lunatabs.cpp').read_text(encoding='utf-8')

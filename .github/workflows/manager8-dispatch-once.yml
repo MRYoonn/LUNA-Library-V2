@@ -31,5 +31,5 @@ jobs:
           test "$REF_NAME" = "manager8/folder-count-verifier-20261103"
           test "${#SOURCE_SHA}" -eq 40
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
-          echo "Requested Windows build on $REF_NAME at $SOURCE_SHA."
+          echo "Requested Windows build with top-level native print-owner correction on $REF_NAME at $SOURCE_SHA."
           echo "Do not assume success until the dispatched run finishes and the portable artifact exists."

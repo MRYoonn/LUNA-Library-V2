@@ -354,6 +354,42 @@ public:
                      qMax(1,r.width()-24),kSIFooterHeight);
     }
     std::function<void(const QString&, const QString&)> saveMemo;
+
+    void paintSIFooter(QPainter* painter,const QStyleOptionViewItem& option,
+                       const QModelIndex& index) const {
+        const int count=index.data(Qt::UserRole+11).toInt();
+        if(count<=0)return;
+        const QRect area=siFooterRect(option.rect);
+        painter->save();
+        painter->setPen(QColor(kLINE));
+        painter->drawLine(area.left()+5,area.top()+1,area.right()-5,area.top()+1);
+        painter->setPen(QColor(kBLUE));
+        QFont font=option.font;font.setPixelSize(12);font.setBold(true);
+        painter->setFont(font);
+        const bool expanded=index.data(Qt::UserRole+12).toBool();
+        painter->drawText(area.adjusted(13,3,-6,-1),Qt::AlignVCenter|Qt::AlignLeft,
+            (expanded?QStringLiteral("▾  "):QStringLiteral("▸  "))+
+             QStringLiteral("Supporting Information (%1)").arg(count));
+        painter->restore();
+    }
+    void paintSIChild(QPainter* painter,const QStyleOptionViewItem& option,
+                      const QModelIndex& index) const {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing,true);
+        const QRect r=option.rect.adjusted(18,2,-6,-2);
+        const bool selected=option.state&QStyle::State_Selected;
+        painter->setPen(QPen(QColor(selected?"#B0CDF2":kLINE),1));
+        painter->setBrush(QColor(selected?"#EAF2FF":"#F6F9FD"));
+        painter->drawRoundedRect(r,6,6);
+        readerIcon(QStringLiteral("documents")).paint(painter,
+            QRect(r.left()+12,r.top()+10,20,24));
+        QFont font=option.font;font.setFamily(QStringLiteral("Malgun Gothic"));font.setPixelSize(12);
+        painter->setFont(font);painter->setPen(QColor(kNAVY));
+        const QString name=QFileInfo(index.data(Qt::UserRole).toString()).completeBaseName();
+        painter->drawText(r.adjusted(42,4,-10,-4),Qt::AlignVCenter|Qt::AlignLeft,
+            QFontMetrics(font).elidedText(name,Qt::ElideRight,qMax(12,r.width()-60)));
+        painter->restore();
+    }
     static QRect contentRect(const QRect& r) {
         return QRect(r.left() + 16, r.top() + 14, qMax(25, r.width() - 32), kCardHeight - 28);
     }
@@ -410,7 +446,8 @@ public:
             memoRect(option.rect)).adjusted(21, 0, 0, 0));
     }
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
-        if (compact_) { paintCompact(painter, option, index); return; }
+        if(index.data(Qt::UserRole+10).toBool()){paintSIChild(painter,option,index);return;}
+        if(compact_){paintCompact(painter,option,index);paintSIFooter(painter,option,index);return;}
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
         painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
@@ -525,6 +562,7 @@ public:
             Qt::AlignCenter, index.data(Qt::UserRole + 2).toBool() ?
             QIcon::Selected : QIcon::Disabled);
         painter->restore();
+        paintSIFooter(painter,option,index);
     }
 private:
     // Restored density of the original paper list: thumbnail at LEFT, title,

@@ -1,0 +1,65 @@
+name: LUNA - publish tested updater compatibility hotfix (one-shot)
+
+# Do not overwrite v0.9.0.243. Publish only immutable-identity draft v0.9.0.244.
+on:
+  push:
+    branches:
+      - agent/luna-first-release-20261103
+    paths:
+      - .github/workflows/luna-compat-hotfix-publish-once.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish-verified-hotfix:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      ID: '432318667'
+      TAG: 'v0.9.0.244'
+      SOURCE: '0550c5a2b57e4704c6e1a255a3abfe0094880dbe'
+    steps:
+      - name: Check the exact draft and previously validated packaging job
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$REPO" = 'MRYoonn/LUNA-Library-V2'
+          test "$(gh api "repos/$REPO/releases/latest" --jq '.tag_name')" = v0.9.0.243
+          test "$(gh api "repos/$REPO/actions/runs/41585362495" --jq '.conclusion')" = success
+          test "$(gh api "repos/$REPO/actions/runs/41577602717" --jq '.conclusion')" = success
+          gh api "repos/$REPO/releases/$ID" | jq -e \
+            --arg tag "$TAG" --arg sha "$SOURCE" '
+            .draft == true and .prerelease == false and .tag_name == $tag and
+            .target_commitish == $sha and
+            ([.assets[] | {name,size,digest}] | sort_by(.name)) == [
+              {name:"LUNA-Release.json",size:21539,
+               digest:"sha256:a1d2fe133d85c4f286d28cd28c1a0cd4f6c5d3949188de98ce7c2a931391d879"},
+              {name:"LUNA-Windows-Portable.zip",size:51762522,
+               digest:"sha256:5cf267ffbaa76a4eb32f7fc39d873dd9b8e7437655fcf9a3d199210ae74ecba6"}
+            ]' >/dev/null
+          echo "PASS: audited packaging job, source build, draft SHA and exact assets"
+      - name: Publish compatibility hotfix as latest stable release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api -X PATCH "repos/$REPO/releases/$ID" -F draft=false -F prerelease=false -f make_latest=true \
+            --jq '{id,tag_name,draft,prerelease,target_commitish,html_url}'
+          gh api "repos/$REPO/releases/$ID" | jq -e \
+            --arg tag "$TAG" --arg sha "$SOURCE" '
+            .draft == false and .prerelease == false and
+            .tag_name == $tag and .target_commitish == $sha and
+            ([.assets[].name] | sort) == ["LUNA-Release.json","LUNA-Windows-Portable.zip"]' >/dev/null
+          for attempt in 1 2 3 4 5 6; do
+            if [ "$(gh api "repos/$REPO/releases/latest" --jq '.tag_name' 2>/dev/null || true)" = "$TAG" ]; then
+              echo "PASS: latest stable updater feed now advertises $TAG"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Published but public latest cache not confirmed' >&2
+          exit 1

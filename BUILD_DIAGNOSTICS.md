@@ -272,3 +272,13 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 - Run: https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41768692441 ; commit `9ca694e71530b36618a601c39c0bc96d77497a18`.
 - First failed required job: `source-gate` / `Public source and full Python regressions`. Public preflight passed; Python suite: 179 tests, 177 pass, 2 fail. Both failures were old hard-coded 264,000 byte caps in `tests/test_public_gate.py` despite the reviewed scoped source cap already being 270,000 in `tools/preflight_public.py`. Actual UI source 266,315 bytes. `native-filemoves` and full Windows dispatch were correctly skipped; no Windows build succeeded.
 - Corrective action: align both source-size regression asserts with 270,000 bytes, retain all security/secret/PDF/default 200KB gates. Retest exact new SHA, record Win32+PDF4QT status independently.
+
+## v0.9.0.260 proposed 36px original-position panel folding — 2026-11-04
+
+- User request: transplant PR #35 into latest shipped v0.9.0.259 while retaining blue EXE/red PDF icons, 19px moon tabs, live bibliography title and verified filename/sidecar rename.
+- Historical Build #250, GitHub run 41653228254, completed full MSVC and general native UI but failed production tabs integration: `Expanded dock width was not persisted after manual resize`.
+- The v259-based branch gives QSplitter two permanent original-order children (LunaNavigationSlot and LunaDocumentsSlot). Each child owns a 36 logical-pixel folded restore control; no floating PDF reader/tab bar restore rail remains.
+- A real QDockWidget resize does not emit the inner QSplitter::splitterMoved. Handle parent dock Resize and persist the settled user width only when both panels are expanded; keep the existing deferred width timer.
+- Native integration still enforces 10 actual mouse click cycles, 36px original slots, independent restore controls, user width persistence and PDF-only tabs; no timeout or acceptance gate was weakened.
+- Scoped public UI source cap changes from 270000 to 280000 bytes; all other 200000-byte file caps and secret/symlink/privacy exclusions remain unchanged.
+- Release only after exact-source Windows PDF4QT/MSVC, native annotations, GUI tabs, updater compatibility, portable ZIP/manifest and SHA checks pass.

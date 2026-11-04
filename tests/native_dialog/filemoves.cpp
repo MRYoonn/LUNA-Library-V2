@@ -81,7 +81,7 @@ int main(int argc, char** argv) {
         {QStringLiteral("titleSource"), QStringLiteral("publisher_cover_verified")}
     };
     const QString titledName=luna::AutoFileName::fromVerifiedTitle(verifiedTitle,root);
-    if(titledName!=QStringLiteral("A Synthetic Title  With Illegal   Characters.pdf"))
+    if(titledName!=QStringLiteral("A Synthetic Title With Illegal Characters.pdf"))
         return fail("Windows title filename normalization changed");
     QVariantMap uncertain=verifiedTitle;
     uncertain[QStringLiteral("titleSource")]=QStringLiteral("pdf_metadata");

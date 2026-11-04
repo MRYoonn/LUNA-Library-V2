@@ -188,10 +188,12 @@ class LibraryModes(unittest.TestCase):
             'QStringLiteral("LunaDocumentsRestoreButton")',
             'QStringLiteral("LunaLibraryHeader")',
             'QStringLiteral("LunaPaperHeader")',
-            'QStringLiteral("LunaPanelRestoreRail")',
+            'QStringLiteral("LunaNavigationFold")',
+            'QStringLiteral("LunaDocumentsFold")',
             'libraryHeading->layout()->addWidget(panelButton(',
             'paperHeading->addWidget(panelButton(',
-            'restoreRail->move(8, window.menuBar()->height() + 95)',
+            'library->navigationFold()->layout()->addWidget(restoreNav)',
+            'library->documentsFold()->layout()->addWidget(restoreDocs)',
             'void toggleNavigation()', 'void toggleDocuments()',
         ):
             self.assertIn(token, self.cpp, token)
@@ -231,7 +233,8 @@ class LibraryModes(unittest.TestCase):
         for term in (
             'QStringLiteral("LunaNavigationCollapseButton")',
             'QStringLiteral("LunaDocumentsCollapseButton")',
-            'QStringLiteral("LunaPanelRestoreRail")',
+            'QStringLiteral("LunaNavigationFold")',
+            'QStringLiteral("LunaDocumentsFold")',
             'QStringLiteral("LunaLibraryHeader")',
             'QStringLiteral("LunaPaperHeader")',
             'Panel heading control is clipped or detached',

@@ -1614,6 +1614,10 @@ public:
         if (!QFileInfo(start).isDir()) start = QDir::homePath();
         bibliography_.changed = [this](const QString& identity) {
             refreshBibliography(identity);
+            // The tab strip uses real bibliography titles, not stale PDF basenames.
+            auto* host = window();
+            host->setProperty("LunaBibliographyRevision",
+                host->property("LunaBibliographyRevision").toInt() + 1);
             if(localSync_ && !applyingRemote_) localSync_->publish(identity);
         };
         localSync_ = new luna::LocalFolderSync(this);

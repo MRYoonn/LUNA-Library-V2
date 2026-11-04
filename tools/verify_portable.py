@@ -14,6 +14,7 @@ REQUIRED_BINARIES = (
     "vcruntime140_1.dll",
 )
 REQUIRED_NOTICES = ("PDF4QT_LICENSE.txt", "LUNA_LICENSE_NOTICE.md", "USER_GUIDE_KO.md", "build-info.json", "LUNA-Update.ps1")
+REQUIRED_ICONS = ("LUNA-PDF.ico",)  # separate red .pdf Explorer icon; EXE stays blue
 PRIVATE_SUFFIXES = {
     ".pdf", ".db", ".sqlite", ".sqlite3", ".log", ".pem", ".pfx",
     ".p12", ".key", ".token",
@@ -59,6 +60,12 @@ def check(root: Path) -> list[str]:
                 errors.append("Unexpected executable: " + relative)
             if path.suffix.lower() in {".dll", ".exe"} and not is_x64_pe(path):
                 errors.append("Not a Windows x64 PE binary: " + relative)
+    for name in REQUIRED_ICONS:
+        icon = root / name
+        if not icon.is_file() or icon.is_symlink() or icon.stat().st_size < 1000:
+            errors.append("Missing or invalid PDF association icon: " + name)
+        elif icon.read_bytes()[:4] != b"\\x00\\x00\\x01\\x00":
+            errors.append("Not a valid Windows PDF ICO header: " + name)
     for name in REQUIRED_BINARIES + REQUIRED_NOTICES:
         path = root / name
         if not path.is_file() or path.is_symlink() or not path.stat().st_size:

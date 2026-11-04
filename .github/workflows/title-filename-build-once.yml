@@ -1,0 +1,87 @@
+name: LUNA verified paper titles and smaller tab moon - Windows validation
+on:
+  push:
+    branches:
+      - feature/tab-moon-title-filenames-20261104
+    paths:
+      - .github/workflows/title-filename-build-once.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  source-gate:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public source and full Python regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Preserve exact-source failure analysis
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'Title/filename source gate: run=%s sha=%s. Inspect the first failing step and archive CI logs; no success is asserted by this manifest.\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-Title-Filename-Source-Diagnostics
+          path: evidence/failure-analysis.md
+          retention-days: 90
+
+  native-filemoves:
+    needs: source-gate
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Build and execute real Win32 same-folder rename and thumbnail tests
+        shell: pwsh
+        run: |
+          $dir=Join-Path $env:RUNNER_TEMP 'luna-title-filename'
+          cmake -S tests/native_dialog -B $dir -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Native filemoves CMake configuration failed' }
+          cmake --build $dir --target luna-native-filemoves --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Native filemoves compilation failed' }
+          ctest --test-dir $dir -C Release -R '^native_file_moves$' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Native filemoves title/metadata preservation tests failed' }
+
+  dispatch-full-windows:
+    needs: [source-gate, native-filemoves]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Start exact-source complete Windows PDF4QT MSVC UI and ZIP validation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$BRANCH" = feature/tab-moon-title-filenames-20261104
+          test "${#SHA}" -eq 40
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq .commit.sha)" = "$SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
+          echo "Dispatched full Windows validation for exact source $SHA"

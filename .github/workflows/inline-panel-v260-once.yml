@@ -187,3 +187,8 @@ jobs:
 # Rerun after native build 41805543137 exposed a second Qt dock-width
 # persistence failure. Settled geometry polling now persists actual width;
 # all 10 real mouse-driven folding and manual-width assertions remain enabled.
+
+# 2026-11-04 corrective source verification. Previous CI's collected INI
+# proved actual expandedDockWidth=690; the old Win32 test sampled the first
+# transient width >=620px. Exact 690px settlement is now required before the
+# persisted-width assertion. Do not weaken ten real click cycles or GUI gates.

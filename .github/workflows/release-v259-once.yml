@@ -1,4 +1,7 @@
-name: LUNA v0.9.0.259 - pinned validated Windows release
+name: LUNA v0.9.0.259 - finalize verified draft and auto-update
+# The first attempt created a valid GitHub DRAFT (ID 433676006). GitHub does
+# not create refs/tags/v0.9.0.259 for drafts; the old script incorrectly tried
+# to download it by tag before publication and got HTTP 404.
 on:
   push:
     branches:
@@ -15,13 +18,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  finalize:
     if: github.repository == 'MRYoonn/LUNA-Library-V2'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: MRYoonn/LUNA-Library-V2
+      RELEASE_ID: '433676006'
       VERSION_TAG: v0.9.0.259
       SOURCE_SHA: 4ebdeb660af632cdb7c39d53d745cc14598fc641
       SOURCE_RUN: '41769094712'
@@ -30,104 +34,71 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
-      - name: Verify immutable released source and one-file release request
+      - name: Check immutable previous release action and exact approved Windows build
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = feature/tab-moon-title-filenames-20261104
-          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
-          test "$(git diff --name-only "$SOURCE_SHA" "$GITHUB_SHA")" = ".github/workflows/release-v259-once.yml"
-          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .status)" = completed
+          test "$(git rev-parse HEAD^)" = 8bdf574873ccbd5025df355d89b8bda223688189
+          test "$(git diff --name-only HEAD^ HEAD)" = .github/workflows/release-v259-once.yml
           test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .conclusion)" = success
           test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .head_sha)" = "$SOURCE_SHA"
-          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .head_branch)" = feature/tab-moon-title-filenames-20261104
           test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .path)" = .github/workflows/build-windows.yml
           test "$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" = v0.9.0.258
-          test -z "$(git ls-remote --tags origin "refs/tags/$VERSION_TAG")"
-          if gh release view "$VERSION_TAG" --repo "$REPO" >/dev/null 2>&1; then
-            echo "Release already exists; refusing unintended overwrite"; exit 1
-          fi
-          # Package only source from the fully validated Windows build, not
-          # the post-build workflow-creation commit.
-          git checkout --detach "$SOURCE_SHA"
-      - name: Repeat privacy, Python and automatic-updater compatibility checks
+      - name: Verify exact uploaded ZIP and JSON asset digests, draft target and tag identity
         shell: bash
         run: |
           set -euo pipefail
-          python -B tools/preflight_public.py
-          python -B -m unittest discover -s tests -p 'test_*.py' -v
-      - name: Retrieve exact Windows CI portable
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p staging/portable
-          gh run download "$SOURCE_RUN" --repo "$REPO" --name LUNA-Windows-Portable --dir staging/portable
-      - name: Independently validate original EXE and produce tagged ZIP/manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -B -m tools.prepare_release --portable staging/portable --destination dist --tag "$VERSION_TAG" --source-run "$SOURCE_RUN" --commit "$SOURCE_SHA" > dist-info.json
+          gh api "repos/$REPO/releases/$RELEASE_ID" > draft.json
           python - <<'PY'
-          import hashlib, json, zipfile
+          import json
           from pathlib import Path
-          m=json.loads(Path('dist/LUNA-Release.json').read_text(encoding='utf-8'))
-          p=Path('dist/LUNA-Windows-Portable.zip')
-          info=json.loads(Path('staging/portable/build-info.json').read_text(encoding='utf-8-sig'))
-          assert m['schema']==2 and m['tag']=='v0.9.0.259'
-          assert m['commit']=='4ebdeb660af632cdb7c39d53d745cc14598fc641'
-          assert m['source_run']==41769094712
-          assert info['commit']==m['commit'] and int(info['run'])==m['source_run']
-          assert hashlib.sha256(p.read_bytes()).hexdigest()==m['sha256']
-          with zipfile.ZipFile(p) as z:
-              assert z.testzip() is None
-              paths=set(z.namelist())
-              assert len(paths)==len(m['files'])
-              manifest_paths={f['path'] for f in m['files']}
-              assert paths==manifest_paths
-              for f in m['files']:
-                  data=z.read(f['path'])
-                  assert len(data)==f['size'] and hashlib.sha256(data).hexdigest()==f['sha256'], f['path']
-              out_info=json.loads(z.read('build-info.json'))
-              assert out_info['version']==m['tag']
-              assert out_info['commit']==m['commit'] and int(out_info['run'])==m['source_run']
-              assert hashlib.sha256(z.read('LUNA.exe')).hexdigest()==info['exeSha256']
-          print('VERIFIED',m['tag'],m['commit'],m['source_run'],'files',len(paths),'zip_sha256',m['sha256'],'exe_sha256',info['exeSha256'])
+          r=json.loads(Path('draft.json').read_text())
+          assert r['draft'] is True and r['prerelease'] is False
+          assert r['id']==433676006
+          assert r['tag_name']=='v0.9.0.259'
+          assert r['target_commitish']=='4ebdeb660af632cdb7c39d53d745cc14598fc641'
+          assert len(r['assets'])==2
+          expected={
+             'LUNA-Windows-Portable.zip':('sha256:dffbc17ca5f54dd343b0f7cc02bfe1fae08171d7d8521ef34bcf0541120e724a',51823440),
+             'LUNA-Release.json':('sha256:3003470fd0a83de8efe5ac4f2592201315f93d31f693bcbfa20a95e3894897a2',21539)
+          }
+          for asset in r['assets']:
+              name=asset['name']
+              assert name in expected and (asset['digest'],asset['size'])==expected[name], name
+          print('Verified immutable uploaded release assets; zip and manifest SHA256 match full previous release validation')
           PY
-      - name: Create draft release from validated build SHA
+          # Before draft publication, this GitHub release has NO git tag ref.
+          if gh api "repos/$REPO/git/ref/tags/$VERSION_TAG" >/dev/null 2>&1; then
+            echo "Unexpected preexisting tag; abort" >&2
+            exit 1
+          fi
+      - name: Publish the validated draft; do not modify assets or compiled executable
         shell: bash
         run: |
           set -euo pipefail
-          gh release create "$VERSION_TAG" dist/LUNA-Windows-Portable.zip dist/LUNA-Release.json \
-            --repo "$REPO" --target "$SOURCE_SHA" --draft \
-            --title "LUNA Library v0.9.0.259 — Paper title & tabs" \
-            --notes "Verified Windows Portable build #41769094712, exact source commit $SOURCE_SHA. Changes: moon tab icons reduced from 23 to 19 px with safe padding; tabs display the same extracted bibliographic title as paper cards; trusted article titles can rename actual PDFs after the document closes, using no-overwrite paired PDF, thumbnail, and metadata migration. Conflicts and SI files remain unchanged. Existing blue LUNA.exe and red PDF icon preserved. Windows MSVC, synthetic UI/annotation, Qt native, regression and packaging gates passed. Not a claim of physical user-PC/MYBOX two-machine verification."
-      - name: Verify release asset download and published tag target before publishing
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p released
-          gh release download "$VERSION_TAG" --repo "$REPO" --dir released --pattern 'LUNA-*'
-          cmp released/LUNA-Release.json dist/LUNA-Release.json
-          cmp released/LUNA-Windows-Portable.zip dist/LUNA-Windows-Portable.zip
+          gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" -F draft=false -F prerelease=false --jq '.tag_name,.draft,.published_at'
+          test "$(gh api "repos/$REPO/releases/$RELEASE_ID" --jq .draft)" = false
           test "$(gh api "repos/$REPO/git/ref/tags/$VERSION_TAG" --jq .object.sha)" = "$SOURCE_SHA"
-          test "$(gh release view "$VERSION_TAG" --repo "$REPO" --json isDraft --jq .isDraft)" = true
-      - name: Publish stable release (automatic updates can now discover it)
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release edit "$VERSION_TAG" --repo "$REPO" --draft=false --prerelease=false
           test "$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" = "$VERSION_TAG"
-          gh release view "$VERSION_TAG" --repo "$REPO" --json url,tagName,isDraft,isPrerelease
-      - name: Preserve release diagnosis
+          echo "Published release https://github.com/$REPO/releases/tag/$VERSION_TAG"
+      - name: Save release correction diagnostics
         if: always()
         shell: bash
         run: |
-          mkdir -p release-evidence
-          printf 'Version v0.9.0.259, pinned source 4ebdeb660af632cdb7c39d53d745cc14598fc641, validated Windows run 41769094712, packaging workflow %s. Inspect all failed steps and keep draft if any verification fails.\n' "$GITHUB_RUN_ID" > release-evidence/failure-analysis.md
-          if test -f dist/LUNA-Release.json; then cp dist/LUNA-Release.json release-evidence/verified-manifest.json; fi
+          mkdir -p evidence
+          cat > evidence/failure-analysis.md <<'EOF'
+          Earlier release workflow 41800159101: packaging and 135-file ZIP/manifest/
+          EXE SHA256 checks passed. The draft was successfully created as ID
+          433676006; verifying it by tag before publication returned HTTP 404
+          because GitHub uses an untagged draft URL. Remediation: verify the draft
+          by numeric release ID and compare its uploaded asset SHA256 digests,
+          then publish by numeric ID; finally verify created tag ref and latest
+          release. No Windows application source or compiled EXE was modified.
+          EOF
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: LUNA-v259-Release-Diagnostics
-          path: release-evidence/
+          name: LUNA-v259-Final-Publish-Diagnostics
+          path: evidence/failure-analysis.md
           retention-days: 90

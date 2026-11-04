@@ -301,3 +301,10 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 - The test previously accepted `dock->width()>=620`, sampling the first intermediary width, saving that as `userDockWidth`, then requiring the persisted *final* width to equal the transient. This is not reliable native-QDockWidget behavior.
 - Corrected the test to require the actual requested 690px width to settle within 4px *before* capturing `userDockWidth` and asserting exact persisted equality. Adds `settledDockWidthDiagnostics` with both values to native JSON. No feature code deleted, no real input/click test bypassed, and no window-size or persistence check disabled.
 - v260 release remains blocked until the new source's full Windows UI integration and SHA-verified release pass.
+
+### v260 native widget source-gate failure — third full build #41846832732
+
+- SHA `c74ccdc2bdec4869621721857ffd4b6612710ebc` completed Windows compilation and all pre-integrated tests but failed the panel-width check. The verified integrated artifact `LUNA-UI-Synthetic` #13331798517 contains `integrated/scale-1/settings/LUNA/LUNA Library.ini` with `expandedDockWidth=690`, `expandedNavigationWidth=225` and `expandedDocumentsWidth=453`.
+- The preceding correction waited for `abs(actual-690) <= 4`, then snapshotted the first such width. That transient could be 686..689, while the timer correctly stored 690. The test then compared the stale snapshot to the final persisted width. This is a test synchronization defect, not evidence that the persisted width is missing.
+- The corrected native check now waits for **simultaneous** matching of the live dock width and QSettings value within the 690px target tolerance (same integrated event-loop iteration) before proceeding with all ten real click-driven independent fold/unfold cycles. It still fails if geometry cannot settle or settings do not agree; no skipping, mocking, or reduced UI coverage.
+- The v260 release gate remains strict and unchanged.

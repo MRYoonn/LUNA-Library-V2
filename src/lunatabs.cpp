@@ -586,7 +586,7 @@ private:
         const QString display = (c->getDocument() || s->loading) && !path.isEmpty() ? path : s->identity;
         // The paper card and the reader tab share the same extracted title.
         // File paths remain the real disk path, never an invented title-based path.
-        const QString id = display.isEmpty() ? s->identity : DocumentClaim::identity(display);
+        const QString id = s->identity; // Claim identity is cached; no 10 Hz filesystem canonicalization.
         if (!id.isEmpty() && !tabTitleCache_.contains(id)) {
             luna::Bibliography titles;
             tabTitleCache_.insert(id, titles.record(id).value(QStringLiteral("title")).toString().simplified());

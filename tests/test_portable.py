@@ -11,7 +11,8 @@ import json
 
 from tools.smoke_windows import run, synthetic_pdf
 
-from tools.verify_portable import REQUIRED_BINARIES, REQUIRED_NOTICES, check, is_x64_pe
+from tools.verify_portable import REQUIRED_BINARIES, REQUIRED_NOTICES, REQUIRED_ICONS, check, is_x64_pe
+from tools.make_pdf_icon import make_ico
 
 
 def pe_header(machine=0x8664, magic=0x20B):
@@ -40,6 +41,8 @@ class PortableLayoutTests(unittest.TestCase):
             path.write_bytes(pe_header())
         for name in REQUIRED_NOTICES:
             (self.root / name).write_text("Synthetic license notice")
+        for name in REQUIRED_ICONS:
+            (self.root / name).write_bytes(make_ico())
         (self.root / "third_party_licenses").mkdir()
         (self.root / "third_party_licenses/MIT.txt").write_text("Synthetic notice")
 
@@ -55,6 +58,15 @@ class PortableLayoutTests(unittest.TestCase):
                 path.write_bytes(b"obsolete")
                 self.assertTrue(any("Obsolete upstream" in e for e in check(self.root)))
                 path.unlink()
+
+    def test_pdf_explorer_icon_does_not_replace_luna_executable_icon(self):
+        self.assertEqual(REQUIRED_ICONS, ("LUNA-PDF.ico",))
+        icon=self.root/"LUNA-PDF.ico"
+        self.assertEqual(icon.read_bytes()[:4],bytes.fromhex("00000100"))
+        icon.unlink()
+        self.assertTrue(any("PDF association icon" in x for x in check(self.root)))
+        icon.write_bytes(b"corrupt ICO"+bytes(1100))
+        self.assertTrue(any("ICO header" in x for x in check(self.root)))
 
     def test_missing_qt_platform_plugin(self):
         (self.root / "platforms/qwindows.dll").unlink()

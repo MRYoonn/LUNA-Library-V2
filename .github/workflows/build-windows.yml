@@ -506,6 +506,10 @@ jobs:
           Copy-Item 'LICENSE_NOTICE.md' "$output/LUNA_LICENSE_NOTICE.md"
           Copy-Item 'USER_GUIDE_KO.md' "$output/USER_GUIDE_KO.md"
           Copy-Item 'tools/LUNA-Update.ps1' "$output/LUNA-Update.ps1"
+          # PDF files have their own red crescent document icon. The original
+          # BLUE LUNA.exe embedded ICO remains unchanged.
+          python -B tools/make_pdf_icon.py --out "$output/LUNA-PDF.ico"
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path "$output/LUNA-PDF.ico")) { throw "Standalone PDF association icon generation failed" }
           $updateTokens = $null; $updateErrors = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $output 'LUNA-Update.ps1'), [ref]$updateTokens, [ref]$updateErrors) | Out-Null
           if ($updateErrors.Count) { throw 'Updater PowerShell syntax failed' }

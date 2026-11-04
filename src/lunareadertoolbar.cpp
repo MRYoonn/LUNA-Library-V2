@@ -1535,12 +1535,17 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
             for (const auto& previous : occupied) if (previous.intersects(rect)) return fail("Toolbar controls overlap");
             occupied.append(rect);
         }
-        // Panel controls belong to their own visible headings, not the
-        // native PDF toolbar or the tab strip. Restore lives at reader edge.
+        // Folding keeps the restore tabs in each original splitter slot.
+        // Neither control moves into PDF toolbar space or a floating overlay.
         auto* navigationToggle = window.findChild<QToolButton*>(QStringLiteral("LunaNavigationCollapseButton"));
         auto* documentsToggle = window.findChild<QToolButton*>(QStringLiteral("LunaDocumentsCollapseButton"));
-        auto* restoreRail = window.findChild<QWidget*>(QStringLiteral("LunaPanelRestoreRail"));
-        if (!navigationToggle || !documentsToggle || !restoreRail ||
+        auto* navFold = window.findChild<QWidget*>(QStringLiteral("LunaNavigationFold"));
+        auto* docsFold = window.findChild<QWidget*>(QStringLiteral("LunaDocumentsFold"));
+        auto* navRestore = window.findChild<QToolButton*>(QStringLiteral("LunaNavigationRestoreButton"));
+        auto* docsRestore = window.findChild<QToolButton*>(QStringLiteral("LunaDocumentsRestoreButton"));
+        if (!navigationToggle || !documentsToggle || !navFold || !docsFold ||
+            !navRestore || !docsRestore ||
+            navRestore->parentWidget() != navFold || docsRestore->parentWidget() != docsFold ||
             navigationToggle->icon().isNull() || documentsToggle->icon().isNull())
             return fail("Independent pane-heading collapse buttons missing");
         for (const auto& expected : QList<QPair<QToolButton*, QString>>{
@@ -1551,7 +1556,9 @@ bool verifyReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QString& error,
                 !header->rect().contains(expected.first->geometry()))
                 return fail("Panel heading control is clipped or detached");
         }
-        if (restoreRail->isVisible()) return fail("Restore rail visible while both panels are open");
+        if (navFold->isVisible() || docsFold->isVisible() ||
+            navRestore->isVisible() || docsRestore->isVisible())
+            return fail("Inline restore tab visible while both panels are expanded");
         if (auto* more = bar->findChild<QToolButton*>(QStringLiteral("qt_toolbar_ext_button")))
             if (more->isVisible()) for (const auto& rect : occupied)
                 if (more->geometry().intersects(rect)) return fail("Toolbar overflow button overlaps a control");

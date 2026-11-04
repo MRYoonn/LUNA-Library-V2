@@ -69,7 +69,8 @@ class NativeTabsContract(unittest.TestCase):
             'QStringLiteral("LunaDocumentsRestoreButton")',
             'QStringLiteral("LunaLibraryHeader")',
             'QStringLiteral("LunaPaperHeader")',
-            'QStringLiteral("LunaPanelRestoreRail")',
+            'QStringLiteral("LunaNavigationFold")',
+            'QStringLiteral("LunaDocumentsFold")',
             'integrationPanelClick(host, navigationToggle)',
             'integrationPanelClick(host, documentsToggle)',
             'integrationPanelClick(host, navRestore)',
@@ -84,8 +85,9 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('paperHeading->addWidget(panelButton(', library)
         self.assertIn('!host.findChild<QWidget*>(QStringLiteral("LunaTabCorner"))', tabs)
         self.assertIn('PDF tab top rule or paper/PDF header vertical alignment regressed', tabs)
-        self.assertIn('Paper-only dock cannot retain and expand to the full 850-pixel width', tabs)
-        self.assertIn('libraryDock->maximumWidth() == 850', tabs)
+        self.assertIn('Folding library moved the button to the wrong side of papers', tabs)
+        self.assertIn('Both folded slots were not adjacent at the window\'s left edge', tabs)
+        self.assertIn('navSlot->width() == 36 && docsSlot->width() == 36', tabs)
 
     def test_build_206_native_memo_re_resolves_replaced_cards_and_checks_disk(self):
         # Build #206: QSettings and the screenshot contained the entered memo,
@@ -702,7 +704,9 @@ class NativeTabsContract(unittest.TestCase):
         self.assertNotIn('setCornerWidget(corner, Qt::TopLeftCorner)', tabs)
         self.assertIn('tabs_->setCornerWidget(addCorner, Qt::TopRightCorner)', tabs)
         self.assertIn('controls->hide();', library)
-        self.assertIn('restoreRail->move(8, window.menuBar()->height() + 95)', library)
+        self.assertNotIn('restoreRail->move(8, window.menuBar()->height() + 95)', library)
+        self.assertIn('library->navigationFold()->layout()->addWidget(restoreNav)', library)
+        self.assertIn('library->documentsFold()->layout()->addWidget(restoreDocs)', library)
         self.assertIn('setExpanding(false)', tabs)
         self.assertIn('minimumTabSizeHint(int) const override { return {88, 41}; }', tabs)
         self.assertIn('tabs_->setTabText(index, text)', tabs)
@@ -718,10 +722,10 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('documentsToggle->click()', library)
         # The native smoke must enforce collapsed-panel independence plus
         # recoverability from the reader edge, not match removed message text.
-        self.assertIn('Collapsing library navigation hid papers or lost restore rail', library)
-        self.assertIn('Both collapsed panels lost edge restore controls', library)
-        self.assertIn('Edge navigation restore unexpectedly expanded papers', library)
-        self.assertIn('Both panels did not restore independently', library)
+        self.assertIn('Collapsing navigation did not leave its 36px fold on the left', library)
+        self.assertIn('Both folded panels did not remain in order beside the PDF', library)
+        self.assertIn('Opening navigation moved the folded paper list or opened the wrong panel', library)
+        self.assertIn('Inline restore did not reopen both original panel slots', library)
         self.assertIn('restoreNav->click()', library)
         self.assertIn('restoreDocs->click()', library)
         self.assertIn('QTabBar#LunaPdfTabBar::tab', style)

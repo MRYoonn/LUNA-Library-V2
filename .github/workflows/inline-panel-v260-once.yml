@@ -196,3 +196,6 @@ jobs:
 # 2026-11-04 rerun full guarded native release after third Windows run
 # 41846832732: final INI persisted 690px, but prior native test sampled an
 # earlier in-range width; require simultaneous live-dock/INI consistency.
+
+# CI v260 source-contract sync: the static contract now verifies atomic
+# qAbs(actual - 690) <= 4 && saved == actual, matching compiled Win32 UI test.

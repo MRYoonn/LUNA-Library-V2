@@ -49,7 +49,7 @@ class VerifiedFileNameContracts(unittest.TestCase):
             'titleRenameTimer_.start(',
             'getDocument()',
             'DocumentClaim::endpoint(original)',
-            'if (QFileInfo::exists(destination) || QFileInfo(destination).isSymLink())',
+            'QFileInfo::exists(destination) || QFileInfo(destination).isSymLink()',
             'movePdfWithThumbnails(',
             'localSync_->renamed(original, moved.documentPath)',
         ):

@@ -282,3 +282,8 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 - Native integration still enforces 10 actual mouse click cycles, 36px original slots, independent restore controls, user width persistence and PDF-only tabs; no timeout or acceptance gate was weakened.
 - Scoped public UI source cap changes from 270000 to 280000 bytes; all other 200000-byte file caps and secret/symlink/privacy exclusions remain unchanged.
 - Release only after exact-source Windows PDF4QT/MSVC, native annotations, GUI tabs, updater compatibility, portable ZIP/manifest and SHA checks pass.
+
+### v260 first exact-source gate failure — Actions run 41804918192
+
+- Public source preflight passed; full Python regression suite ran 182 tests and failed two legacy source-text assertions in tests/test_library_view_modes.py. These still expected the old QSplitter children-collapsible flag, a zero-width hidden pane, and a restore widget inside PDF tabs; source deliberately uses two visible 36px original-position child slots instead.
+- Corrected tests now explicitly require noncollapsible ordered splitter slots, exact 36px sizes, live dock width persistence on resize, and no PDF-tab restore rail. No Win32 build was dispatched from the failed source gate. Existing source feature code and user data were untouched.

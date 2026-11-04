@@ -65,7 +65,7 @@ APPROVED = {
     "src/lunatabmoon.h", "src/lunapdfassociation.h",
     "tools/generate_pdf_icon.py", "tools/probe_pdf_icon_windows.py",
     "tests/native_dialog/pdfassociation.cpp", "tests/test_pdf_icons_association.py",
-    ".github/workflows/pdf-icons-build-once.yml", "PDF_ICON_DIAGNOSTICS.md",
+    ".github/workflows/pdf-icons-build-once.yml", ".github/workflows/title-filename-build-once.yml", "PDF_ICON_DIAGNOSTICS.md",
     "experiments/native_tabs/prepare.py", "experiments/native_tabs/main.cpp",
     "experiments/native_tabs/run_windows.py", "experiments/native_tabs/README.md",
     "experiments/native_tabs/HANDOFF_KO.md",

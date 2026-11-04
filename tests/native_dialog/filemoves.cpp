@@ -2,6 +2,7 @@
 #include "lunafilemove.h"
 #include "lunatrashundo.h"
 #include "lunalocalsync.h"
+#include "lunaautofilename.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QDebug>
@@ -74,6 +75,41 @@ int main(int argc, char** argv) {
     if(!write(stale,"unrelated") || luna::copyPdfWithThumbnails(pdf,copyTarget).success ||
        read(stale)!="unrelated" || !QFileInfo::exists(pdf))
         return fail("Copy adopted an unrelated MYBOX metadata sidecar");
+    // Title-based rename reuses the same no-overwrite paired move, in place.
+    const QVariantMap verifiedTitle{
+        {QStringLiteral("title"), QStringLiteral("A Synthetic Title: With Illegal / Characters?")},
+        {QStringLiteral("titleSource"), QStringLiteral("publisher_cover_verified")}
+    };
+    const QString titledName=luna::AutoFileName::fromVerifiedTitle(verifiedTitle,root);
+    if(titledName!=QStringLiteral("A Synthetic Title  With Illegal   Characters.pdf"))
+        return fail("Windows title filename normalization changed");
+    QVariantMap uncertain=verifiedTitle;
+    uncertain[QStringLiteral("titleSource")]=QStringLiteral("pdf_metadata");
+    if(!luna::AutoFileName::fromVerifiedTitle(uncertain,root).isEmpty())
+        return fail("Unverified PDF metadata renamed an original file");
+    uncertain=verifiedTitle;
+    uncertain[QStringLiteral("documentKind")]=QStringLiteral("supporting_information");
+    if(!luna::AutoFileName::fromVerifiedTitle(uncertain,root).isEmpty())
+        return fail("Supporting Information must never be automatically renamed");
+    const QString titledSource=QDir(root).filePath(QStringLiteral("title-source.pdf"));
+    const QString titledThumbnail=QDir(root).filePath(QStringLiteral("title-source.luna-thumb.png"));
+    const QString titledTarget=QDir(root).filePath(titledName);
+    const QString titledTargetThumbnail=luna::SidecarStorage::legacyThumbnail(titledTarget,QStringLiteral(".png"));
+    if(!write(titledSource,document) || !write(titledThumbnail,thumbnail))
+        return fail("Could not create title rename fixture");
+    if(!write(titledTarget,"collision")) return fail("Could not create title collision");
+    if(luna::movePdfWithThumbnails(titledSource,root,luna::renameWithoutReplacement,titledName).success ||
+       read(titledSource)!=document || read(titledTarget)!="collision" ||
+       read(titledThumbnail)!=thumbnail)
+        return fail("Auto-title rename overwrote a colliding PDF");
+    QFile::remove(titledTarget);
+    auto titled=luna::movePdfWithThumbnails(titledSource,root,luna::renameWithoutReplacement,titledName);
+    if(!titled.success || titled.documentPath!=titledTarget ||
+       QFileInfo::exists(titledSource) || QFileInfo::exists(titledThumbnail) ||
+       read(titledTarget)!=document || read(titledTargetThumbnail)!=thumbnail)
+        return fail("In-place title rename did not preserve PDF and cropped thumbnail");
+    if(!luna::movePdfWithThumbnails(titledTarget,root).success)
+        return fail("Same-title destination must be an idempotent no-op");
     // Exercise native Explorer renames with the real OS file identity.
     const QString renamedDir=QDir(root).filePath(QStringLiteral("rename-fixtures"));
     if (!QDir().mkpath(renamedDir)) return fail("Cannot create rename fixture");

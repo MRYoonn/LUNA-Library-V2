@@ -1221,14 +1221,18 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             // briefly cross 620px while heading to 690px. The earlier test
             // sampled that transient width, then compared against the correctly
             // persisted, settled 690px value (confirmed in CI's INI artifact).
+            // A dock width can pass through 686..689 on the way to 690.
+            // Never snapshot the first in-range interim size and then compare
+            // that stale sample with the final, correctly persisted 690px INI.
+            // Observe actual geometry and on-disk persistence *together* while
+            // processing real native events; insist they agree at the same time.
             integrationRequire(integrationWait([&] {
-                return qAbs(libraryDock->width() - 690) <= 4;
-            }), "Expanded window library dock did not settle at requested 690px");
-            const int userDockWidth = libraryDock->width();
-            integrationRequire(integrationWait([&] {
-                return QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
-                    .value(QStringLiteral("library/expandedDockWidth")).toInt() == userDockWidth;
+                const int actual = libraryDock->width();
+                const int saved = QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+                    .value(QStringLiteral("library/expandedDockWidth")).toInt();
+                return qAbs(actual - 690) <= 4 && saved == actual;
             }), "Expanded dock width was not persisted after manual resize");
+            const int userDockWidth = libraryDock->width();
             result["settledDockWidthDiagnostics"] = QJsonObject{
                 {"requestedWidth", 690}, {"settledDockWidth", userDockWidth},
                 {"persistedWidth", QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))

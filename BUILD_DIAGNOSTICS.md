@@ -265,3 +265,10 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 **Safety:** Rejected destinations do not overwrite an existing document or metadata. File and sidecar moves roll back if a native rename stage fails; a QSettings migration failure after a successful paired move is an acknowledged residual risk requiring full Windows testing. Old source path is retained for diagnostics rather than deleting any file. Filename truncation is bounded for Windows paths; long card titles remain intact. Existing QSettings writes remain on the UI thread. Privacy and Python source checks retain the baseline 200 KB cap except this specific library UI source (270 KB, previously 264 KB) to accommodate real rename orchestration.
 
 **Acceptance tests:** Updated active/inactive moon icon source contract and native GUI icon-size assertion; native Windows paired-move tests now cover same-folder rename, existing-file collisions, SI exclusion, metadata provenance, and thumbnail integrity. Existing PDF annotation, multi-tab, source privacy, user note and updater tests must still pass on the exact new commit before release. No Windows success or physical user filesystem validation is claimed by this source edit alone.
+
+
+### Verified-title v1 source-gate failure — run 41768692441
+
+- Run: https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41768692441 ; commit `9ca694e71530b36618a601c39c0bc96d77497a18`.
+- First failed required job: `source-gate` / `Public source and full Python regressions`. Public preflight passed; Python suite: 179 tests, 177 pass, 2 fail. Both failures were old hard-coded 264,000 byte caps in `tests/test_public_gate.py` despite the reviewed scoped source cap already being 270,000 in `tools/preflight_public.py`. Actual UI source 266,315 bytes. `native-filemoves` and full Windows dispatch were correctly skipped; no Windows build succeeded.
+- Corrective action: align both source-size regression asserts with 270,000 bytes, retain all security/secret/PDF/default 200KB gates. Retest exact new SHA, record Win32+PDF4QT status independently.

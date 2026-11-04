@@ -64,7 +64,7 @@ def check(root: Path) -> list[str]:
         icon = root / name
         if not icon.is_file() or icon.is_symlink() or icon.stat().st_size < 1000:
             errors.append("Missing or invalid PDF association icon: " + name)
-        elif icon.read_bytes()[:4] != b"\\x00\\x00\\x01\\x00":
+        elif icon.read_bytes()[:4] != bytes.fromhex("00000100"):
             errors.append("Not a valid Windows PDF ICO header: " + name)
     for name in REQUIRED_BINARIES + REQUIRED_NOTICES:
         path = root / name

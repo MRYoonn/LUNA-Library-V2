@@ -39,6 +39,10 @@ class InlinePanelV260(unittest.TestCase):
             'observed == parentWidget() && event->type() == QEvent::Resize',
             'QTimer::singleShot(0, this, [this]',
             'savePanelState();',
+            'expandedDockPoll->setInterval(200)',
+            'if (settings.value(QStringLiteral("library/expandedDockWidth")).toInt() == actualWidth)',
+            'settings.setValue(QStringLiteral("library/expandedDockWidth"), actualWidth)',
+            'expandedDockPoll->start()',
         ):
             self.assertIn(item, LIBRARY)
         for item in (

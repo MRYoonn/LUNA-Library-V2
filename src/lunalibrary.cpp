@@ -1814,7 +1814,8 @@ private:
             source.fileName().compare(filename, Qt::CaseInsensitive) == 0) return true;
         const QString destination = QDir(source.absolutePath()).filePath(filename);
         // No implicit replacement of another article or orphaned companion.
-        if (QFileInfo::exists(destination) || QFileInfo(destination).isSymLink())
+        if (QFileInfo::exists(destination) || QFileInfo(destination).isSymLink() ||
+            !bibliography_.record(DocumentClaim::identity(destination)).isEmpty())
             return true;
         // Reader handles and cross-process document claims must remain stable.
         for (auto* editor : window()->findChildren<pdfviewer::PDFEditorMainWindow*>()) {

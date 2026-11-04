@@ -91,18 +91,18 @@ class LibraryModes(unittest.TestCase):
             self.assertIn('readerIcon(QStringLiteral("'+name+'"))', self.cpp)
 
     def test_paper_only_window_can_shrink_without_hidden_navigation_minimum(self):
-        self.assertIn('split_->setChildrenCollapsible(true);', self.cpp)
-        self.assertIn('setMinimumWidth(0);', self.cpp)
-        self.assertNotIn('setMinimumWidth(432);', self.cpp)
-        self.assertIn('setMinimumWidth((hasNavigation ? 225 : 0) + (hasDocuments ? 195 : 0) + 12)', self.cpp)
-        self.assertIn('setMaximumWidth(850)', self.cpp)
+        # Original splitter slots must remain ordered and non-collapsible.
+        self.assertIn('split_->setChildrenCollapsible(false);', self.cpp)
+        self.assertIn('split_->addWidget(navigationSlot_)', self.cpp)
+        self.assertIn('split_->addWidget(documentsSlot_)', self.cpp)
+        self.assertIn('static constexpr int foldWidth_ = 36', self.cpp)
+        self.assertIn('navigationSlot_->setMinimumWidth(showNav ? 225 : foldWidth_)', self.cpp)
+        self.assertIn('documentsSlot_->setMinimumWidth(showDocs ? 195 : foldWidth_)', self.cpp)
+        self.assertIn('documentsSlot_->setMaximumWidth(showDocs ? 850 : foldWidth_)', self.cpp)
+        self.assertIn('dock->show(); // Both folded rails remain visible', self.cpp)
+        self.assertIn('const int collapsedTarget', self.cpp)
         self.assertIn('dock->setMinimumWidth(1)', self.cpp)
-        self.assertIn('dock->setMaximumWidth(850)', self.cpp)
-        self.assertIn('dock->updateGeometry()', self.cpp)
-        self.assertIn('const int width = savedWidth', self.cpp)
-        self.assertIn('QTimer::singleShot(0, dock, [dock, width]', self.cpp)
-        self.assertIn('if (!dock->isVisible()) return', self.cpp)
-        self.assertIn('window->resizeDocks({dock}, {width}, Qt::Horizontal)', self.cpp)
+        self.assertIn('QTimer::singleShot(0, dock, [dock, requested, showNav, showDocs]', self.cpp)
         self.assertIn('navigation_->setVisible(navigation_->isHidden())', self.cpp)
         self.assertIn('documents_->setVisible(documents_->isHidden())', self.cpp)
 
@@ -156,18 +156,18 @@ class LibraryModes(unittest.TestCase):
             'titleRow->insertStretch(0, 1)',
             'QStringLiteral("library/expandedDockWidth")',
             'widthSaveTimer_.setInterval(250)',
-            'if (!navigation_->isHidden() || !documents_->isHidden())',
+            '!adjustingPanels_ && !navigation_->isHidden() && !documents_->isHidden()',
             'settings.setValue(QStringLiteral("library/splitter"), split_->saveState())',
             'dock->installEventFilter(library)',
             'const int storedWidth = qBound(432',
             'settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width())',
-            'dock->installEventFilter(library)',
-            'navigation_->setMaximumWidth(hasDocuments ? 300 : 850)',
-            'setMaximumWidth(850)',
-            'dock->setMaximumWidth(850)',
+            'settings.setValue(QStringLiteral("library/expandedNavigationWidth"), expandedNavWidth_)',
+            'settings.setValue(QStringLiteral("library/expandedDocumentsWidth"), expandedDocumentsWidth_)',
+            'dock->setMaximumWidth(showNav && showDocs ? 850 : qMax(minWidth, collapsedTarget))',
         ):
             self.assertIn(token, self.cpp, token)
-        self.assertIn('tabs_->setCornerWidget(rail, Qt::TopLeftCorner)', tabs)
+        self.assertNotIn('tabs_->setCornerWidget(rail, Qt::TopLeftCorner)', tabs)
+        self.assertNotIn('LunaPanelRestoreRail', tabs)
 
     def test_paper_header_and_pdf_tabs_share_top_alignment_and_no_native_tab_rule(self):
         tabs = (ROOT/'src/lunatabs.cpp').read_text(encoding='utf-8')

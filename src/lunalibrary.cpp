@@ -1624,7 +1624,7 @@ public:
             // never rewrites files. Open PDFs remain queued until they close.
             if (!applyingRemote_ && !identity.isEmpty()) {
                 pendingTitleRenames_.insert(identity);
-                if (!titleRenameTimer_.isActive()) titleRenameTimer_.start(750);
+                if (!titleRenameTimer_.isActive()) titleRenameTimer_.start();
             }
         };
         localSync_ = new luna::LocalFolderSync(this);
@@ -2201,6 +2201,10 @@ private:
         editor.setProperty("LunaRememberedSource", source);
         if (path == editor.property("LunaRememberedPath").toString()) return;
         editor.setProperty("LunaRememberedPath", path);
+        // Existing library titles also need disk-name reconciliation after upgrade.
+        // Never rename the document while its reader tab still owns it.
+        pendingTitleRenames_.insert(DocumentClaim::identity(path));
+        if (!titleRenameTimer_.isActive()) titleRenameTimer_.start();
         queueBibliography(DocumentClaim::identity(path), *controller->getDocument());
         // Inspect only structured fields already present in the PDF info
         // dictionary. DOI/front-page analysis runs separately in an owned

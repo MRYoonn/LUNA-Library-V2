@@ -1,0 +1,96 @@
+name: LUNA PDF association + crescent tabs - verified Windows exact-source
+on:
+  push:
+    branches:
+      - feature/pdf-file-association-moon-tabs-20261104
+    paths:
+      - .github/workflows/pdf-association-moon-build-once.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  exact-source-python:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public-source privacy gate and full Python regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+          mkdir -p evidence
+          python -B tools/make_pdf_icon.py --out evidence/LUNA-PDF.ico
+          python - <<'PY'
+          from pathlib import Path
+          from tools.make_pdf_icon import make_ico
+          assert Path('evidence/LUNA-PDF.ico').read_bytes()==make_ico()
+          assert Path('evidence/LUNA-PDF.ico').read_bytes()[:4]==bytes.fromhex('00000100')
+          print('PASS: deterministic ICO generated, blue EXE icon unchanged')
+          PY
+      - name: Preserve first-failure diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'Source SHA=%s, CI run=%s. On failure inspect first failed step; no user PDFs/registry were accessed.\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-PDF-Association-Source-Diagnostics
+          path: evidence/failure-analysis.md
+          retention-days: 90
+
+  windows-association-registry:
+    needs: exact-source-python
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: '${{ github.workspace }}/qt/'
+          install-deps: 'true'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Real Win32 HKCU-only registry round trip, no UserChoice changes
+        shell: pwsh
+        run: |
+          $probe=Join-Path $env:RUNNER_TEMP 'luna-pdfassoc-native'
+          cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Qt native association CMake configuration failed' }
+          cmake --build $probe --target luna-native-pdfassociation --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Qt native Win32 registry compile failed' }
+          ctest --test-dir $probe -C Release -R '^native_pdf_association_registry$' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Win32 PDF association HKCU test failed' }
+
+  full-windows-256-plus:
+    needs: [exact-source-python,windows-association-registry]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch complete PDF4QT/Qt6 Windows GUI/portable build on pinned HEAD
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$BRANCH" = feature/pdf-file-association-moon-tabs-20261104
+          test "${#SOURCE_SHA}" -eq 40
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
+          echo "Request Windows build for exact source $SOURCE_SHA; no public stable release until ALL tests/portable/updater gates pass."

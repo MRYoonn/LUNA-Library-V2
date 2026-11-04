@@ -543,7 +543,7 @@ private:
                     }
                     const bool opened=PdfAssociation::openDefaultAppsSettings();
                     QMessageBox::information(this,QStringLiteral("LUNA PDF 파일 연결"),
-                        QStringLiteral("Windows에 LUNA를 PDF 열기 앱으로 등록했습니다.\\n\\n"
+                        QStringLiteral("Windows에 LUNA를 PDF 열기 앱으로 등록했습니다.\n\n"
                         "기본 프로그램은 Windows 설정에서 직접 선택해야 합니다.\\n"
                         "앱 검색에서 LUNA Library PDF를 선택하고 .pdf 기본 앱으로 지정하세요.\\n\\n")+
                         (opened?QString():QStringLiteral("Windows 설정 → 앱 → 기본 앱을 직접 열어 주세요.")));

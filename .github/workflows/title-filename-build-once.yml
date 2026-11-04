@@ -85,3 +85,5 @@ jobs:
           test "$(gh api "repos/$REPO/branches/$BRANCH" --jq .commit.sha)" = "$SHA"
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
           echo "Dispatched full Windows validation for exact source $SHA"
+
+# Rerun after scoped UI source-size regression assertions were corrected.

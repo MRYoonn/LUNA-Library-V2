@@ -81,12 +81,13 @@ class LunaIconContracts(unittest.TestCase):
         for token in (
             "painter.setBrush(Qt::NoBrush)",
             "moon.cubicTo(",
+            "painter.translate(8.0, 8.0);",
             'QColor(QStringLiteral("#3473AE"))',
             'QColor(QStringLiteral("#9AA5B3"))',
         ):
             self.assertIn(token,MOON,token)
         for token in (
-            'setIconSize(QSize(23,23))',
+            'setIconSize(QSize(19,19))',
             'tabs_->addTab(editor, luna::tabMoonIcon(',
             'void updateMoonTabStates()',
             'tabs_->setTabIcon(i,luna::tabMoonIcon(selected))',

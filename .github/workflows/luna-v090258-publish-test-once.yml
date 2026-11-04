@@ -1,0 +1,229 @@
+name: LUNA v0.9.0.258 - publish audited draft and prove live update (one-shot)
+on:
+  push:
+    branches:
+      - release/luna-v0.9.0.258-20261104
+    paths:
+      - .github/workflows/luna-v090258-publish-test-once.yml
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  REPO: MRYoonn/LUNA-Library-V2
+  RELEASE_ID: '433295260'
+  TARGET_TAG: v0.9.0.258
+  SOURCE_SHA: d606afa9631d6bdf02500a3fdfc173a6d0de0264
+  SOURCE_RUN: '41725373320'
+  EXPECTED_ZIP_SHA: b712017b8e79a2fcfded394bf8fdcd5ac490a4f4cffa54d777ca99f03ce6f06b
+  EXPECTED_MANIFEST_SHA: ada51f21dcae2bcc95e0bc90cc3fdb5ad9d856e46dce7d7fa4671f38735c664f
+
+jobs:
+  publish:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify exact successful CI, audited draft and immutable assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPO/actions/runs/41726066633" --jq '.conclusion')" = success
+          test "$(gh api "repos/$REPO/actions/runs/41726066633" --jq '.head_sha')" = db9715c9f6540394d604fff8070c504ce1caa605
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.conclusion')" = success
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.head_sha')" = "$SOURCE_SHA"
+          test "$(gh api "repos/$REPO/releases/latest" --jq '.tag_name')" = v0.9.0.256
+          gh api "repos/$REPO/releases/$RELEASE_ID" | jq -e \
+            --arg tag "$TARGET_TAG" --arg sha "$SOURCE_SHA" \
+            --arg zip "sha256:$EXPECTED_ZIP_SHA" --arg manifest "sha256:$EXPECTED_MANIFEST_SHA" \
+            '.id==433295260 and .draft==true and .prerelease==false and .tag_name==$tag and .target_commitish==$sha and
+             ([.assets[] | {name,size,digest}] | sort_by(.name)) == [
+               {name:"LUNA-Release.json",size:21539,digest:$manifest},
+               {name:"LUNA-Windows-Portable.zip",size:51813532,digest:$zip}
+             ]' >/dev/null
+          echo "PASS: original #256 Windows build, audited prepublish Windows candidate and immutable draft SHA."
+      - name: Publish exact draft as GitHub latest non-prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" \
+            -F draft=false -F prerelease=false -f make_latest=true \
+            --jq '{id,tag_name,draft,prerelease,target_commitish,html_url}'
+          gh api "repos/$REPO/releases/$RELEASE_ID" | jq -e \
+            --arg tag "$TARGET_TAG" --arg sha "$SOURCE_SHA" \
+            '.draft==false and .prerelease==false and .tag_name==$tag and .target_commitish==$sha and
+             ([.assets[].name] | sort)==["LUNA-Release.json","LUNA-Windows-Portable.zip"]' >/dev/null
+          for check in 1 2 3 4 5 6; do
+            if [ "$(gh api "repos/$REPO/releases/latest" --jq '.tag_name' 2>/dev/null || true)" = "$TARGET_TAG" ]; then
+              echo 'PASS: public stable update feed advertises v0.9.0.258.'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Release published but public latest feed not confirmed' >&2
+          exit 1
+      - name: Preserve public release verification record
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'Release v0.9.0.258, published draft ID %s, source build %s (%s), publish workflow %s. Check failed step and related GitHub Actions logs before attributing an error.\n' "$RELEASE_ID" "$SOURCE_RUN" "$SOURCE_SHA" "$GITHUB_RUN_ID" > evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v090258-Publish-Diagnostics
+          path: evidence/failure-analysis.md
+          retention-days: 90
+
+  live-update:
+    needs: publish
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Test published v0.9.0.256 to v0.9.0.258 using original PowerShell updater
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $testRoot=Join-Path $env:RUNNER_TEMP 'luna-live-update-258'
+          $install=Join-Path $testRoot 'v256-installed'
+          New-Item -ItemType Directory -Force $install | Out-Null
+          $report=[ordered]@{from='v0.9.0.256';to='v0.9.0.258';sourceRun='41725373320';
+            sourceCommit='d606afa9631d6bdf02500a3fdfc173a6d0de0264';
+            status='incomplete'; checks=[ordered]@{}; error=''}
+          try {
+            gh release download v0.9.0.256 --repo $env:REPO --pattern LUNA-Windows-Portable.zip --dir $testRoot --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve existing publicly published v0.9.0.256 release' }
+            Expand-Archive -LiteralPath (Join-Path $testRoot 'LUNA-Windows-Portable.zip') -DestinationPath $install -Force
+            $oldInfo=Get-Content -LiteralPath (Join-Path $install 'build-info.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$oldInfo.version -cne 'v0.9.0.256') { throw 'Old version provenance did not match v249' }
+            $report.checks.publicOldRelease='passed'
+            $helper=Join-Path $install 'LUNA-Update.ps1'
+            if (!(Test-Path -LiteralPath $helper -PathType Leaf)) { throw 'Old updater unavailable' }
+            $oldExeDigest=(Get-FileHash -LiteralPath (Join-Path $install 'LUNA.exe') -Algorithm SHA256).Hash
+            # Synthetic sidecars only. Never open or upload user PDFs.
+            $protect=@{}
+            foreach($name in @('keep-user.pdf','keep-user.luna-thumb.png','keep-user.luna-meta.json','keep-user-annotations.json')) {
+              $p=Join-Path $install $name
+              [IO.File]::WriteAllText($p,"synthetic-data-sentinel: $name",[Text.Encoding]::UTF8)
+              $protect[$p]=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash
+            }
+            # Existing v249 portable stores research-sidecar records inside a
+            # hidden .luna tree. A manual SI must keep these through update.
+            foreach($folder in @('.luna/metadata','.luna/thumbnails')) {
+              New-Item -ItemType Directory -Force -Path (Join-Path $install $folder) | Out-Null
+            }
+            foreach($relative in @('.luna/metadata/keep-user.luna-meta.json',
+                                    '.luna/thumbnails/keep-user.luna-thumb.png',
+                                    'keep-manual-si.pdf',
+                                    '.luna/metadata/keep-manual-si.luna-meta.json')) {
+              $path=Join-Path $install $relative
+              [IO.File]::WriteAllText($path,"synthetic-sidecar-sentinel: $relative",[Text.Encoding]::UTF8)
+              $protect[$path]=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+            }
+            $checkRaw=& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Check -InstallDir $install
+            if ($LASTEXITCODE -ne 0) { throw "Actual old updater Check execution failed: $($checkRaw|Out-String)" }
+            $check=(($checkRaw|Out-String).Trim()|ConvertFrom-Json)
+            if ($check.status -cne 'ok' -or !$check.available -or $check.tag -cne 'v0.9.0.258' -or
+                [string]$check.source_run -cne '41725373320') { throw "Old updater did not identify new release: $($checkRaw|Out-String)" }
+            $report.checks.publicFeedCheck='passed'
+            if ((Get-FileHash -LiteralPath (Join-Path $install 'LUNA.exe') -Algorithm SHA256).Hash -cne $oldExeDigest) {
+              throw 'Check unexpectedly mutated the old executable'
+            }
+            $stageRaw=& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Stage -InstallDir $install
+            if ($LASTEXITCODE -ne 0) { throw "Actual old updater Stage execution failed: $($stageRaw|Out-String)" }
+            $stage=(($stageRaw|Out-String).Trim()|ConvertFrom-Json)
+            if ($stage.status -cne 'staged' -or $stage.tag -cne 'v0.9.0.258' -or
+                [string]$stage.token -cnotmatch '^[a-f0-9]{32}$') { throw "Stage missing expected token: $($stageRaw|Out-String)" }
+            $report.checks.liveHttpsDownloadAndIntegrity='passed'
+            if ((Get-FileHash -LiteralPath (Join-Path $install 'LUNA.exe') -Algorithm SHA256).Hash -cne $oldExeDigest) {
+              throw 'Stage modified executable before restart/consent'
+            }
+            foreach($file in $protect.Keys) {
+              if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $protect[$file]) { throw 'Stage mutated synthetic private data' }
+            }
+            $stageDir=Join-Path ([IO.Path]::GetTempPath()) ('LUNA-Update-Stage-'+$stage.token)
+            if (!(Test-Path -LiteralPath (Join-Path $stageDir 'state.json'))) { throw 'Stage state journal missing' }
+            $state=Get-Content -LiteralPath (Join-Path $stageDir 'state.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($state.state -cne 'verified' -or $state.token -cne $stage.token) { throw 'Stage was not verified' }
+            # Simulate user-approved app close. Actual install happens with the old original updater.
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Apply -InstallDir $install -Token $stage.token
+            if ($LASTEXITCODE -ne 0) { throw 'Apply/restart/health acknowledgement failed' }
+            $report.checks.realApplyAndHealthyRestart='passed'
+            $newInfo=Get-Content -LiteralPath (Join-Path $install 'build-info.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($newInfo.version -cne 'v0.9.0.258' -or $newInfo.commit -cne $env:SOURCE_SHA -or
+                [string]$newInfo.run -cne $env:SOURCE_RUN) { throw 'Updated build provenance mismatch' }
+            gh release download $env:TARGET_TAG --repo $env:REPO --pattern LUNA-Release.json --dir $testRoot --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot download stable manifest after publication' }
+            $manifestPath=Join-Path $testRoot 'LUNA-Release.json'
+            if ((Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:EXPECTED_MANIFEST_SHA) {
+              throw 'Published immutable manifest digest mismatch'
+            }
+            $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $exeEntry=@($manifest.files | Where-Object { $_.path -ceq 'LUNA.exe' })
+            if ($exeEntry.Count -ne 1 -or [string]$manifest.source_run -cne $env:SOURCE_RUN -or
+                [string]$manifest.commit -cne $env:SOURCE_SHA -or [string]$manifest.tag -cne $env:TARGET_TAG) {
+              throw 'Stable public manifest provenance mismatch'
+            }
+            $updatedExeDigest=(Get-FileHash -LiteralPath (Join-Path $install 'LUNA.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($updatedExeDigest -cne [string]$exeEntry[0].sha256 -or
+                [string]$newInfo.exeSha256 -cne [string]$exeEntry[0].sha256) {
+              throw 'Updated EXE is not original Build #258 executable'
+            }
+            foreach($file in $protect.Keys) {
+              if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $protect[$file]) { throw 'Apply modified user-owned sentinel' }
+            }
+            $report.checks.oldUserDataPreserved='passed'
+            $againRaw=& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Check -InstallDir $install
+            if ($LASTEXITCODE -ne 0) { throw 'Updated version could not check public feed again' }
+            $again=(($againRaw|Out-String).Trim()|ConvertFrom-Json)
+            if ($again.status -cne 'ok' -or $again.available -or $again.tag -cne 'v0.9.0.258') {
+              throw 'Updated version incorrectly offers itself again'
+            }
+            $report.checks.noRepeatOffer='passed'
+            $report.status='passed'
+            Write-Host 'PASS: real public old updater Check -> Stage -> Apply -> healthy restart; exact version/EXE; no repeat; synthetic user files preserved.'
+          } catch {
+            $report.status='failed'
+            $report.error=[string]$_.Exception.Message
+            throw
+          } finally {
+            $report | ConvertTo-Json -Depth 9 | Set-Content -LiteralPath (Join-Path $testRoot 'update-test-summary.json') -Encoding UTF8
+            Get-CimInstance Win32_Process -Filter "name='LUNA.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.ExecutablePath -ieq (Join-Path $install 'LUNA.exe') } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Preserve live-update success and failure analysis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-v090258-Live-Update-Diagnostics
+          path: ${{ runner.temp }}/luna-live-update-258/update-test-summary.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  remove-latest-on-failed-live-update:
+    needs: [publish, live-update]
+    if: ${{ always() && needs.publish.result == 'success' && needs.live-update.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail closed by revoking latest updater eligibility; never alter earlier release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/releases/$RELEASE_ID" | jq -e \
+            --arg tag "$TARGET_TAG" --arg sha "$SOURCE_SHA" \
+            '.tag_name==$tag and .target_commitish==$sha and .draft==false' >/dev/null
+          gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" -F prerelease=true -f make_latest=false \
+            --jq '{id,tag_name,draft,prerelease,html_url}'
+          echo "LIVE UPDATE FAILED: v0.9.0.258 moved to prerelease, previous stable update feed should be used. Investigate E2E summary."

@@ -1216,13 +1216,24 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 {"requestedWidth", 690}, {"windowWidth", host.width()},
                 {"dockWidth", libraryDock->width()}, {"dockMax", libraryDock->maximumWidth()},
                 {"availableWidth", host.screen()->availableGeometry().width()}};
-            integrationRequire(integrationWait([&] { return libraryDock->width() >= 620; }),
-                "Expanded window library dock refused user-requested width");
+            // Wait for the actual requested geometry, not the first interim
+            // width above 620px. Qt's asynchronous dock-layout negotiation can
+            // briefly cross 620px while heading to 690px. The earlier test
+            // sampled that transient width, then compared against the correctly
+            // persisted, settled 690px value (confirmed in CI's INI artifact).
+            integrationRequire(integrationWait([&] {
+                return qAbs(libraryDock->width() - 690) <= 4;
+            }), "Expanded window library dock did not settle at requested 690px");
             const int userDockWidth = libraryDock->width();
             integrationRequire(integrationWait([&] {
                 return QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
                     .value(QStringLiteral("library/expandedDockWidth")).toInt() == userDockWidth;
             }), "Expanded dock width was not persisted after manual resize");
+            result["settledDockWidthDiagnostics"] = QJsonObject{
+                {"requestedWidth", 690}, {"settledDockWidth", userDockWidth},
+                {"persistedWidth", QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+                    .value(QStringLiteral("library/expandedDockWidth")).toInt()},
+                {"windowWidth", host.width()}};
             for (int turn = 0; turn < 10; ++turn) {
                 const bool paperOnlyFoldedInPlace = integrationPanelClick(host, navigationToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&

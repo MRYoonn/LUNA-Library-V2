@@ -51,6 +51,8 @@ class InlinePanelV260(unittest.TestCase):
             'navSlot->width() == 36 && docsSlot->width() == 36',
             'Folding and restoring panels lost the user\'s saved dock width',
             'Expanded dock width was not persisted after manual resize',
+            'qAbs(libraryDock->width() - 690) <= 4',
+            'settledDockWidthDiagnostics',
         ):
             self.assertIn(item, TABS)
 
@@ -63,3 +65,4 @@ class InlinePanelV260(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

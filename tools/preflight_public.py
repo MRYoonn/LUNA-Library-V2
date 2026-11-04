@@ -49,6 +49,10 @@ APPROVED = {
     'assets/icons/ui-previous.svg',
     'assets/icons/ui-file-add.svg',
     'assets/icons/ui-add.svg',
+    "assets/icons/ui-moon-active.svg", "assets/icons/ui-moon-inactive.svg",
+    "tools/make_pdf_icon.py", "src/lunafileassociation.h",
+    "tests/test_pdf_icons_and_association.py", "tests/native_dialog/pdfassociation.cpp",
+    ".github/workflows/pdf-association-moon-build-once.yml",
 
     "tests/native_dialog/windowstate.cpp",
     "tests/native_dialog/bibliography.cpp",

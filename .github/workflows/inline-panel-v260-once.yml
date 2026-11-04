@@ -183,3 +183,7 @@ jobs:
 
 # CI retry: old tests for the removed floating restore rail have been replaced
 # with stricter original-slot 36px and QDockWidget resize persistence contracts.
+
+# Rerun after native build 41805543137 exposed a second Qt dock-width
+# persistence failure. Settled geometry polling now persists actual width;
+# all 10 real mouse-driven folding and manual-width assertions remain enabled.

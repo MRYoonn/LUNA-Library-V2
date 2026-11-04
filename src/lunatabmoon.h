@@ -19,7 +19,9 @@ inline QIcon tabMoonIcon(bool active) {
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing,true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform,true);
-    painter.scale(1.5,1.5);
+    // Give the crescent breathing room inside the small tab icon box.
+    painter.translate(8.0, 8.0);
+    painter.scale(1.15, 1.15);
     // A single continuous outline. Transparent inside and outside to match
     // the reference's empty crescent; no solid document/PDF symbol in tabs.
     QPainterPath moon;

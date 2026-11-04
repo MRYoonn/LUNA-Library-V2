@@ -7,6 +7,8 @@
 #include "lunaupdater.h"
 #include "lunapdfassociation.h"
 #include "lunatabmoon.h"
+#include "lunabibliography.h"
+#include <QHash>
 #include "lunadocumentclaim.h"
 #include "lunasidecarpaths.h"
 #include "pdfeditormainwindow.h"
@@ -164,7 +166,7 @@ public:
         tabs_->setElideMode(Qt::ElideMiddle);
         tabs_->tabBar()->setObjectName(QStringLiteral("LunaPdfTabBar"));
         tabs_->tabBar()->setDrawBase(false); // Qt native tab-base draws the unwanted dark top rule.
-        tabs_->tabBar()->setIconSize(QSize(23,23)); // one hollow crescent per PDF tab
+        tabs_->tabBar()->setIconSize(QSize(19,19)); // one hollow crescent per PDF tab
         tabs_->tabBar()->setExpanding(false);
         tabs_->tabBar()->setUsesScrollButtons(true);
         tabs_->setAcceptDrops(true);
@@ -582,7 +584,16 @@ private:
         auto* s = session(editor); if (!s || closing_) return;
         auto* c = editor->getProgramController(); const QString path = c->getOriginalFileName();
         const QString display = (c->getDocument() || s->loading) && !path.isEmpty() ? path : s->identity;
-        QString text = display.isEmpty() ? QStringLiteral("PDF 열기") : QFileInfo(display).fileName();
+        // The paper card and the reader tab share the same extracted title.
+        // File paths remain the real disk path, never an invented title-based path.
+        const QString id = s->identity; // Claim identity is cached; no 10 Hz filesystem canonicalization.
+        if (!id.isEmpty() && !tabTitleCache_.contains(id)) {
+            luna::Bibliography titles;
+            tabTitleCache_.insert(id, titles.record(id).value(QStringLiteral("title")).toString().simplified());
+        }
+        const QString articleTitle = tabTitleCache_.value(id);
+        QString text = display.isEmpty() ? QStringLiteral("PDF 열기") :
+            (articleTitle.isEmpty() ? QFileInfo(display).fileName() : articleTitle);
         if (c->hasUnsavedChanges()) text += QStringLiteral(" *");
         if (s->loading && !c->getDocument()) text += QStringLiteral(" · 여는 중");
         const int index = tabs_->indexOf(editor); if (index >= 0) {
@@ -590,7 +601,9 @@ private:
             // The full filename remains available in the tooltip and window title.
             // Store the full title; the Qt tab bar elides it to its ACTUAL
             // current width as more papers open (Chrome-style compression).
-            tabs_->setTabText(index, text); tabs_->setTabToolTip(index, display);
+            tabs_->setTabText(index, text);
+            tabs_->setTabToolTip(index, articleTitle.isEmpty() ? display :
+                articleTitle + QLatin1Char('\n') + display);
             for (auto side : {QTabBar::LeftSide, QTabBar::RightSide})
                 if (auto* button = qobject_cast<QAbstractButton*>(tabs_->tabBar()->tabButton(index, side)))
                     button->setEnabled(!s->identity.isEmpty() && !s->loading && c->canClose() && editor->isEnabled());
@@ -598,6 +611,11 @@ private:
         if (editor == current()) setWindowTitle(QStringLiteral("LUNA Library") + (display.isEmpty() ? QString() : QStringLiteral(" · ") + text));
     }
     void synchronize() {
+        const int revision = property("LunaBibliographyRevision").toInt();
+        if (revision != lastBibliographyRevision_) {
+            tabTitleCache_.clear();
+            lastBibliographyRevision_ = revision;
+        }
         if (pendingActivation_ && !QApplication::activeModalWidget()) {
             QPointer<Editor> next = pendingActivation_; pendingActivation_.clear(); if (session(next)) activate(next);
         }
@@ -719,6 +737,8 @@ private:
     QAction* quit_ = nullptr;
     UpdateController* updater_ = nullptr;
     QTimer poll_;
+    QHash<QString, QString> tabTitleCache_;
+    int lastBibliographyRevision_ = -1;
     bool closing_ = false;
     QPointer<Editor> pendingActivation_;
     std::vector<std::unique_ptr<Session>> sessions_;
@@ -1114,7 +1134,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             }
             integrationRequire(isolatedBibliography(), "Repeated tab switches changed another paper's author");
             auto* tabBar = tabs->tabBar();
-            integrationRequire(tabBar->usesScrollButtons() && tabBar->elideMode() == Qt::ElideMiddle, "Tab scroll/elision mode changed");
+            integrationRequire(tabBar->usesScrollButtons() && tabBar->elideMode() == Qt::ElideMiddle &&
+                tabBar->iconSize() == QSize(19,19), "Tab scroll/elision mode changed");
             // Real Qt GUI: the selected tab must carry a distinctly BLUE
             // hollow moon; another tab has the soft grey version. Switching
             // tabs must update both icons and text shades, not the app icon.

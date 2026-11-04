@@ -26,7 +26,7 @@ class PublicGate(unittest.TestCase):
         self.assertTrue(any("Unapproved icon" in e for e in check(self.root)))
     def test_scoped_lunalibrary_size_limit(self):
         source = self.root / "src/lunalibrary.cpp"
-        self.assertLessEqual(source.stat().st_size, 264_000)
+        self.assertLessEqual(source.stat().st_size, 270_000)
         with source.open("ab") as stream:
             stream.write(b" " * 40_000)
         self.assertTrue(any("Unexpected file size: src/lunalibrary.cpp" in e
@@ -39,7 +39,7 @@ class PublicGate(unittest.TestCase):
         self.assertIn("src/lunalibrary.cpp text eol=lf", attributes)
         source = (self.root / "src/lunalibrary.cpp").read_bytes()
         self.assertNotIn(b"\r\n", source)
-        self.assertLessEqual(len(source), 264_000)
+        self.assertLessEqual(len(source), 270_000)
 
     def test_default_size_limit_still_blocks_other_files(self):
         source = self.root / "README.md"

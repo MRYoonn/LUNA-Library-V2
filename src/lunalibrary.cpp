@@ -3,6 +3,7 @@
 #include "lunalibrary.h"
 #include "lunathumbnailcache.h"
 #include "lunafilemove.h"
+#include "lunaautofilename.h"
 #include "lunamanualsi.h"
 #include "lunatrashundo.h"
 #include "lunalocalsync.h"
@@ -1614,7 +1615,17 @@ public:
         if (!QFileInfo(start).isDir()) start = QDir::homePath();
         bibliography_.changed = [this](const QString& identity) {
             refreshBibliography(identity);
+            // The tab strip uses real bibliography titles, not stale PDF basenames.
+            auto* host = window();
+            host->setProperty("LunaBibliographyRevision",
+                host->property("LunaBibliographyRevision").toInt() + 1);
             if(localSync_ && !applyingRemote_) localSync_->publish(identity);
+            // Only metadata changes trigger physical renaming; ordinary browsing
+            // never rewrites files. Open PDFs remain queued until they close.
+            if (!applyingRemote_ && !identity.isEmpty()) {
+                pendingTitleRenames_.insert(identity);
+                if (!titleRenameTimer_.isActive()) titleRenameTimer_.start();
+            }
         };
         localSync_ = new luna::LocalFolderSync(this);
         localSync_->localSnapshot = [this](const QString& pdf) {
@@ -1671,6 +1682,15 @@ public:
             if (folderTimer_->isActive() || allTimer_->isActive()) return;
             refreshFileLists();
         };
+        titleRenameTimer_.setInterval(2000);
+        connect(&titleRenameTimer_, &QTimer::timeout, this, [this] {
+            int budget = 3;
+            for (const QString& identity : pendingTitleRenames_.values()) {
+                if (--budget < 0) break;
+                if (renameExtractedTitleFile(identity)) pendingTitleRenames_.remove(identity);
+            }
+            if (pendingTitleRenames_.isEmpty()) titleRenameTimer_.stop();
+        });
         metadataFetcher_ = new luna::MetadataFetcher(this);
         selectRoot(start);
         split_->restoreState(settings.value(QStringLiteral("library/splitter")).toByteArray());
@@ -1779,6 +1799,53 @@ private:
             for (auto* item : matching) decorate(item, item->data(Qt::UserRole).toString());
             if (!query_->text().isEmpty()) filter(list, query_->text());
         }
+    }
+    // Rename only a closed, ordinary paper with trusted title provenance.
+    // The paired move keeps PDF, cropped thumbnail and hidden sidecars together.
+    bool renameExtractedTitleFile(const QString& identity) {
+        const QFileInfo source(identity);
+        if (root_.isEmpty() || !source.isFile() || source.isSymLink()) return true;
+        const QString original = source.canonicalFilePath();
+        if (!original.startsWith(root_ + QLatin1Char('/'), Qt::CaseInsensitive))
+            return true;
+        const QString filename = luna::AutoFileName::fromVerifiedTitle(
+            bibliography_.record(identity), source.absolutePath());
+        if (filename.isEmpty() ||
+            source.fileName().compare(filename, Qt::CaseInsensitive) == 0) return true;
+        const QString destination = QDir(source.absolutePath()).filePath(filename);
+        // No implicit replacement of another article or orphaned companion.
+        if (QFileInfo::exists(destination) || QFileInfo(destination).isSymLink() ||
+            !bibliography_.record(DocumentClaim::identity(destination)).isEmpty())
+            return true;
+        // Reader handles and cross-process document claims must remain stable.
+        for (auto* editor : window()->findChildren<pdfviewer::PDFEditorMainWindow*>()) {
+            auto* controller = editor->getProgramController();
+            if (controller && controller->getDocument() &&
+                DocumentClaim::identity(controller->getOriginalFileName()) == identity)
+                return false; // Try again after the tab has closed.
+        }
+        const QString lockPath = QStandardPaths::writableLocation(
+            QStandardPaths::AppLocalDataLocation) + QStringLiteral("/document-claims/") +
+            DocumentClaim::endpoint(original) + QStringLiteral(".lock");
+        if (QFileInfo::exists(lockPath)) return false;
+        const auto moved = luna::movePdfWithThumbnails(
+            original, source.absolutePath(), luna::renameWithoutReplacement, filename);
+        if (!moved.success) {
+            qWarning().noquote() << "LUNA title-file rename skipped:" << moved.error;
+            return true; // Failed or locked file is never replaced or deleted.
+        }
+        // This existing reconciliation rewrites recent/favorite/memo keys,
+        // bibliography identity, and manually linked SI parent names.
+        if (localSync_ && localSync_->renamed)
+            localSync_->renamed(original, moved.documentPath);
+        if (localSync_) localSync_->publish(moved.documentPath);
+        ThumbnailCache::instance()->invalidate();
+        allTimer_->stop(); allIterator_.reset(); allScanned_ = false; allPdfs_->clear();
+        refreshFileLists();
+        if (pages_->currentIndex() == 1) scanAll();
+        else if (pages_->currentIndex() == 2) showHistory(showingFavorites_);
+        model_->refreshPdfCounts(root_);
+        return true;
     }
     // Explicit user action, no modal dialog and no forced auto-save of
     // speculative title/author data. Trust only publication evidence found
@@ -2135,6 +2202,10 @@ private:
         editor.setProperty("LunaRememberedSource", source);
         if (path == editor.property("LunaRememberedPath").toString()) return;
         editor.setProperty("LunaRememberedPath", path);
+        // Existing library titles also need disk-name reconciliation after upgrade.
+        // Never rename the document while its reader tab still owns it.
+        pendingTitleRenames_.insert(DocumentClaim::identity(path));
+        if (!titleRenameTimer_.isActive()) titleRenameTimer_.start();
         queueBibliography(DocumentClaim::identity(path), *controller->getDocument());
         // Inspect only structured fields already present in the PDF info
         // dictionary. DOI/front-page analysis runs separately in an owned
@@ -3382,6 +3453,8 @@ private:
     QPointer<ThumbnailCropOverlay> cropOverlay_;
     pdfviewer::PDFEditorMainWindow* viewer_;
     luna::Bibliography bibliography_;
+    QSet<QString> pendingTitleRenames_;
+    QTimer titleRenameTimer_;
     bool compactPaperMode_ = false;
     QSet<QString> expandedSIParents_;
     luna::MetadataFetcher* metadataFetcher_ = nullptr;

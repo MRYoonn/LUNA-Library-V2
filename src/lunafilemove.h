@@ -44,7 +44,8 @@ inline bool renameWithoutReplacement(const QString& from, const QString& to) {
 }
 
 inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& directory,
-    const std::function<bool(const QString&, const QString&)>& rename = renameWithoutReplacement) {
+    const std::function<bool(const QString&, const QString&)>& rename = renameWithoutReplacement,
+    const QString& requestedFileName = {}) {
     FileMoveResult result;
     const QFileInfo source(path), folder(directory);
     result.documentPath = source.absoluteFilePath();
@@ -55,8 +56,21 @@ inline FileMoveResult movePdfWithThumbnails(const QString& path, const QString& 
     }
     const QString targetRoot = folder.canonicalFilePath();
     const QString originalRoot = source.canonicalPath();
-    if (targetRoot == originalRoot) { result.success = true; return result; }
-    const QString targetPdf = QDir(targetRoot).filePath(source.fileName());
+    // Reuse the same atomic paired move for a title-based rename in one folder.
+    // The default, ordinary folder move keeps the original basename.
+    if (!requestedFileName.isEmpty() &&
+        (QFileInfo(requestedFileName).fileName() != requestedFileName ||
+         QFileInfo(requestedFileName).suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0 ||
+         requestedFileName == QStringLiteral(".") || requestedFileName == QStringLiteral(".."))) {
+        result.error = QStringLiteral("잘못된 PDF 파일명입니다.");
+        return result;
+    }
+    const QString targetPdf = QDir(targetRoot).filePath(
+        requestedFileName.isEmpty() ? source.fileName() : requestedFileName);
+    if (targetPdf.compare(source.absoluteFilePath(), Qt::CaseInsensitive) == 0) {
+        result.success = true;
+        return result;
+    }
     if (!SidecarStorage::safeManagedDirectory(path) ||
         !SidecarStorage::safeManagedDirectory(targetPdf)) {
         result.error = QStringLiteral("LUNA 관리 폴더가 연결 폴더이므로 안전한 이동을 중단했습니다.");

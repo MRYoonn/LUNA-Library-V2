@@ -8,7 +8,8 @@ import unittest
 import zipfile
 
 from tools.prepare_release import prepare
-from tools.verify_portable import REQUIRED_BINARIES, REQUIRED_NOTICES
+from tools.verify_portable import REQUIRED_BINARIES, REQUIRED_NOTICES, REQUIRED_ICONS
+from tools.make_pdf_icon import make_ico
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,6 +33,8 @@ class ReleaseUpdateTests(unittest.TestCase):
             path = self.portable / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(fake_pe())
+        for name in REQUIRED_ICONS:
+            (self.portable / name).write_bytes(make_ico())
         for name in REQUIRED_NOTICES:
             (self.portable / name).write_text("synthetic public notice", encoding="utf-8")
         # The real portable includes this helper, but older shipped updaters

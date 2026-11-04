@@ -1644,6 +1644,25 @@ public:
         widthSaveTimer_.setSingleShot(true);
         widthSaveTimer_.setInterval(250);
         connect(&widthSaveTimer_, &QTimer::timeout, this, [this] { savePanelState(); });
+        // Qt may coalesce native QDockWidget resize events. Poll the actual
+        // settled width, independently of QSplitter::splitterMoved.
+        auto* expandedDockPoll = new QTimer(this);
+        expandedDockPoll->setInterval(200);
+        connect(expandedDockPoll, &QTimer::timeout, this, [this] {
+            if (adjustingPanels_ || navigation_->isHidden() || documents_->isHidden()) return;
+            auto* dock = qobject_cast<QDockWidget*>(parentWidget());
+            if (!dock || !dock->isVisible()) return;
+            const int actualWidth = dock->width();
+            if (actualWidth < 432 || actualWidth > 850) return;
+            QSettings settings(QSettings::defaultFormat(), QSettings::UserScope,
+                               QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+            if (settings.value(QStringLiteral("library/expandedDockWidth")).toInt() == actualWidth)
+                return;
+            settings.setValue(QStringLiteral("library/expandedDockWidth"), actualWidth);
+            settings.sync();
+            savePanelState();
+        });
+        expandedDockPoll->start();
         QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
         QString start = settings.value(QStringLiteral("library/root")).toString();
         if (!QFileInfo(start).isDir()) start = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);

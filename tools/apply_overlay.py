@@ -259,6 +259,7 @@ def apply(root: Path, dry_run=False) -> None:
     files = {
         folder / "lunatabs.cpp": (own / "lunatabs.cpp").read_bytes(),
         folder / "lunatabs.h": (own / "lunatabs.h").read_bytes(),
+        folder / "lunafileassociation.h": (own / "lunafileassociation.h").read_bytes(),
         folder / "lunapagegrid.h": (own / "lunapagegrid.h").read_bytes(),
         folder / "lunalibrary.cpp": (own / "lunalibrary.cpp").read_bytes(),
         folder / "lunafirstpage.h": (own / "lunafirstpage.h").read_bytes(),

@@ -5,6 +5,7 @@
 #include "lunalibrary.h"
 #include "lunareadertoolbar.h"
 #include "lunaupdater.h"
+#include "lunafileassociation.h"
 #include "lunadocumentclaim.h"
 #include "lunasidecarpaths.h"
 #include "pdfeditormainwindow.h"
@@ -158,6 +159,7 @@ public:
         tabs_ = unattachedTabs.get(); tabs_->setObjectName(QStringLiteral("LunaPdfTabs"));
         tabs_->setTabsClosable(true); tabs_->setDocumentMode(true); tabs_->setMovable(true);
         tabs_->setElideMode(Qt::ElideMiddle);
+        tabs_->setIconSize(QSize(21,21)); // compact crescent per PDF tab, independent of app .ico
         tabs_->tabBar()->setObjectName(QStringLiteral("LunaPdfTabBar"));
         tabs_->tabBar()->setDrawBase(false); // Qt native tab-base draws the unwanted dark top rule.
         tabs_->tabBar()->setExpanding(false);
@@ -366,7 +368,7 @@ private:
         connect(editor, &QObject::destroyed, this, [this, serial] { setProperty("LunaLastDestroyedEditor", serial); trace("editor-destroyed"); });
         editor->setAttribute(Qt::WA_DeleteOnClose, false); editor->setAttribute(Qt::WA_QuitOnClose, false); editor->installEventFilter(this);
         auto s = std::make_unique<Session>(); s->editor = editor; sessions_.push_back(std::move(s));
-        tabs_->addTab(editor, QApplication::windowIcon(), QStringLiteral("PDF 열기"));
+        tabs_->addTab(editor, QIcon(QStringLiteral(":/luna/icons/ui-moon-inactive.svg")), QStringLiteral("PDF 열기"));
         const int index = tabs_->indexOf(editor);
         for (auto side : {QTabBar::LeftSide, QTabBar::RightSide}) if (auto* old = tabs_->tabBar()->tabButton(index, side)) {
             tabs_->tabBar()->setTabButton(index, side, nullptr); old->deleteLater();
@@ -469,8 +471,16 @@ private:
         if (!editor || closing_) return;
         if (auto* modal = QApplication::activeModalWidget()) { pendingActivation_ = editor; modal->raise(); modal->activateWindow(); return; }
         tabs_->setCurrentWidget(editor); if (isMinimized()) showNormal(); raise(); activateWindow(); activateCurrent(); }
+    void updateMoonTabIcons() {
+        if(!tabs_)return;
+        static const QIcon active(QStringLiteral(":/luna/icons/ui-moon-active.svg"));
+        static const QIcon inactive(QStringLiteral(":/luna/icons/ui-moon-inactive.svg"));
+        for(int i=0;i<tabs_->count();++i)
+            tabs_->setTabIcon(i,i==tabs_->currentIndex()?active:inactive);
+    }
     void activateCurrent() {
         PerformanceSpan span("active-editor-ui-bind");
+        updateMoonTabIcons();
         auto* editor = current(); if (!editor || closing_) return;
         for (const auto& s : sessions_) if (s->editor != editor)
             for (auto* popup : s->editor->findChildren<QDialog*>())
@@ -519,6 +529,45 @@ private:
                     dialog.exec();
                 });
             }
+            // Register only the LUNA PDF ProgID. Windows owns the final
+            // UserChoice setting: the app must never force itself as default.
+            auto* associate=findChild<QAction*>(QStringLiteral("LunaRegisterPdfAssociation"));
+            if(!associate) {
+                associate=new QAction(QStringLiteral("Windows PDF 기본 앱 설정…"),this);
+                associate->setObjectName(QStringLiteral("LunaRegisterPdfAssociation"));
+                connect(associate,&QAction::triggered,this,[this] {
+                    QString error;
+                    if(!PdfAssociation::registerPdf(&error)) {
+                        QMessageBox::warning(this,QStringLiteral("PDF 연결 등록 실패"),error);
+                        return;
+                    }
+                    const bool opened=PdfAssociation::openDefaultAppsSettings();
+                    QMessageBox::information(this,QStringLiteral("LUNA PDF 파일 연결"),
+                        QStringLiteral("Windows에 LUNA를 PDF 열기 앱으로 등록했습니다.\\n\\n"
+                        "기본 프로그램은 Windows 설정에서 직접 선택해야 합니다.\\n"
+                        "앱 검색에서 LUNA Library PDF를 선택하고 .pdf 기본 앱으로 지정하세요.\\n\\n")+
+                        (opened?QString():QStringLiteral("Windows 설정 → 앱 → 기본 앱을 직접 열어 주세요.")));
+                });
+            }
+            auto* unlink=findChild<QAction*>(QStringLiteral("LunaUnregisterPdfAssociation"));
+            if(!unlink) {
+                unlink=new QAction(QStringLiteral("LUNA PDF 파일 연결 등록 해제…"),this);
+                unlink->setObjectName(QStringLiteral("LunaUnregisterPdfAssociation"));
+                connect(unlink,&QAction::triggered,this,[this] {
+                    if(QMessageBox::question(this,QStringLiteral("PDF 연결 등록 해제"),
+                        QStringLiteral("현재 포터블 LUNA의 PDF 앱 등록만 제거합니다. "
+                          "PDF 파일이나 다른 프로그램의 등록은 변경하지 않습니다. 계속할까요?"))
+                          !=QMessageBox::Yes)return;
+                    QString error;
+                    if(!PdfAssociation::unregisterPdf(&error))
+                        QMessageBox::warning(this,QStringLiteral("연결 해제 실패"),error);
+                    else QMessageBox::information(this,QStringLiteral("연결 해제 완료"),
+                        QStringLiteral("LUNA의 사용자별 PDF 파일 연결 등록을 제거했습니다. "
+                          "필요하면 Windows 기본 앱에서 다른 PDF 뷰어를 선택하세요."));
+                });
+            }
+            if(!help->actions().contains(associate))help->addAction(associate);
+            if(!help->actions().contains(unlink))help->addAction(unlink);
             if (!help->actions().contains(about)) help->addAction(about);
             if (!help->actions().contains(notices)) help->addAction(notices);
             if (updater_ && !help->actions().contains(updater_->action()))

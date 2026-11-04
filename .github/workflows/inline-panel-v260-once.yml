@@ -115,7 +115,6 @@ jobs:
           p=Path('dist/LUNA-Windows-Portable.zip')
           info=json.loads(Path('staging/portable/build-info.json').read_text(encoding='utf-8-sig'))
           assert m['tag']=='v0.9.0.260' and m['schema']==2
-          assert m['commit']=='4ebdeb660af632cdb7c39d53d745cc14598fc641' or m['commit']==info['commit']
           assert m['commit']==info['commit'] and int(info['run'])==m['source_run']
           assert hashlib.sha256(p.read_bytes()).hexdigest()==m['sha256']
           with zipfile.ZipFile(p) as z:
@@ -181,3 +180,6 @@ jobs:
           name: LUNA-v260-Release-Diagnostics
           path: evidence/
           retention-days: 90
+
+# CI retry: old tests for the removed floating restore rail have been replaced
+# with stricter original-slot 36px and QDockWidget resize persistence contracts.

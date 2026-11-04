@@ -287,3 +287,9 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 
 - Public source preflight passed; full Python regression suite ran 182 tests and failed two legacy source-text assertions in tests/test_library_view_modes.py. These still expected the old QSplitter children-collapsible flag, a zero-width hidden pane, and a restore widget inside PDF tabs; source deliberately uses two visible 36px original-position child slots instead.
 - Corrected tests now explicitly require noncollapsible ordered splitter slots, exact 36px sizes, live dock width persistence on resize, and no PDF-tab restore rail. No Win32 build was dispatched from the failed source gate. Existing source feature code and user data were untouched.
+
+### v260 Windows build failure — exact SHA 8e7d32b942b37d796c65c927e2c782168562d6a4
+
+- GitHub Windows run [41805543137](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41805543137) finished FAILURE; all preflight, Python, PDF4QT compilation, native probe and packaging gates preceding production-tab integration passed.
+- Real integration failed again in phase `ten real independent library/paper panel toggle cycles` before clicking folding buttons: `Expanded dock width was not persisted after manual resize`. The automatically gated v260 release run [41805490691](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41805490691) correctly blocked publication; latest stable remains v259.
+- New correction: Qt's native dock geometry can be coalesced without the splitterMoved event or a dependable dock Resize event. A 200ms timer now checks the settled *actual* QDockWidget width while both contents are open, syncs `library/expandedDockWidth` only when it changes, and preserves inner splitter settings. This is not a test bypass, fake resize, or timer delay increase. A new full exact-source Windows run with the same strict native checks is mandatory before publishing.

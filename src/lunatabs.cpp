@@ -1132,6 +1132,25 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(closeButton && integrationPanelClick(host, closeButton) && integrationWait([&] { return host.isVisible() && host.documentCount() == 3 && (!extra[1] || tabs->indexOf(extra[1]) == -1); }), "Tab X closed the wrong document or window");
             integrationRequire(extra[2] && host.closeTab(tabs->indexOf(extra[2])) && host.documentCount() == 2, "Extra-tab cleanup damaged original documents");
             tabs->setCurrentWidget(a); pa->zoom(1.25); pb->zoom(1.5);
+            // True native Qt evidence: active tab is blue moon, inactive gray
+            // moon. Compare actual SVG-rendered pixels, not QIcon resource names.
+            QCoreApplication::processEvents();
+            const int moonA=tabs->indexOf(a), moonB=tabs->indexOf(b);
+            integrationRequire(moonA>=0 && moonB>=0 && moonA!=moonB,
+                "LUNA crescent tab test needs two actual PDFs");
+            const QPixmap activeMoon=tabs->tabIcon(moonA).pixmap(QSize(21,21));
+            const QPixmap inactiveMoon=tabs->tabIcon(moonB).pixmap(QSize(21,21));
+            integrationRequire(!activeMoon.isNull() && !inactiveMoon.isNull() &&
+                activeMoon.toImage()!=inactiveMoon.toImage(),
+                "Active blue crescent and inactive gray crescent rendered identically");
+            tabs->setCurrentWidget(b); QCoreApplication::processEvents();
+            integrationRequire(tabs->tabIcon(moonB).pixmap(QSize(21,21)).toImage()==
+                   activeMoon.toImage() &&
+                   tabs->tabIcon(moonA).pixmap(QSize(21,21)).toImage()==
+                   inactiveMoon.toImage(),
+                "LUNA moon tab contrast failed to follow active PDF switch");
+            tabs->setCurrentWidget(a);
+            result["blueActiveAndGrayInactiveMoonTabs"]=true;
             result["fiveTabsBoundedElidedTooltipScrollAndIndependentViews"] = true;
             phase("ten real independent library/paper panel toggle cycles");
             focus->setChecked(false);

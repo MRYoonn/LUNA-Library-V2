@@ -597,6 +597,26 @@ jobs:
           python -B tools/benchmark_open_windows.py "$env:RUNNER_TEMP/luna-performance-before" LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/performance"
           if ($LASTEXITCODE -ne 0) { throw 'Native before/after performance benchmark failed' }
 
+      - name: Audit one checksum-pinned public ligature title before corpus evaluation
+        shell: pwsh
+        env:
+          LUNA_METADATA_OFFLINE: '1'
+          LUNA_PUBLIC_GOLDSET_AUDIT: '1'
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'luna-ui/title-audit'
+          New-Item -ItemType Directory -Force $evidence | Out-Null
+          python -B -c "import json,sys; d=json.load(open('tests/goldset/public-papers.json',encoding='utf-8')); json.dump([x for x in d if x['id']=='PMC10025926'],open(sys.argv[1],'w',encoding='utf-8'),ensure_ascii=False)" "$evidence/fixture.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Public diagnostic manifest could not be generated' }
+          python -B tools/evaluate_goldset.py --manifest "$evidence/fixture.json" --fetch "$env:RUNNER_TEMP/luna-title-audit-input" --exe LUNA-Windows-Portable/LUNA.exe --predictions "$evidence/predictions.json" --output "$evidence/score.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned native ligature audit could not run' }
+      - name: Preserve bounded public title audit immediately
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-Public-Title-Audit
+          path: ${{ runner.temp }}/luna-ui/title-audit
+          retention-days: 90
+          if-no-files-found: error
+
       - name: Evaluate checksum-pinned real public PDF bibliography corpus
         id: goldset-test
         shell: pwsh

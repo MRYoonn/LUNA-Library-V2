@@ -434,3 +434,26 @@ Explicitly paint the navigation viewport/content with the historical color and
 enable styled background on document/fold widgets. No PDF/toolbar/tab selector
 is changed. Exact color revalidation requires the next native screenshots;
 source token changes alone are not counted as visual success.
+
+
+## Windows Build #274 / remaining ligature title: 42045574469
+
+- Source `b5354636658e7062b289f37e29406a74127c29e4`.
+- Capture dependency fix verified: all four actual panel states plus height
+  changes and restores were captured at 100/125/150%. Screen Y stayed
+  159/153, 187/180, 214/205 respectively; native navigation RGB is now
+  exactly (247,248,252). Fold borders render historical (224,228,237).
+- DOI 31/31, type 30/31 (image-only cover remains unclassified); all reader
+  errors resolved by the viewer-compatible read policy. Actual PDF4QT exact
+  rate 16/31; title 29 correct / 1 missing / 1 wrong; author 21/10/0.
+- Failure remains the same PMC10025926 `zebra sh` title. No glyph-status
+  marker was emitted: observing only non-empty outlines was insufficient.
+  Include missing-CID advances/content streams in the reliability check and
+  add a bounded, explicitly opted-in headline/codepoint audit for this one
+  checksum-pinned public fixture. Publish this small diagnostic artifact
+  immediately before the full unchanged 31-PDF gate for causal inspection.
+- Expanded panel children covered their parent's right stroke. Reserve its
+  one-pixel inner edge; retain exact historical border color. Further actual
+  screenshots must confirm expanded borders too.
+- No test/fixture/accuracy threshold is removed or relaxed. Revalidate on a
+  new full-source Windows run before release.

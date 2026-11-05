@@ -17,6 +17,8 @@ namespace luna {
 class BibliographyTextLayout final : public pdf::PDFTextLayoutGenerator {
 public:
     using pdf::PDFTextLayoutGenerator::PDFTextLayoutGenerator;
+    void enableAudit(double height) { auditHeight_=height; }
+    const QVariantList& auditRuns() const { return auditRuns_; }
     bool unreliable(const QPointF& position, double size, const QTransform& visual) const {
         for (const auto& run : unmapped_) {
             const QPointF baseline=visual.map(run.position);
@@ -30,24 +32,44 @@ protected:
     void performProcessTextSequence(const pdf::TextSequence& sequence, ProcessOrder order) override {
         pdf::PDFTextLayoutGenerator::performProcessTextSequence(sequence,order);
         if (order!=ProcessOrder::BeforeOperation || isContentSuppressed()) return;
+        const auto* state=getGraphicState();
+        const auto matrix=state->getTextMatrix()*state->getCurrentTransformationMatrix();
+        const QPointF position=matrix.map(QPointF());
         for (const auto& item : sequence.items) {
-            if (item.glyph && !item.glyph->isEmpty() &&
-                (item.character.isNull() || item.character.isSpace())) {
-                const auto* state=getGraphicState();
-                const auto matrix=state->getTextMatrix()*state->getCurrentTransformationMatrix();
-                unmapped_.push_back({matrix.map(QPointF()),state->getTextFontSize()});
+            const bool missingText=item.cid>0 && item.character.isNull() &&
+                (item.isCharacter() || item.isContentStream() || item.isAdvance());
+            const bool visibleWhitespace=item.glyph && !item.glyph->isEmpty() && item.character.isSpace();
+            if (missingText || visibleWhitespace) {
+                unmapped_.push_back({position,state->getTextFontSize()});
                 break;
             }
+        }
+        // Explicit public-fixture audit only: headline text and codepoints,
+        // not page/body dumps, file paths or automatic application logging.
+        const double y=auditHeight_-position.y();
+        if (auditHeight_>0 && y>=0 && y<auditHeight_*0.62 && state->getTextFontSize()>=12 && auditRuns_.size()<80) {
+            QString text;
+            QVariantList unicode,cids;
+            for (const auto& item : sequence.items) {
+                if (unicode.size()>=200) break;
+                if (!item.isCharacter() && !item.isContentStream() && item.cid==0) continue;
+                text+=item.character.isNull()?QChar(0xfffd):item.character;
+                unicode.append(int(item.character.unicode())); cids.append(int(item.cid));
+            }
+            auditRuns_.append(QVariantMap{{"text",text},{"x",position.x()},{"y",y},
+                {"fontSize",state->getTextFontSize()},{"unicode",unicode},{"cids",cids}});
         }
     }
 private:
     struct Run { QPointF position; double size; };
     std::vector<Run> unmapped_;
+    double auditHeight_=0;
+    QVariantList auditRuns_;
 };
 // Worker-owned PDF4QT snapshot; process only the first three pages. Neither PDF
 // bytes nor page text leave the computer. Return an evidence-ranked DOI only
 // when strong unambiguous front matter supports that paper's identity.
-inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnostic = nullptr) {
+inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnostic = nullptr, QVariantMap* audit = nullptr) {
     const auto* catalog=document.getCatalog();
     if(!catalog || catalog->getPageCount()<1) return {};
     pdf::PDFFontCache fonts(128,128);
@@ -66,6 +88,7 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
         BibliographyTextLayout generator(pdf::PDFRenderer::getDefaultFeatures(),page,
             &document,&fonts,&profiles,cms.data(),&activity,QTransform(),
             pdf::PDFMeshQualitySettings());
+        if (audit && i==0) generator.enableAudit(page->getMediaBox().height());
         generator.processContents();
         const auto layout=generator.createTextLayout();
         struct Line {double x,y;QString text;double fontSize;};
@@ -97,13 +120,17 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
             return a.y != b.y ? a.y < b.y : a.x < b.x;
         });
         QString text;
+        QVariantList headlineLines;
         for(const auto& row:lines){
+            if (audit && i==0 && row.fontSize>=12 && row.y<page->getMediaBox().height()*0.62 && headlineLines.size()<80)
+                headlineLines.append(QVariantMap{{"text",row.text},{"x",row.x},{"y",row.y},{"fontSize",row.fontSize}});
             if (i==0) firstPageLines.append({row.text,row.x,row.y,row.fontSize,
                 generator.unreliable(QPointF(row.x,row.y),row.fontSize,visual)});
             text+=row.text+QLatin1Char('\n');
             if(text.size()>=32000)break;
         }
         if (i==0) firstPageHeight=page->getMediaBox().height();
+        if (audit && i==0) *audit={{"lines",headlineLines},{"runs",generator.auditRuns()},{"height",firstPageHeight}};
         pages.append(text);
     }
     const QString first=pages.isEmpty()?QString():pages.first();

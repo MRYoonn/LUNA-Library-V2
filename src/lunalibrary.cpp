@@ -1159,6 +1159,8 @@ public:
         split_->setCollapsible(0, false);
         navigationScroll->setWidgetResizable(true);
         navigationScroll->setFrameShape(QFrame::NoFrame);
+        navigationScroll->setAttribute(Qt::WA_StyledBackground, true);
+        navigationScroll->setContentsMargins(0, 0, 1, 0);
         navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         navigationScroll->setMinimumHeight(0);
         navigation_ = navigationScroll;
@@ -1481,7 +1483,7 @@ public:
         documents_->setAttribute(Qt::WA_StyledBackground, true);
         documents_->setMinimumWidth(195);
         auto* docs = new QVBoxLayout(documents_);
-        docs->setContentsMargins(0, 0, 0, 0);
+        docs->setContentsMargins(0, 0, 1, 0);
         docs->setSpacing(0);
         auto* heading = new QWidget(documents_);
         auto* headingLayout = new QVBoxLayout(heading);
@@ -3961,8 +3963,12 @@ int evaluatePdfCorpus(const QString& directory, const QString& report) {
             pdf::PDFProgress progress(nullptr);
             pdf::PDFDocumentReader reader(&progress, [](bool*) { return QString(); }, true, false);
             auto document = reader.readFromFile(file.absoluteFilePath());
-            if (reader.getReadingResult() == pdf::PDFDocumentReader::Result::OK)
-                evidence = extractFirstPage(document);
+            if (reader.getReadingResult() == pdf::PDFDocumentReader::Result::OK) {
+                QVariantMap audit;
+                const bool enabled=qEnvironmentVariableIsSet("LUNA_PUBLIC_GOLDSET_AUDIT");
+                evidence = extractFirstPage(document,nullptr,enabled?&audit:nullptr);
+                if (enabled) evidence["_titleAudit"]=audit;
+            }
             else {
                 evidence["evaluationError"] = QStringLiteral("unreadable_pdf");
                 QString detail=reader.getErrorMessage();

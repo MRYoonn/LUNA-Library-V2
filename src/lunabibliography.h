@@ -304,6 +304,19 @@ public:
             value["unverifiedSiMetadata"] = archived;
             return changedField && save(identity, value, false);
         }
+        // Typography ambiguity must remain a review-only suggestion, never
+        // masquerade as verified bibliography or trigger PDF renaming.
+        // Manual fields and existing machine-verified title/author are intact.
+        const QString reviewTitle=proposal.value("titleCandidate").toString().simplified();
+        if (proposal.value("titleStatus").toString() == QStringLiteral("needs_review") &&
+            credibleTitle(reviewTitle) &&
+            reviewTitle != value.value("title").toString().simplified() &&
+            reviewTitle != value.value("titleCandidate").toString().simplified()) {
+            value["titleCandidate"] = reviewTitle;
+            value["titleCandidateSource"] = QStringLiteral("first_page_layout_review");
+            value["titleConfidence"] = qBound(0, proposal.value("titleConfidence").toInt(), 100);
+            changedField = true;
+        }
         const auto fill = [&value, &proposal, &changedField](const char* key, bool good) {
             const QString field = QString::fromLatin1(key);
             const QString next = proposal.value(field).toString().simplified();

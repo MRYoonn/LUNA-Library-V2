@@ -12,6 +12,38 @@
 #include <algorithm>
 
 namespace luna {
+// Detect visible glyphs whose Unicode mapping was lost by the pinned parser.
+// Keep this inside bibliography extraction; rendering/selection remain unchanged.
+class BibliographyTextLayout final : public pdf::PDFTextLayoutGenerator {
+public:
+    using pdf::PDFTextLayoutGenerator::PDFTextLayoutGenerator;
+    bool unreliable(const QPointF& position, double size, const QTransform& visual) const {
+        for (const auto& run : unmapped_) {
+            const QPointF baseline=visual.map(run.position);
+            if (size>=run.size*0.79 && size<=run.size*1.23 &&
+                qAbs(position.y()-baseline.y())<=qMax(4.0,size*1.6) &&
+                qAbs(position.x()-baseline.x())<=160) return true;
+        }
+        return false;
+    }
+protected:
+    void performProcessTextSequence(const pdf::TextSequence& sequence, ProcessOrder order) override {
+        pdf::PDFTextLayoutGenerator::performProcessTextSequence(sequence,order);
+        if (order!=ProcessOrder::BeforeOperation || isContentSuppressed()) return;
+        for (const auto& item : sequence.items) {
+            if (item.glyph && !item.glyph->isEmpty() &&
+                (item.character.isNull() || item.character.isSpace())) {
+                const auto* state=getGraphicState();
+                const auto matrix=state->getTextMatrix()*state->getCurrentTransformationMatrix();
+                unmapped_.push_back({matrix.map(QPointF()),state->getTextFontSize()});
+                break;
+            }
+        }
+    }
+private:
+    struct Run { QPointF position; double size; };
+    std::vector<Run> unmapped_;
+};
 // Worker-owned PDF4QT snapshot; process only the first three pages. Neither PDF
 // bytes nor page text leave the computer. Return an evidence-ranked DOI only
 // when strong unambiguous front matter supports that paper's identity.
@@ -31,7 +63,7 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
     for (int i=0; i<std::min<int>(3, int(catalog->getPageCount())); ++i) {
         const auto* page=catalog->getPage(i);
         if(!page) {pages.append(QString());continue;}
-        pdf::PDFTextLayoutGenerator generator(pdf::PDFRenderer::getDefaultFeatures(),page,
+        BibliographyTextLayout generator(pdf::PDFRenderer::getDefaultFeatures(),page,
             &document,&fonts,&profiles,cms.data(),&activity,QTransform(),
             pdf::PDFMeshQualitySettings());
         generator.processContents();
@@ -66,7 +98,8 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
         });
         QString text;
         for(const auto& row:lines){
-            if (i==0) firstPageLines.append({row.text,row.x,row.y,row.fontSize});
+            if (i==0) firstPageLines.append({row.text,row.x,row.y,row.fontSize,
+                generator.unreliable(QPointF(row.x,row.y),row.fontSize,visual)});
             text+=row.text+QLatin1Char('\n');
             if(text.size()>=32000)break;
         }

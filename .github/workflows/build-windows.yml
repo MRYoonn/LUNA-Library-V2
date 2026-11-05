@@ -424,6 +424,12 @@ jobs:
           cache: 'false'
           aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
 
+      # install-qt may select a newer Python than our UIA/Pillow wheels support.
+      - name: Select verified Python for native capture and packaging tools
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Test LUNA metadata Qt native contracts (no network)
         id: metadata-test
         shell: pwsh
@@ -577,6 +583,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Ordinary launch chrome is clipped, hidden, or disconnected' }
 
       - name: Capture final native panel states for direct v261 screenshot comparison
+        id: panel-capture
         shell: pwsh
         run: |
           python -m pip install pywinauto==0.6.9 pillow==11.3.0
@@ -591,6 +598,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native before/after performance benchmark failed' }
 
       - name: Evaluate checksum-pinned real public PDF bibliography corpus
+        id: goldset-test
         shell: pwsh
         env:
           LUNA_METADATA_OFFLINE: '1'
@@ -600,7 +608,7 @@ jobs:
           New-Item -ItemType Directory -Force $evidence | Out-Null
           python -B tools/evaluate_goldset.py --fetch "$corpus" --exe LUNA-Windows-Portable/LUNA.exe --predictions "$evidence/predictions.json" --output "$evidence/score.json"
           if ($LASTEXITCODE -ne 0) { throw 'Actual public PDF corpus download or native evaluation failed' }
-          python -B -c "import json,sys; d=json.load(open(sys.argv[1],encoding='utf-8')); p=json.load(open(sys.argv[2],encoding='utf-8')); assert not any(v.get('evaluationError') for v in p.values()); assert d['documents']==31; assert d['fields']['doi']['correct']==31; assert d['fields']['title']['correct']>=28; assert d['fields']['documentKind']['correct']>=30; assert d['exact']>=10; assert d['fields']['doi']['wrong']==0; assert d['fields']['title']['wrong']==0; assert d['fields']['authors']['wrong']==0; print('31 real PDFs: zero wrong committed DOI/title/last-author values; see score.json for missing fields and exact rate')" "$evidence/score.json" "$evidence/predictions.json"
+          python -B -c "import json,sys; d=json.load(open(sys.argv[1],encoding='utf-8')); print(json.dumps({'exact':d['exact'],'fields':d['fields']})); p=json.load(open(sys.argv[2],encoding='utf-8')); assert not any(v.get('evaluationError') for v in p.values()); assert d['documents']==31; assert d['fields']['doi']['correct']==31; assert d['fields']['title']['correct']>=28; assert d['fields']['documentKind']['correct']>=30; assert d['exact']>=10; assert d['fields']['doi']['wrong']==0; assert d['fields']['title']['wrong']==0; assert d['fields']['authors']['wrong']==0; print('31 real PDFs: zero wrong committed DOI/title/last-author values; see score.json for missing fields and exact rate')" "$evidence/score.json" "$evidence/predictions.json"
           if ($LASTEXITCODE -ne 0) { throw 'Goldset identified a wrong automatic DOI/title/last-author; inspect predictions before release' }
 
       - name: Independent document windows and native annotation round trip
@@ -756,7 +764,7 @@ jobs:
         shell: pwsh
         run: |
           if (Test-Path tools/build_diagnostics.py) {
-            python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "checkout=${{ steps.checkout.outcome }};source=${{ steps.source-check.outcome }};metadata=${{ steps.metadata-test.outcome }};dialog=${{ steps.dialog-test.outcome }};compile=${{ steps.native-compile.outcome }};portable=${{ steps.portable-check.outcome }};native-ui=${{ steps.native-ui.outcome }};tabs=${{ steps.tabs-test.outcome }};installer=${{ steps.installer-test.outcome }}" --native-evidence "$env:RUNNER_TEMP/luna-ui"
+            python -B tools/build_diagnostics.py finish --output "$env:RUNNER_TEMP/luna-build-diagnostics" --status "${{ job.status }}" --gates "checkout=${{ steps.checkout.outcome }};source=${{ steps.source-check.outcome }};panels=${{ steps.panel-capture.outcome }};goldset=${{ steps.goldset-test.outcome }};metadata=${{ steps.metadata-test.outcome }};dialog=${{ steps.dialog-test.outcome }};compile=${{ steps.native-compile.outcome }};portable=${{ steps.portable-check.outcome }};native-ui=${{ steps.native-ui.outcome }};tabs=${{ steps.tabs-test.outcome }};installer=${{ steps.installer-test.outcome }}" --native-evidence "$env:RUNNER_TEMP/luna-ui"
             if ($LASTEXITCODE -ne 0) { throw 'Could not finalize build diagnostics' }
           } else {
             $trace = Join-Path $env:RUNNER_TEMP 'luna-build-diagnostics'

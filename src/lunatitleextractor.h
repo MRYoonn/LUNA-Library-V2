@@ -15,6 +15,7 @@ namespace luna::TitleExtraction {
 struct Line {
     QString text;
     double x = 0, y = 0, fontSize = 0;
+    bool unreliable = false;
 };
 
 inline bool isExcluded(QString text, bool continuation = false) {
@@ -56,7 +57,7 @@ inline QVariantMap infer(const QList<Line>& source, double pageHeight) {
         const QString clean = raw.text.simplified();
         if (clean.isEmpty() || raw.y < 10 || raw.y > pageHeight*0.75 ||
             raw.fontSize < 5 || raw.fontSize > 72) continue;
-        lines.append({clean,raw.x,raw.y,raw.fontSize});
+        lines.append({clean,raw.x,raw.y,raw.fontSize,raw.unreliable});
         // The page's ordinary body/author font gives a relative baseline.
         if (raw.y < pageHeight*0.75 && raw.fontSize < 32)
             sizes.append(raw.fontSize);
@@ -68,13 +69,14 @@ inline QVariantMap infer(const QList<Line>& source, double pageHeight) {
     std::sort(sizes.begin(),sizes.end());
     const double baseline = sizes[sizes.size()/2];
     if (baseline <= 0) return {};
-    struct Proposal {QString title;int score;double font;};
+    struct Proposal {QString title;int score;double font;bool unreliable;};
     QList<Proposal> proposals;
     for (int i=0;i<lines.size() && i<75;++i) {
         const Line& start = lines[i];
         if (start.fontSize < qMax(12.0,baseline*1.26) ||
             start.y > pageHeight*0.62 || isExcluded(start.text)) continue;
         QString title = start.text;
+        bool unreliable = start.unreliable;
         int end = i;
         int titleRows = 1;
         for (int j=i+1;j<lines.size() && j<=i+10 && titleRows<4;++j) {
@@ -93,6 +95,7 @@ inline QVariantMap infer(const QList<Line>& source, double pageHeight) {
                 isExcluded(next.text, true) || title.size()+next.text.size()>230) break;
             title += (title.endsWith(QLatin1Char('-')) ? QString() : QStringLiteral(" ")) + next.text;
             end=j;
+            unreliable = unreliable || next.unreliable;
             ++titleRows;
         }
         if (isExcluded(title) || title.size() < 18 ||
@@ -102,7 +105,7 @@ inline QVariantMap infer(const QList<Line>& source, double pageHeight) {
                     (start.y < pageHeight*0.5 ? 8 : 0) +
                     (title.size() >= 28 && title.size() <= 190 ? 7 : 0) +
                     (end>i ? 5 : 0);
-        proposals.append({title,qMin(score,100),start.fontSize});
+        proposals.append({title,qMin(score,100),start.fontSize,unreliable});
     }
     if (proposals.isEmpty()) return {};
     std::sort(proposals.begin(),proposals.end(),[](const Proposal& a,const Proposal& b) {
@@ -121,7 +124,7 @@ inline QVariantMap infer(const QList<Line>& source, double pageHeight) {
             return {{"titleCandidate",best.title},{"titleConfidence",best.score},
                     {"titleStatus",QStringLiteral("needs_review")}};
     }
-    if (best.score < 86 || best.font < 13.0)
+    if (best.score < 86 || best.font < 13.0 || best.unreliable)
         return {{"titleCandidate",best.title},{"titleConfidence",best.score},
                 {"titleStatus",QStringLiteral("needs_review")}};
     return {{"title",best.title},{"titleSource",QStringLiteral("first_page_layout")},

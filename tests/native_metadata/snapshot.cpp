@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
         QList<luna::TitleExtraction::Line> lines;
         for (const auto& v : row["lines"].toArray()) {
             const auto l = v.toObject();
-            lines.append({l["text"].toString(), l["x"].toDouble(), l["y"].toDouble(), l["fontSize"].toDouble()});
+            lines.append({l["text"].toString(), l["x"].toDouble(), l["y"].toDouble(), l["fontSize"].toDouble(), l["unreliable"].toBool()});
         }
         results[row["id"].toString()] = QJsonObject::fromVariantMap(luna::firstPageEvidence(
             pages, lines, row["height"].toDouble(), row["infoText"].toString(), row["embeddedTitle"].toString()));

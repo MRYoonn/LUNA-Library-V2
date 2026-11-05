@@ -47,7 +47,10 @@ inline QList<Candidate> collectCandidates(const QStringList& pages, QString meta
         while (match.hasNext()) {
             const auto m = match.next();
             const QString doi = normalizeDoi(m.captured());
-            if (doi.isEmpty()) continue;
+            // Wiley PDF Info can contain the journal-level DOI for its ISSN.
+            // It identifies the serial, not this article; do not let metadata
+            // priority suppress a different explicit printed article DOI.
+            if (doi.isEmpty() || doi.section(QLatin1Char('/'),1).startsWith(QStringLiteral("(issn)"))) continue;
             const QString before = source.mid(qMax(0, m.capturedStart() - 58),
                                               qMin(m.capturedStart(), 58));
             const bool explicitMarker = QRegularExpression(QStringLiteral(

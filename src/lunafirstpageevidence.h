@@ -66,6 +66,20 @@ inline QVariantMap firstPageEvidence(const QStringList& pages,
             evidence["titleStatus"]=QStringLiteral("needs_review");
         }
     }
+    // A geometric heading with an unmapped visible glyph is incomplete even
+    // when its font looks authoritative. Keep it review-only; never fill holes
+    // from stale PDF metadata or promote it to a filename.
+    bool unreliableHeadline=false;
+    for (const auto& row : firstPageLines)
+        if (row.unreliable && row.fontSize>=12 && row.y<firstPageHeight*0.62 &&
+            !TitleExtraction::isExcluded(row.text)) unreliableHeadline=true;
+    if (unreliableHeadline) {
+        const QString uncertain=evidence.take("title").toString();
+        if (Bibliography::credibleTitle(uncertain)) evidence["titleCandidate"]=uncertain;
+        evidence.remove("titleSource");
+        evidence["titleStatus"]=QStringLiteral("needs_review");
+        evidence["titleGlyphStatus"]=QStringLiteral("unmapped");
+    }
     const QString terminalAuthor=Bibliography::firstPageLastAuthor(first);
     const QString blockAuthor=Bibliography::heliyonLastAuthor(first);
     const QString author=!terminalAuthor.isEmpty() ? terminalAuthor : blockAuthor;

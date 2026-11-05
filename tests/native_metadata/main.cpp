@@ -167,6 +167,30 @@ int main(int argc,char** argv){
         "Alice Green, Brian White, and Hassan Mohamed El-Said Azzazy*\n"
         "ABSTRACT: A study of materials\n"))==QStringLiteral("Hassan Mohamed El-Said Azzazy"),
         "capitalized title ending in and-phrase cannot compete with actual final author");
+    const auto serialCandidates=collectCandidates({QStringLiteral("https://doi.org/10.1002/anie.202412622")},
+        QStringLiteral("doi:10.1002/(ISSN)1521-3773"));
+    expect(acceptableIdentity(serialCandidates) && serialCandidates.first().doi==QStringLiteral("10.1002/anie.202412622"),
+        "journal ISSN DOI cannot displace explicit printed article DOI");
+    const QList<TitleExtraction::Line> damagedLines={
+        {QStringLiteral("Article"),40,80,9},
+        {QStringLiteral("Effectiveness of Zebra sh Models in Human Diseases"),40,130,18,true},
+        {QStringLiteral("Alice Green and Brian White"),40,205,9},
+        {QStringLiteral("Department of Chemistry"),40,250,9},
+        {QStringLiteral("Abstract"),40,290,9}
+    };
+    expect(TitleExtraction::infer(damagedLines,792).value("title").toString().isEmpty(),
+        "visible unmapped glyph cannot become an automatically trusted heading");
+    const auto damagedEvidence=firstPageEvidence({QStringLiteral("Article\nhttps://doi.org/10.1016/j.heliyon.2024.e28357")},damagedLines,792,{},QString());
+    expect(damagedEvidence.value("title").toString().isEmpty() &&
+        damagedEvidence.value("titleGlyphStatus").toString()==QStringLiteral("unmapped"),
+        "damaged title suppresses every publisher or metadata fallback");
+    const QString damagedIdentity=QStringLiteral("synthetic:v262:unmapped");
+    titleStore.enrichFromFirstPage(damagedIdentity,{{"title",QStringLiteral("Effectiveness of Zebra sh Models in Human Diseases")},
+        {"titleSource",QStringLiteral("first_page_layout")}});
+    titleStore.enrichFromFirstPage(damagedIdentity,damagedEvidence);
+    expect(titleStore.record(damagedIdentity).value("title").toString().isEmpty() &&
+        !titleStore.record(damagedIdentity).value("legacyTitle").toString().isEmpty(),
+        "old machine title with known glyph loss is archived for review");
     const auto shortFinal = TitleExtraction::infer({
         {QStringLiteral("Article"),40,90,10},
         {QStringLiteral("Analysis of DIA Proteomics Data Using"),40,113,26},

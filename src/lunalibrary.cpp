@@ -125,6 +125,7 @@
 #include <QCache>
 #include <QThreadPool>
 #include <memory>
+#include <cstdio>
 namespace luna {
 namespace {
 constexpr const char* kNAVY = "#172B50";
@@ -2096,7 +2097,7 @@ private:
             try {
                 pdf::PDFProgress progress(nullptr);
                 pdf::PDFDocumentReader reader(&progress,
-                    [](bool*) {return QString();},false,false);
+                    [](bool*) {return QString();},true,false);
                 auto document=reader.readFromFile(path);
                 if(reader.getReadingResult()==pdf::PDFDocumentReader::Result::OK)
                     *result=luna::extractFirstPage(document);
@@ -3946,15 +3947,24 @@ int evaluatePdfCorpus(const QString& directory, const QString& report) {
     QJsonObject results;
     const auto files = QDir(directory).entryInfoList({QStringLiteral("*.pdf")}, QDir::Files, QDir::Name);
     if (files.isEmpty()) return 2;
+    int evaluated=0;
     for (const auto& file : files) {
+        std::fprintf(stderr,"LUNA_CORPUS_PROGRESS: %d/%d\n",++evaluated,int(files.size()));
+        std::fflush(stderr);
         QVariantMap evidence;
         try {
             pdf::PDFProgress progress(nullptr);
-            pdf::PDFDocumentReader reader(&progress, [](bool*) { return QString(); }, false, false);
+            pdf::PDFDocumentReader reader(&progress, [](bool*) { return QString(); }, true, false);
             auto document = reader.readFromFile(file.absoluteFilePath());
             if (reader.getReadingResult() == pdf::PDFDocumentReader::Result::OK)
                 evidence = extractFirstPage(document);
-            else evidence["evaluationError"] = QStringLiteral("unreadable_pdf");
+            else {
+                evidence["evaluationError"] = QStringLiteral("unreadable_pdf");
+                QString detail=reader.getErrorMessage();
+                detail.replace(file.absoluteFilePath(),QStringLiteral("<input>"));
+                detail.replace(file.fileName(),QStringLiteral("<document>"));
+                evidence["evaluationDetail"]=detail.left(180);
+            }
         } catch (...) { evidence["evaluationError"] = QStringLiteral("extraction_failed"); }
         results[file.completeBaseName()] = QJsonObject::fromVariantMap(evidence);
     }

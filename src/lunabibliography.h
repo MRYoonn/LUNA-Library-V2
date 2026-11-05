@@ -364,6 +364,19 @@ public:
             value["unverifiedSiMetadata"] = archived;
             return changedField && save(identity, value, false);
         }
+        // A visible but unmapped glyph proves the old local extraction was
+        // incomplete. Archive machine-owned titles; manual/provider values win.
+        if (proposal.value("titleGlyphStatus").toString()==QStringLiteral("unmapped")) {
+            const QString source=value.value("titleSource").toString();
+            if (source==QStringLiteral("pdf_metadata") || source==QStringLiteral("first_page_layout") ||
+                source==QStringLiteral("first_page_verified") || source==QStringLiteral("publisher_cover_verified")) {
+                if (!value.value("title").toString().isEmpty()) {
+                    value["legacyTitle"]=value.take("title");
+                    value["titleSource"]=QStringLiteral("first_page_layout_review");
+                    changedField=true;
+                }
+            }
+        }
         // Typography ambiguity must remain a review-only suggestion, never
         // masquerade as verified bibliography or trigger PDF renaming.
         // Manual fields and existing machine-verified title/author are intact.

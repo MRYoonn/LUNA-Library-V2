@@ -367,3 +367,58 @@ window height changes, geometry, failure-analysis and build-diagnostics.
 At 100%, expanded controls were at screen Y=159 (Library) / 153 (Papers);
 both restores moved to Y=515, then Y=465 when the window was shortened by 100px.
 This directly reproduces the actual native pre-fix centering defect.
+
+
+## Windows Build #262 / real public PDF gate: 42034621774
+
+- Source `f08a2515b66e18d348378016ef9f4548b7f97366`.
+- First failed step: Evaluate checksum-pinned real public PDF bibliography corpus.
+- Public preflight, Qt metadata, native dialog suite, MSVC compilation, portable
+  checks, ordinary launch/toolbar and PDF-open benchmark passed. Subsequent
+  annotation/tabs/DPI/page-heap gates were skipped, so this run is NOT a full pass.
+- All 31 checksum-pinned public PDFs were acquired and processed. Actual PDF4QT
+  result: 8/31 whole-record exact; title 27 correct / 3 missing / 1 wrong;
+  author 13/18/0; journal/year/volume 30/1/0; pages 28/3/0; DOI 29/2/0;
+  document type 29/2/0. These differ from PyMuPDF snapshot measurements.
+- Confirmed wrong title: PMC10025926 emitted `zebra sh` for `zebrafish`.
+  The PDF uses multi-codepoint ToUnicode `00660069` (fi); the pinned text path
+  stores one QChar and drops unmapped visible glyphs. Bibliography now observes
+  text sequences before layout and marks matching headline runs unreliable.
+  Such titles stay review-only; old machine-owned damaged titles are archived.
+  Rendering, selection and original PDF bytes are not modified. New Windows
+  validation must confirm this catches the actual glyph loss.
+- Confirmed DOI conflict: the two Wiley PDFs' metadata contains journal-level
+  `10.1002/(ISSN)1521-3773`, competing with printed article DOI. Serial ISSN DOIs
+  are now excluded from article-identity candidates; DOI normalization itself
+  remains valid/general. Native Qt regression covers the actual DOI pair.
+- PMC10821893-SI2 returned `unreadable_pdf`. Import/evaluation used the strict
+  reader while the production viewer uses PDFDocumentReader permissive=true.
+  Align read-only bibliography parsing with the viewer; do not relax metadata
+  confidence or skip the fixture. Exact reader error was not emitted in #262,
+  so the parser-policy hypothesis awaits Windows revalidation. Failed reads
+  now retain a bounded error message with input names/paths removed.
+- Original `failure-analysis.md`, `build-diagnostics.json`, raw 31 public
+  predictions and score are preserved in LUNA-Build-Diagnostics / LUNA-UI-Synthetic.
+  The original diagnosis said "none recorded" because the new gate lacked an
+  outcome ID; add goldset/panel-capture outcomes to diagnostic provenance.
+- Tests: new Qt executable regressions passed locally. Existing acceptance
+  requirements (zero wrong automatic DOI/title/author, complete fixture set,
+  no reader errors, explicit accuracy floors) are retained. New full Windows
+  execution on the corrective SHA is required before publication.
+
+
+## Windows Build #272 / capture dependency failure: 42040799852
+
+- Source `1ae8a98c7e71770c8b044489b1a172074f668920`.
+- First failed step: Capture final native panel states for direct v261 screenshot comparison.
+- Actual error: Pillow 11.3.0 had no wheel for the Python 3.15.2 selected by
+  install-qt; pip attempted a source build and failed (RequiredDependencyException:
+  zlib / failed-wheel-build-for-install). No panel screenshots from this step
+  were produced, and downstream tests were skipped.
+- Correction: explicitly select Python 3.12 after install-qt for capture and
+  packaging tools. This is the same interpreter ABI that successfully captured
+  all real v261 baseline states. Keep pinned Pillow/pywinauto and every UI check.
+- MSVC, Qt metadata/dialog suite, portable layout and ordinary launch/toolbar
+  passed on this SHA. These are partial results, not full Windows acceptance.
+- The failed log plus LUNA-Build-Diagnostics and LUNA-UI-Synthetic artifacts are
+  retained; new full Windows execution on the corrective SHA is required.

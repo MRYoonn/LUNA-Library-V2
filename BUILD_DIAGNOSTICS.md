@@ -318,3 +318,13 @@ Full Windows exact-source run [41849614748](https://github.com/MRYoonn/LUNA-Libr
 **Fix:** Replace both short-constructor reads in `src/lunatabs.cpp` and both restore reads in `src/lunalibrary.cpp` with the same explicit `QSettings::defaultFormat(), QSettings::UserScope` used by the writer. Add permanent static regression assertions in `tests/test_inline_fold_v260.py` disallowing the two-string constructor in the dock-width path. The real UI 690px persistence requirement and all ten mouse-driven collapse/restore cycles remain enabled. Release is still blocked until exact SHA Windows build and asset SHA verification succeed.
 
 Reference: https://doc.qt.io/qt-6/qsettings.html ; QSettings(const QString &organization, const QString &application) constructor is always NativeFormat.
+
+### v261 bibliography fidelity and evidence gating (2026-11-05)
+
+Base: immutable public Windows release `v0.9.0.260` at `bdb9d07dc801651ba8c36eb11472781d6829c059`. Changes are additive in a separate branch and never mutate the previous release.
+
+- A multi-line Nature-family headline whose PDF exporter uses ordinary (nonprominent) font size can now be recognized via **publisher/DOI cue + standalone Article/Research Article + short heading + a clearly delimited author list**. A publisher cue alone, missing author boundary, body abstract, or SI cover remains an abstention. No generic body scan or first-article-guess fallback.
+- RSC final-author parsing now supports text-flow splits between an explicit terminal `and` and the final named author, while still requiring adjacent named-author-list evidence and a valid final name. No PDF Info author is ever presumed the final author.
+- The existing typography algorithm's `needs_review/titleCandidate` output is now carried through `extractFirstPage` and bibliography storage *separately* from trusted `title`. A user can view and explicitly accept that proposal in the paper's bibliography editor. Review-only proposals never trigger automatic physical filename changes or overwrite a manual value.
+- New Python source contracts and actual Qt-native C++ fixture assertions cover Nature positive/negative, explicit split final-author, SI boundary, candidate persistence, manual author/title protection. All checks must pass in the unmodified production Windows workflow before publication; include the exact source SHA and release asset digest.
+- This is not a measured title/author accuracy percentage across a real user-selected PDF corpus. Run a blind goldset before making any quantitative accuracy claim.

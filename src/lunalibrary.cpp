@@ -1828,7 +1828,8 @@ public:
             dock->updateGeometry();
             if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget())) {
                 const int requested = showNav && showDocs ?
-                    qBound(432, QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+                    qBound(432, QSettings(QSettings::defaultFormat(), QSettings::UserScope,
+                        QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
                         .value(QStringLiteral("library/expandedDockWidth"), 562).toInt(), 850) :
                     collapsedTarget;
                 main->resizeDocks({dock}, {requested}, Qt::Horizontal);
@@ -3648,8 +3649,8 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     dock->installEventFilter(library);
     window.addDockWidget(Qt::LeftDockWidgetArea, dock);
     dock->show();
-    const int storedWidth = qBound(432, QSettings(QStringLiteral("LUNA"),
-        QStringLiteral("LUNA Library")).value(QStringLiteral("library/expandedDockWidth"), 562).toInt(), 850);
+    const int storedWidth = qBound(432, QSettings(QSettings::defaultFormat(), QSettings::UserScope,
+        QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).value(QStringLiteral("library/expandedDockWidth"), 562).toInt(), 850);
     window.resizeDocks({dock}, {storedWidth}, Qt::Horizontal);
     auto* controls = new QToolBar(QStringLiteral("라이브러리"), &window);
     controls->setObjectName(QStringLiteral("LunaLibraryToolbar"));

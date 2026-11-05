@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Real Windows/UI Automation panel screenshots of explicit portable builds."""
 import json
+import ctypes
+from ctypes import wintypes
 import os
 from pathlib import Path
 import subprocess
@@ -29,7 +31,12 @@ def run(package, output):
                 app = Application(backend='uia').connect(process=child.pid, timeout=30)
                 win = app.top_window()
                 win.wait('visible ready', timeout=30)
-                win.move_window(x=16, y=16, width=1400, height=900)
+                move = ctypes.WinDLL('user32', use_last_error=True).MoveWindow
+                move.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.BOOL]
+                def resize(height):
+                    if not move(win.handle, 16, 16, 1400, height, True):
+                        raise ctypes.WinError(ctypes.get_last_error())
+                resize(900)
                 time.sleep(1)
                 def buttons():
                     return [b for b in win.descendants(control_type='Button')
@@ -40,18 +47,21 @@ def run(package, output):
                         raise RuntimeError('Expected one visible accessible panel control: '+title)
                     found[0].click_input()
                     time.sleep(.35)
+                def rectangle(widget):
+                    r = widget.rectangle()
+                    return [r.left, r.top, r.right, r.bottom]
                 rows=[]
                 def capture(state):
                     name = scale+'-'+state
                     win.capture_as_image().save(output / (name+'.png'))
-                    rows.append(dict(state=state, window=list(win.rectangle()), controls=[
-                        dict(name=b.window_text(), rectangle=list(b.rectangle())) for b in buttons()]))
+                    rows.append(dict(state=state, window=rectangle(win), controls=[
+                        dict(name=b.window_text(), rectangle=rectangle(b)) for b in buttons()]))
                 capture('both-open')
                 click(NAV); capture('library-folded')
                 click(DOCS); capture('both-folded')
-                win.move_window(x=16, y=16, width=1400, height=800)
+                resize(800)
                 time.sleep(.35); capture('both-folded-short')
-                win.move_window(x=16, y=16, width=1400, height=900)
+                resize(900)
                 click(NAV); capture('papers-folded')
                 click(DOCS); capture('restored')
                 (output / (scale+'-geometry.json')).write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding='utf-8')

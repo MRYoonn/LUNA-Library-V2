@@ -328,3 +328,18 @@ Base: immutable public Windows release `v0.9.0.260` at `bdb9d07dc801651ba8c36eb1
 - The existing typography algorithm's `needs_review/titleCandidate` output is now carried through `extractFirstPage` and bibliography storage *separately* from trusted `title`. A user can view and explicitly accept that proposal in the paper's bibliography editor. Review-only proposals never trigger automatic physical filename changes or overwrite a manual value.
 - New Python source contracts and actual Qt-native C++ fixture assertions cover Nature positive/negative, explicit split final-author, SI boundary, candidate persistence, manual author/title protection. All checks must pass in the unmodified production Windows workflow before publication; include the exact source SHA and release asset digest.
 - This is not a measured title/author accuracy percentage across a real user-selected PDF corpus. Run a blind goldset before making any quantitative accuracy claim.
+
+
+## v262 panel-before capture: run 42035124237
+
+- Source: `2eeef96f95a532d2cef63f9ecb99bff30a59b8c7`.
+- Failed step: Capture actual pre-fix native windows at all scales and panel states.
+- Actual error: pywinauto UIA wrapper has no `move_window` method. This is a
+  capture harness API error, not an application build or panel test result.
+- Function: `tools/capture_panel_comparison_windows.py::run`.
+- Correction: use typed Win32 `MoveWindow` for the actual top-level HWND,
+  retaining UIA accessible-name clicks and actual screenshot capture. Serialize
+  RECT coordinates explicitly. Capture workflow now retains source/run/status
+  in `build-diagnostics.json` and `failure-analysis.md` on every outcome.
+- Revalidation: pending a new exact-source capture run; no baseline captures
+  from the failed run are claimed successful.

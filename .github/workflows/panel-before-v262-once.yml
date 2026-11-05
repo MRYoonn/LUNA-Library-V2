@@ -35,6 +35,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Desktop setup failed' }
           python -B tools/capture_panel_comparison_windows.py "$env:RUNNER_TEMP/v261/portable" "$env:RUNNER_TEMP/evidence/before"
           if ($LASTEXITCODE -ne 0) { throw 'Actual baseline panel capture failed' }
+      - name: Preserve exact source and capture diagnostic result
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/evidence" | Out-Null
+          @{
+            run = $env:GITHUB_RUN_ID
+            commit = $env:GITHUB_SHA
+            status = '${{ job.status }}'
+            baseline = 'c40470847d3f22fbb7c993d2c91dfae6b6b50c4c'
+          } | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/evidence/build-diagnostics.json"
+          'Actual v261 screenshot capture; any failure must be diagnosed from the first failed step. Run: ' + $env:GITHUB_RUN_ID | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/evidence/failure-analysis.md"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

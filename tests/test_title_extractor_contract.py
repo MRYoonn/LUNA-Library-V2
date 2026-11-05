@@ -17,6 +17,8 @@ class TitleExtractorContracts(unittest.TestCase):
         cls.first = (ROOT / "src/lunafirstpage.h").read_text(encoding="utf-8")
         cls.model = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
         cls.native = (ROOT / "tests/native_metadata/main.cpp").read_text(encoding="utf-8")
+        cls.front = (ROOT / "src/lunafrontmatter.h").read_text(encoding="utf-8")
+        cls.library = (ROOT / "src/lunalibrary.cpp").read_text(encoding="utf-8")
 
     def test_msvc_compatible_regex_literals(self):
         # QStringLiteral macro concatenates UTF-16 literal tokens; it cannot
@@ -82,6 +84,35 @@ class TitleExtractorContracts(unittest.TestCase):
         self.assertIn('strongerPrintedTitle', self.model)
         self.assertIn('Metadata::compatibleTitle(old,next)', self.model)
         self.assertIn('titleSource', self.first)
+
+    def test_v261_first_page_candidates_remain_review_only(self):
+        # A weak layout candidate must never be used to rename a real PDF.
+        for field in ('titleCandidate', 'titleConfidence', 'titleStatus',
+                      'needs_review', 'reviewTitle'):
+            self.assertIn(field, self.first, field)
+        self.assertIn('first_page_layout_review', self.model)
+        self.assertIn('value["titleCandidate"] = reviewTitle', self.model)
+        self.assertIn('titleNeedsReview', self.library)
+        self.assertIn('LunaAcceptSuggestedBibliographyTitle', self.library)
+        self.assertIn('title.setText(suggestedTitle)', self.library)
+        self.assertIn('bibliography_.saveEdits', self.library)
+        self.assertNotIn('QNetworkAccessManager', self.first)
+
+    def test_v261_publisher_and_last_author_evidence(self):
+        self.assertIn('natureArticleTitle', self.front)
+        self.assertIn('natureArticleTitle(first)', self.first)
+        self.assertIn('isSupplementCover(firstPage)', self.front)
+        self.assertIn('naturePublisher', self.front)
+        self.assertIn('titleLines.size() >= 1', self.front)
+        self.assertIn('trailingAnd.match(line)', self.model)
+        self.assertIn('authorRow +=', self.model)
+        for phrase in ('v261-evidence-ranked-bibliography',
+                       'Nature cover font-neutral title verified',
+                       'RSC split explicit terminal-and recovers true last-listed author',
+                       'Low typography confidence returns only candidate',
+                       'Automatic first-page extraction never overwrites manually accepted title',
+                       'Missing explicit final author cannot be guessed'):
+            self.assertIn(phrase, self.native, phrase)
 
     def test_native_qt_fixtures_cover_real_logic(self):
         for phrase in (

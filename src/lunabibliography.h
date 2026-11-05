@@ -142,9 +142,9 @@ public:
             R"((?:^|[\s,])(?:and|&)\s+([\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}))"),
             QRegularExpression::CaseInsensitiveOption);
         static const QRegularExpression superscript(QStringLiteral(
-            R"(^[\s*†‡\p{Ll}\p{N}]*$)"));
+            R"(^(?:[\s*†‡]|[\p{Ll}\p{N}]+(?:\s*,\s*[\p{Ll}\p{N}]+)*)*$)"));
         static const QRegularExpression pairedNames(QStringLiteral(
-            R"([\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}(?:[0-9*†‡]+(?:,[0-9]+)*)?\s*,\s*(?:[a-dA-D0-9*†‡]{1,4}\s+)?[\p{Lu}])"));
+            R"([\p{Lu}][\p{L}\p{M}'’.\-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.\-]*){1,5}(?:\s*[0-9*†‡]+(?:,[0-9]+)*)?\s*,\s*(?:[a-dA-D0-9*†‡]{1,4}\s+)?[\p{Lu}])"));
         QString found;
         for (qsizetype i = 0; i < lines.size(); ++i) {
             const QString& line = lines[i];

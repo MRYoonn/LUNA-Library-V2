@@ -199,6 +199,13 @@ int main(int argc,char** argv){
         conflict.value("titleStatus").toString()==QStringLiteral("needs_review") &&
         conflict.value("titleConflict").toString()==QStringLiteral("embedded_metadata"),
         "conflicting printed and metadata headlines must not return a trusted title alongside needs_review");
+    expect(Bibliography::firstPageLastAuthor(QStringLiteral(
+        "Article\nAlice Green 1,2, Brian White 3,\n"
+        "Carol Smith 4 & Daniel Brown 1,2\nAbstract\n"))==QStringLiteral("Daniel Brown"),
+        "PDF4QT spaces and comma-separated final affiliation numbers do not hide the last name");
+    expect(Bibliography::firstPageLastAuthor(QStringLiteral(
+        "Article\nAlice Green, Brian White and Daniel Brown,\nCarol Smith\nAbstract\n")).isEmpty(),
+        "a dangling comma after a candidate is not a completed final author");
     const auto shortFinal = TitleExtraction::infer({
         {QStringLiteral("Article"),40,90,10},
         {QStringLiteral("Analysis of DIA Proteomics Data Using"),40,113,26},

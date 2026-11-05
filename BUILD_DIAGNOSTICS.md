@@ -470,3 +470,13 @@ machine titles while preserving manual/provider fields. Add a native regression
 for this exact status/field contradiction; keep every goldset threshold intact.
 The bounded glyph/codepoint audit remains to document the underlying decoder
 limitation; confidence containment does not claim to reconstruct missing letters.
+
+
+### Native affiliation whitespace regression coverage
+
+The native PDF4QT reconstruction inserts spaces before raised affiliation digits
+and keeps comma-separated final markers on the same row; PyMuPDF snapshots may
+place those digits separately. Accept whitespace before numeric markers and
+commas only *inside* affiliation-marker groups, not a dangling author-list comma.
+Retain the explicit terminal conjunction and preceding author-list proof. New
+native assertions cover both the supported form and an incomplete-list negative.

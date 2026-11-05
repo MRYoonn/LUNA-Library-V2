@@ -179,6 +179,24 @@ int main(int argc,char** argv){
         "Other article\nAlice Green, Brian White\nDepartment of Chemistry")).isEmpty(),
         "No Heliyon publisher header: do not infer last author from arbitrary prose");
     const auto helInfo = Bibliography::firstPageCitation(hel);
+    auto helRecord=helInfo;
+    helRecord["authors"]=Bibliography::heliyonLastAuthor(helAuthors);
+    helRecord["authorEvidence"]=QStringLiteral("publisher-bounded-author-block");
+    expect(titleStore.enrichFromFirstPage(QStringLiteral("synthetic:hel:stored"),helRecord),
+        "bounded Elsevier fields accepted by actual persistence path");
+    Bibliography reopened;
+    const auto storedHel=reopened.record(QStringLiteral("synthetic:hel:stored"));
+    expect(storedHel.value("authors").toString()==QStringLiteral("Daniel Brown") &&
+        storedHel.value("article_number").toString()==QStringLiteral("e28357") &&
+        Bibliography::citation(storedHel).contains(QStringLiteral("e28357")),
+        "Elsevier last author and e-article number persist and appear in offline citation");
+    expect(titleStore.saveEdits(QStringLiteral("synthetic:hel:stored"),storedHel,
+        {{"authors",QStringLiteral("Manual Final Author")},{"article_number",QStringLiteral("e99999")}}),
+        "manual Elsevier author and article correction saved");
+    titleStore.enrichFromFirstPage(QStringLiteral("synthetic:hel:stored"),helRecord);
+    expect(reopened.record(QStringLiteral("synthetic:hel:stored")).value("authors").toString()==QStringLiteral("Manual Final Author") &&
+        reopened.record(QStringLiteral("synthetic:hel:stored")).value("article_number").toString()==QStringLiteral("e99999"),
+        "new publisher evidence cannot overwrite user author or article-number edits");
     expect(helInfo.value("article_number").toString()==QStringLiteral("e28357") &&
         helInfo.value("volume").toString()==QStringLiteral("10"),
         "Heliyon printed header retains distinct article number");

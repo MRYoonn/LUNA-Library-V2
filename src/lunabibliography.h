@@ -30,7 +30,9 @@ public:
         const QString journal = entry.value("journal").toString().simplified();
         const QString year = entry.value("year").toString().simplified();
         const QString volume = entry.value("volume").toString().simplified();
-        const QString pages = entry.value("page").toString().simplified();
+        const QString pages = entry.value("page").toString().simplified().isEmpty()
+            ? entry.value("article_number").toString().simplified()
+            : entry.value("page").toString().simplified();
         if (journal.isEmpty() && year.isEmpty()) return QString();
         QString result = journal;
         if (!year.isEmpty()) result += (result.isEmpty() ? QString() : QStringLiteral(" ")) + year;
@@ -404,7 +406,9 @@ public:
         // supersedes an earlier incomplete/incorrect AUTO value such as Hao Fang,
         // but never changes a user-entered manual author.
         const QString proposedAuthor = proposal.value("authors").toString().simplified();
-        if (proposal.value("authorEvidence").toString() == QStringLiteral("first-page-terminal-and") &&
+        const QString authorEvidence=proposal.value("authorEvidence").toString();
+        if ((authorEvidence == QStringLiteral("first-page-terminal-and") ||
+             authorEvidence == QStringLiteral("publisher-bounded-author-block")) &&
             credibleAuthor(proposedAuthor) &&
             value.value("authorsSource").toString() != QStringLiteral("manual") &&
             value.value("authorsSource").toString() != QStringLiteral("Crossref") &&
@@ -413,7 +417,7 @@ public:
             value.value("authors").toString().simplified() != proposedAuthor) {
             value["authors"] = proposedAuthor;
             value["authorsSource"] = QStringLiteral("first_page_verified");
-            value["authorEvidence"] = QStringLiteral("first-page-terminal-and");
+            value["authorEvidence"] = authorEvidence;
             changedField = true;
         }
         fill("journal", !proposal.value("journal").toString().isEmpty());
@@ -427,7 +431,8 @@ public:
         fill("page", pagePattern.match(proposal.value("page").toString()).hasMatch());
         // Nature Communications publishes article numbers rather than a
         // conventional page interval. Keep a provider/print-sourced number.
-        static const QRegularExpression articleNumberPattern(QStringLiteral(R"(^[1-9]\d{0,8}$)"));
+        static const QRegularExpression articleNumberPattern(QStringLiteral(R"(^(?:[1-9]\d{0,8}|e\d{5,9})$)"),
+                                                               QRegularExpression::CaseInsensitiveOption);
         fill("article_number", articleNumberPattern.match(
             proposal.value("article_number").toString()).hasMatch());
         if (!changedField) return false;
@@ -757,8 +762,9 @@ public:
             changed = true;
         };
         replace("title", credibleTitle(proposal.value("title").toString()));
-        replace("authors", proposal.value("authorEvidence").toString() ==
-                           QStringLiteral("first-page-terminal-and") &&
+        const QString authorEvidence=proposal.value("authorEvidence").toString();
+        replace("authors", (authorEvidence == QStringLiteral("first-page-terminal-and") ||
+                           authorEvidence == QStringLiteral("publisher-bounded-author-block")) &&
                            credibleAuthor(proposal.value("authors").toString()));
         replace("journal", !proposal.value("journal").toString().isEmpty());
         static const QRegularExpression year(QStringLiteral(R"(^[12]\d{3}$)"));
@@ -768,6 +774,9 @@ public:
         static const QRegularExpression pages(QStringLiteral(R"(^(?:e\d{5,9}|\d{1,7})(?:[-–]\d{1,7})?$)"),
                                                QRegularExpression::CaseInsensitiveOption);
         replace("page", pages.match(proposal.value("page").toString()).hasMatch());
+        static const QRegularExpression articleNumberPattern(QStringLiteral(R"(^(?:[1-9]\d{0,8}|e\d{5,9})$)"),
+                                                               QRegularExpression::CaseInsensitiveOption);
+        replace("article_number", articleNumberPattern.match(proposal.value("article_number").toString()).hasMatch());
         if (!changed) return false;
         entry.remove("citation");
         entry.remove("citationSource");

@@ -102,7 +102,7 @@ class LibraryModes(unittest.TestCase):
         self.assertIn('dock->show(); // Both folded rails remain visible', self.cpp)
         self.assertIn('const int collapsedTarget', self.cpp)
         self.assertIn('dock->setMinimumWidth(1)', self.cpp)
-        self.assertIn('QTimer::singleShot(0, dock, [dock, requested, showNav, showDocs]', self.cpp)
+        self.assertIn('QTimer::singleShot(0, this, [this, dock, requested, showNav, showDocs]', self.cpp)
         self.assertIn('navigation_->setVisible(navigation_->isHidden())', self.cpp)
         self.assertIn('documents_->setVisible(documents_->isHidden())', self.cpp)
 

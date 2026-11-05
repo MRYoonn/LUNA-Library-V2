@@ -343,3 +343,14 @@ Base: immutable public Windows release `v0.9.0.260` at `bdb9d07dc801651ba8c36eb1
   in `build-diagnostics.json` and `failure-analysis.md` on every outcome.
 - Revalidation: pending a new exact-source capture run; no baseline captures
   from the failed run are claimed successful.
+
+
+## v262 panel-before capture: run 42035364711
+
+- Source: `bb738c3` (full SHA is retained in the run diagnostic artifact).
+- Actual failure: expected visible named panel control was not found when UIA
+  descendants were restricted to control type Button. All-open screenshot was
+  captured, but no folded states passed.
+- Correction: query accessible names across UIA roles, including checkable
+  Qt tool controls; retain visible control names/types on failure for diagnosis.
+- Revalidation: new-source capture pending. No failed capture is a passing test.

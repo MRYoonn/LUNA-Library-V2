@@ -39,11 +39,13 @@ def run(package, output):
                 resize(900)
                 time.sleep(1)
                 def buttons():
-                    return [b for b in win.descendants(control_type='Button')
-                            if b.is_visible() and b.window_text() in (NAV, DOCS)]
+                    return [b for b in win.descendants()
+                            if b.is_visible() and b.element_info.name in (NAV, DOCS)]
                 def click(title):
-                    found = [b for b in buttons() if b.window_text() == title]
+                    found = [b for b in buttons() if b.element_info.name == title]
                     if len(found) != 1:
+                        details = [dict(name=b.element_info.name, type=b.element_info.control_type) for b in win.descendants() if b.is_visible()]
+                        (output / ('uia-'+scale+'.json')).write_text(json.dumps(details,ensure_ascii=False,indent=2),encoding='utf-8')
                         raise RuntimeError('Expected one visible accessible panel control: '+title)
                     found[0].click_input()
                     time.sleep(.35)
@@ -55,7 +57,7 @@ def run(package, output):
                     name = scale+'-'+state
                     win.capture_as_image().save(output / (name+'.png'))
                     rows.append(dict(state=state, window=rectangle(win), controls=[
-                        dict(name=b.window_text(), rectangle=rectangle(b)) for b in buttons()]))
+                        dict(name=b.element_info.name, rectangle=rectangle(b)) for b in buttons()]))
                 capture('both-open')
                 click(NAV); capture('library-folded')
                 click(DOCS); capture('both-folded')

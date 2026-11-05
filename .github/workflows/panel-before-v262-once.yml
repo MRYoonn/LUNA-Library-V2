@@ -1,4 +1,5 @@
 name: LUNA v262 exact v261 baseline panel screenshots
+# Capture checkable Qt controls through their UIA names across control roles.
 on:
   push:
     branches:

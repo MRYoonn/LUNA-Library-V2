@@ -1815,11 +1815,12 @@ public:
         navigationSlot_->setMaximumWidth(showNav ? 300 : foldWidth_);
         documentsSlot_->setMinimumWidth(showDocs ? 195 : foldWidth_);
         documentsSlot_->setMaximumWidth(showDocs ? 850 : foldWidth_);
+        const auto margins = layout()->contentsMargins();
+        const int framing = split_->handleWidth() + margins.left() + margins.right();
         const int collapsedTarget = (showNav ? expandedNavWidth_ : foldWidth_) +
-                                    (showDocs ? expandedDocumentsWidth_ : foldWidth_) +
-                                    split_->handleWidth() + 12;
+                                    (showDocs ? expandedDocumentsWidth_ : foldWidth_) + framing;
         const int minWidth = (showNav ? 225 : foldWidth_) +
-                             (showDocs ? 195 : foldWidth_) + 12;
+                             (showDocs ? 195 : foldWidth_) + framing;
         setMinimumWidth(minWidth);
         setMaximumWidth(showNav && showDocs ? 850 : qMax(minWidth, collapsedTarget));
         updateGeometry();
@@ -1835,12 +1836,14 @@ public:
                         .value(QStringLiteral("library/expandedDockWidth"), 562).toInt(), 850) :
                     collapsedTarget;
                 main->resizeDocks({dock}, {requested}, Qt::Horizontal);
-                QTimer::singleShot(0, dock, [dock, requested, showNav, showDocs] {
+                QTimer::singleShot(0, this, [this, dock, requested, showNav, showDocs] {
                     if (!dock->isVisible()) return;
                     if (auto* main = qobject_cast<QMainWindow*>(dock->parentWidget()))
                         main->resizeDocks({dock}, {requested}, Qt::Horizontal);
-                    Q_UNUSED(showNav);
-                    Q_UNUSED(showDocs);
+                    // QSplitter otherwise remembers the narrowed 36px size and
+                    // expands navigation only to its minimum, losing custom widths.
+                    split_->setSizes({showNav ? expandedNavWidth_ : foldWidth_,
+                                      showDocs ? expandedDocumentsWidth_ : foldWidth_});
                 });
             }
         }

@@ -16,6 +16,7 @@
 #include "pdfdrawwidget.h"
 #include "pdfdrawspacecontroller.h"
 #include <QApplication>
+#include <QSplitter>
 #include <QAbstractNativeEventFilter>
 #include <QAction>
 #include <QCloseEvent>
@@ -1234,6 +1235,13 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 return qAbs(actual - 690) <= 4 && saved == actual;
             }), "Expanded dock width was not persisted after manual resize");
             const int userDockWidth = libraryDock->width();
+            auto* panelSplitter = host.findChild<QSplitter*>(QStringLiteral("LunaLibrarySplitter"));
+            integrationRequire(panelSplitter, "Panel splitter missing");
+            panelSplitter->setSizes({280, userDockWidth - 292});
+            QCoreApplication::processEvents();
+            panelSplitter->splitterMoved(panelSplitter->sizes().first(), 1);
+            const int userNavigationWidth = navSlot->width();
+            const int userDocumentsWidth = docsSlot->width();
             result["settledDockWidthDiagnostics"] = QJsonObject{
                 {"requestedWidth", 690}, {"settledDockWidth", userDockWidth},
                 {"persistedWidth", QSettings(QSettings::defaultFormat(), QSettings::UserScope,
@@ -1312,6 +1320,10 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                     "Restoring papers did not reopen their original slot");
                 integrationRequire(qAbs(libraryDock->width() - userDockWidth) <= 4,
                     "Folding and restoring panels lost the user's saved dock width");
+                integrationRequire(integrationWait([&] {
+                    return qAbs(navSlot->width() - userNavigationWidth) <= 2 &&
+                           qAbs(docsSlot->width() - userDocumentsWidth) <= 2;
+                }), "Panel restore lost custom per-panel splitter widths");
                 integrationRequire(!focus->isChecked(),
                     "Panel controls unexpectedly activated focus mode");
             }

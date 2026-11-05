@@ -605,7 +605,7 @@ jobs:
         run: |
           $evidence = Join-Path $env:RUNNER_TEMP 'luna-ui/title-audit'
           New-Item -ItemType Directory -Force $evidence | Out-Null
-          python -B -c "import json,sys; d=json.load(open('tests/goldset/public-papers.json',encoding='utf-8')); json.dump([x for x in d if x['id']=='PMC10025926'],open(sys.argv[1],'w',encoding='utf-8'),ensure_ascii=False)" "$evidence/fixture.json"
+          python -B -c "import json,sys; d=json.load(open('tests/goldset/public-papers.json',encoding='utf-8')); json.dump([x for x in d if x['id'] in ('PMC10025926','PMC10766651')],open(sys.argv[1],'w',encoding='utf-8'),ensure_ascii=False)" "$evidence/fixture.json"
           if ($LASTEXITCODE -ne 0) { throw 'Public diagnostic manifest could not be generated' }
           python -B tools/evaluate_goldset.py --manifest "$evidence/fixture.json" --fetch "$env:RUNNER_TEMP/luna-title-audit-input" --exe LUNA-Windows-Portable/LUNA.exe --predictions "$evidence/predictions.json" --output "$evidence/score.json"
           if ($LASTEXITCODE -ne 0) { throw 'Pinned native ligature audit could not run' }

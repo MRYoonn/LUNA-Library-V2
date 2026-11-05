@@ -138,6 +138,24 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
     }
     const QString first=pages.isEmpty()?QString():pages.first();
     if(diagnostic)*diagnostic=first; // Diagnostics stay local.
+    if (audit) {
+        QVariantList authorRows;
+        const auto rows=FrontMatter::lines(first,12000);
+        for (qsizetype i=0; i<rows.size() && i<75; ++i) {
+            const QString row=rows[i];
+            if (row.contains(QLatin1Char('@'))) continue;
+            QString name=row;
+            name.remove(QRegularExpression(QStringLiteral(R"(^[\p{N},*†‡\s]+)")));
+            name.remove(QRegularExpression(QStringLiteral(R"([\p{N},*†‡\s]+$)")));
+            if (row.contains(QLatin1Char('&')) || row==QStringLiteral("and") ||
+                Bibliography::credibleAuthor(name) ||
+                QRegularExpression(QStringLiteral(R"(^[\p{N},*†‡\s]+$)")).match(row).hasMatch() ||
+                row.startsWith(QStringLiteral("Received:")) || row.startsWith(QStringLiteral("Accepted:")) ||
+                row==QStringLiteral("Check for updates") || row==QStringLiteral("Abstract"))
+                authorRows.append(QVariantMap{{"index",int(i)},{"text",row.left(250)}});
+        }
+        (*audit)["authorRows"]=authorRows;
+    }
     QString infoText;
     if(const auto* info=document.getInfo()) {
         infoText=info->title + QLatin1Char(' ');

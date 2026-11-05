@@ -491,3 +491,24 @@ Some PDFs use font size 1 with a scaled text matrix. Use the same mapped vertica
 font vector length for reliability matching and audit filtering, and retain both
 raw/mapped sizes in the bounded public diagnostic. This corrects units rather
 than changing confidence thresholds or any golden answer.
+
+
+## Windows Build #276 / floating final-author ampersand: 42053722965
+
+- Source `01a521ff36f6bf5505bcdb2d124deef9e1620dc7`.
+- Title containment verified: 29 correct / 2 missing / 0 wrong. The public
+  PMC10025926 audit returns only titleCandidate and needs_review, never title.
+- DOI 31/31, publication fields unchanged, parser errors remain resolved.
+- Failed goldset author guard: PMC10766651 emitted Eleonora Aronica, while the
+  actual final listed author is Rob C. I. Wüst. Adding numeric marker support
+  exposed a standalone/floating & in native Y-order and confirmed its wrong
+  neighboring name. The other new native recovery (Bernd Bodenmiller) was correct.
+- Do not infer the final author from a floating ampersand without a same-row
+  named prefix. Keep word-and RSC continuations, explicitly anchored ampersands,
+  and affiliation-number support. Add the incomplete-order negative regression.
+  Ambiguous cases abstain rather than guessing the next personal name.
+- Include only bounded author-like rows/ref markers (no contact rows) in the
+  opted-in public audit; add this checksum-pinned fixture to that diagnostic.
+- Original logs/predictions/score and build diagnostic artifacts are retained.
+  Goldset thresholds and all original fixtures remain unchanged. A fresh full
+  Windows run on the corrective SHA must pass before publication.

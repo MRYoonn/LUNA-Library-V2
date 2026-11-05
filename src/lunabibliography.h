@@ -176,6 +176,16 @@ public:
             if (!superscript.match(authorRow.mid(match.capturedEnd())).hasMatch()) continue;
             const QString candidate = match.captured(1).simplified();
             if (!credibleAuthor(candidate)) continue;
+            QString conjunctionPrefix=authorRow.left(match.capturedStart(1)).simplified();
+            if (conjunctionPrefix.endsWith(QLatin1Char('&'))) {
+                // Nature superscript baselines can float a standalone & onto
+                // a different author's row. Without a named same-row prefix,
+                // text order alone cannot establish the final contributor.
+                conjunctionPrefix.chop(1);
+                conjunctionPrefix.remove(QRegularExpression(QStringLiteral(R"([\p{N},*†‡\s]+$)")));
+                if (!pairedNames.match(conjunctionPrefix).hasMatch() &&
+                    !credibleAuthor(conjunctionPrefix.simplified())) continue;
+            }
             bool hasAuthorList = pairedNames.match(line).hasMatch();
             // Angewandte two-author reviews use "First Name and Last Name"
             // without a comma. Require its printed journal citation as well as

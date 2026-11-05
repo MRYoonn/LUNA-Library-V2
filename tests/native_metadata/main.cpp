@@ -206,6 +206,10 @@ int main(int argc,char** argv){
     expect(Bibliography::firstPageLastAuthor(QStringLiteral(
         "Article\nAlice Green, Brian White and Daniel Brown,\nCarol Smith\nAbstract\n")).isEmpty(),
         "a dangling comma after a candidate is not a completed final author");
+    expect(Bibliography::firstPageLastAuthor(QStringLiteral(
+        "Article\nAlice Green 1,2, Brian White 3,\n& Eleonora Aronica 11,12\n"
+        "Rob C. I. Wüst 3,4,15\nAbstract\n")).isEmpty(),
+        "floating Nature ampersand cannot establish the wrong neighboring author as last");
     const auto shortFinal = TitleExtraction::infer({
         {QStringLiteral("Article"),40,90,10},
         {QStringLiteral("Analysis of DIA Proteomics Data Using"),40,113,26},

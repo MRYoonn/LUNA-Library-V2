@@ -199,3 +199,9 @@ jobs:
 
 # CI v260 source-contract sync: the static contract now verifies atomic
 # qAbs(actual - 690) <= 4 && saved == actual, matching compiled Win32 UI test.
+
+# 2026-11-05 root-cause fix: Qt QSettings(org, app) is ALWAYS NativeFormat.
+# CI uses IniFormat, so initial-width + restore code and integration now use
+# QSettings(QSettings::defaultFormat(), QSettings::UserScope, org, app).
+# Strict 690px native persistence, 10 real panel cycles and full SHA-verified
+# publication gate remain mandatory; do not bypass any failed test.

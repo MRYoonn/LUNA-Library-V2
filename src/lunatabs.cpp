@@ -1240,6 +1240,28 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                     QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
                     .value(QStringLiteral("library/expandedDockWidth")).toInt()},
                 {"windowWidth", host.width()}};
+            // Compare global logical Y coordinates, not fractions of panel height.
+            const int navButtonY = navigationToggle->mapTo(&host, QPoint()).y();
+            const int docsButtonY = documentsToggle->mapTo(&host, QPoint()).y();
+            QJsonArray panelGeometry;
+            auto capturePanels = [&](const QString& state, bool capture) {
+                integrationRequire(integrationWait([&] {
+                    return (!navigationPanel->isHidden() ||
+                        navRestore->mapTo(&host, QPoint()).y() == navButtonY) &&
+                        (!documentsPanel->isHidden() ||
+                        docsRestore->mapTo(&host, QPoint()).y() == docsButtonY);
+                }), "Folded restore moved vertically away from its original header");
+                if (!capture) return;
+                QJsonObject geometry{{"state", state}, {"height", host.height()},
+                    {"navWidth", navSlot->width()}, {"docsWidth", docsSlot->width()},
+                    {"expandedNavY", navButtonY}, {"expandedDocsY", docsButtonY},
+                    {"restoreNavY", navRestore->mapTo(&host, QPoint()).y()},
+                    {"restoreDocsY", docsRestore->mapTo(&host, QPoint()).y()}};
+                panelGeometry.append(geometry);
+                integrationRequire(host.grab().save(report + ".panels-" + state + ".png"),
+                    "Native panel state screenshot could not be saved");
+            };
+            capturePanels(QStringLiteral("both-open"), true);
             for (int turn = 0; turn < 10; ++turn) {
                 const bool paperOnlyFoldedInPlace = integrationPanelClick(host, navigationToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
@@ -1259,6 +1281,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                     {"restoreButtonsVisible", buttonsVisible()}};
                 integrationRequire(paperOnlyFoldedInPlace,
                     "Folding library moved the button to the wrong side of papers");
+                capturePanels(QStringLiteral("library-folded"), turn == 0);
                 integrationRequire(integrationPanelClick(host, documentsToggle) &&
                     integrationWait([&] { return navigationPanel->isHidden() &&
                         documentsPanel->isHidden() && libraryDock->isVisible() &&
@@ -1268,12 +1291,20 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                             docsRestore->mapTo(libraryDock, QPoint()).x() &&
                         buttonsVisible(); }),
                     "Both folded slots were not adjacent at the window's left edge");
+                capturePanels(QStringLiteral("both-folded"), turn == 0);
+                const QSize beforeResize = host.size();
+                host.resize(beforeResize.width(), beforeResize.height() - 100);
+                QCoreApplication::processEvents();
+                capturePanels(QStringLiteral("both-folded-short"), turn == 0);
+                host.resize(beforeResize);
+                QCoreApplication::processEvents();
                 integrationRequire(integrationPanelClick(host, navRestore) &&
                     integrationWait([&] { return !navigationPanel->isHidden() &&
                         documentsPanel->isHidden() && libraryDock->isVisible() &&
                         navSlot->width() >= 225 && docsSlot->width() == 36 &&
                         navSlot->x() < docsSlot->x() && buttonsVisible(); }),
                     "Restoring navigation displaced the folded paper-list slot");
+                capturePanels(QStringLiteral("papers-folded"), turn == 0);
                 integrationRequire(integrationPanelClick(host, docsRestore) &&
                     integrationWait([&] { return !navigationPanel->isHidden() &&
                         !documentsPanel->isHidden() && libraryDock->isVisible() &&
@@ -1284,6 +1315,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 integrationRequire(!focus->isChecked(),
                     "Panel controls unexpectedly activated focus mode");
             }
+            result["panelHeaderGeometry"] = panelGeometry;
             result["tenIndependentPanelToggleCycles"] = true;
             auto collapse = [&] {
                 focus->setChecked(true);

@@ -7,6 +7,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "tools/evaluate_goldset.py", "tests/test_goldset.py", "tests/goldset/public-papers.json", "tests/goldset/README.md",
+    "src/lunafirstpageevidence.h", "tests/native_metadata/snapshot.cpp",
     "assets/folder_icons/README.md",
     "assets/folder_icons/svg_bundle.b85",
     "assets/symbol_icons/README.md",

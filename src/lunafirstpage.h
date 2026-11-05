@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 #pragma once
-#include "lunabibliography.h"
+#include "lunafirstpageevidence.h"
 #include "lunametadataengine.h"
 #include "lunatitleextractor.h"
 #include "pdfdocument.h"
@@ -86,74 +86,7 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
                 infoText+=value.toString()+QLatin1Char(' ');
         }
     }
-    const auto candidates=Metadata::collectCandidates(pages,infoText);
-    // Do not classify an ACS main-paper navbar hyperlink as an SI cover.
-    if (FrontMatter::isSupplementCover(first))
-        return {{"documentKind",QStringLiteral("supporting_information")},
-                {"doiStatus",QStringLiteral("needs_review")}};
-    QVariantMap evidence=Bibliography::firstPageCitation(first);
-    const QVariantMap titleLayout=TitleExtraction::infer(firstPageLines,firstPageHeight);
-    const QVariantMap textualTitle=Bibliography::firstPageIdentity(first);
-    // Publisher-specific text title fallback from scheduled accuracy module:
-    // require ACS or RSC masthead, author boundary and strong citation cues.
-    const QString acs=FrontMatter::acsTitle(first);
-    const QString rsc=acs.isEmpty() ? FrontMatter::rscTitle(first) : QString();
-    const QString publisherTitle=!acs.isEmpty() ? acs : !rsc.isEmpty()
-        ? rsc : FrontMatter::natureArticleTitle(first);
-    // A prominent geometric title stays first; bounded publisher cover titles
-    // rescue PDFs where font sizes are indistinguishable from author text.
-    const QString title=titleLayout.value("title").toString();
-    if (!title.isEmpty() && Bibliography::credibleTitle(title)) {
-        evidence["title"]=title;
-        evidence["titleSource"]=QStringLiteral("first_page_layout");
-    } else if (Bibliography::credibleTitle(publisherTitle)) {
-        evidence["title"]=publisherTitle;
-        evidence["titleSource"]=QStringLiteral("publisher_cover_verified");
-    } else if (!textualTitle.value("title").toString().isEmpty()) {
-        evidence["title"]=textualTitle.value("title");
-        evidence["titleSource"]=QStringLiteral("first_page_verified");
-    }
-    // Weak/competing typography evidence is useful in the manual editor,
-    // but MUST NEVER become an automatically trusted title or PDF filename.
-    const QString reviewTitle=titleLayout.value("titleCandidate").toString().simplified();
-    if (titleLayout.value("titleStatus").toString()==QStringLiteral("needs_review") &&
-        Bibliography::credibleTitle(reviewTitle) &&
-        reviewTitle!=evidence.value("title").toString().simplified()) {
-        evidence["titleCandidate"]=reviewTitle;
-        evidence["titleConfidence"]=titleLayout.value("titleConfidence");
-        evidence["titleStatus"]=QStringLiteral("needs_review");
-    }
-    if (evidence.isEmpty() && !Metadata::acceptableIdentity(candidates)) return {};
-    if(const auto* info=document.getInfo(); info && Bibliography::credibleTitle(info->title)) {
-        const QString pdfTitle=info->title.simplified();
-        // PDF Info /Title can be a stale Word or publisher export name.
-        // Keep a strongly identified printed title if they disagree.
-        // Do not demote an independently verified publisher-cover title to
-        // stale PDF Info, even if their normalized words happen to agree.
-        if (evidence.value("titleSource").toString() == QStringLiteral("publisher_cover_verified")) {
-            if (!Metadata::compatibleTitle(evidence.value("title").toString(),pdfTitle))
-                evidence["titleStatus"]=QStringLiteral("needs_review");
-        } else if (evidence.value("title").toString().isEmpty() ||
-                   Metadata::compatibleTitle(evidence.value("title").toString(),pdfTitle)) {
-            evidence["title"]=pdfTitle;
-            evidence["titleSource"]=QStringLiteral("pdf_metadata");
-        } else {
-            evidence["titleStatus"]=QStringLiteral("needs_review");
-        }
-    }
-    const auto author=Bibliography::firstPageLastAuthor(first);
-    if(!author.isEmpty()) {
-        evidence["authors"]=author;
-        evidence["authorEvidence"]=QStringLiteral("first-page-terminal-and");
-    }
-    if(Metadata::acceptableIdentity(candidates)) {
-        evidence["doi"]=candidates.first().doi;
-        evidence["doiSource"]=candidates.first().location;
-        evidence["doiScore"]=candidates.first().score;
-    } else if(!candidates.isEmpty()) {
-        evidence["doiStatus"]=QStringLiteral("needs_review");
-        evidence["doiCandidates"]=QStringList{candidates.first().doi};
-    }
-    return evidence;
+    return firstPageEvidence(pages, firstPageLines, firstPageHeight, infoText,
+        document.getInfo() ? document.getInfo()->title : QString());
 }
 }

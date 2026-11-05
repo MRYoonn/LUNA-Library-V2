@@ -17,9 +17,9 @@ struct Line {
     double x = 0, y = 0, fontSize = 0;
 };
 
-inline bool isExcluded(QString text) {
+inline bool isExcluded(QString text, bool continuation = false) {
     text = text.simplified();
-    if (text.size() < 9 || text.size() > 230 ||
+    if (text.size() < (continuation ? 2 : 9) || text.size() > 230 ||
         text.contains(QStringLiteral("doi.org"), Qt::CaseInsensitive) ||
         text.contains(QStringLiteral("http"), Qt::CaseInsensitive) ||
         text.contains(QLatin1Char('@')) ||
@@ -83,7 +83,7 @@ inline QVariantMap infer(const QList<Line>& source, double pageHeight) {
                 std::abs(next.x-start.x) > 145 ||
                 next.fontSize < start.fontSize*0.79 ||
                 next.fontSize > start.fontSize*1.23 ||
-                isExcluded(next.text) || title.size()+next.text.size()>230) break;
+                isExcluded(next.text, true) || title.size()+next.text.size()>230) break;
             title += (title.endsWith(QLatin1Char('-')) ? QString() : QStringLiteral(" ")) + next.text;
             end=j;
         }

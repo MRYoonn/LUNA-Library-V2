@@ -27,7 +27,7 @@ inline QStringList lines(const QString& text, int limit = 16000) {
 inline bool isSupplementCover(const QString& firstPage) {
     const QStringList rows = lines(firstPage, 12000);
     static const QRegularExpression cover(QStringLiteral(
-        R"(^(?:(?:Revised|Electronic)\s+)?(?:Supporting|Supplementary)\s+Information(?:\s*\((?:SI|ESI)\))?(?:\s+for(?:\s+.+)?)?\.?$|^Electronic\s+Supplementary\s+Material(?:\s*\(ESI\))?(?:\s+for(?:\s+.+)?)?\.?$)"),
+        R"(^(?:(?:Revised|Electronic)\s+)?(?:Supporting|Supplementary)\s+Information(?:\s*\((?:SI|ESI)\))?(?:\s+for:?(?:\s+.+)?)?\.?$|^Electronic\s+Supplementary\s+Material(?:\s*\(ESI\))?(?:\s+for:?(?:\s+.+)?)?\.?$)"),
         QRegularExpression::CaseInsensitiveOption);
     // PDF4QT may y-sort a sidebar SI hyperlink before the article masthead.
     // Look for positive article-navigation evidence BEFORE trusting even the
@@ -45,6 +45,15 @@ inline bool isSupplementCover(const QString& firstPage) {
     // A real cover may have a short publisher banner before the SI heading.
     for (qsizetype i=0; i<rows.size() && i<7; ++i) {
         if (cover.match(rows[i]).hasMatch()) return true;
+        // Nature supplementary covers also use an explicit "Supplement to:"
+        // headline, or standalone "Supplementary" above a table/figure index.
+        if (i < 3 && rows[i].startsWith(QStringLiteral("Supplement to:"), Qt::CaseInsensitive))
+            return true;
+        if (i < 3 && rows[i].compare(QStringLiteral("Supplementary"), Qt::CaseInsensitive)==0) {
+            for (qsizetype j=i+1; j<rows.size() && j<=i+3; ++j)
+                if (rows[j].startsWith(QStringLiteral("TABLE "), Qt::CaseInsensitive) ||
+                    rows[j].startsWith(QStringLiteral("Figure "), Qt::CaseInsensitive)) return true;
+        }
         if (rows[i].compare(QStringLiteral("Abstract"),Qt::CaseInsensitive)==0 ||
             rows[i].compare(QStringLiteral("Introduction"),Qt::CaseInsensitive)==0) break;
     }
@@ -206,8 +215,25 @@ inline QVariantMap publisherCitation(const QString& text) {
     if (isSupplementCover(text)) return {};
     const QStringList rows=lines(text, 32000);
     const QString front=rows.mid(0,15).join(QLatin1Char('\n'));
+    // Heliyon publisher header: final volume/year/article number is printed
+    // above the journal homepage. Require BOTH the journal's site and DOI;
+    // an identically formatted reference elsewhere is insufficient.
+    if (front.contains(QStringLiteral("www.cell.com/heliyon"), Qt::CaseInsensitive) &&
+        text.contains(QStringLiteral("10.1016/j.heliyon."), Qt::CaseInsensitive)) {
+        static const QRegularExpression heliyon(QStringLiteral(
+            R"(^Heliyon\s+(?<volume>\d{1,4})\s+\((?<year>(?:19|20)\d{2})\)\s+(?<article>e\d{4,9})$)"));
+        for (qsizetype i=0; i<rows.size() && i<3; ++i) {
+            const auto match=heliyon.match(rows[i]);
+            if (match.hasMatch()) return {{"journal", QStringLiteral("Heliyon")},
+                {"volume", match.captured(QStringLiteral("volume"))},
+                {"year", match.captured(QStringLiteral("year"))},
+                {"article_number", match.captured(QStringLiteral("article"))}};
+        }
+    }
     const bool rsc=front.contains(QStringLiteral("10.1039/"),Qt::CaseInsensitive) ||
         front.contains(QStringLiteral("ChemComm"),Qt::CaseInsensitive) ||
+        front.contains(QStringLiteral("Chemical\nScience"),Qt::CaseInsensitive) ||
+        front.contains(QStringLiteral("Chemical Science"),Qt::CaseInsensitive) ||
         front.contains(QStringLiteral("Organic & Biomolecular Chemistry"),Qt::CaseInsensitive);
     const bool nature=front.contains(QStringLiteral("Nature Chemistry"),Qt::CaseInsensitive) ||
         front.contains(QStringLiteral("Nature Synthesis"),Qt::CaseInsensitive) ||
@@ -217,6 +243,9 @@ inline QVariantMap publisherCitation(const QString& text) {
         front.contains(QStringLiteral("10.1038/s41467-"),Qt::CaseInsensitive);
     static const QRegularExpression cc(QStringLiteral(
         R"(^\d{1,7}\s*\|\s*Chem\.\s*Commun\.,\s*(?<year>(?:19|20)\d{2}),\s*(?<volume>\d{1,4}),\s*(?<page>\d{1,7}\s*[-–]\s*\d{1,7})$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression science(QStringLiteral(
+        R"(^\d{1,7}\s*\|\s*Chem\.\s*Sci\.,\s*(?<year>(?:19|20)\d{2}),\s*(?<volume>\d{1,4}),\s*(?<page>\d{1,7}\s*[-–]\s*\d{1,7})$)"),
         QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression obc(QStringLiteral(
         R"(^Org\.\s*Biomol\.\s*Chem\.,\s*(?<year>(?:19|20)\d{2}),\s*(?<volume>\d{1,4}),\s*(?<page>\d{1,7}\s*[-–]\s*\d{1,7})\s*\|\s*\d{1,7}$)"),
@@ -230,6 +259,14 @@ inline QVariantMap publisherCitation(const QString& text) {
     for(qsizetype i=0;i<rows.size() && i<160;++i) {
         const QString& row=rows[i];
         if(rsc) {
+            const auto full=science.match(row);
+            if (full.hasMatch()) {
+                QString page=full.captured(QStringLiteral("page"));
+                page.replace(QChar(0x2013),QLatin1Char('-')).remove(QLatin1Char(' '));
+                return {{"journal",QStringLiteral("Chemical Science")},
+                    {"year",full.captured(QStringLiteral("year"))},
+                    {"volume",full.captured(QStringLiteral("volume"))},{"page",page}};
+            }
             const auto a=cc.match(row);
             if(a.hasMatch()) {
                 QString page=a.captured(QStringLiteral("page"));

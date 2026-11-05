@@ -1,0 +1,680 @@
+[
+  {
+    "id": "PMC9933091",
+    "publisher": "ACS",
+    "doi": "10.1021/acsomega.2c07560",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC9933091",
+    "sha256": "cb2bc935ef944e5a49e3d318c269ce72302a86a27f5cf8dcf5a0e66ed0709106",
+    "official_url": "https://doi.org/10.1021/acsomega.2c07560",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC9933091/fullTextXML",
+    "expected": {
+      "title": "Enzyme Immobilization\nTechnologies and Industrial\nApplications",
+      "authors": "Hassan Mohamed El-Said Azzazy",
+      "journal": [
+        "ACS Omega",
+        "ACS Omega"
+      ],
+      "year": "2023",
+      "volume": "8",
+      "page": "5184–5196",
+      "doi": "10.1021/acsomega.2c07560",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC9996785",
+    "publisher": "ACS",
+    "doi": "10.1021/acsomega.3c00156",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC9996785",
+    "sha256": "a222cc8f9337c798fe45ddd909d67282ba62c8bcfe0144cefc2a72ea5e5a44ab",
+    "official_url": "https://doi.org/10.1021/acsomega.3c00156",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC9996785/fullTextXML",
+    "expected": {
+      "title": "IMPPAT 2.0: An\nEnhanced and Expanded Phytochemical\nAtlas of Indian Medicinal Plants",
+      "authors": "Areejit Samal",
+      "journal": [
+        "ACS Omega",
+        "ACS Omega"
+      ],
+      "year": "2023",
+      "volume": "8",
+      "page": "8827–8845",
+      "doi": "10.1021/acsomega.3c00156",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10061533",
+    "publisher": "ACS",
+    "doi": "10.1021/acsomega.2c07326",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10061533",
+    "sha256": "093d99018f0516bea96f402d252a67b7715cb998b35bcf2504ea6ac63e986f40",
+    "official_url": "https://doi.org/10.1021/acsomega.2c07326",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10061533/fullTextXML",
+    "expected": {
+      "title": "Curcumin Formulations\nfor Better Bioavailability:\nWhat We Learned from Clinical Trials Thus Far?",
+      "authors": "Ajaikumar B. Kunnumakkara",
+      "journal": [
+        "ACS Omega"
+      ],
+      "year": "2023",
+      "volume": "8",
+      "page": "10713-10746",
+      "doi": "10.1021/acsomega.2c07326",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC11886731",
+    "publisher": "ACS",
+    "doi": "10.1021/acsomega.4c11045",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC11886731",
+    "sha256": "307f772abb2e37c3200a1ee992e324ebc7a6d47e60542556d9437485c88e8634",
+    "official_url": "https://doi.org/10.1021/acsomega.4c11045",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11886731/fullTextXML",
+    "expected": {
+      "title": "Silver Nanoparticles\n(AgNPs): Comprehensive Insights\ninto Bio/Synthesis, Key Influencing Factors, Multifaceted Applications,\nand Toxicity—A 2024 Update",
+      "authors": "Amit Pratap",
+      "journal": [
+        "ACS Omega"
+      ],
+      "year": "2025",
+      "volume": "10",
+      "page": "7549-7582",
+      "doi": "10.1021/acsomega.4c11045",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10851382",
+    "publisher": "ACS",
+    "doi": "10.1021/acsomega.3c07047",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10851382",
+    "sha256": "d0f7c7125d419c255cab651b619841248d4aad213e9cb7f6df78788be3d127e5",
+    "official_url": "https://doi.org/10.1021/acsomega.3c07047",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10851382/fullTextXML",
+    "expected": {
+      "title": "The Toxicity of\nMercury and Its Chemical Compounds:\nMolecular Mechanisms and Environmental and Human Health Implications:\nA Comprehensive Review",
+      "authors": "Pow-Seng Yap",
+      "journal": [
+        "ACS Omega",
+        "ACS Omega"
+      ],
+      "year": "2024",
+      "volume": "9",
+      "page": "5100–5126",
+      "doi": "10.1021/acsomega.3c07047",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10134471",
+    "publisher": "ACS",
+    "doi": "10.1021/acsomega.2c07840",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10134471",
+    "sha256": "b3c3b2941eca8bc4992189dcbc862a9fe065aef125a5136866925fee4892e2e3",
+    "official_url": "https://doi.org/10.1021/acsomega.2c07840",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10134471/fullTextXML",
+    "expected": {
+      "title": "Smart Nanomaterials\nin Cancer Theranostics: Challenges\nand Opportunities",
+      "authors": "Kavindra Kumar Kesari",
+      "journal": [
+        "ACS Omega",
+        "ACS Omega"
+      ],
+      "year": "2023",
+      "volume": "8",
+      "page": "14290–14320",
+      "doi": "10.1021/acsomega.2c07840",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10189874",
+    "publisher": "RSC",
+    "doi": "10.1039/d3sc00439b",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10189874",
+    "sha256": "64425838b8b9d80275eda85197b4251fa0cad863315e7e80027ab5798dd0a242",
+    "official_url": "https://doi.org/10.1039/d3sc00439b",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10189874/fullTextXML",
+    "expected": {
+      "title": "Aptamers 101: aptamer discovery and in vitro applications in biosensors and separations",
+      "authors": "Suzie H Pun",
+      "journal": [
+        "Chem Sci",
+        "Chemical Science"
+      ],
+      "year": "2023",
+      "volume": "14",
+      "page": "4961–4978",
+      "doi": "10.1039/d3sc00439b",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10034154",
+    "publisher": "RSC",
+    "doi": "10.1039/d3sc00145h",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10034154",
+    "sha256": "afa9788d73bdb93d9f3c210db458300ef4a8fc4dd6df67a3820bbcceb388fb24",
+    "official_url": "https://doi.org/10.1039/d3sc00145h",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10034154/fullTextXML",
+    "expected": {
+      "title": "Conductive hydrogels for tissue repair",
+      "authors": "Baolin Guo",
+      "journal": [
+        "Chem Sci",
+        "Chemical Science"
+      ],
+      "year": "2023",
+      "volume": "14",
+      "page": "3091–3116",
+      "doi": "10.1039/d3sc00145h",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10246671",
+    "publisher": "RSC",
+    "doi": "10.1039/d3sc01036h",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10246671",
+    "sha256": "75ad0d09ceb38e84c6dca82627417bfa0fc129f52bc7bcc7dae3dd3b73e9c4fa",
+    "official_url": "https://doi.org/10.1039/d3sc01036h",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10246671/fullTextXML",
+    "expected": {
+      "title": "Organelle-targeting ratiometric fluorescent probes: design principles, detection mechanisms, bio-applications, and challenges",
+      "authors": "Manohar Chaskar",
+      "journal": [
+        "Chem Sci",
+        "Chemical Science"
+      ],
+      "year": "2023",
+      "volume": "14",
+      "page": "5842–5871",
+      "doi": "10.1039/d3sc01036h",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": false
+  },
+  {
+    "id": "PMC10803759",
+    "publisher": "Nature",
+    "doi": "10.1038/s41467-024-44824-z",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10803759",
+    "sha256": "78925a99aaf7f17d728bc1e4e4c262fc234d33f4319d258d9f6b2080b42ded2b",
+    "official_url": "https://doi.org/10.1038/s41467-024-44824-z",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10803759/fullTextXML",
+    "expected": {
+      "title": "Segment anything in medical images",
+      "authors": "Bo Wang",
+      "journal": [
+        "Nature Communications"
+      ],
+      "year": "2024",
+      "volume": "15",
+      "page": "654",
+      "doi": "10.1038/s41467-024-44824-z",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10354071",
+    "publisher": "Nature",
+    "doi": "10.1038/s41467-023-39762-1",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10354071",
+    "sha256": "988e0a7b01e807261436dc26ec905c7ff101c73364085dc54cf0896fd898690d",
+    "official_url": "https://doi.org/10.1038/s41467-023-39762-1",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10354071/fullTextXML",
+    "expected": {
+      "title": "Cancer-associated fibroblast classification in single-cell and spatial proteomics data",
+      "authors": "Bernd Bodenmiller",
+      "journal": [
+        "Nat Commun",
+        "Nature Communications"
+      ],
+      "year": "2023",
+      "volume": "14",
+      "page": "4294",
+      "doi": "10.1038/s41467-023-39762-1",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10338508",
+    "publisher": "Nature",
+    "doi": "10.1038/s41467-023-39869-5",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10338508",
+    "sha256": "8b1321c73b9a86e09099e1e71b7397d5a35ec1056331ca862973d96156229cc2",
+    "official_url": "https://doi.org/10.1038/s41467-023-39869-5",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10338508/fullTextXML",
+    "expected": {
+      "title": "Analysis of DIA proteomics data using MSFragger-DIA and FragPipe computational platform",
+      "authors": "Alexey I Nesvizhskii",
+      "journal": [
+        "Nat Commun",
+        "Nature Communications"
+      ],
+      "year": "2023",
+      "volume": "14",
+      "page": "4154",
+      "doi": "10.1038/s41467-023-39869-5",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10821893",
+    "publisher": "Nature",
+    "doi": "10.1038/s41467-024-45044-1",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10821893",
+    "sha256": "5d928c931e1fd845388003375047f17b53c4cbc12fde9b615c1b0d1cd5b8f3cc",
+    "official_url": "https://doi.org/10.1038/s41467-024-45044-1",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10821893/fullTextXML",
+    "expected": {
+      "title": "Mitophagy curtails cytosolic mtDNA-dependent activation of cGAS/STING inflammation during aging",
+      "authors": "Patricia Boya",
+      "journal": [
+        "Nature Communications"
+      ],
+      "year": "2024",
+      "volume": "15",
+      "page": "830",
+      "doi": "10.1038/s41467-024-45044-1",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10999863",
+    "publisher": "Elsevier",
+    "doi": "10.1016/j.heliyon.2024.e28357",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10999863",
+    "sha256": "9f1a82db286420ca8d527d4b132cf9830d120dc420f08886e017acbf47b3a777",
+    "official_url": "https://doi.org/10.1016/j.heliyon.2024.e28357",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10999863/fullTextXML",
+    "expected": {
+      "title": "Sources, effects and present perspectives of heavy metals contamination: Soil, plants and human food chain",
+      "authors": "Shaharia Akter Suchi",
+      "journal": [
+        "Heliyon",
+        "Heliyon"
+      ],
+      "year": "2024",
+      "volume": "10",
+      "page": "e28357",
+      "doi": "10.1016/j.heliyon.2024.e28357",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC11016626",
+    "publisher": "Elsevier",
+    "doi": "10.1016/j.heliyon.2024.e29128",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC11016626",
+    "sha256": "fa31ee26d34825cff1dc6f9db3209986d99e0881262f52c1e3030f56d39bf436",
+    "official_url": "https://doi.org/10.1016/j.heliyon.2024.e29128",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11016626/fullTextXML",
+    "expected": {
+      "title": "Pesticides impacts on human health and the environment with their mechanisms of action and possible countermeasures",
+      "authors": "Sohail Hussain",
+      "journal": [
+        "Heliyon"
+      ],
+      "year": "2024",
+      "volume": "10",
+      "page": "e29128",
+      "doi": "10.1016/j.heliyon.2024.e29128",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10559358",
+    "publisher": "Elsevier",
+    "doi": "10.1016/j.heliyon.2023.e19929",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10559358",
+    "sha256": "25a772664a768305ecc5ddae79f927facc2f08a55780744662dfb2b28fbd023d",
+    "official_url": "https://doi.org/10.1016/j.heliyon.2023.e19929",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10559358/fullTextXML",
+    "expected": {
+      "title": "Nanomaterials-based biosensor and their applications: A review",
+      "authors": "Sotirios Baskoutas",
+      "journal": [
+        "Heliyon",
+        "Heliyon"
+      ],
+      "year": "2023",
+      "volume": "9",
+      "page": "e19929",
+      "doi": "10.1016/j.heliyon.2023.e19929",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10018484",
+    "publisher": "Elsevier",
+    "doi": "10.1016/j.heliyon.2023.e14088",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10018484",
+    "sha256": "56b067ef09c46d6b4e3a4474933af1ba8b5a07decc7cf51550bd985582b7912b",
+    "official_url": "https://doi.org/10.1016/j.heliyon.2023.e14088",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10018484/fullTextXML",
+    "expected": {
+      "title": "A review on pathogenicity of Aeromonas hydrophila and their mitigation through medicinal herbs in aquaculture",
+      "authors": "Neelesh Kumar",
+      "journal": [
+        "Heliyon"
+      ],
+      "year": "2023",
+      "volume": "9",
+      "page": "e14088",
+      "doi": "10.1016/j.heliyon.2023.e14088",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10025926",
+    "publisher": "Elsevier",
+    "doi": "10.1016/j.heliyon.2023.e14557",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10025926",
+    "sha256": "e475fd72d9c166ba1f342877e2b446939d2bfe18e010ea323cb7bdcda119cc80",
+    "official_url": "https://doi.org/10.1016/j.heliyon.2023.e14557",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10025926/fullTextXML",
+    "expected": {
+      "title": "Effectiveness of zebrafish models in understanding human diseases—A review of models",
+      "authors": "I. Manjubala",
+      "journal": [
+        "Heliyon"
+      ],
+      "year": "2023",
+      "volume": "9",
+      "page": "e14557",
+      "doi": "10.1016/j.heliyon.2023.e14557",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10915831",
+    "publisher": "RSC",
+    "doi": "10.1039/d3sc04523d",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10915831",
+    "sha256": "fd24ed25acf458e7d3192770c1533c936658e599e8bb1dcaab69d3a36f8ccd81",
+    "official_url": "https://doi.org/10.1039/d3sc04523d",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10915831/fullTextXML",
+    "expected": {
+      "title": "The intricate link between membrane lipid structure and composition and membrane structural properties in bacterial membranes",
+      "authors": "Marie-Isabel Aguilar",
+      "journal": [
+        "Chem Sci",
+        "Chemical Science"
+      ],
+      "year": "2024",
+      "volume": "15",
+      "page": "3408–3427",
+      "doi": "10.1039/d3sc04523d",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": false
+  },
+  {
+    "id": "PMC11134526",
+    "publisher": "RSC",
+    "doi": "10.1039/d4sc01931h",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC11134526",
+    "sha256": "cfdb0886066eefc2db25e527af4b25d7232ddb5918735165f82a7e5015ac3418",
+    "official_url": "https://doi.org/10.1039/d4sc01931h",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11134526/fullTextXML",
+    "expected": {
+      "title": "Advances and challenges in the electrochemical reduction of carbon dioxide",
+      "authors": "Jingqi Guan",
+      "journal": [
+        "Chem Sci",
+        "Chemical Science"
+      ],
+      "year": "2024",
+      "volume": "15",
+      "page": "7870–7907",
+      "doi": "10.1039/d4sc01931h",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC11220619",
+    "publisher": "RSC",
+    "doi": "10.1039/d4sc02628d",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC11220619",
+    "sha256": "a7d16a80322f38064495acfa0a133b2e44693a3a1dd304aca41aa635d80eee29",
+    "official_url": "https://doi.org/10.1039/d4sc02628d",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11220619/fullTextXML",
+    "expected": {
+      "title": "Flexible hydrogen-bonded organic frameworks (HOFs): opportunities and challenges",
+      "authors": "Banglin Chen",
+      "journal": [
+        "Chem Sci",
+        "Chemical Science"
+      ],
+      "year": "2024",
+      "volume": "15",
+      "page": "9874–9892",
+      "doi": "10.1039/d4sc02628d",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10766651",
+    "publisher": "Nature",
+    "doi": "10.1038/s41467-023-44432-3",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10766651",
+    "sha256": "0dd238458ad78617045b33ccf6e8916c8234140f05256801cd976789e48ccee9",
+    "official_url": "https://doi.org/10.1038/s41467-023-44432-3",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10766651/fullTextXML",
+    "expected": {
+      "title": "Muscle abnormalities worsen after post-exertional malaise in long COVID",
+      "authors": "Rob C. I. Wüst",
+      "journal": [
+        "Nature Communications"
+      ],
+      "year": "2024",
+      "volume": "15",
+      "page": "17",
+      "doi": "10.1038/s41467-023-44432-3",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC11063062",
+    "publisher": "Nature",
+    "doi": "10.1038/s41467-024-48009-6",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC11063062",
+    "sha256": "4bf6bb699f6cc8f43b65372cfa01b74896f3db84312e9900a3c246f714274b8e",
+    "official_url": "https://doi.org/10.1038/s41467-024-48009-6",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11063062/fullTextXML",
+    "expected": {
+      "title": "MetaboAnalystR 4.0: a unified LC-MS workflow for global metabolomics",
+      "authors": "Jianguo Xia",
+      "journal": [
+        "Nature Communications"
+      ],
+      "year": "2024",
+      "volume": "15",
+      "page": "3675",
+      "doi": "10.1038/s41467-024-48009-6",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC11586709",
+    "publisher": "Wiley",
+    "doi": "10.1002/anie.202412622",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC11586709",
+    "sha256": "0407162c598a998a28d1b22f9cf8d7b7c01819ebd4826b42dff34056b78adc48",
+    "official_url": "https://doi.org/10.1002/anie.202412622",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11586709/fullTextXML",
+    "expected": {
+      "title": "Reactivity Inside Molecular Flasks: Acceleration Modes and Types of Selectivity Obtainable",
+      "authors": "Konrad Tiefenbacher",
+      "journal": [
+        "Angewandte Chemie (International Ed. in English)",
+        "Angew. Chem. Int. Ed."
+      ],
+      "year": "2024",
+      "volume": "63",
+      "page": "e202412622",
+      "doi": "10.1002/anie.202412622",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC11586708",
+    "publisher": "Wiley",
+    "doi": "10.1002/anie.202406398",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC11586708",
+    "sha256": "eb4a41f9a93fb4180ceee510914d540b3c40694100439b1b163fce0bab1adb13",
+    "official_url": "https://doi.org/10.1002/anie.202406398",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11586708/fullTextXML",
+    "expected": {
+      "title": "Engineering Polyheptazine and Polytriazine Imides for Photocatalysis",
+      "authors": "Jinguang Hu",
+      "journal": [
+        "Angewandte Chemie (International Ed. in English)",
+        "Angew. Chem. Int. Ed."
+      ],
+      "year": "2024",
+      "volume": "63",
+      "page": "e202406398",
+      "doi": "10.1002/anie.202406398",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10944245",
+    "publisher": "Elsevier",
+    "doi": "10.1016/j.heliyon.2024.e27533",
+    "pdf_url": "https://europepmc.org/api/getPdf?pmcid=PMC10944245",
+    "sha256": "32d856c6e431b590b198a803427d5e518703ec4297953de678a1aaee0b39af4e",
+    "official_url": "https://doi.org/10.1016/j.heliyon.2024.e27533",
+    "xml_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10944245/fullTextXML",
+    "expected": {
+      "title": "Flavonoids: A treasure house of prospective pharmacological potentials",
+      "authors": "Firoj Ahmed",
+      "journal": [
+        "Heliyon"
+      ],
+      "year": "2024",
+      "volume": "10",
+      "page": "e27533",
+      "doi": "10.1016/j.heliyon.2024.e27533",
+      "documentKind": "article"
+    },
+    "first_page_title_visible": true
+  },
+  {
+    "id": "PMC10803759-SI1",
+    "publisher": "Nature",
+    "doi": "",
+    "pdf_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10803759/supplementaryFiles",
+    "archive_member": "41467_2024_44824_MOESM2_ESM.pdf",
+    "sha256": "0cac8db9152eaced2d1d46fdbbabdf8993d09091a4b431b56d9d6f1264c0bbf1",
+    "expected": {
+      "title": "",
+      "authors": "",
+      "journal": "",
+      "year": "",
+      "volume": "",
+      "page": "",
+      "doi": "",
+      "documentKind": "supporting_information"
+    }
+  },
+  {
+    "id": "PMC10803759-SI2",
+    "publisher": "Nature",
+    "doi": "",
+    "pdf_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10803759/supplementaryFiles",
+    "archive_member": "41467_2024_44824_MOESM1_ESM.pdf",
+    "sha256": "b66b5d825586d4cb5fc6e92635656422733b82b64d7b1dcd3587a20c4090f1c3",
+    "expected": {
+      "title": "",
+      "authors": "",
+      "journal": "",
+      "year": "",
+      "volume": "",
+      "page": "",
+      "doi": "",
+      "documentKind": "supporting_information"
+    }
+  },
+  {
+    "id": "PMC10821893-SI2",
+    "publisher": "Nature",
+    "doi": "",
+    "pdf_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10821893/supplementaryFiles",
+    "archive_member": "41467_2024_45044_MOESM1_ESM.pdf",
+    "sha256": "f51cfb852dcb19b75c6c26345886c13f31461142c1f28f1b8e7c3df2f531fc6d",
+    "expected": {
+      "title": "",
+      "authors": "",
+      "journal": "",
+      "year": "",
+      "volume": "",
+      "page": "",
+      "doi": "",
+      "documentKind": "supporting_information"
+    }
+  },
+  {
+    "id": "PMC10338508-SI1",
+    "publisher": "Nature",
+    "doi": "",
+    "pdf_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10338508/supplementaryFiles",
+    "archive_member": "41467_2023_39869_MOESM1_ESM.pdf",
+    "sha256": "031281aee55f778bba69dc81e904d9bc26a2999dc313ba9b3d1ba591c8348ff4",
+    "expected": {
+      "title": "",
+      "authors": "",
+      "journal": "",
+      "year": "",
+      "volume": "",
+      "page": "",
+      "doi": "",
+      "documentKind": "supporting_information"
+    }
+  },
+  {
+    "id": "PMC12599387-SI2",
+    "publisher": "RSC",
+    "doi": "",
+    "pdf_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC12599387/supplementaryFiles",
+    "archive_member": "SC-017-D5SC05518K-s002.pdf",
+    "sha256": "12b58a233e193b0e5d2cab553e3c7b4a4da9a9824f9dd24afdab26767f3708b8",
+    "expected": {
+      "title": "",
+      "authors": "",
+      "journal": "",
+      "year": "",
+      "volume": "",
+      "page": "",
+      "doi": "",
+      "documentKind": "supporting_information"
+    }
+  }
+]

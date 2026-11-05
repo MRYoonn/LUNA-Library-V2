@@ -191,6 +191,10 @@ def make_main(src: str) -> str:
         '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>\n#include <QSettings>\n#include <QFileInfo>\n#include <memory>\n#include <QJsonDocument>\n#include <QJsonObject>\n#include <QJsonArray>\n#include <QToolBar>')
     src = replace_exact(src, '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);',
         '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);\n'
+        '    if (parser.isSet(lunaCorpusReport)) {\n'
+        '        if (parser.positionalArguments().size() != 1) return 2;\n'
+        '        return luna::evaluatePdfCorpus(parser.positionalArguments().front(), parser.value(lunaCorpusReport));\n'
+        '    }\n'
         '    if (parser.isSet(lunaLifecycleTrace)) application.setProperty("LunaLifecycleTracePath", parser.value(lunaLifecycleTrace));\n'
         '    if (parser.isSet(lunaTabsRestore) && !parser.isSet(lunaTabsReport)) return 2;\n'
         '    if (parser.isSet(lunaTabsReport)) {\n'
@@ -214,6 +218,8 @@ def make_main(src: str) -> str:
         '    }')
     src = replace_exact(src, '    parser.addVersionOption();',
         '    parser.addVersionOption();\n'
+        '    QCommandLineOption lunaCorpusReport("luna-corpus-report", "Offline PDF evidence evaluation; explicit local inputs only.", "path");\n'
+        '    lunaCorpusReport.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaCorpusReport);\n'
         '    QCommandLineOption lunaLifecycleTrace("luna-lifecycle-trace", "Local opt-in window lifetime trace (no document contents).", "path");\n'
         '    lunaLifecycleTrace.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaLifecycleTrace);\n'
         '    QCommandLineOption lunaTabsReport("luna-tabs-report", "CI only: native library/tabs integration.", "path");\n'
@@ -268,6 +274,7 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "lunatabs.h": (own / "lunatabs.h").read_bytes(),
         folder / "lunapagegrid.h": (own / "lunapagegrid.h").read_bytes(),
         folder / "lunalibrary.cpp": (own / "lunalibrary.cpp").read_bytes(),
+        folder / "lunafirstpageevidence.h": (own / "lunafirstpageevidence.h").read_bytes(),
         folder / "lunafirstpage.h": (own / "lunafirstpage.h").read_bytes(),
         folder / "lunatitleextractor.h": (own / "lunatitleextractor.h").read_bytes(),
         folder / "lunafrontmatter.h": (own / "lunafrontmatter.h").read_bytes(),

@@ -1148,7 +1148,8 @@ public:
         navigationFold_->setObjectName(QStringLiteral("LunaNavigationFold"));
         navigationFold_->setFixedWidth(foldWidth_);
         auto* navigationFoldLayout = new QVBoxLayout(navigationFold_);
-        navigationFoldLayout->setContentsMargins(3, 5, 3, 0);
+        navigationFoldLayout->setContentsMargins(3, 0, 3, 0);
+        navigationFoldLayout->setAlignment(Qt::AlignTop);
         navigationFoldLayout->setSpacing(0);
         navigationFold_->hide();
         navigationSlotLayout->addWidget(navigationFold_);
@@ -1464,7 +1465,8 @@ public:
         documentsFold_->setObjectName(QStringLiteral("LunaDocumentsFold"));
         documentsFold_->setFixedWidth(foldWidth_);
         auto* documentsFoldLayout = new QVBoxLayout(documentsFold_);
-        documentsFoldLayout->setContentsMargins(3, 5, 3, 0);
+        documentsFoldLayout->setContentsMargins(3, 0, 3, 0);
+        documentsFoldLayout->setAlignment(Qt::AlignTop);
         documentsFoldLayout->setSpacing(0);
         documentsFold_->hide();
         documentsSlotLayout->addWidget(documentsFold_);
@@ -1843,12 +1845,25 @@ public:
             }
         }
     }
+    // Measure the live header before hiding it. The two header layouts have
+    // different heights; using a shared pixel offset would shift one button.
+    void anchorFoldButton(QWidget* slot, QWidget* fold, const QString& name) {
+        if (auto* button = slot->findChild<QToolButton*>(name)) {
+            auto margins = fold->layout()->contentsMargins();
+            margins.setTop(qMax(0, button->mapTo(slot, QPoint()).y()));
+            fold->layout()->setContentsMargins(margins);
+        }
+    }
     void toggleNavigation() {
+        if (!navigation_->isHidden()) anchorFoldButton(navigationSlot_, navigationFold_,
+            QStringLiteral("LunaNavigationCollapseButton"));
         if (!navigation_->isHidden() && !documents_->isHidden()) savePanelState();
         navigation_->setVisible(navigation_->isHidden());
         updateMinimum();
     }
     void toggleDocuments() {
+        if (!documents_->isHidden()) anchorFoldButton(documentsSlot_, documentsFold_,
+            QStringLiteral("LunaDocumentsCollapseButton"));
         if (!navigation_->isHidden() && !documents_->isHidden()) savePanelState();
         documents_->setVisible(documents_->isHidden());
         updateMinimum();
@@ -3755,10 +3770,7 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
     library->documentsFold()->layout()->addWidget(restoreDocs);
     restoreNav->setToolTip(QStringLiteral("라이브러리 펼치기"));
     restoreDocs->setToolTip(QStringLiteral("논문 목록 펼치기"));
-    library->navigationFold()->setStyleSheet(QStringLiteral(
-        "#LunaNavigationFold {background-color: #F7FAFF; border-right: 1px solid #DDE7F5;}"));
-    library->documentsFold()->setStyleSheet(QStringLiteral(
-        "#LunaDocumentsFold {background-color: #F7FAFF; border-right: 1px solid #DDE7F5;}"));
+
     // One filename search field in the paper panel; no duplicate toolbar row.
     auto* globalSearch = library->searchEdit();
     auto* search = new QAction(QStringLiteral("라이브러리 검색"), &window);
@@ -3925,6 +3937,27 @@ void prepareReaderSession(pdfviewer::PDFEditorMainWindow& editor, QMainWindow& s
 bool openInitialDocument(pdfviewer::PDFEditorMainWindow& window, const QString& path) {
     if (auto* documents = independentDocuments(window)) return documents->initial(path);
     return false;
+}
+// Explicit offline evaluator: no LibraryPanel, remote lookups, edits or renames.
+int evaluatePdfCorpus(const QString& directory, const QString& report) {
+    QJsonObject results;
+    const auto files = QDir(directory).entryInfoList({QStringLiteral("*.pdf")}, QDir::Files, QDir::Name);
+    if (files.isEmpty()) return 2;
+    for (const auto& file : files) {
+        QVariantMap evidence;
+        try {
+            pdf::PDFProgress progress(nullptr);
+            pdf::PDFDocumentReader reader(&progress, [](bool*) { return QString(); }, false, false);
+            auto document = reader.readFromFile(file.absoluteFilePath());
+            if (reader.getReadingResult() == pdf::PDFDocumentReader::Result::OK)
+                evidence = extractFirstPage(document);
+            else evidence["evaluationError"] = QStringLiteral("unreadable_pdf");
+        } catch (...) { evidence["evaluationError"] = QStringLiteral("extraction_failed"); }
+        results[file.completeBaseName()] = QJsonObject::fromVariantMap(evidence);
+    }
+    QSaveFile output(report);
+    if (!output.open(QIODevice::WriteOnly)) return 3;
+    return output.write(QJsonDocument(results).toJson()) > 0 && output.commit() ? 0 : 4;
 }
 bool verifyCancelledLibraryMove(pdfviewer::PDFEditorMainWindow& window, QString& error) {
     auto* dock = window.findChild<QDockWidget*>(QStringLiteral("LunaLibraryDock"));

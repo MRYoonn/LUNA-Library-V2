@@ -14,7 +14,7 @@ class TitleExtractorContracts(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.title = (ROOT / "src/lunatitleextractor.h").read_text(encoding="utf-8")
-        cls.first = (ROOT / "src/lunafirstpage.h").read_text(encoding="utf-8")
+        cls.first = (ROOT / "src/lunafirstpage.h").read_text(encoding="utf-8") + (ROOT / "src/lunafirstpageevidence.h").read_text(encoding="utf-8")
         cls.model = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
         cls.native = (ROOT / "tests/native_metadata/main.cpp").read_text(encoding="utf-8")
         cls.front = (ROOT / "src/lunafrontmatter.h").read_text(encoding="utf-8")

@@ -57,7 +57,7 @@ public:
         const QVariantMap printed = FrontMatter::publisherCitation(text);
         if (!printed.isEmpty()) return printed;
         static const QRegularExpression pattern(QStringLiteral(
-            R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|ACS\s+Med\.?\s*Chem\.?\s*Lett\.?|J\.?\s*Phys\.?\s*Chem\.?\s*[ABC]\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Org\.?\s*Biomol\.?\s*Chem\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
+            R"((?<journal>J\.?\s*Am\.?\s*Chem\.?\s*Soc\.?|J\.?\s*Org\.?\s*Chem\.?|J\.?\s*Med\.?\s*Chem\.?|ACS\s+Med\.?\s*Chem\.?\s*Lett\.?|J\.?\s*Phys\.?\s*Chem\.?\s*[ABC]\.?|Org\.?\s*Lett\.?|ACS\s+Catal\.?|ACS\s+Omega|Angew\.?\s*Chem\.?\s*(?:Int\.?\s*Ed\.?)?|Chem\.?\s*Sci\.?|Chem\.?\s*Commun\.?|Chem\.?\s*Eur\.?\s*J\.?|Adv\.?\s*Synth\.?\s*Catal\.?|Org\.?\s*Biomol\.?\s*Chem\.?|Nat(?:ure)?\.?\s*Chem\.?|Nature|Science)\s*[,;:]?\s*(?<year>(?:19|20)\d{2})\s*[,;:]\s*(?<volume>\d{1,4})(?:\s*\(\s*\d{1,3}\s*\))?\s*[,;:]\s*(?<page>(?:e\d{5,9}|\d{1,7})(?:\s*-\s*\d{1,7})?))"),
             QRegularExpression::CaseInsensitiveOption);
         int checked = 0;
         for (qsizetype i = 0; i < lines.size() && checked < 40; ++i, ++checked) {
@@ -79,10 +79,16 @@ public:
                     QRegularExpression::CaseInsensitiveOption);
                 if (!prefix.isEmpty() && !printCue.match(prefix).hasMatch())
                     continue;
-                return {{"journal", match.captured(QStringLiteral("journal")).simplified()},
+                QVariantMap entry{{"journal", match.captured(QStringLiteral("journal")).simplified()},
                         {"year", match.captured(QStringLiteral("year"))},
                         {"volume", match.captured(QStringLiteral("volume"))},
                         {"page", match.captured(QStringLiteral("page")).remove(QLatin1Char(' '))}};
+                // RSC's "Cite this" sidebar often prints only the START page.
+                // Do not assert that as the complete page range.
+                if (entry.value("journal").toString().contains(QStringLiteral("Sci"), Qt::CaseInsensitive) &&
+                    !entry.value("page").toString().contains(QLatin1Char('-')))
+                    entry.remove("page");
+                return entry;
             }
         }
         // Some publisher proofs show the journal name, but deliberately do
@@ -140,6 +146,11 @@ public:
         QString found;
         for (qsizetype i = 0; i < lines.size(); ++i) {
             const QString& line = lines[i];
+            // Do not search abstract/body sentences for another terminal name.
+            static const QRegularExpression bodyBoundary(QStringLiteral(
+                R"(^(?:ABSTRACT\b|Abstract\b|Introduction\b|A\s+R\s+T\s+I\s+C\s+L\s+E\b))"),
+                QRegularExpression::CaseInsensitiveOption);
+            if (bodyBoundary.match(line).hasMatch()) break;
             QString authorRow = line;
             // RSC and publisher PDF text blocks can put the final "and" at
             // the end of a row, with the final named author on the next row.

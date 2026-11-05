@@ -3,6 +3,7 @@
 #include "../../src/lunametadatafetch.h"
 #include "../../src/lunabibliography.h"
 #include "../../src/lunatitleextractor.h"
+#include "../../src/lunafirstpageevidence.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QSettings>
@@ -124,6 +125,46 @@ int main(int argc,char** argv){
     expect(titleStore.enrichFromFirstPage(staleIdentity,titleEvidence) &&
            titleStore.record(staleIdentity).value("title").toString()==titleEvidence.value("title").toString(),
            "strong printed title corrects a conflicting machine-owned PDF metadata title");
+    checkpoint("v262-real-pdf-failure-patterns");
+    expect(FrontMatter::isSupplementCover(QStringLiteral("Supplementary Information for:\nA printed title")),
+        "Nature SI colon heading is recognized");
+    expect(FrontMatter::isSupplementCover(QStringLiteral("Supplement to: A printed title\nAlice Green")),
+        "Nature explicit supplement-to heading is recognized");
+    expect(!FrontMatter::isSupplementCover(QStringLiteral("Article\nSupplementary\nWe discuss information in Table 1")),
+        "body supplement mention is not a cover");
+    const auto shortFinal = TitleExtraction::infer({
+        {QStringLiteral("Article"),40,90,10},
+        {QStringLiteral("Analysis of DIA Proteomics Data Using"),40,113,26},
+        {QStringLiteral("MSFragger-DIA and FragPipe Computational"),40,141,26},
+        {QStringLiteral("Platform"),40,169,26},
+        {QStringLiteral("Alice Green and Bob White"),40,230,9},
+        {QStringLiteral("Department of Chemistry"),40,270,9},
+        {QStringLiteral("Abstract"),40,300,9}
+    },792);
+    expect(shortFinal.value("title").toString().endsWith(QStringLiteral("Platform")),
+        "short last title line cannot be silently dropped");
+    const QString hel = QStringLiteral("Heliyon 10 (2024) e28357\nContents lists available at ScienceDirect\n"
+        "Heliyon\njournal homepage: www.cell.com/heliyon\nReview article\n"
+        "https://doi.org/10.1016/j.heliyon.2024.e28357\n");
+    const auto helInfo = Bibliography::firstPageCitation(hel);
+    expect(helInfo.value("article_number").toString()==QStringLiteral("e28357") &&
+        helInfo.value("volume").toString()==QStringLiteral("10"),
+        "Heliyon printed header retains distinct article number");
+    expect(Bibliography::firstPageCitation(QStringLiteral(
+        "Unrelated Article\nReferences\nHeliyon 10 (2024) e28357")).isEmpty(),
+        "Heliyon reference without publisher cover is rejected");
+    const auto acsOmega = Bibliography::firstPageCitation(QStringLiteral(
+        "http://pubs.acs.org/journal/acsodf\nReview\nCite This: ACS Omega 2023, 8, 5184−5196"));
+    expect(acsOmega.value("page").toString()==QStringLiteral("5184-5196"),
+        "ACS Omega complete printed range recovered");
+    const auto incomplete = Bibliography::firstPageCitation(QStringLiteral("Cite this: Chem. Sci., 2024, 15, 3408"));
+    expect(incomplete.value("year").toString()==QStringLiteral("2024") && !incomplete.contains("page"),
+        "RSC starting page must not masquerade as full page range");
+    const auto stalePdf = firstPageEvidence({hel}, {}, 792, QString(),
+        QStringLiteral("A Completely Unrelated Exporter Document Title"));
+    expect(stalePdf.value("title").toString().isEmpty() &&
+        stalePdf.value("titleCandidate").toString().contains(QStringLiteral("Unrelated")),
+        "uncorroborated embedded metadata stays review-only");
     checkpoint("v261-evidence-ranked-bibliography");
     const QString natureArticle=QStringLiteral(
         "Nature Synthesis\nResearch Article\n"

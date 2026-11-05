@@ -9,7 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 FRONT = (ROOT / "src/lunafrontmatter.h").read_text(encoding="utf-8")
 BIB = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
-PAGE = (ROOT / "src/lunafirstpage.h").read_text(encoding="utf-8")
+PAGE = (ROOT / "src/lunafirstpage.h").read_text(encoding="utf-8") + (ROOT / "src/lunafirstpageevidence.h").read_text(encoding="utf-8")
 TITLE = (ROOT / "src/lunatitleextractor.h").read_text(encoding="utf-8")
 OVERLAY = (ROOT / "tools/apply_overlay.py").read_text(encoding="utf-8")
 NATIVE = (ROOT / "tests/native_dialog/bibliography.cpp").read_text(encoding="utf-8")

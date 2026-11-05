@@ -3,9 +3,10 @@ QMainWindow { background:@CANVAS@; color:@TEXT@; font-family:"Malgun Gothic","Se
 QMainWindow::separator { background:@CANVAS@; width:7px; height:7px; }
 QDockWidget#LunaLibraryDock { border:0; background:@CANVAS@; }
 QWidget#LunaLibraryPanel { background:@CANVAS@; color:@TEXT@; font-family:"Malgun Gothic","Segoe UI"; font-size:13px; }
-QScrollArea#LunaNavigation { background:white; border:1px solid #DCE6F2; border-radius:12px; }
+/* Restore the original panel contrast (81e1673), retaining current geometry. */
+QScrollArea#LunaNavigation, QWidget#LunaNavigationFold { background:#F7F8FC; border:0; border-right:1px solid #E0E4ED; }
 QWidget#LunaNavigationContents, QWidget#LunaNavigationViewport { background:transparent; border:0; }
-QWidget#LunaDocuments { background:white; border:1px solid #DCE6F2; border-radius:12px; }
+QWidget#LunaDocuments, QWidget#LunaDocumentsFold { background:@PANEL@; border:0; border-right:1px solid #E0E4ED; }
 QWidget#LunaPdfFrame { background:@CANVAS@; border:0; }
 QLabel#LunaBrand { color:@NAVY@; font-family:"Malgun Gothic"; font-size:20px; font-weight:700; background:transparent; }
 QLabel#LunaSection { color:#29466C; font-size:14px; font-weight:600; }

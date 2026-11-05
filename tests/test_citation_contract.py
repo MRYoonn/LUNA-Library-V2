@@ -10,7 +10,7 @@ class CitationContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.model = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
         cls.ui = (ROOT / "src/lunalibrary.cpp").read_text(encoding="utf-8")
-        cls.extractor = (ROOT / "src/lunafirstpage.h").read_text(encoding="utf-8")
+        cls.extractor = (ROOT / "src/lunafirstpage.h").read_text(encoding="utf-8") + (ROOT / "src/lunafirstpageevidence.h").read_text(encoding="utf-8")
         cls.native = (ROOT / "tests/native_dialog/bibliography.cpp").read_text(encoding="utf-8")
 
     def test_verified_doi_only_lookups_and_manual_protection(self):

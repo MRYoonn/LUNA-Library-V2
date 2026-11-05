@@ -5,6 +5,7 @@
 class QMainWindow;
 namespace pdfviewer { class PDFEditorMainWindow; }
 namespace luna {
+int evaluatePdfCorpus(const QString& directory, const QString& report);
 void installLibrary(pdfviewer::PDFEditorMainWindow& window);
 void installLibraryShell(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& initial);
 void bindLibraryEditor(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor);

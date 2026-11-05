@@ -8,3 +8,10 @@ add_executable(luna_metadata_native main.cpp)
 target_link_libraries(luna_metadata_native PRIVATE Qt6::Core Qt6::Network)
 add_test(NAME luna_metadata_native COMMAND luna_metadata_native)
 set_tests_properties(luna_metadata_native PROPERTIES TIMEOUT 30)
+
+# Offline real-PDF snapshots exercise the exact production evidence function.
+add_executable(luna_metadata_snapshot snapshot.cpp)
+target_link_libraries(luna_metadata_snapshot PRIVATE Qt6::Core Qt6::Network)
+if(MSVC)
+    target_compile_options(luna_metadata_snapshot PRIVATE /utf-8)
+endif()

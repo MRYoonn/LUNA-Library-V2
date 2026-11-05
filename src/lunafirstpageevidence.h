@@ -60,7 +60,14 @@ inline QVariantMap firstPageEvidence(const QStringList& pages,
             evidence["title"]=pdfTitle;
             evidence["titleSource"]=QStringLiteral("first_page_verified");
         } else if (!trusted.isEmpty() && !Metadata::compatibleTitle(trusted,pdfTitle)) {
+            // A conflict was already marked needs_review, but returning title
+            // still let the importer confirm/rename it. Keep the printed
+            // headline as the preferred review candidate until resolved.
+            evidence["titleCandidate"]=trusted;
+            evidence.remove("title");
+            evidence.remove("titleSource");
             evidence["titleStatus"]=QStringLiteral("needs_review");
+            evidence["titleConflict"]=QStringLiteral("embedded_metadata");
         } else if (trusted.isEmpty()) {
             evidence["titleCandidate"]=pdfTitle;
             evidence["titleStatus"]=QStringLiteral("needs_review");

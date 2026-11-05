@@ -191,6 +191,14 @@ int main(int argc,char** argv){
     expect(titleStore.record(damagedIdentity).value("title").toString().isEmpty() &&
         !titleStore.record(damagedIdentity).value("legacyTitle").toString().isEmpty(),
         "old machine title with known glyph loss is archived for review");
+    auto conflictLines=damagedLines;
+    conflictLines[1].unreliable=false;
+    const auto conflict=firstPageEvidence({QStringLiteral("Article\nhttps://doi.org/10.1016/j.heliyon.2023.e14557")},
+        conflictLines,792,{},QStringLiteral("Effectiveness of Zebrafish Models in Understanding Human Diseases—A Review of Models"));
+    expect(conflict.value("title").toString().isEmpty() &&
+        conflict.value("titleStatus").toString()==QStringLiteral("needs_review") &&
+        conflict.value("titleConflict").toString()==QStringLiteral("embedded_metadata"),
+        "conflicting printed and metadata headlines must not return a trusted title alongside needs_review");
     const auto shortFinal = TitleExtraction::infer({
         {QStringLiteral("Article"),40,90,10},
         {QStringLiteral("Analysis of DIA Proteomics Data Using"),40,113,26},

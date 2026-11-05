@@ -366,7 +366,8 @@ public:
         }
         // A visible but unmapped glyph proves the old local extraction was
         // incomplete. Archive machine-owned titles; manual/provider values win.
-        if (proposal.value("titleGlyphStatus").toString()==QStringLiteral("unmapped")) {
+        if (proposal.value("titleGlyphStatus").toString()==QStringLiteral("unmapped") ||
+            proposal.value("titleConflict").toString()==QStringLiteral("embedded_metadata")) {
             const QString source=value.value("titleSource").toString();
             if (source==QStringLiteral("pdf_metadata") || source==QStringLiteral("first_page_layout") ||
                 source==QStringLiteral("first_page_verified") || source==QStringLiteral("publisher_cover_verified")) {

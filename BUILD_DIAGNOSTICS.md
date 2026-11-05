@@ -457,3 +457,16 @@ source token changes alone are not counted as visual success.
   screenshots must confirm expanded borders too.
 - No test/fixture/accuracy threshold is removed or relaxed. Revalidate on a
   new full-source Windows run before release.
+
+
+### #274 confidence propagation correction
+
+The actual wrong `zebra sh` result already carried `titleStatus=needs_review`,
+but also returned `title` with a trusted layout source. The importer therefore
+confirmed a value that its own conflict detector had withheld confidence from.
+On a genuine printed/embedded title conflict, return only the preferred printed
+review candidate, never a trusted title/rename source. Archive old local
+machine titles while preserving manual/provider fields. Add a native regression
+for this exact status/field contradiction; keep every goldset threshold intact.
+The bounded glyph/codepoint audit remains to document the underlying decoder
+limitation; confidence containment does not claim to reconstruct missing letters.

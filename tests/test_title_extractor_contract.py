@@ -82,7 +82,7 @@ class TitleExtractorContracts(unittest.TestCase):
         self.assertIn('field + QStringLiteral("Source")', self.model)
         self.assertIn('== QStringLiteral("manual")', self.model)
         self.assertIn('strongerPrintedTitle', self.model)
-        self.assertIn('Metadata::compatibleTitle(old,next)', self.model)
+        self.assertIn('Metadata::normalizedTitle(old) != Metadata::normalizedTitle(next)', self.model)
         self.assertIn('titleSource', self.first)
 
     def test_v261_first_page_candidates_remain_review_only(self):

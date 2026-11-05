@@ -126,6 +126,20 @@ int main(int argc,char** argv){
            titleStore.record(staleIdentity).value("title").toString()==titleEvidence.value("title").toString(),
            "strong printed title corrects a conflicting machine-owned PDF metadata title");
     checkpoint("v262-real-pdf-failure-patterns");
+    const QString corruptTitle=QStringLiteral("Effectiveness of Animal Models in Human Diseasesâx80x94A Review of Models");
+    const QString printedTitle=QStringLiteral("Effectiveness of Animal Models in Human Diseases—A Review of Models");
+    expect(titleStore.enrichFromFirstPage(QStringLiteral("synthetic:v262:mojibake"),
+        {{"title",corruptTitle},{"titleSource",QStringLiteral("pdf_metadata")}}),
+        "legacy embedded title fixture persisted");
+    expect(titleStore.enrichFromFirstPage(QStringLiteral("synthetic:v262:mojibake"),
+        {{"title",printedTitle},{"titleSource",QStringLiteral("first_page_layout")}}) &&
+        titleStore.record(QStringLiteral("synthetic:v262:mojibake")).value("title").toString()==printedTitle,
+        "strong printed title corrects similar-prefix mojibake instead of treating it as compatible");
+    expect(titleStore.enrichFromFirstPage(QStringLiteral("synthetic:v262:range"),{{"page",QStringLiteral("3408")}}),
+        "legacy start page fixture persisted");
+    expect(titleStore.enrichFromFirstPage(QStringLiteral("synthetic:v262:range"),{{"page",QStringLiteral("3408-3427")}}) &&
+        titleStore.record(QStringLiteral("synthetic:v262:range")).value("page").toString()==QStringLiteral("3408-3427"),
+        "complete printed range upgrades same-start machine-owned single page");
     expect(FrontMatter::isSupplementCover(QStringLiteral("Supplementary Information for:\nA printed title")),
         "Nature SI colon heading is recognized");
     expect(FrontMatter::isSupplementCover(QStringLiteral("Supplement to: A printed title\nAlice Green")),

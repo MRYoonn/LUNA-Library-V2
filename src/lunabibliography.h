@@ -388,8 +388,12 @@ public:
                 value.value(QStringLiteral("titleSource")).toString() == QStringLiteral("pdf_metadata") &&
                 (proposal.value("titleSource").toString() == QStringLiteral("first_page_layout") ||
                  proposal.value("titleSource").toString() == QStringLiteral("publisher_cover_verified")) &&
-                !Metadata::compatibleTitle(old,next);
-            if (!old.isEmpty() && !strongerPrintedTitle) return;
+                Metadata::normalizedTitle(old) != Metadata::normalizedTitle(next);
+            const bool completePrintedRange = field == QStringLiteral("page") &&
+                value.value(QStringLiteral("pageSource")).toString() == QStringLiteral("first_page_verified") &&
+                !old.contains(QLatin1Char('-')) && !old.contains(QChar(0x2013)) &&
+                next.startsWith(old + QLatin1Char('-'));
+            if (!old.isEmpty() && !strongerPrintedTitle && !completePrintedRange) return;
             value[field] = next.left(4096);
             const QString suggestedSource = proposal.value(field + QStringLiteral("Source")).toString();
             value[field + QStringLiteral("Source")] =

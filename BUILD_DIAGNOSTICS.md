@@ -354,3 +354,16 @@ Base: immutable public Windows release `v0.9.0.260` at `bdb9d07dc801651ba8c36eb1
 - Correction: query accessible names across UIA roles, including checkable
   Qt tool controls; retain visible control names/types on failure for diagnosis.
 - Revalidation: new-source capture pending. No failed capture is a passing test.
+
+
+### v262 baseline capture revalidation succeeded
+
+Run [42035687734](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/42035687734),
+source `df109b8e14f60a7e8574b04de9c847ef3b01ce25`, completed successfully.
+The exact published v261 EXE source was verified as
+`c40470847d3f22fbb7c993d2c91dfae6b6b50c4c`; its EXE hash matched build-info.
+Artifact `LUNA-v261-Before-Panels` retains all panel states at 1/1.25/1.5 scales,
+window height changes, geometry, failure-analysis and build-diagnostics.
+At 100%, expanded controls were at screen Y=159 (Library) / 153 (Papers);
+both restores moved to Y=515, then Y=465 when the window was shortened by 100px.
+This directly reproduces the actual native pre-fix centering defect.

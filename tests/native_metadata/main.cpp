@@ -132,6 +132,22 @@ int main(int argc,char** argv){
         "Nature explicit supplement-to heading is recognized");
     expect(!FrontMatter::isSupplementCover(QStringLiteral("Article\nSupplementary\nWe discuss information in Table 1")),
         "body supplement mention is not a cover");
+    expect(Bibliography::firstPageLastAuthor(QStringLiteral(
+        "Article\nAlice Green1,2, Brian White3,\nReceived: 1 January 2024\n"
+        "Carol Smith4 & Daniel Brown\n1,2\nAbstract\n"))==QStringLiteral("Daniel Brown"),
+        "numeric affiliation markers cannot hide the preceding Nature author list");
+    const auto sideColumn = TitleExtraction::infer({
+        {QStringLiteral("Chemical Science"),40,35,10},
+        {QStringLiteral("Organelle-Targeting Ratiometric Fluorescent Probes"),172,130,16},
+        {QStringLiteral("Design Principles and Detection Mechanisms"),172,149,16},
+        {QStringLiteral("Cite this: Chem. Sci., 2024, 15, 3408"),42,165,7},
+        {QStringLiteral("Bio-Applications and Challenges"),172,167,16},
+        {QStringLiteral("Alice Green and Brian White"),172,205,10},
+        {QStringLiteral("Department of Chemistry"),172,245,10},
+        {QStringLiteral("Abstract"),172,280,10}
+    },792);
+    expect(sideColumn.value("title").toString().endsWith(QStringLiteral("Bio-Applications and Challenges")),
+        "RSC citation sidebar must not truncate the three-line title in the other column");
     const auto shortFinal = TitleExtraction::infer({
         {QStringLiteral("Article"),40,90,10},
         {QStringLiteral("Analysis of DIA Proteomics Data Using"),40,113,26},

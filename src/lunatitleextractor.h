@@ -76,9 +76,16 @@ inline QVariantMap infer(const QList<Line>& source, double pageHeight) {
             start.y > pageHeight*0.62 || isExcluded(start.text)) continue;
         QString title = start.text;
         int end = i;
-        for (int j=i+1;j<lines.size() && j<=i+3;++j) {
-            const Line& next = lines[j],&prev = lines[j-1];
+        int titleRows = 1;
+        for (int j=i+1;j<lines.size() && j<=i+10 && titleRows<4;++j) {
+            const Line& next = lines[j],&prev = lines[end];
             const double dy = next.y-prev.y;
+            // RSC's small-font Cite-this sidebar can y-sort BETWEEN title
+            // rows in another column. Skip only excluded, clearly smaller
+            // side-column fragments within the same bounded title band.
+            if (dy >= 0 && dy <= qMax(33.0,start.fontSize*2.65) &&
+                std::abs(next.x-start.x) > 80 &&
+                next.fontSize < start.fontSize*0.79 && isExcluded(next.text)) continue;
             if (dy < 3 || dy > qMax(33.0,start.fontSize*2.65) ||
                 std::abs(next.x-start.x) > 145 ||
                 next.fontSize < start.fontSize*0.79 ||
@@ -86,6 +93,7 @@ inline QVariantMap infer(const QList<Line>& source, double pageHeight) {
                 isExcluded(next.text, true) || title.size()+next.text.size()>230) break;
             title += (title.endsWith(QLatin1Char('-')) ? QString() : QStringLiteral(" ")) + next.text;
             end=j;
+            ++titleRows;
         }
         if (isExcluded(title) || title.size() < 18 ||
             title.split(QLatin1Char(' '),Qt::SkipEmptyParts).size()<3) continue;

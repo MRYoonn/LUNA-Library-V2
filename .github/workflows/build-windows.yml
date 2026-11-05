@@ -600,7 +600,7 @@ jobs:
           New-Item -ItemType Directory -Force $evidence | Out-Null
           python -B tools/evaluate_goldset.py --fetch "$corpus" --exe LUNA-Windows-Portable/LUNA.exe --predictions "$evidence/predictions.json" --output "$evidence/score.json"
           if ($LASTEXITCODE -ne 0) { throw 'Actual public PDF corpus download or native evaluation failed' }
-          python -B -c "import json,sys; d=json.load(open(sys.argv[1],encoding='utf-8')); assert d['documents']==31; assert d['fields']['doi']['wrong']==0; assert d['fields']['title']['wrong']==0; assert d['fields']['authors']['wrong']==0; print('31 real PDFs: zero wrong committed DOI/title/last-author values; see score.json for missing fields and exact rate')" "$evidence/score.json"
+          python -B -c "import json,sys; d=json.load(open(sys.argv[1],encoding='utf-8')); assert d['documents']==31; assert d['fields']['doi']['correct']==31; assert d['fields']['title']['correct']>=28; assert d['fields']['documentKind']['correct']>=30; assert d['exact']>=10; assert d['fields']['doi']['wrong']==0; assert d['fields']['title']['wrong']==0; assert d['fields']['authors']['wrong']==0; print('31 real PDFs: zero wrong committed DOI/title/last-author values; see score.json for missing fields and exact rate')" "$evidence/score.json"
           if ($LASTEXITCODE -ne 0) { throw 'Goldset identified a wrong automatic DOI/title/last-author; inspect predictions before release' }
 
       - name: Independent document windows and native annotation round trip

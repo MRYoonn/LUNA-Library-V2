@@ -124,6 +124,72 @@ int main(int argc,char** argv){
     expect(titleStore.enrichFromFirstPage(staleIdentity,titleEvidence) &&
            titleStore.record(staleIdentity).value("title").toString()==titleEvidence.value("title").toString(),
            "strong printed title corrects a conflicting machine-owned PDF metadata title");
+    checkpoint("v261-evidence-ranked-bibliography");
+    const QString natureArticle=QStringLiteral(
+        "Nature Synthesis\nResearch Article\n"
+        "Photoredox Catalysis Enables Chemoselective Heterocycle\n"
+        "Functionalization under Mild Conditions\n"
+        "Alice Q. Smith, Brian R. Chen and Carol J. Green\n"
+        "https://doi.org/10.1038/s44160-026-00001-x\nAbstract\n");
+    expect(FrontMatter::natureArticleTitle(natureArticle)==QStringLiteral(
+        "Photoredox Catalysis Enables Chemoselective Heterocycle Functionalization under Mild Conditions"),
+        "Nature cover font-neutral title verified by publisher + article label + author boundary");
+    expect(FrontMatter::natureArticleTitle(QStringLiteral(
+        "Research Article\nPhotoredox Catalysis Enables Chemoselective Heterocycle\n"
+        "Functionalization under Mild Conditions\n"
+        "Alice Q. Smith, Brian R. Chen and Carol J. Green\n")).isEmpty(),
+        "No publisher masthead: do not infer article header title");
+    expect(FrontMatter::natureArticleTitle(QStringLiteral(
+        "Nature Synthesis\nResearch Article\n"
+        "Photoredox Catalysis Enables Chemoselective Heterocycle\n"
+        "Abstract\nChemistry details follow\n")).isEmpty(),
+        "Missing author boundary: do not promote abstract prose");
+    expect(FrontMatter::natureArticleTitle(QStringLiteral(
+        "Nature Synthesis\nSupporting Information\n"
+        "Research Article\nPhotoredox Catalysis Enables Chemoselective Heterocycle\n"
+        "Alice Q. Smith, Brian R. Chen and Carol J. Green\n")).isEmpty(),
+        "Supporting Information cover never inherits proposed parent title");
+    const QString splitTerminal=QStringLiteral(
+        "Chem. Sci. 2026, 17, 247\nPhotoredox Radical Transformations\n"
+        "Alice Q. Smith, Brian R. Chen,\nand\nJohn J. Molloy*ab\n"
+        "Department of Chemistry\nAbstract\n");
+    expect(Bibliography::firstPageLastAuthor(splitTerminal)==QStringLiteral("John J. Molloy"),
+        "RSC split explicit terminal-and recovers true last-listed author");
+    expect(Bibliography::firstPageLastAuthor(QStringLiteral(
+        "Chem. Sci. 2026, 17, 247\nAlice Q. Smith, Brian R. Chen\n"
+        "Department of Chemistry\nAbstract\n")).isEmpty(),
+        "Missing explicit final author cannot be guessed from first names");
+    const QString reviewIdentity=QStringLiteral("synthetic:v261:review");
+    expect(weak.value("titleStatus").toString()==QStringLiteral("needs_review") &&
+           !weak.value("titleCandidate").toString().isEmpty(),
+           "Low typography confidence returns only candidate");
+    expect(titleStore.enrichFromFirstPage(reviewIdentity, weak),
+           "Ambiguous headline can be stored as review-only");
+    const auto reviewRecord=titleStore.record(reviewIdentity);
+    expect(reviewRecord.value("title").toString().isEmpty() &&
+           reviewRecord.value("titleCandidate")==weak.value("titleCandidate") &&
+           reviewRecord.value("titleCandidateSource")==QStringLiteral("first_page_layout_review"),
+           "Review-only headline never becomes public title or automatic filename");
+    QVariantMap selected=reviewRecord;
+    selected["title"]=reviewRecord.value("titleCandidate");
+    expect(titleStore.saveEdits(reviewIdentity,reviewRecord,selected),
+           "Explicit human acceptance saves proposed title");
+    expect(titleStore.record(reviewIdentity).value("titleSource")==QStringLiteral("manual") &&
+           titleStore.record(reviewIdentity).value("title")==reviewRecord.value("titleCandidate"),
+           "Accepted title becomes a protected manual field");
+    expect(!titleStore.enrichFromFirstPage(reviewIdentity,titleEvidence) &&
+           titleStore.record(reviewIdentity).value("title")==reviewRecord.value("titleCandidate"),
+           "Automatic first-page extraction never overwrites manually accepted title");
+    const QString manualAuthorIdentity=QStringLiteral("synthetic:v261:manual-author");
+    expect(titleStore.saveEdits(manualAuthorIdentity,{},{
+           {"authors",QStringLiteral("Verified User Edited Author")}}),
+           "Explicit human author override");
+    expect(titleStore.enrichFromFirstPage(manualAuthorIdentity,{
+           {"authors",QStringLiteral("John J. Molloy")},
+           {"authorEvidence",QStringLiteral("first-page-terminal-and")}})==false &&
+           titleStore.record(manualAuthorIdentity).value("authors")==QStringLiteral("Verified User Edited Author"),
+           "Strong printed author evidence never overwrites explicit manual author");
+
     checkpoint("doi-evidence");
     const auto docs=collectCandidates({QStringLiteral(
         "Title of paper\nDOI: https://doi.org/10.1021/jacs.4c05881\nAuthors")},

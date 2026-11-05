@@ -159,26 +159,73 @@ public:
             static const QRegularExpression trailingAnd(QStringLiteral(
                 R"((?:^|[,;\s])(?:and|&)\s*$)"),
                 QRegularExpression::CaseInsensitiveOption);
-            if (trailingAnd.match(line).hasMatch() && i + 1 < lines.size() &&
-                lines[i + 1].size() <= 90)
-                authorRow += QLatin1Char(' ') + lines[i + 1];
+            if (trailingAnd.match(line).hasMatch() && i + 1 < lines.size()) {
+                // Nature sidebars can y-sort dates/superscripts between the
+                // terminal conjunction and the final name in the author column.
+                qsizetype next = i + 1;
+                static const QRegularExpression sidebar(QStringLiteral(
+                    R"(^(?:(?:Received|Accepted|Published online):.*|Check for updates|[\d,\s*†‡]+)$)"));
+                while (next < lines.size() && next <= i + 3 && sidebar.match(lines[next]).hasMatch()) ++next;
+                if (next < lines.size() && next <= i + 4 && lines[next].size() <= 90)
+                    authorRow += QLatin1Char(' ') + lines[next];
+            }
             const auto match = terminal.match(authorRow);
             if (!match.hasMatch()) continue;
             if (!superscript.match(authorRow.mid(match.capturedEnd())).hasMatch()) continue;
             const QString candidate = match.captured(1).simplified();
             if (!credibleAuthor(candidate)) continue;
             bool hasAuthorList = pairedNames.match(line).hasMatch();
+            // Angewandte two-author reviews use "First Name and Last Name"
+            // without a comma. Require its printed journal citation as well as
+            // exactly two credible personal names on that complete row.
+            if (!hasAuthorList && firstPageCitation(firstPageText).value("journal").toString()
+                    .startsWith(QStringLiteral("Angew"), Qt::CaseInsensitive)) {
+                QString lead = authorRow.left(match.capturedStart(1)).simplified();
+                lead.remove(QRegularExpression(QStringLiteral(R"(\s+(?:and|&)$)")));
+                hasAuthorList = credibleAuthor(lead);
+            }
             for (qsizetype delta = 1; !hasAuthorList && delta <= 7; ++delta) {
                 if (i >= delta && pairedNames.match(lines[i - delta]).hasMatch())
                     hasAuthorList = true;
-                if (i + delta < lines.size() && pairedNames.match(lines[i + delta]).hasMatch())
-                    hasAuthorList = true;
+                // A FUTURE author list cannot establish that a preceding
+                // title ending in "and Industrial Applications" is a name.
+                // Ambiguous reordered covers should abstain, not use that title.
             }
             if (!hasAuthorList) continue;
             if (!found.isEmpty() && found != candidate) return {};
             found = candidate;
         }
         return found;
+    }
+
+    static QString heliyonLastAuthor(const QString& text) {
+        if (firstPageCitation(text).value("journal").toString()!=QStringLiteral("Heliyon")) return {};
+        const QStringList rows=FrontMatter::lines(text, 12000);
+        static const QRegularExpression kind(QStringLiteral(R"(^(?:Review|Research) article$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression affiliation(QStringLiteral(
+            R"(^(?:[a-z]\s+)?(?:Department|School|Faculty|Institute|Research|College|Centre|Center|Laboratory)\b)"));
+        static const QRegularExpression firstName(QStringLiteral(
+            R"(^[\p{Lu}][\p{L}\p{M}.'’\-]*(?:\s+[\p{Lu}][\p{L}\p{M}.'’\-]*){1,5}(?:\s+[a-z])?\s*[,\*])"));
+        qsizetype start=-1, end=-1, label=-1;
+        for (qsizetype i=0; i<rows.size() && i<24; ++i) {
+            if (kind.match(rows[i]).hasMatch()) { label=i; continue; }
+            if (label<0) continue;
+            if (affiliation.match(rows[i]).hasMatch()) { end=i; break; }
+            if (start<0 && i<=label+6 && firstName.match(rows[i]).hasMatch()) start=i;
+        }
+        if (start<0 || end<=start || end-start>6) return {};
+        QString block=rows.mid(start,end-start).join(QLatin1Char(' '));
+        block.remove(QRegularExpression(QStringLiteral(R"([*†‡]+)")));
+        QStringList names;
+        for (QString part : block.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+            part=part.simplified();
+            if (part.isEmpty() || QRegularExpression(QStringLiteral(R"(^[a-z]$)")).match(part).hasMatch()) continue;
+            part.remove(QRegularExpression(QStringLiteral(R"(\s+[a-z]$)")));
+            if (!credibleAuthor(part)) return {};
+            names.append(part);
+        }
+        return names.size()>=2 ? names.last() : QString();
     }
 
     // Return tentative title/author candidates for manual review, especially

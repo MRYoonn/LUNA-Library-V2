@@ -148,6 +148,11 @@ int main(int argc,char** argv){
     },792);
     expect(sideColumn.value("title").toString().endsWith(QStringLiteral("Bio-Applications and Challenges")),
         "RSC citation sidebar must not truncate the three-line title in the other column");
+    expect(Bibliography::firstPageLastAuthor(QStringLiteral(
+        "Enzyme Technologies and Industrial Applications\n"
+        "Alice Green, Brian White, and Hassan Mohamed El-Said Azzazy*\n"
+        "ABSTRACT: A study of materials\n"))==QStringLiteral("Hassan Mohamed El-Said Azzazy"),
+        "capitalized title ending in and-phrase cannot compete with actual final author");
     const auto shortFinal = TitleExtraction::infer({
         {QStringLiteral("Article"),40,90,10},
         {QStringLiteral("Analysis of DIA Proteomics Data Using"),40,113,26},
@@ -162,6 +167,17 @@ int main(int argc,char** argv){
     const QString hel = QStringLiteral("Heliyon 10 (2024) e28357\nContents lists available at ScienceDirect\n"
         "Heliyon\njournal homepage: www.cell.com/heliyon\nReview article\n"
         "https://doi.org/10.1016/j.heliyon.2024.e28357\n");
+    const QString helAuthors=hel + QStringLiteral(
+        "Printed Title for a Public Study\nAlice Green a,*, Brian White b,c,\n"
+        "Carol Smith a, Daniel Brown b\na Department of Chemistry\nA B S T R A C T\n");
+    expect(Bibliography::heliyonLastAuthor(helAuthors)==QStringLiteral("Daniel Brown"),
+        "Heliyon comma-delimited last author confirmed by affiliation boundary");
+    expect(Bibliography::heliyonLastAuthor(hel+QStringLiteral(
+        "A Printed Title\nAlice Green a, Brian White b,\nCarol Smith a")).isEmpty(),
+        "No affiliation boundary: incomplete Elsevier author list must abstain");
+    expect(Bibliography::heliyonLastAuthor(QStringLiteral(
+        "Other article\nAlice Green, Brian White\nDepartment of Chemistry")).isEmpty(),
+        "No Heliyon publisher header: do not infer last author from arbitrary prose");
     const auto helInfo = Bibliography::firstPageCitation(hel);
     expect(helInfo.value("article_number").toString()==QStringLiteral("e28357") &&
         helInfo.value("volume").toString()==QStringLiteral("10"),

@@ -66,10 +66,13 @@ inline QVariantMap firstPageEvidence(const QStringList& pages,
             evidence["titleStatus"]=QStringLiteral("needs_review");
         }
     }
-    const auto author=Bibliography::firstPageLastAuthor(first);
+    const QString terminalAuthor=Bibliography::firstPageLastAuthor(first);
+    const QString blockAuthor=Bibliography::heliyonLastAuthor(first);
+    const QString author=!terminalAuthor.isEmpty() ? terminalAuthor : blockAuthor;
     if(!author.isEmpty()) {
         evidence["authors"]=author;
-        evidence["authorEvidence"]=QStringLiteral("first-page-terminal-and");
+        evidence["authorEvidence"]=!terminalAuthor.isEmpty()
+            ? QStringLiteral("first-page-terminal-and") : QStringLiteral("publisher-bounded-author-block");
     }
     if(Metadata::acceptableIdentity(candidates)) {
         evidence["doi"]=candidates.first().doi;

@@ -148,6 +148,57 @@ inline QString rscTitle(const QString& text) {
         ? normalizePrintedTitle(titleRows.join(QLatin1Char(' '))) : QString();
 }
 
+// A conservative structural fallback for Nature-family covers whose PDF
+// exporter gives title and author rows the *same* font size. This never mines
+// body prose: require a publisher masthead, a standalone article-type label,
+// a bounded title block and an explicit multi-name author boundary.
+inline QString natureArticleTitle(const QString& firstPage) {
+    if (isSupplementCover(firstPage)) return {};
+    const QStringList rows = lines(firstPage, 14000);
+    bool naturePublisher = false;
+    for (qsizetype i = 0; i < rows.size() && i < 16; ++i) {
+        const QString line = rows[i];
+        if (line.contains(QStringLiteral("10.1038/"), Qt::CaseInsensitive) ||
+            line.contains(QStringLiteral("nature.com/"), Qt::CaseInsensitive) ||
+            line.compare(QStringLiteral("Nature Synthesis"), Qt::CaseInsensitive) == 0 ||
+            line.compare(QStringLiteral("Nature Chemistry"), Qt::CaseInsensitive) == 0 ||
+            line.compare(QStringLiteral("Nature Communications"), Qt::CaseInsensitive) == 0)
+            naturePublisher = true;
+    }
+    if (!naturePublisher) return {};
+    static const QRegularExpression article(QStringLiteral(
+        R"(^(?:Article|Research Article)$)"), QRegularExpression::CaseInsensitiveOption);
+    // Require at least two clearly delimited names, not an isolated person
+    // or a bibliography reference appearing beside the article text.
+    static const QRegularExpression authors(QStringLiteral(
+        R"(^[\p{Lu}][\p{L}\p{M}'’.-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.-]*){1,5}\s*,\s*[\p{Lu}][\p{L}\p{M}'’.-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.-]*){1,5}(?:\s*,?\s*(?:and|&)\s+[\p{Lu}][\p{L}\p{M}'’.-]*(?:\s+[\p{Lu}][\p{L}\p{M}'’.-]*){1,5})?[\s*†‡\p{Ll}\p{N}]*$)"));
+    for (qsizetype i = 0; i < rows.size() && i < 12; ++i) {
+        if (!article.match(rows[i]).hasMatch()) continue;
+        QStringList titleLines;
+        for (qsizetype j = i + 1; j < rows.size() && j <= i + 5; ++j) {
+            const QString line = rows[j];
+            if (authors.match(line).hasMatch()) {
+                const QString headline = normalizePrintedTitle(titleLines.join(QLatin1Char(' ')));
+                if (titleLines.size() >= 1 && headline.size() >= 18 &&
+                    headline.size() <= 220) return headline;
+                break;
+            }
+            if (line.size() < 8 || line.size() > 160 || titleLines.size() >= 3 ||
+                line.contains(QStringLiteral("doi.org"), Qt::CaseInsensitive) ||
+                line.contains(QStringLiteral("http"), Qt::CaseInsensitive) ||
+                line.contains(QLatin1Char('@')) ||
+                line.startsWith(QStringLiteral("Abstract"), Qt::CaseInsensitive) ||
+                line.startsWith(QStringLiteral("Introduction"), Qt::CaseInsensitive) ||
+                line.startsWith(QStringLiteral("Received"), Qt::CaseInsensitive) ||
+                line.startsWith(QStringLiteral("Published"), Qt::CaseInsensitive) ||
+                line.startsWith(QStringLiteral("Correspondence"), Qt::CaseInsensitive))
+                break;
+            titleLines.append(line);
+        }
+    }
+    return {};
+}
+
 // Prefer exact publisher footers to incomplete first-page citations, but only
 // when the same publisher journal masthead is present on this document's cover.
 // This prevents reference-list "journal/year/page" patterns being imported.

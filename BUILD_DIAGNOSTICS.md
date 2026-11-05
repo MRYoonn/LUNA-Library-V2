@@ -480,3 +480,14 @@ place those digits separately. Accept whitespace before numeric markers and
 commas only *inside* affiliation-marker groups, not a dangling author-list comma.
 Retain the explicit terminal conjunction and preceding author-list proof. New
 native assertions cover both the supported form and an incomplete-list negative.
+
+
+### Font-unit consistency in public title audit
+
+The first public title audit contained reconstructed headline lines at 13.4495pt
+but no text-run samples. The observer filtered raw PDF font sizes whereas the
+native layout computes size after Tm/CTM transformation (PDFTextLayout::addCharacter).
+Some PDFs use font size 1 with a scaled text matrix. Use the same mapped vertical
+font vector length for reliability matching and audit filtering, and retain both
+raw/mapped sizes in the bounded public diagnostic. This corrects units rather
+than changing confidence thresholds or any golden answer.

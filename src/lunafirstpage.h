@@ -35,19 +35,22 @@ protected:
         const auto* state=getGraphicState();
         const auto matrix=state->getTextMatrix()*state->getCurrentTransformationMatrix();
         const QPointF position=matrix.map(QPointF());
+        // PDF fonts may use size 1 and carry the real point size in Tm/CTM.
+        // Match PDFTextLayout::addCharacter's transformed font-size units.
+        const double size=matrix.map(QLineF(QPointF(),QPointF(0,state->getTextFontSize()))).length();
         for (const auto& item : sequence.items) {
             const bool missingText=item.cid>0 && item.character.isNull() &&
                 (item.isCharacter() || item.isContentStream() || item.isAdvance());
             const bool visibleWhitespace=item.glyph && !item.glyph->isEmpty() && item.character.isSpace();
             if (missingText || visibleWhitespace) {
-                unmapped_.push_back({position,state->getTextFontSize()});
+                unmapped_.push_back({position,size});
                 break;
             }
         }
         // Explicit public-fixture audit only: headline text and codepoints,
         // not page/body dumps, file paths or automatic application logging.
         const double y=auditHeight_-position.y();
-        if (auditHeight_>0 && y>=0 && y<auditHeight_*0.62 && state->getTextFontSize()>=12 && auditRuns_.size()<80) {
+        if (auditHeight_>0 && y>=0 && y<auditHeight_*0.62 && size>=12 && auditRuns_.size()<80) {
             QString text;
             QVariantList unicode,cids;
             for (const auto& item : sequence.items) {
@@ -57,7 +60,7 @@ protected:
                 unicode.append(int(item.character.unicode())); cids.append(int(item.cid));
             }
             auditRuns_.append(QVariantMap{{"text",text},{"x",position.x()},{"y",y},
-                {"fontSize",state->getTextFontSize()},{"unicode",unicode},{"cids",cids}});
+                {"fontSize",size},{"sourceFontSize",state->getTextFontSize()},{"unicode",unicode},{"cids",cids}});
         }
     }
 private:

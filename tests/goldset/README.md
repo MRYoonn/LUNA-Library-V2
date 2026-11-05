@@ -29,8 +29,10 @@ python -B tools/evaluate_goldset.py --fetch TEMP_PUBLIC_PDFS --exe PORTABLE/LUNA
 The full Windows workflow runs this command on its exact build SHA. The command
 fails if any required download/checksum/native extraction fails. Results retain
 field counts (`correct`, `missing`, `wrong`) and per-document exactness. Score
-normalization ignores Unicode compatibility, case, punctuation and spacing,
-without fuzzy matching, truncation or treating a start page as a full range.
+normalization ignores Unicode compatibility, case, punctuation and spacing only
+for titles/authors/journal aliases. DOI retains punctuation; year/volume/type
+are exact; page ranges normalize only dash style and spacing. No fuzzy
+matching, truncation or treating a start page as a full range.
 Missing documents are counted as failures. Empty SI fields count as correct
 only when the native evaluator actually returned that record.
 

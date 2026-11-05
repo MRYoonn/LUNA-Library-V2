@@ -30,6 +30,16 @@ class GoldsetScoring(unittest.TestCase):
         self.assertEqual(result['exact'], 0)
         self.assertEqual(score([item], {})['fields']['documentKind']['missing'], 1)
 
+    def test_identifier_punctuation_and_range_separators_are_significant(self):
+        item = self.fixture()
+        item['expected']['page'] = '1234–1256'
+        actual = dict(item['expected'], journal='Chem. Sci.', page='1234-1256')
+        self.assertEqual(score([item], {'PMC1': actual})['exact'], 1)
+        actual.update(doi='101039example', page='12341256')
+        result = score([item], {'PMC1': actual})
+        self.assertEqual(result['fields']['doi']['wrong'], 1)
+        self.assertEqual(result['fields']['page']['wrong'], 1)
+
     def test_si_requires_abstention(self):
         item = self.fixture(True)
         self.assertEqual(score([item], {'PMC1': {'documentKind': 'supporting_information'}})['exact'], 1)

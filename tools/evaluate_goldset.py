@@ -23,6 +23,21 @@ def canonical(value):
     return ''.join(c for c in unicodedata.normalize('NFKC', str(value)).casefold() if c.isalnum())
 
 
+def field_value(key, value):
+    text = unicodedata.normalize('NFKC', str(value)).strip().casefold()
+    if key == 'doi':
+        # DOI punctuation is identity, not presentation. A missing slash or
+        # changed decimal point must never score as the exact registered DOI.
+        return text
+    if key in ('year', 'volume', 'documentKind'):
+        return text
+    if key == 'page':
+        for dash in ('–', '—', '−'):
+            text = text.replace(dash, '-')
+        return ''.join(text.split())
+    return canonical(text)
+
+
 def score(manifest, predictions):
     """Lexical exactness, official journal aliases, no fuzzy substring matching.
 
@@ -45,7 +60,7 @@ def score(manifest, predictions):
             expected = item['expected'][key]
             accepted = expected if isinstance(expected, list) else [expected]
             value = actual.get(key, '')
-            if present and canonical(value) in {canonical(x) for x in accepted}:
+            if present and field_value(key, value) in {field_value(key, x) for x in accepted}:
                 status = 'correct'
             elif not value:
                 status = 'missing'
@@ -57,7 +72,7 @@ def score(manifest, predictions):
         rows.append(dict(id=item['id'], publisher=item['publisher'], fields=statuses,
                          exact=all(x == 'correct' for x in statuses.values())))
     return dict(documents=len(rows), exact=sum(x['exact'] for x in rows), fields=counts, rows=rows,
-                normalization='Unicode NFKC, case, punctuation and whitespace only; official journal aliases; no fuzzy matching')
+                normalization='Title/author/journal: Unicode NFKC, case, punctuation and whitespace; official journal aliases. DOI retains punctuation; year/volume/type exact; page dash/whitespace normalization. No fuzzy matching.')
 
 
 def fetch(manifest, destination):

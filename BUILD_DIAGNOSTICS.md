@@ -422,3 +422,15 @@ This directly reproduces the actual native pre-fix centering defect.
   passed on this SHA. These are partial results, not full Windows acceptance.
 - The failed log plus LUNA-Build-Diagnostics and LUNA-UI-Synthetic artifacts are
   retained; new full Windows execution on the corrective SHA is required.
+
+
+### Actual color audit of #272 ordinary screenshots
+
+The new stylesheet alone did not change the native navigation fill: both v261
+and #272 screenshots had dominant RGB (243,246,252), despite the intended
+historical (247,248,252) rule. Transparent QScrollArea content/viewport and
+background drawing attributes prevented the intended scoped fill.
+Explicitly paint the navigation viewport/content with the historical color and
+enable styled background on document/fold widgets. No PDF/toolbar/tab selector
+is changed. Exact color revalidation requires the next native screenshots;
+source token changes alone are not counted as visual success.

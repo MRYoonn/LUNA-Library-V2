@@ -1147,6 +1147,7 @@ public:
         navigationSlotLayout->addWidget(navigationScroll, 1);
         navigationFold_ = new QWidget(navigationSlot_);
         navigationFold_->setObjectName(QStringLiteral("LunaNavigationFold"));
+        navigationFold_->setAttribute(Qt::WA_StyledBackground, true);
         navigationFold_->setFixedWidth(foldWidth_);
         auto* navigationFoldLayout = new QVBoxLayout(navigationFold_);
         navigationFoldLayout->setContentsMargins(3, 0, 3, 0);
@@ -1168,8 +1169,10 @@ public:
         navigationContents->setObjectName(QStringLiteral("LunaNavigationContents"));
         navigationScroll->setWidget(navigationContents);
         new SmoothLibraryWheel(navigationScroll, 58);
-        navigationContents->setAutoFillBackground(false);
-        navigationScroll->viewport()->setAutoFillBackground(false);
+        navigationContents->setAttribute(Qt::WA_StyledBackground, true);
+        navigationContents->setAutoFillBackground(true);
+        navigationScroll->viewport()->setAttribute(Qt::WA_StyledBackground, true);
+        navigationScroll->viewport()->setAutoFillBackground(true);
         navigationScroll->viewport()->setObjectName(QStringLiteral("LunaNavigationViewport"));
         auto* nav = new QVBoxLayout(navigationContents);
         nav->setSizeConstraint(QLayout::SetMinimumSize);
@@ -1464,6 +1467,7 @@ public:
         documentsSlotLayout->addWidget(documents_, 1);
         documentsFold_ = new QWidget(documentsSlot_);
         documentsFold_->setObjectName(QStringLiteral("LunaDocumentsFold"));
+        documentsFold_->setAttribute(Qt::WA_StyledBackground, true);
         documentsFold_->setFixedWidth(foldWidth_);
         auto* documentsFoldLayout = new QVBoxLayout(documentsFold_);
         documentsFoldLayout->setContentsMargins(3, 0, 3, 0);
@@ -1474,6 +1478,7 @@ public:
         split_->addWidget(documentsSlot_);
         split_->setCollapsible(1, false);
         documents_->setObjectName(QStringLiteral("LunaDocuments"));
+        documents_->setAttribute(Qt::WA_StyledBackground, true);
         documents_->setMinimumWidth(195);
         auto* docs = new QVBoxLayout(documents_);
         docs->setContentsMargins(0, 0, 0, 0);

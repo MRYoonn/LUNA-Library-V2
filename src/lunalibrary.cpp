@@ -2118,6 +2118,14 @@ private:
         fullCitation.setClearButtonEnabled(true);
         fullCitation.setPlaceholderText(QStringLiteral("서지정보 전체를 붙여넣으세요. 이 내용이 카드에 우선 표시됩니다."));
         QLineEdit title(existing.value("title").toString(), &dialog);
+        const QString suggestedTitle=existing.value("titleCandidate").toString().simplified();
+        const bool titleNeedsReview=existing.value("titleCandidateSource").toString() ==
+            QStringLiteral("first_page_layout_review") &&
+            luna::Bibliography::credibleTitle(suggestedTitle) &&
+            suggestedTitle!=title.text().simplified();
+        if (titleNeedsReview)
+            title.setToolTip(QStringLiteral("첫 페이지에서 추출한 미확인 제목 제안:\n") +
+                             suggestedTitle + QStringLiteral("\n사용자가 적용하기 전에는 원제목을 변경하지 않습니다."));
         QLineEdit authors(existing.value("authors").toString(), &dialog);
         QLineEdit journal(existing.value("journal").toString(), &dialog);
         QLineEdit year(existing.value("year").toString(), &dialog);
@@ -2130,6 +2138,16 @@ private:
         QLineEdit seniorAuthor(existing.value("senior_author_override").toString(), &dialog);
         form.addRow(QStringLiteral("서지정보 한 줄"), &fullCitation);
         form.addRow(QStringLiteral("논문 제목"), &title);
+        if (titleNeedsReview) {
+            auto* acceptSuggestion=new QPushButton(QStringLiteral("검토 후 제목 제안 적용"), &dialog);
+            acceptSuggestion->setObjectName(QStringLiteral("LunaAcceptSuggestedBibliographyTitle"));
+            acceptSuggestion->setToolTip(suggestedTitle);
+            connect(acceptSuggestion, &QPushButton::clicked, &dialog, [&title, suggestedTitle] {
+                title.setText(suggestedTitle);
+                title.setFocus();
+            });
+            form.addRow(QStringLiteral("자동 추출 제안"), acceptSuggestion);
+        }
         form.addRow(QStringLiteral("저자"), &authors);
         form.addRow(QStringLiteral("저널"), &journal);
         form.addRow(QStringLiteral("발행 연도"), &year);

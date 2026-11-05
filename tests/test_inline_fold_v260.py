@@ -45,6 +45,14 @@ class InlinePanelV260(unittest.TestCase):
             'expandedDockPoll->start()',
         ):
             self.assertIn(item, LIBRARY)
+        # Qt's two-string QSettings(organization, application) constructor
+        # ALWAYS reads NativeFormat, regardless of setDefaultFormat(IniFormat).
+        # The Windows UI audit writes IniFormat; never compare to registry.
+        self.assertNotIn('QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))', LIBRARY)
+        self.assertNotIn('QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))', TABS)
+        self.assertIn('const int saved = QSettings(QSettings::defaultFormat(), QSettings::UserScope,', TABS)
+        self.assertIn('const int storedWidth = qBound(432, QSettings(QSettings::defaultFormat(), QSettings::UserScope,', LIBRARY)
+        self.assertIn('qBound(432, QSettings(QSettings::defaultFormat(), QSettings::UserScope,', LIBRARY)
         for item in (
             'phase("ten real independent library/paper panel toggle cycles")',
             'for (int turn = 0; turn < 10; ++turn)',

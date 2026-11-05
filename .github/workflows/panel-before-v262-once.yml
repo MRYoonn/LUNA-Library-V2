@@ -1,0 +1,44 @@
+name: LUNA v262 exact v261 baseline panel screenshots
+on:
+  push:
+    branches:
+      - feature/panel-bibliography-v262-20261105
+    paths:
+      - .github/workflows/panel-before-v262-once.yml
+permissions:
+  contents: read
+jobs:
+  baseline-panels:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download immutable v261 release and verify native source provenance
+        shell: pwsh
+        run: |
+          gh release download v0.9.0.261 --repo MRYoonn/LUNA-Library-V2 --pattern LUNA-Windows-Portable.zip --dir "$env:RUNNER_TEMP/v261"
+          if ($LASTEXITCODE -ne 0) { throw 'Baseline release download failed' }
+          Expand-Archive "$env:RUNNER_TEMP/v261/LUNA-Windows-Portable.zip" "$env:RUNNER_TEMP/v261/portable"
+          python -B -c "import json,pathlib,hashlib,sys; p=pathlib.Path(sys.argv[1]); b=json.loads((p/'build-info.json').read_text(encoding='utf-8-sig')); assert b['commit']=='c40470847d3f22fbb7c993d2c91dfae6b6b50c4c'; assert hashlib.sha256((p/'LUNA.exe').read_bytes()).hexdigest()==b['exeSha256']" "$env:RUNNER_TEMP/v261/portable"
+          if ($LASTEXITCODE -ne 0) { throw 'Wrong v261 baseline EXE' }
+      - name: Capture actual pre-fix native windows at all scales and panel states
+        shell: pwsh
+        run: |
+          python -m pip install pywinauto==0.6.9 pillow==11.3.0
+          if ($LASTEXITCODE -ne 0) { throw 'Native capture dependency setup failed' }
+          python -B tools/prepare_desktop_windows.py "$env:RUNNER_TEMP/evidence/desktop.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop setup failed' }
+          python -B tools/capture_panel_comparison_windows.py "$env:RUNNER_TEMP/v261/portable" "$env:RUNNER_TEMP/evidence/before"
+          if ($LASTEXITCODE -ne 0) { throw 'Actual baseline panel capture failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v261-Before-Panels
+          path: ${{ runner.temp }}/evidence
+          retention-days: 90
+          if-no-files-found: error

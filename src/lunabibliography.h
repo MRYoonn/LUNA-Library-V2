@@ -140,9 +140,20 @@ public:
         QString found;
         for (qsizetype i = 0; i < lines.size(); ++i) {
             const QString& line = lines[i];
-            const auto match = terminal.match(line);
+            QString authorRow = line;
+            // RSC and publisher PDF text blocks can put the final "and" at
+            // the end of a row, with the final named author on the next row.
+            // Join *only* that explicit conjunction boundary; never join
+            // arbitrary neighboring text and guess a last author.
+            static const QRegularExpression trailingAnd(QStringLiteral(
+                R"((?:^|[,;\s])(?:and|&)\s*$)"),
+                QRegularExpression::CaseInsensitiveOption);
+            if (trailingAnd.match(line).hasMatch() && i + 1 < lines.size() &&
+                lines[i + 1].size() <= 90)
+                authorRow += QLatin1Char(' ') + lines[i + 1];
+            const auto match = terminal.match(authorRow);
             if (!match.hasMatch()) continue;
-            if (!superscript.match(line.mid(match.capturedEnd())).hasMatch()) continue;
+            if (!superscript.match(authorRow.mid(match.capturedEnd())).hasMatch()) continue;
             const QString candidate = match.captured(1).simplified();
             if (!credibleAuthor(candidate)) continue;
             bool hasAuthorList = pairedNames.match(line).hasMatch();

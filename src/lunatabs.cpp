@@ -1228,14 +1228,16 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             // processing real native events; insist they agree at the same time.
             integrationRequire(integrationWait([&] {
                 const int actual = libraryDock->width();
-                const int saved = QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+                const int saved = QSettings(QSettings::defaultFormat(), QSettings::UserScope,
+                    QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
                     .value(QStringLiteral("library/expandedDockWidth")).toInt();
                 return qAbs(actual - 690) <= 4 && saved == actual;
             }), "Expanded dock width was not persisted after manual resize");
             const int userDockWidth = libraryDock->width();
             result["settledDockWidthDiagnostics"] = QJsonObject{
                 {"requestedWidth", 690}, {"settledDockWidth", userDockWidth},
-                {"persistedWidth", QSettings(QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
+                {"persistedWidth", QSettings(QSettings::defaultFormat(), QSettings::UserScope,
+                    QStringLiteral("LUNA"), QStringLiteral("LUNA Library"))
                     .value(QStringLiteral("library/expandedDockWidth")).toInt()},
                 {"windowWidth", host.width()}};
             for (int turn = 0; turn < 10; ++turn) {

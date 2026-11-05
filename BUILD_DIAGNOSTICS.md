@@ -308,3 +308,13 @@ For the next exact-SHA validation the count fixture's `QTemporaryDir` now lives 
 - The preceding correction waited for `abs(actual-690) <= 4`, then snapshotted the first such width. That transient could be 686..689, while the timer correctly stored 690. The test then compared the stale snapshot to the final persisted width. This is a test synchronization defect, not evidence that the persisted width is missing.
 - The corrected native check now waits for **simultaneous** matching of the live dock width and QSettings value within the 690px target tolerance (same integrated event-loop iteration) before proceeding with all ten real click-driven independent fold/unfold cycles. It still fails if geometry cannot settle or settings do not agree; no skipping, mocking, or reduced UI coverage.
 - The v260 release gate remains strict and unchanged.
+
+### Root cause identified — mismatched Qt QSettings constructors, 2026-11-05
+
+Full Windows exact-source run [41849614748](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/41849614748) compiled and packaged successfully but failed the strict real UI integration at "Expanded dock width was not persisted after manual resize". Its archived `LUNA-UI-Synthetic` INI had `expandedDockWidth=690`.
+
+**Actual defect:** the INI writer uses `QSettings(QSettings::defaultFormat(), QSettings::UserScope, "LUNA", "LUNA Library")`. The Windows integration reader and two dock restore sites previously used `QSettings("LUNA", "LUNA Library")`. Per official Qt QSettings documentation, **that two-string constructor always uses QSettings::NativeFormat regardless of QSettings::setDefaultFormat**. The UI audit sets `QSettings::setDefaultFormat(QSettings::IniFormat)` and `QSettings::setPath(...)`, therefore it wrote the correct 690px value to the isolated INI while the test/restore code read the Windows registry instead. Earlier attempts wrongly blamed timing/geometry, explaining repeated test failures even after the final INI was correct.
+
+**Fix:** Replace both short-constructor reads in `src/lunatabs.cpp` and both restore reads in `src/lunalibrary.cpp` with the same explicit `QSettings::defaultFormat(), QSettings::UserScope` used by the writer. Add permanent static regression assertions in `tests/test_inline_fold_v260.py` disallowing the two-string constructor in the dock-width path. The real UI 690px persistence requirement and all ten mouse-driven collapse/restore cycles remain enabled. Release is still blocked until exact SHA Windows build and asset SHA verification succeed.
+
+Reference: https://doc.qt.io/qt-6/qsettings.html ; QSettings(const QString &organization, const QString &application) constructor is always NativeFormat.

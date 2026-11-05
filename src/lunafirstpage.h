@@ -97,9 +97,11 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
     // Publisher-specific text title fallback from scheduled accuracy module:
     // require ACS or RSC masthead, author boundary and strong citation cues.
     const QString acs=FrontMatter::acsTitle(first);
-    const QString publisherTitle=acs.isEmpty() ? FrontMatter::rscTitle(first) : acs;
-    // A prominent geometric title stays first; conservative publisher titles
-    // rescue PDFs whose PDF4QT font/layout extraction has a weak title.
+    const QString rsc=acs.isEmpty() ? FrontMatter::rscTitle(first) : QString();
+    const QString publisherTitle=!acs.isEmpty() ? acs : !rsc.isEmpty()
+        ? rsc : FrontMatter::natureArticleTitle(first);
+    // A prominent geometric title stays first; bounded publisher cover titles
+    // rescue PDFs where font sizes are indistinguishable from author text.
     const QString title=titleLayout.value("title").toString();
     if (!title.isEmpty() && Bibliography::credibleTitle(title)) {
         evidence["title"]=title;
@@ -110,6 +112,16 @@ inline QVariantMap extractFirstPage(pdf::PDFDocument& document, QString* diagnos
     } else if (!textualTitle.value("title").toString().isEmpty()) {
         evidence["title"]=textualTitle.value("title");
         evidence["titleSource"]=QStringLiteral("first_page_verified");
+    }
+    // Weak/competing typography evidence is useful in the manual editor,
+    // but MUST NEVER become an automatically trusted title or PDF filename.
+    const QString reviewTitle=titleLayout.value("titleCandidate").toString().simplified();
+    if (titleLayout.value("titleStatus").toString()==QStringLiteral("needs_review") &&
+        Bibliography::credibleTitle(reviewTitle) &&
+        reviewTitle!=evidence.value("title").toString().simplified()) {
+        evidence["titleCandidate"]=reviewTitle;
+        evidence["titleConfidence"]=titleLayout.value("titleConfidence");
+        evidence["titleStatus"]=QStringLiteral("needs_review");
     }
     if (evidence.isEmpty() && !Metadata::acceptableIdentity(candidates)) return {};
     if(const auto* info=document.getInfo(); info && Bibliography::credibleTitle(info->title)) {

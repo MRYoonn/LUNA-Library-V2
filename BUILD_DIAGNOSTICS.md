@@ -619,3 +619,40 @@ complete actual PDF snapshot already passed before this fixture adjustment.
 - Full corpus and later native gates were skipped after the chrome failure.
   Preserve original 150% screenshot/color JSON and diagnostics. Supersede #283,
   whose source lacks this coordinate correction, and require a fresh full run.
+
+## Windows Build #284 / real PLOS column highlighter probe: 42138055853
+
+- Source `5b18f8114005fb0fee35bd9c93b1d929c665bc35`. Python 191, native
+  metadata 1 + dialog 11 CTests, full MSVC/portable, all ordinary DPI/color
+  checks, original-slot panel screenshots, PDF benchmark, 31 real PDFs,
+  independent windows/native annotations/printing and production tabs passed.
+- Direct PDF4QT goldset: complete 15/31; title 29 correct/2 missing/0 wrong;
+  final author 20/11/0; journal/year/volume 30/1/0 each; page/article number
+  28/3/0; DOI 31/0/0; kind 30/1/0. No parser or download errors and no wrong
+  automatic field across all eight metrics. These are actual native results,
+  distinct from the local snapshot comparison (20/31 complete).
+- Production tabs at all 3 DPIs: requested/persisted dock 690, navigation 280,
+  Papers 398; ten independent cycles and 36px folds passed. Header Y retained
+  112/106 logical pixels through all states and height changes; note/manual/SI
+  and fresh-process restoration passed. Original edit.json evidence retained.
+- Failed optional-but-explicitly-enabled public CC BY PLOS probe, EXE exit 12,
+  error `Public paper column highlight failed`. It had already passed native
+  glyph selection and Ctrl+C. The composite predicate checks both annotation
+  count and return to selection mode; the old error records neither sample
+  nor actual count, so a specific product failure cannot be inferred from it.
+  Screenshot shows the actual 100% public paper after focus-mode layout.
+- Probe source reused device coordinates across dock hiding/zoom and Ctrl+C,
+  whose helper pumps queued Qt layout events. Hypothesis: stale page-to-widget
+  mapping or ignored busy tool activation. Keep the same PDF glyph range,
+  wait for a stable live transform/viewport across event-loop polls, remap
+  before each drag and require enabled/active highlighter. Add bounded sample
+  geometry, exact count, select/highlight mode and enabled-state diagnostics.
+  Next actual native run will establish whether this addresses the observed
+  failure. No claim that the hypothesis is proven from the old artifact alone.
+- Keep both left/right selections, caption copy, exact two highlights,
+  selection-mode restoration, Save As/reopen and original-byte preservation.
+  Do not skip the research probe or weaken any of those assertions.
+- Preserve raw log, research failure image, full goldset and native UI files.
+  Add research/chrome step IDs to automatic gate diagnostics (the old failure
+  summary said "none recorded"). CDB and later checks were skipped after the
+  research failure. No release; re-run all gates on the new exact source SHA.

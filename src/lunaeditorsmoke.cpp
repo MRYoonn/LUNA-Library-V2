@@ -29,6 +29,11 @@
 #include <QPainterPath>
 #include <QTimer>
 #include <QClipboard>
+#include <QElapsedTimer>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
 #include <QColorDialog>
 #include <QMessageBox>
 #include <QMenu>
@@ -177,10 +182,18 @@ bool verifyResearchRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         return count;
     };
     const int initialHighlights = highlights();
+    QJsonArray geometry;
+    auto saveGeometry = [&] {
+        QSaveFile output(reportPath + QStringLiteral(".geometry.json"));
+        if (output.open(QIODevice::WriteOnly)) {
+            output.write(QJsonDocument(geometry).toJson()); output.commit();
+        }
+    };
     for (int sample = 0; sample < 3; ++sample) {
         const int pageIndex = sample == 2 ? 1 : 0;
         proxy->goToPage(pageIndex);
         QPoint start, end;
+        QPointF pdfStart, pdfEnd;
         QString expected;
         if (!waitFor([&] {
             if (!window.isEnabled() || !select->isEnabled()) return false;
@@ -203,6 +216,7 @@ bool verifyResearchRoundTrip(pdfviewer::PDFEditorMainWindow& window,
                 if (sample == 2 && !QString(text).remove(QChar(' ')).contains(QStringLiteral("Figure1"))) continue;
                 const QPointF from = first - QPointF(1,0);
                 const QPointF to = chars[8].boundingBox.boundingRect().center() + QPointF(1,-2);
+                pdfStart=from; pdfEnd=to;
                 start = page->pageToDeviceMatrix.map(from).toPoint();
                 end = page->pageToDeviceMatrix.map(to).toPoint();
                 if (!widget->rect().contains(start) || !widget->rect().contains(end)) {
@@ -219,6 +233,44 @@ bool verifyResearchRoundTrip(pdfviewer::PDFEditorMainWindow& window,
             }
             return false;
         })) { error = QStringLiteral("Public paper column/caption glyphs unavailable: sample %1, page %2").arg(sample).arg(pageIndex); return false; }
+        const QPoint initialStart=start, initialEnd=end;
+        // Focus-mode dock hiding, zoom and Ctrl+C pump queued Qt layout work.
+        // Keep the PDF glyph range, then remap only after the live viewport
+        // transform/extent have remained stable across real event-loop polls.
+        auto settlePoints = [&] {
+            QElapsedTimer stable;
+            QTransform observed;
+            QSize extent;
+            bool seen=false;
+            return waitFor([&] {
+                const auto snapshot=proxy->getSnapshot();
+                const auto* page=snapshot.getPageSnapshot(pageIndex);
+                if (!window.isEnabled() || !page) { seen=false; return false; }
+                const auto matrix=page->pageToDeviceMatrix;
+                if (!seen || matrix!=observed || extent!=widget->size()) {
+                    observed=matrix; extent=widget->size(); seen=true; stable.restart();
+                    return false;
+                }
+                start=matrix.map(pdfStart).toPoint(); end=matrix.map(pdfEnd).toPoint();
+                return stable.elapsed()>=150 && widget->rect().contains(start) && widget->rect().contains(end);
+            });
+        };
+        if (!settlePoints()) return fail("Public paper viewport did not settle before text selection");
+        {
+            const auto snapshot=proxy->getSnapshot();
+            const auto inverse=snapshot.getPageSnapshot(pageIndex)->pageToDeviceMatrix.inverted();
+            const pdf::PDFTextLayout layout=proxy->getTextLayoutCompiler()->getTextLayoutLazy(pageIndex);
+            expected=layout.getTextFromSelection(layout.createTextSelection(pageIndex,
+                inverse.map(QPointF(start)),inverse.map(QPointF(end))),pageIndex).simplified();
+        }
+        if (expected.size()<4) return fail("Public paper stable glyph range is empty");
+        QJsonObject sampleGeometry{{"sample",sample},{"page",pageIndex},
+            {"initialStartX",initialStart.x()},{"initialStartY",initialStart.y()},
+            {"initialEndX",initialEnd.x()},{"initialEndY",initialEnd.y()},
+            {"stableStartX",start.x()},{"stableStartY",start.y()},
+            {"stableEndX",end.x()},{"stableEndY",end.y()},
+            {"expectedCharacters",expected.size()}};
+        geometry.append(sampleGeometry); saveGeometry();
         if (!select->isChecked()) select->trigger();
         mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
         mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
@@ -229,12 +281,31 @@ bool verifyResearchRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         if (!waitFor([&] { return QApplication::clipboard()->text().simplified() == expected; }))
             return fail("Public paper selected text did not copy");
         if (sample < 2) {
+            if (!waitFor([&] { return window.isEnabled() && highlight->isEnabled(); }))
+                return fail("Public paper highlighter remained disabled");
             highlight->trigger();
+            if (!waitFor([&] { return highlight->isChecked() && controller->getToolManager()->getActiveTool(); }))
+                return fail("Public paper native highlighter did not activate");
+            if (!settlePoints()) return fail("Public paper viewport did not settle before highlight drag");
+            sampleGeometry["highlightStartX"]=start.x(); sampleGeometry["highlightStartY"]=start.y();
+            sampleGeometry["highlightEndX"]=end.x(); sampleGeometry["highlightEndY"]=end.y();
+            mouse(widget,QEvent::MouseMove,start,Qt::NoButton,Qt::NoButton);
             mouse(widget,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
             mouse(widget,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
             mouse(widget,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
-            if (!waitFor([&] { return highlights() == initialHighlights + sample + 1 && select->isChecked(); }))
-                return fail("Public paper column highlight failed");
+            const bool highlighted=waitFor([&] { return highlights() == initialHighlights + sample + 1 && select->isChecked(); });
+            sampleGeometry["highlights"]=highlights(); sampleGeometry["expectedHighlights"]=initialHighlights+sample+1;
+            sampleGeometry["selectionMode"]=select->isChecked(); sampleGeometry["highlightMode"]=highlight->isChecked();
+            sampleGeometry["windowEnabled"]=window.isEnabled();
+            geometry[geometry.size()-1]=sampleGeometry; saveGeometry();
+            if (!highlighted) {
+                error=QStringLiteral("Public paper column highlight failed: sample=%1 actual=%2 expected=%3 select=%4 highlight=%5 enabled=%6")
+                    .arg(sample).arg(highlights()).arg(initialHighlights+sample+1)
+                    .arg(select->isChecked()).arg(highlight->isChecked()).arg(window.isEnabled());
+                return false;
+            }
+        } else {
+            geometry[geometry.size()-1]=sampleGeometry; saveGeometry();
         }
     }
     if (!waitFor([&] { return window.isEnabled() && saveAs->isEnabled(); })) return fail("Public paper save remained busy");

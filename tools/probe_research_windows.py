@@ -54,6 +54,8 @@ def probe(package: Path, output: Path):
             subprocess.run([str(package / "LUNA.exe"), "--luna-research-report", str(report), str(pdf)],
                 cwd=root, env=environment, check=True, timeout=90)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            geometry = Path(str(report) + ".geometry.json")
+            if geometry.is_file(): shutil.copyfile(geometry, output / "research-geometry.json")
             failure = Path(str(report) + ".failure.png")
             if failure.is_file(): shutil.copyfile(failure, output / "research-failure.png")
             detail = report.read_text(encoding="utf-8")[:512] if report.is_file() else "No native research diagnostic"
@@ -65,6 +67,8 @@ def probe(package: Path, output: Path):
         if not screenshot.is_file() or not annotated.read_bytes().startswith(b"%PDF-"):
             raise RuntimeError("Research capture or annotated copy missing")
         shutil.copyfile(screenshot, output / "research-native.png")
+        geometry = Path(str(report) + ".geometry.json")
+        if geometry.is_file(): shutil.copyfile(geometry, output / "research-geometry.json")
     print("[PASS] Pinned public CC BY five-page paper: native two-column and figure-caption selection/copy, highlights, Save As and reopen; original unchanged")
     print("[NOTICE] This public-paper check is separate from synthetic PDF regressions; other papers and long-session use are not implied.")
 

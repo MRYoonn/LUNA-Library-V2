@@ -696,6 +696,30 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('preview->trigger()', tabs)
         self.assertIn('보기 → 페이지 미리보기', guide)
 
+    def test_v291_top_rail_alignment_and_compact_tab_contrast(self):
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        lib = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        reader = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
+        qss = (ROOT / 'src/lunalibrary.qss').read_text(encoding='utf-8')
+        self.assertIn('return {192, 41};', tabs)
+        self.assertIn('minimumTabSizeHint(int) const override { return {88, 41}; }', tabs)
+        self.assertIn('readerIcon(QStringLiteral("tab-close"))', tabs)
+        self.assertIn('tabClose_ = name == QStringLiteral("tab-close")', reader)
+        self.assertIn('if (tabClose_) name = QStringLiteral("close")', reader)
+        self.assertIn('#7488A0', reader)
+        self.assertIn('restoreNav->setFixedWidth(28);', lib)
+        self.assertIn('restoreDocs->setFixedWidth(28);', lib)
+        self.assertIn('setAlignment(restoreNav, Qt::AlignHCenter)', lib)
+        self.assertIn('setAlignment(restoreDocs, Qt::AlignHCenter)', lib)
+        self.assertIn('Folded navigation icon lost its original rail', tabs)
+        self.assertIn('Folded papers icon lost its original rail', tabs)
+        self.assertIn('Folded restore moved vertically away from its original header', tabs)
+        self.assertIn('QToolButton#LunaCloseTab:hover', qss)
+        # The existing 41px tab/header geometry and real 10-toggle-cycle test
+        # must stay intact. Do not add a floating PDF-tab restore bar.
+        self.assertIn('for (int turn = 0; turn < 10; ++turn)', tabs)
+        self.assertNotIn('tabs_->setCornerWidget(rail, Qt::TopLeftCorner)', tabs)
+
     def test_compact_tabs_and_blue_borderless_selection_contract(self):
         tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
         library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')

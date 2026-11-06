@@ -2038,10 +2038,7 @@ private:
             connect(worker, &QThread::finished, this, [this, identity, result] {
                 runningCitations_.remove(identity);
                 const bool restore = pendingOriginalResets_.remove(identity) > 0;
-                // Old Windows QSettings may contain a plausible first author
-                // even though a DOI-verified full ordered author list already
-                // exists. Preserve the old value under legacyAuthors and repair
-                // only machine-owned fields, on the UI thread, not in the worker.
+                // Repair verified old auto author cache on the UI thread.
                 if (!restore && result->value(QStringLiteral("documentKind")).toString() !=
                     QStringLiteral("supporting_information"))
                     bibliography_.reconcileVerifiedAuthorship(identity);

@@ -175,7 +175,7 @@ class LibraryModes(unittest.TestCase):
         self.assertIn('layout->setContentsMargins(0, 7, 0, 0); layout->setSpacing(0)', self.cpp)
         self.assertIn('libraryHeader->setFixedHeight(41)', self.cpp)
         self.assertIn('title->setFixedHeight(41)', self.cpp)
-        self.assertIn('return {218, 41};', tabs)
+        self.assertIn('return {192, 41};', tabs)
         self.assertIn('tabs_->tabBar()->setDrawBase(false)', tabs)
         self.assertIn('QTabBar#LunaPdfTabBar { background:#F3F6FB; border:0; border-top:0; }', self.qss)
         self.assertNotIn('setCornerWidget(corner, Qt::TopLeftCorner)', tabs)

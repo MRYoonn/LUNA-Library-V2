@@ -180,3 +180,7 @@ jobs:
           name: LUNA-v291-Release-Diagnostics
           path: evidence/
           retention-days: 90
+
+# 2026-11-07 exact-source rerun: update previous hardcoded 218px contract to
+# new 192px preference. Native 10-cycle panel geometry, UI and release asset
+# SHA256 validation are unchanged and mandatory.

@@ -510,9 +510,7 @@ public:
                    source == QStringLiteral("Crossref + OpenAlex");
         };
         const QStringList ordered = value.value("authors_structured").toStringList();
-        if (originalAuthorSource != QStringLiteral("manual") &&
-            (!manual || originalAuthorSource == QStringLiteral("first_page_verified") ||
-             verifiedProvider(authorSource)) &&
+        if (!manual && originalAuthorSource != QStringLiteral("manual") &&
             verifiedProvider(structuredSource) &&
             !Metadata::normalizeDoi(value.value("doi").toString()).isEmpty() &&
             !ordered.isEmpty() && credibleAuthor(ordered.constLast())) {
@@ -563,6 +561,22 @@ public:
         }
         if (brokenAuthor) value.remove("authors");
         return value;
+    }
+
+    // Lazily migrate a VERIFIED DOI-matched ordered author list on first
+    // document open. Keep the wrong auto string in legacyAuthors and never
+    // rewrite a user-owned record or an explicitly edited author.
+    bool reconcileVerifiedAuthorship(const QString& identity) {
+        if (identity.isEmpty()) return false;
+        const QVariantMap original = settings().value(key(resolve(identity))).toMap();
+        if (original.value("manual").toBool() ||
+            original.value("authorsSource").toString() == QStringLiteral("manual"))
+            return false;
+        QVariantMap verified = record(identity);
+        if (!verified.value("authorsReconciledFromProvider").toBool())
+            return false;
+        verified.remove("authorsReconciledFromProvider");
+        return save(identity, verified, false);
     }
 
     bool save(const QString& identity, QVariantMap value, bool manual = true) {

@@ -259,7 +259,7 @@ bool verifyResearchRoundTrip(pdfviewer::PDFEditorMainWindow& window,
         {
             const auto snapshot=proxy->getSnapshot();
             const auto inverse=snapshot.getPageSnapshot(pageIndex)->pageToDeviceMatrix.inverted();
-            const pdf::PDFTextLayout layout=proxy->getTextLayoutCompiler()->getTextLayoutLazy(pageIndex);
+            pdf::PDFTextLayout layout=proxy->getTextLayoutCompiler()->getTextLayoutLazy(pageIndex);
             expected=layout.getTextFromSelection(layout.createTextSelection(pageIndex,
                 inverse.map(QPointF(start)),inverse.map(QPointF(end))),pageIndex).simplified();
         }

@@ -656,3 +656,16 @@ complete actual PDF snapshot already passed before this fixture adjustment.
   Add research/chrome step IDs to automatic gate diagnostics (the old failure
   summary said "none recorded"). CDB and later checks were skipped after the
   research failure. No release; re-run all gates on the new exact source SHA.
+
+## Windows Build #285 / const layout in new research diagnostic: 42141426095
+
+- Source `49d11746978ccd6b4744f6490a0fd6a3b0c4b034`. Python/source gate
+  and native metadata/dialog tests passed. MSVC failed in lunaeditorsmoke.cpp
+  at the new re-mapping expected-text calculation, error C2662: the pinned
+  `PDFTextLayout::createTextSelection` is non-const, but the new local layout
+  snapshot was declared const. This is a compile error in added CI probe code,
+  not a demonstrated product selection result; downstream gates did not run.
+- Match the existing native extractor usage with a mutable local layout
+  snapshot. No parser/renderer, assertion, fixture or threshold is changed.
+  Preserve original compiler log and diagnostic artifact. New exact-SHA full
+  Windows compilation and every subsequent gate are still required.

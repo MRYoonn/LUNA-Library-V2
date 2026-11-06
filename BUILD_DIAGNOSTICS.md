@@ -721,3 +721,40 @@ complete actual PDF snapshot already passed before this fixture adjustment.
   native open/copy/close/byte-preservation assertions. No test is skipped.
 - Preserve raw artifact error, original source/run and diagnostics. Full new
   Windows success including public PLOS/RSC/SI, corpus and CDB remains required.
+
+## Windows Build #288 / confirmed viewport fix and author representation: 42147943169
+
+- Source `6ca97720ccca413cece4af39b0593c920787357c`. Native Qt/MSVC/portable,
+  immutable v261 ZIP/manifest/EXE baseline checks, unchanged 25-open-per-build
+  benchmark, all DPI/color/panel captures, native annotations/printing and
+  production tabs/fresh-process settings/manual/SI checks passed.
+- PLOS real-paper selection/copy, two highlights, caption, Save As/reopen and
+  original preservation now PASS. Geometry proves the queued-layout race:
+  sample0 initial x81..131 became x348..398 after focus-mode layout settled
+  (+267px); the same PDF glyph range then produced highlight counts 1/2 and
+  returned to selection. Original test assertions were retained.
+- Next failed RSC UI predicate expected raw `authors == John J. Molloy`.
+  Screenshot visibly shows John J. Molloy and correct citation; direct native
+  first-page evidence also returns exactly John J. Molloy. Provider enrichment
+  legitimately stores a full ordered author string plus authors_structured,
+  while the card formats the final name. Raw storage equality is not a test
+  of that final-name behavior. Old artifact did not retain the raw record;
+  add bounded public-field snapshots rather than infer its exact value.
+- Native controlled reproducer confirms the representation: first-page John
+  upgrades to `Hannah M. Kortman, Hao Fang, John J. Molloy`, with correct last
+  and citation. It also reveals a real provenance bug: authorsSource remains
+  first_page_verified after the upgrade, and a later local refresh shrinks
+  the verified full list to one name. Fix upgrade provenance and honor legacy
+  field_sources provider ownership. Native assertions verify new/legacy full
+  list retention, exact final name, and rejection of John appearing only first.
+- UI probe now requires exact single-name FIRST-PAGE evidence, exact final
+  name in stored text, matching structured final name when present, and a
+  displayed citation beginning with the same final author. Title exactness,
+  legacy repairs, scroll/selection, SI suppression, three fresh processes and
+  original-byte checks remain. Online DOI enrichment stays enabled. No
+  substring/first-author match or disabled-provider workaround is accepted.
+- Keep metadata snapshots limited to public bibliographic fields and source
+  existence flags; remove the less useful raw page-body error dump. Main
+  source stays below its unchanged 280000-byte cap. Preserve this run's PLOS
+  geometry, real screens and build diagnostics. Corpus/CDB were skipped after
+  the research-step failure; require fresh complete validation before release.

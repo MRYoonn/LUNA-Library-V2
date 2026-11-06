@@ -435,6 +435,7 @@ public:
         // but never changes a user-entered manual author.
         const QString proposedAuthor = proposal.value("authors").toString().simplified();
         const QString authorEvidence=proposal.value("authorEvidence").toString();
+        const QString providerAuthor=value.value("field_sources").toMap().value("authors").toString();
         if ((authorEvidence == QStringLiteral("first-page-terminal-and") ||
              authorEvidence == QStringLiteral("publisher-bounded-author-block")) &&
             credibleAuthor(proposedAuthor) &&
@@ -442,6 +443,9 @@ public:
             value.value("authorsSource").toString() != QStringLiteral("Crossref") &&
             value.value("authorsSource").toString() != QStringLiteral("OpenAlex") &&
             value.value("authorsSource").toString() != QStringLiteral("Crossref + OpenAlex") &&
+            providerAuthor != QStringLiteral("Crossref") &&
+            providerAuthor != QStringLiteral("OpenAlex") &&
+            providerAuthor != QStringLiteral("Crossref + OpenAlex") &&
             value.value("authors").toString().simplified() != proposedAuthor) {
             value["authors"] = proposedAuthor;
             value["authorsSource"] = QStringLiteral("first_page_verified");
@@ -615,6 +619,7 @@ public:
                 if(key==QStringLiteral("authors") &&
                    entry.value("authorsSource").toString()==QStringLiteral("first_page_verified")) {
                     entry[key]=value; modified=true;
+                    entry[key+"Source"]=incoming.value("metadata_source").toString();
                     sources[key]=incoming.value("metadata_source").toString();
                 } else if(key==QStringLiteral("title") &&
                           Metadata::compatibleTitle(entry.value(key).toString(),value.toString())) {

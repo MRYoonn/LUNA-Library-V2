@@ -4028,6 +4028,19 @@ bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error
     QListWidgetItem* card = nullptr;
     QListWidget* list = nullptr;
     const bool siProbe = qEnvironmentVariableIsSet("LUNA_PUBLIC_BIBLIOGRAPHY_SI_PROBE");
+    QJsonArray samples;
+    QVariantMap seen;
+    auto capture = [&](const char* phase,const QVariantMap& data) {
+        QVariantMap value;
+        for (const char* key : {"authors","authorsSource","authors_structured","field_sources",
+             "metadata_source","title","titleSource","titleCandidate","titleGlyphStatus","documentKind","doi"})
+            if (data.contains(key)) value[key]=data.value(key);
+        value["phase"]=QString::fromLatin1(phase);
+        value["sourceFileExists"]=QFileInfo(controller->getOriginalFileName()).isFile();
+        if (samples.size()<16) samples.append(QJsonObject::fromVariantMap(value));
+        QSaveFile file(capturePath+QStringLiteral(".metadata.json"));
+        if (file.open(QIODevice::WriteOnly)) { file.write(QJsonDocument(samples).toJson()); file.commit(); }
+    };
     auto awaitAuthor = [&](const QString& expected) {
         QElapsedTimer timer; timer.start();
         while (timer.elapsed() < 15000) {
@@ -4037,7 +4050,11 @@ bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error
                     auto* row = candidate->item(i);
                     if (row->data(Qt::UserRole + 6).toString() != identity) continue;
                     const auto metadata = row->data(Qt::UserRole + 5).toMap();
-                    bool matches = metadata.value("authors").toString() == expected;
+                    if (seen!=metadata) { seen=metadata; capture("card",metadata); }
+                    bool matches = luna::Bibliography::lastListedAuthor(metadata.value("authors").toString())==expected;
+                    const auto names=metadata.value("authors_structured").toStringList();
+                    if (!names.isEmpty()) matches=matches && names.last()==expected;
+                    matches=matches && luna::Bibliography::citation(metadata).startsWith(expected);
                     if (siProbe) {
                         matches = metadata.value("documentKind").toString() == QStringLiteral("supporting_information");
                         for (const char* field : {"title", "authors", "citation", "journal", "year", "volume", "page"})
@@ -4050,22 +4067,16 @@ bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error
     };
     const QString correct = QStringLiteral("John J. Molloy");
     const QString expectedTitle = controller->getDocument()->getInfo()->title.simplified();
+    if (!siProbe) {
+        auto snapshot=*controller->getDocument();
+        const auto direct=luna::extractFirstPage(snapshot);
+        capture("direct-first-page",direct);
+        if (direct.value("authors").toString()!=correct) { error="Exact first-page final author incorrect"; return false; }
+    }
     if (!awaitAuthor(correct)) {
         error = siProbe ? "Real SI PDF generated paper metadata or was not classified as SI" :
             "Real PDF automatic card author was not John J. Molloy";
-        // Only the explicit, checksum-pinned public CI probe requests raw text.
-        // Normal opening/extraction never writes PDF text into logs/settings.
-        QString diagnostic;
-        try {
-            auto snapshot = *controller->getDocument();
-            const auto evidence = luna::extractFirstPage(snapshot, &diagnostic);
-            error += QStringLiteral("\nDirect evidence author: ") + evidence.value("authors").toString() +
-                QStringLiteral("\nJournal: ") + evidence.value("journal").toString() +
-                QStringLiteral("\nKind: ") + evidence.value("documentKind").toString() +
-                QStringLiteral("\nVisual first-page text:\n") + diagnostic.left(12000);
-        } catch (const std::exception& exception) {
-            error += QStringLiteral("\nPDF4QT diagnostic exception: ") + QString::fromUtf8(exception.what());
-        } catch (...) { error += QStringLiteral("\nUnknown PDF4QT diagnostic exception"); }
+        capture("failure",seen);
         return false;
     }
     panel->selectActiveCard();
@@ -4077,6 +4088,7 @@ bool verifyBibliographyUi(pdfviewer::PDFEditorMainWindow& window, QString& error
         return true;
     }
     for (const bool manualFlag : {false, true}) {
+        seen.clear();
         QSettings settings(QSettings::defaultFormat(), QSettings::UserScope, "LUNA", "LUNA Library");
         const QString key = QStringLiteral("library/bibliography/") + QString::fromLatin1(
             QCryptographicHash::hash(identity.toUtf8(), QCryptographicHash::Sha256).toHex());

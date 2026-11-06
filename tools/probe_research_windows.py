@@ -153,6 +153,9 @@ def bibliography_probe(package: Path, output: Path):
                         capture_output=True, text=True, errors="replace")
                     elapsed_ms = round((time.perf_counter() - started) * 1000)
                 except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                    metadata = Path(str(report) + ".metadata.json")
+                    if metadata.is_file():
+                        shutil.copyfile(metadata, output / f"bibliography-{label}-{restart}-metadata.json")
                     failure = Path(str(report) + ".failure.png")
                     if failure.is_file():
                         shutil.copyfile(failure, output / f"bibliography-{label}-{restart}-failure.png")
@@ -182,6 +185,9 @@ def bibliography_probe(package: Path, output: Path):
                 timings.append({"fixture": label, "restart": restart,
                                 "elapsedMs": elapsed_ms, "stagesMs": stages})
                 shutil.copyfile(Path(str(report) + ".png"), output / f"bibliography-{label}-{restart}.png")
+                metadata = Path(str(report) + ".metadata.json")
+                if metadata.is_file():
+                    shutil.copyfile(metadata, output / f"bibliography-{label}-{restart}-metadata.json")
     (output / "PUBLIC_SI_TIMINGS.json").write_text(
         json.dumps({"scope": "pinned-public-main-and-SI-only",
                     "measurements": timings}, indent=2), encoding="utf-8")

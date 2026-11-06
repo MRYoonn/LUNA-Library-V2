@@ -487,6 +487,31 @@ int main(int argc,char** argv){
 
     checkpoint("qsettings-merge");
     Bibliography store;
+    const QString providerIdentity=QStringLiteral("synthetic:provider-upgraded-authors");
+    const QStringList orderedAuthors={QStringLiteral("Hannah M. Kortman"),
+        QStringLiteral("Hao Fang"),QStringLiteral("John J. Molloy")};
+    const QVariantMap localLast={{"authors",QStringLiteral("John J. Molloy")},
+        {"authorEvidence",QStringLiteral("first-page-terminal-and")}};
+    expect(store.enrichFromFirstPage(providerIdentity,localLast),"store local final author");
+    expect(store.mergeVerifiedOnline(providerIdentity,QStringLiteral("10.1039/d5sc05518k"),{
+        {"doi",QStringLiteral("10.1039/d5sc05518k")},{"metadata_source",QStringLiteral("Crossref")},
+        {"authors",orderedAuthors.join(QStringLiteral(", "))},{"authors_structured",orderedAuthors}}),
+        "verified provider upgrades final-only author to full ordered list");
+    auto fullAuthors=store.record(providerIdentity);
+    expect(fullAuthors.value("authors").toString()==orderedAuthors.join(QStringLiteral(", ")) &&
+        fullAuthors.value("authorsSource").toString()==QStringLiteral("Crossref") &&
+        Bibliography::lastListedAuthor(fullAuthors.value("authors").toString())==QStringLiteral("John J. Molloy"),
+        "full-list storage keeps exact final author and verified provenance");
+    expect(Bibliography::lastListedAuthor(QStringLiteral("John J. Molloy, Hao Fang"))!=QStringLiteral("John J. Molloy"),
+        "a name appearing first cannot satisfy the exact final-author check");
+    expect(!store.enrichFromFirstPage(providerIdentity,localLast) &&
+        store.record(providerIdentity).value("authors")==fullAuthors.value("authors"),
+        "first-page refresh cannot downgrade verified full author list");
+    fullAuthors["authorsSource"]=QStringLiteral("first_page_verified");
+    expect(store.save(providerIdentity,fullAuthors,false) &&
+        !store.enrichFromFirstPage(providerIdentity,localLast) &&
+        store.record(providerIdentity).value("authors")==fullAuthors.value("authors"),
+        "legacy field_sources also protects earlier verified full lists");
     const QString identity=QStringLiteral("synthetic:test:one");
     expect(store.mergeVerifiedOnline(identity,doi,online),"persist verified record");
     expect(Bibliography::citation(store.record(identity))==expectedCitation,

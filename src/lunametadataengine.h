@@ -169,13 +169,34 @@ inline QString labCitation(const QVariantMap& paper) {
     // An explicit user edit of the author field takes priority over
     // automatically acquired authors_structured (unless a named senior
     // override/index was explicitly provided).
-    if (author.isEmpty() && paper.value(QStringLiteral("authorsSource")).toString() ==
-        QStringLiteral("manual"))
+    const QString authorSource=paper.value(QStringLiteral("authorsSource")).toString();
+    const QVariantMap fieldSources=paper.value(QStringLiteral("field_sources")).toMap();
+    const QString structuredSource=paper.value(QStringLiteral("authors_structuredSource")).toString().isEmpty()
+        ? fieldSources.value(QStringLiteral("authors_structured")).toString()
+        : paper.value(QStringLiteral("authors_structuredSource")).toString();
+    const auto sourceVerified=[](const QString& source) {
+        return source==QStringLiteral("Crossref") ||
+               source==QStringLiteral("OpenAlex") ||
+               source==QStringLiteral("Crossref + OpenAlex");
+    };
+    // Fresh provider responses have no field-level ownership yet. Once cached,
+    // only an explicitly provenance-tagged full list can override a verified
+    // printed final author. An unproven old list must not resurrect "Hao Fang".
+    const bool freshProviderResponse=authorSource.isEmpty() &&
+        structuredSource.isEmpty() && fieldSources.isEmpty() &&
+        sourceVerified(paper.value(QStringLiteral("metadata_source")).toString()) &&
+        !normalizeDoi(paper.value(QStringLiteral("doi")).toString()).isEmpty();
+    const bool verifiedList=sourceVerified(structuredSource) || freshProviderResponse;
+    if (author.isEmpty() && authorSource==QStringLiteral("manual"))
         author=paper.value(QStringLiteral("authors")).toString()
             .section(QLatin1Char(','),-1).trimmed();
-    if (author.isEmpty() && !names.isEmpty()) author=names.last();
-    if (author.isEmpty()) author=paper.value(QStringLiteral("authors")).toString().section(
-        QLatin1Char(','),-1).trimmed();
+    if (author.isEmpty() && verifiedList && !names.isEmpty()) author=names.last();
+    if (author.isEmpty() && authorSource==QStringLiteral("first_page_verified"))
+        author=paper.value(QStringLiteral("authors")).toString()
+            .section(QLatin1Char(','),-1).trimmed();
+    if (author.isEmpty() && authorSource!=QStringLiteral("legacy_unknown"))
+        author=paper.value(QStringLiteral("authors")).toString().section(
+            QLatin1Char(','),-1).trimmed();
     const bool journalManuallyEdited =
         paper.value(QStringLiteral("journalSource")).toString()==QStringLiteral("manual");
     const bool abbreviationManuallyEdited =

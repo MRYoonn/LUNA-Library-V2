@@ -498,7 +498,7 @@ public:
         // contributor in that list. Never infer trust from a bare QStringList.
         // The raw QSettings remains intact for rollback until an explicit
         // confirmed re-extraction writes the improved field.
-        const QString authorSource = value.value("authorsSource").toString();
+        const QString originalAuthorSource = value.value("authorsSource").toString();
         const QString structuredSource =
             value.value("authors_structuredSource").toString().isEmpty()
                 ? value.value("field_sources").toMap()
@@ -510,8 +510,8 @@ public:
                    source == QStringLiteral("Crossref + OpenAlex");
         };
         const QStringList ordered = value.value("authors_structured").toStringList();
-        if (authorSource != QStringLiteral("manual") &&
-            (!manual || authorSource == QStringLiteral("first_page_verified") ||
+        if (originalAuthorSource != QStringLiteral("manual") &&
+            (!manual || originalAuthorSource == QStringLiteral("first_page_verified") ||
              verifiedProvider(authorSource)) &&
             verifiedProvider(structuredSource) &&
             !Metadata::normalizeDoi(value.value("doi").toString()).isEmpty() &&

@@ -788,3 +788,12 @@ complete actual PDF snapshot already passed before this fixture adjustment.
   case in a fresh complete run. Keep all original native/custom-width/corpus/
   research/CDB assertions. Recheck the final screenshots visually and with the
   stronger state oracle; no release until all gates pass.
+
+
+### v291 compact PDF tab/source test alignment — 2026-11-07
+
+- Source baseline: released v0.9.0.290 exact SHA `418ee1154abdb817b665faca8ddf432ba3c7452f`. Only compact presentation/restore-alignment controls changed; no PDF content or metadata source changed.
+- Initial v291 source gate [GitHub Actions #42253523156](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/42253523156) failed the existing `tests/test_library_view_modes.py::test_paper_header_and_pdf_tabs_share_top_alignment_and_no_native_tab_rule` assertion, which hardcoded the old `return {218, 41};`. The required new preferred width is `return {192, 41};`; all 41px heights, 88px minimum, tabs' real scrolling/elision, and 36px original-slot fold behavior stay intact. Updated this existing contract accordingly; no tests were skipped.
+- Existing Qt reader icon engine is reused via an isolated `tab-close` alias to distinguish the disabled empty-reader X in a readable muted shade from clickable active-document tab X. The disabled empty tab stays functionally disabled.
+- Native integration now explicitly asserts both restore-button center coordinates are within 1 logical px of the center of their own 36px splitter slots. Existing tests still validate exact original header Y positions, all four fold states and ten real mouse-toggle cycles.
+- Exact-source full Windows native acceptance, portable/asset SHA checks and publication remain mandatory; never claim a public v291 until all complete.

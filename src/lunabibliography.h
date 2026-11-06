@@ -570,6 +570,7 @@ public:
         if (identity.isEmpty()) return false;
         const QVariantMap original = settings().value(key(resolve(identity))).toMap();
         if (original.value("manual").toBool() ||
+            original.value("documentKind").toString() == QStringLiteral("supporting_information") ||
             original.value("authorsSource").toString() == QStringLiteral("manual"))
             return false;
         QVariantMap verified = record(identity);
@@ -651,6 +652,33 @@ public:
         bool modified=false, conflict=false;
         if(oldDoi.isEmpty()){entry["doi"]=expected; entry["doiSource"]=QStringLiteral("pdf_front_matter");modified=true;}
         QVariantMap sources=entry.value("field_sources").toMap();
+        // An old extractor could persist an unproven ordered author list.
+        // Replace only that unowned cache with a full DOI-matched provider
+        // list, keeping the earlier value for recovery. A conflict between
+        // two previously DOI-verified lists is review-only, not an overwrite.
+        const QStringList newOrdered=incoming.value("authors_structured").toStringList();
+        const QStringList oldOrdered=entry.value("authors_structured").toStringList();
+        const QString oldOrderedSource=entry.value("authors_structuredSource").toString().isEmpty()
+            ? sources.value("authors_structured").toString()
+            : entry.value("authors_structuredSource").toString();
+        const bool oldOrderedVerified=oldOrderedSource==QStringLiteral("Crossref") ||
+            oldOrderedSource==QStringLiteral("OpenAlex") ||
+            oldOrderedSource==QStringLiteral("Crossref + OpenAlex");
+        const bool orderedManual=oldOrderedSource==QStringLiteral("manual") ||
+            entry.value("authorsSource").toString()==QStringLiteral("manual");
+        if (!newOrdered.isEmpty() && !oldOrdered.isEmpty() && oldOrdered!=newOrdered &&
+            !orderedManual) {
+            if (!oldOrderedVerified) {
+                entry["legacyStructuredAuthors"]=oldOrdered;
+                entry["authors_structured"]=newOrdered;
+                entry["authors_structuredSource"]=incoming.value("metadata_source").toString();
+                sources["authors_structured"]=incoming.value("metadata_source").toString();
+                modified=true;
+            } else {
+                entry["authorListReviewCandidate"]=newOrdered;
+                conflict=true;
+            }
+        }
         for (const char* k : {"title","journal","journal_abbreviation","year","volume",
                                "issue","page","article_number","authors","authors_structured"}) {
             const QString key=QString::fromLatin1(k);

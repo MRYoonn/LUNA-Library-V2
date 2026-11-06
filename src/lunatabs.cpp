@@ -952,6 +952,26 @@ static bool auditChrome(NativeTabs& host, QJsonObject& out) {
     out["clientWidth"] = host.width(); out["clientHeight"] = host.height();
     out["desktopWidth"] = desktop.width(); out["desktopHeight"] = desktop.height();
     out["frameOnDesktop"] = desktop.contains(host.frameGeometry());
+    const QImage chrome = host.grab().toImage();
+    const qreal dpr = chrome.devicePixelRatio();
+    QJsonArray panels;
+    for (const char* name : {"LunaNavigation", "LunaDocuments"}) {
+        auto* panel = host.findChild<QWidget*>(QString::fromLatin1(name));
+        if (!panel || panel->isHidden()) continue;
+        const QPoint edge = panel->mapTo(&host, QPoint(panel->width()-1, panel->height()/2));
+        const QPoint pixel(qFloor((edge.x()+0.5)*dpr),qFloor((edge.y()+0.5)*dpr));
+        const QColor border = chrome.rect().contains(pixel) ? chrome.pixelColor(pixel) : QColor();
+        const QImage own = panel->grab().toImage();
+        const QColor ownBorder=own.pixelColor(own.width()-1,own.height()/2);
+        panels.append(QJsonObject{{"name",QString::fromLatin1(name)},
+            {"x",edge.x()-panel->width()+1},{"width",panel->width()},
+            {"rightEdge",border.name()},{"ownRightEdge",ownBorder.name()},
+            {"styledBackground",panel->testAttribute(Qt::WA_StyledBackground)},
+            {"visibleWidth",panel->visibleRegion().boundingRect().width()}});
+        ok &= border == QColor(QStringLiteral("#E0E4ED"));
+    }
+    out["panelColors"] = panels;
+    out["accepted"] = ok;
     return ok;
 }
 static void verifyIntegration(NativeTabs& host, const QStringList& files, const QString& report, bool restore) {

@@ -534,3 +534,17 @@ than changing confidence thresholds or any golden answer.
   the true final name much later. Bounded diagnostics support abstention.
 - Preserve this run's LUNA-UI-Synthetic, LUNA-Public-Title-Audit and build
   diagnostics. Rerun every full Windows gate on the new exact source SHA.
+
+### Expanded panel border follow-up from #279 screenshots
+
+The raw 100% both-open screenshot has Library fill RGB247,248,252 but the
+expanded right edges still show the inherited RGB243,246,252 canvas; reserving
+one content pixel alone did not establish a visible historical border. Folded
+borders were already visible. Do not report expanded boundary restoration as
+verified from QSS text alone. Name the panels before inserting them in layouts
+and explicitly refresh their style selectors after construction. Add actual
+host-rendered right-edge color checks to the ordinary Windows chrome gate,
+including own-widget versus host pixels, styled-background flag and visible
+width diagnostics. Require #E0E4ED at all existing process scales; a subsequent
+full Windows run must validate the behavior. This is an additional UI gate,
+not a relaxation of the prior tests.

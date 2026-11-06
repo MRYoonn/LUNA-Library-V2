@@ -1144,6 +1144,7 @@ public:
         navigationSlotLayout->setContentsMargins(0, 0, 0, 0);
         navigationSlotLayout->setSpacing(0);
         auto* navigationScroll = new QScrollArea(navigationSlot_);
+        navigationScroll->setObjectName(QStringLiteral("LunaNavigation"));
         navigationSlotLayout->addWidget(navigationScroll, 1);
         navigationFold_ = new QWidget(navigationSlot_);
         navigationFold_->setObjectName(QStringLiteral("LunaNavigationFold"));
@@ -1164,7 +1165,6 @@ public:
         navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         navigationScroll->setMinimumHeight(0);
         navigation_ = navigationScroll;
-        navigation_->setObjectName(QStringLiteral("LunaNavigation"));
         navigation_->setMinimumWidth(225);
         navigation_->setMaximumWidth(300);
         auto* navigationContents = new QWidget(navigationScroll);
@@ -1466,6 +1466,7 @@ public:
         documentsSlotLayout->setContentsMargins(0, 0, 0, 0);
         documentsSlotLayout->setSpacing(0);
         documents_ = new QWidget(documentsSlot_);
+        documents_->setObjectName(QStringLiteral("LunaDocuments"));
         documentsSlotLayout->addWidget(documents_, 1);
         documentsFold_ = new QWidget(documentsSlot_);
         documentsFold_->setObjectName(QStringLiteral("LunaDocumentsFold"));
@@ -1479,7 +1480,6 @@ public:
         documentsSlotLayout->addWidget(documentsFold_);
         split_->addWidget(documentsSlot_);
         split_->setCollapsible(1, false);
-        documents_->setObjectName(QStringLiteral("LunaDocuments"));
         documents_->setAttribute(Qt::WA_StyledBackground, true);
         documents_->setMinimumWidth(195);
         auto* docs = new QVBoxLayout(documents_);
@@ -1764,6 +1764,14 @@ public:
             QStringLiteral("library/expandedNavigationWidth"), 225).toInt(), 300);
         expandedDocumentsWidth_ = qBound(195, settings.value(
             QStringLiteral("library/expandedDocumentsWidth"), 325).toInt(), 650);
+        // The shell stylesheet exists before these child layouts are built.
+        // Refresh selector caches after naming/populating the panels, so an
+        // early layout polish cannot leave the old inherited canvas/border.
+        for (QWidget* panel : {navigation_, documents_}) {
+            panel->style()->unpolish(panel);
+            panel->style()->polish(panel);
+            panel->setAttribute(Qt::WA_StyledBackground, true);
+        }
     }
     std::function<void(const QString&)> openHandler;
     std::function<bool(const QString&)> activateElsewhere;

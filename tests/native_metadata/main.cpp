@@ -571,6 +571,8 @@ int main(int argc,char** argv){
     const QString unprovenId=QStringLiteral("synthetic:p0:unproven-list");
     QVariantMap unproven=oldMachine;
     unproven.remove("authors_structuredSource");
+    unproven["authors_structured"]=QStringList{
+        QStringLiteral("Hannah M. Kortman"),QStringLiteral("Hao Fang")};
     expect(store.save(unprovenId,unproven,false) &&
            store.record(unprovenId).value("authors").toString()==QStringLiteral("Hao Fang") &&
            !store.reconcileVerifiedAuthorship(unprovenId) &&

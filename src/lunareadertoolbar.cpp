@@ -65,9 +65,14 @@ public:
         const bool inlineMemo = name == QStringLiteral("memo-inline");
         if (inlineMemo) name = QStringLiteral("note");
         if (name == QStringLiteral("panel")) name = QStringLiteral("panel-close");
+        // Tab X must stay legible when the empty "PDF 열기" tab cannot close.
+        // Alias the existing SVG instead of changing other toolbar close icons.
+        tabClose_ = name == QStringLiteral("tab-close");
+        if (tabClose_) name = QStringLiteral("close");
         ink_ = name == QStringLiteral("library") ? QByteArray("#2671C6") :
             (QStringList{QStringLiteral("folder"), QStringLiteral("documents"), QStringLiteral("recent"), QStringLiteral("star")}.contains(name) ? QByteArray("#265A9C") : QByteArray("#173869"));
         if (inlineMemo) ink_ = "#6C8CB6";
+        if (tabClose_) ink_ = "#46617F";
         QFile source(QStringLiteral(":/luna/icons/ui-%1.svg").arg(name));
         if (source.open(QIODevice::ReadOnly)) svg_ = source.readAll();
     }
@@ -80,7 +85,8 @@ public:
     void paint(QPainter* painter, const QRect& rect, QIcon::Mode mode, QIcon::State state) override {
         QByteArray svg = svg_;
         if (star_ && mode == QIcon::Selected) svg.replace("fill=\"none\"", "fill=\"currentColor\"");
-        svg.replace("currentColor", mode == QIcon::Disabled ? QByteArray(star_ ? "#91A3BD" : "#9CAAC0") :
+        svg.replace("currentColor", mode == QIcon::Disabled ?
+            QByteArray(tabClose_ ? "#7488A0" : star_ ? "#91A3BD" : "#9CAAC0") :
             (state == QIcon::On || mode == QIcon::Selected ? QByteArray(star_ ? "#337ADA" : "#1C65BC") : ink_));
         QSvgRenderer renderer(svg); renderer.setAspectRatioMode(Qt::KeepAspectRatio);
         const QRectF bounds = rect.width() > rect.height() ? QRectF(rect.left() + 2, rect.top(), rect.height(), rect.height()) : QRectF(rect);
@@ -88,7 +94,7 @@ public:
     }
 private:
     QByteArray svg_, ink_;
-    bool star_ = false;
+    bool star_ = false, tabClose_ = false;
 };
 
 QAction* nativeAction(pdfviewer::PDFEditorMainWindow& window, const char* name) {

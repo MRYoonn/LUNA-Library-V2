@@ -2051,21 +2051,8 @@ private:
                 if (result->value(QStringLiteral("documentKind")).toString() !=
                     QStringLiteral("supporting_information")) {
                     QString doi = result->value(QStringLiteral("doi")).toString();
-                    if (doi.isEmpty()) {
-                        const QVariantMap old=bibliography_.record(identity);
-                        // If a PDF exporter omits its DOI, reuse only an
-                        // earlier user/printed/provider-confirmed DOI to
-                        // repair an incomplete author, never a filename guess.
-                        const QString origin=old.value("doiSource").toString();
-                        const bool trusted=origin == QStringLiteral("manual") ||
-                            origin == QStringLiteral("page1") ||
-                            origin == QStringLiteral("pdf_front_matter") ||
-                            origin == QStringLiteral("first_page_verified") ||
-                            origin == QStringLiteral("Crossref") ||
-                            origin == QStringLiteral("OpenAlex") ||
-                            origin == QStringLiteral("metadata");
-                        if (restore || trusted) doi=old.value("doi").toString();
-                    }
+                    if (doi.isEmpty()) doi=luna::Bibliography::trustedSavedDoi(
+                        bibliography_.record(identity),restore);
                     if (!doi.isEmpty()) beginMetadataLookup(identity, doi, restore);
                     else if (restore && !found)
                         QMessageBox::information(this, QStringLiteral("서지정보 원본 확인 불가"),
@@ -2096,23 +2083,9 @@ private:
         const QString safe=luna::Metadata::normalizeDoi(doi);
         if (safe.isEmpty()) return;
         const QVariantMap old=bibliography_.record(identity);
-        // "complete" from an older extractor does not prove its author is
-        // correct. Full ordered DOI-verified authors are required before
-        // suppressing a repair lookup; legacy/partial/first-page-only authors
-        // still get a chance to upgrade, subject to the normal rate limit.
-        const QString authorSource=old.value("authorsSource").toString();
-        const QString structuredSource=old.value("authors_structuredSource").toString().isEmpty()
-            ? old.value("field_sources").toMap().value("authors_structured").toString()
-            : old.value("authors_structuredSource").toString();
-        const bool trustedOrdered=(structuredSource==QStringLiteral("Crossref") ||
-            structuredSource==QStringLiteral("OpenAlex") ||
-            structuredSource==QStringLiteral("Crossref + OpenAlex")) &&
-            !old.value("authors_structured").toStringList().isEmpty();
-        const bool needsAuthorRepair=!old.value("manual").toBool() &&
-            authorSource!=QStringLiteral("manual") &&
-            (old.value("authors").toString().isEmpty() ||
-             authorSource==QStringLiteral("legacy_unknown") ||
-             (authorSource==QStringLiteral("first_page_verified") && !trustedOrdered));
+        // A legacy "complete" cache may still hold only a wrong/unknown
+        // first author. Honor DOI-only verified repair and hourly throttling.
+        const bool needsAuthorRepair=luna::Bibliography::needsVerifiedAuthorRefresh(old);
         if (!refresh && !needsAuthorRepair && old.value("doi").toString()==safe &&
             old.value("metadata_status").toString()==QStringLiteral("complete"))return;
         // Reuse local data during offline and transient provider failures.

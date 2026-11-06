@@ -121,7 +121,7 @@ public:
 protected:
     QSize tabSizeHint(int index) const override {
         Q_UNUSED(index);
-        return {218, 41};
+        return {192, 41};
     }
     QSize minimumTabSizeHint(int) const override { return {88, 41}; }
 };
@@ -380,7 +380,7 @@ private:
             tabs_->tabBar()->setTabButton(index, side, nullptr); old->deleteLater();
         }
         auto* close = new QToolButton(tabs_->tabBar()); close->setObjectName(QStringLiteral("LunaCloseTab"));
-        close->setAccessibleName(QStringLiteral("이 PDF 탭 닫기")); close->setIcon(readerIcon(QStringLiteral("close"))); close->setIconSize(QSize(14, 14)); close->setFixedSize(18, 18); close->setToolTip(QStringLiteral("이 PDF 탭 닫기"));
+        close->setAccessibleName(QStringLiteral("이 PDF 탭 닫기")); close->setIcon(readerIcon(QStringLiteral("tab-close"))); close->setIconSize(QSize(14, 14)); close->setFixedSize(18, 18); close->setToolTip(QStringLiteral("이 PDF 탭 닫기"));
         QPointer<Editor> guarded(editor); connect(close, &QToolButton::clicked, this, [this, guarded] { if (guarded) closeTab(tabs_->indexOf(guarded)); });
         tabs_->tabBar()->setTabButton(index, QTabBar::RightSide, close);
         updateMoonTabStates();
@@ -1205,7 +1205,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 "Moon tab color did not follow actual active document");
             tabs->setCurrentIndex(activeMoon); QCoreApplication::processEvents();
             integrationRequire(tabBar->tabRect(4).width() >= 88 &&
-                tabBar->tabRect(4).width() <= 218 &&
+                tabBar->tabRect(4).width() <= 192 &&
                 !tabs->tabText(4).isEmpty() && !tabs->tabToolTip(4).isEmpty(),
                 "Responsive tab title sizing or full tooltip missing");
             QToolTip::hideText();

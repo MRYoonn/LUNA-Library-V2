@@ -1,0 +1,50 @@
+{
+  "repository": "MRYoonn/LUNA-Library-V2",
+  "source_sha": "418ee1154abdb817b665faca8ddf432ba3c7452f",
+  "source_run": 42152060456,
+  "tag": "v0.9.0.290",
+  "release_id": 436185543,
+  "expected": {
+    "panels-after-open-100.png": {
+      "size": 30658,
+      "digest": "sha256:390d005e35eb8bf5c0110f3384eba9210d43e5be1f3bab5dc195977354ba85f7"
+    },
+    "panels-before-open-100.png": {
+      "size": 29636,
+      "digest": "sha256:6dae0004fd10c550d6c8bff8248b6d8aa65fee849dd8c1d89568b8cb227b6e8f"
+    },
+    "LUNA-QA-Report.md": {
+      "size": 16678,
+      "digest": "sha256:68cd2b2765e5f67fa47bc7568a4d6b34b7ce65dd946cffc80f2232b749a8d3cb"
+    },
+    "LUNA-Windows-Portable.zip": {
+      "size": 51860906,
+      "digest": "sha256:f292bb2f1342aeab32876458aff7678ecf754758f71c9be52a5cadab45c75536"
+    },
+    "LUNA-QA-Evidence.zip": {
+      "size": 1953489,
+      "digest": "sha256:705e9df9bcc0b6eec65af1f68a844aeac63d6ecd224ad3121d0892a8be40ebdf"
+    },
+    "panels-after-folded-100.png": {
+      "size": 21770,
+      "digest": "sha256:962142c4dce48ee03d409018a6203c92ab856b0c77debd03513fc9e3738c58c0"
+    },
+    "LUNA-Release.json": {
+      "size": 21539,
+      "digest": "sha256:f1fd5e2c70b9df80411b1287d78aa18279e94c07caa3f347ca88787ccb55283b"
+    },
+    "panels-before-folded-100.png": {
+      "size": 21824,
+      "digest": "sha256:e13c082fee44358c3028d5bc3af59f75ca0e708ee1333b6a6368270fbbb97d0e"
+    }
+  },
+  "blobs": {
+    "LUNA-QA-Evidence.zip": "9064d942cf35c6027e40d4c8f0b8a1e59a8152a4",
+    "LUNA-QA-Report.md": "6c36c24714bc89f4710495ada56d637c93e63835",
+    "panels-after-folded-100.png": "01ca999979132c61bc545bab9ce71497f2a491a5",
+    "panels-after-open-100.png": "4423ed199bd5e6acfaffc463127208217101c595",
+    "panels-before-folded-100.png": "da17f095a33f20d9c2d16209cf3bef153a1fb126",
+    "panels-before-open-100.png": "f08d855cba08b3ff2eef248161d2313d6dec1fb8",
+    "release-notes.md": "d254b5c1e49bdabdbb23fb0d7321145d0561d4be"
+  }
+}

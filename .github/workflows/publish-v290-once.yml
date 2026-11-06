@@ -1,0 +1,44 @@
+name: Publish verified LUNA v0.9.0.290 assets
+on:
+  push:
+    branches: [release/publish-v290-once]
+    paths: [.github/workflows/publish-v290-once.yml]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: luna-v290-release-publication
+  cancel-in-progress: false
+jobs:
+  publish-verified-source:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2' && github.ref == 'refs/heads/release/publish-v290-once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Checkout the successful Windows source without changing its SHA
+        uses: actions/checkout@v4
+        with:
+          ref: 418ee1154abdb817b665faca8ddf432ba3c7452f
+          path: validated-source
+          persist-credentials: false
+      - name: Verify all Windows gates, reproduce identical ZIP, upload and verify before publication
+        run: python -B .github/scripts/publish-v290-once.py --source "$GITHUB_WORKSPACE/validated-source" --output "$RUNNER_TEMP/luna-v290-publication"
+      - name: Preserve publication provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-v290-Publication-Provenance
+          path: |
+            ${{ runner.temp }}/luna-v290-publication/source-run.json
+            ${{ runner.temp }}/luna-v290-publication/source-jobs.json
+            ${{ runner.temp }}/luna-v290-publication/published-release.json
+          retention-days: 90
+          if-no-files-found: error

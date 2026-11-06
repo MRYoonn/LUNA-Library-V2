@@ -512,6 +512,98 @@ int main(int argc,char** argv){
         !store.enrichFromFirstPage(providerIdentity,localLast) &&
         store.record(providerIdentity).value("authors")==fullAuthors.value("authors"),
         "legacy field_sources also protects earlier verified full lists");
+    checkpoint("p0-historic-automated-author-reconciliation");
+    const QString oldMachineId=QStringLiteral("synthetic:p0:hao-fang-old-machine");
+    QVariantMap oldMachine{{"doi",QStringLiteral("10.1039/d5sc05518k")},
+                           {"doiSource",QStringLiteral("page1")},
+                           {"authors",QStringLiteral("Hao Fang")},
+                           {"authorsSource",QStringLiteral("first_page_verified")},
+                           {"authors_structured",orderedAuthors},
+                           {"authors_structuredSource",QStringLiteral("Crossref")},
+                           {"metadata_status",QStringLiteral("complete")}};
+    expect(store.save(oldMachineId,oldMachine,false),"Persist old machine-owned wrong first author");
+    const QVariantMap reading=store.record(oldMachineId);
+    expect(reading.value("authors").toString()==orderedAuthors.join(QStringLiteral(", ")) &&
+           reading.value("authorsSource").toString()==QStringLiteral("Crossref") &&
+           reading.value("authorsReconciledFromProvider").toBool() &&
+           reading.value("legacyAuthors").toString()==QStringLiteral("Hao Fang"),
+           "Stored DOI-confirmed ordered list outranks old displayed Hao Fang");
+    expect(Bibliography::citation(reading).startsWith(QStringLiteral("John J. Molloy, ")),
+           "Card citation renders the verified last listed author");
+    expect(store.reconcileVerifiedAuthorship(oldMachineId) &&
+           !store.reconcileVerifiedAuthorship(oldMachineId),
+           "One-time lazy reconciliation is durable and idempotent");
+    const QVariantMap fixed=store.record(oldMachineId);
+    expect(fixed.value("authors").toString()==orderedAuthors.join(QStringLiteral(", ")) &&
+           fixed.value("legacyAuthors").toString()==QStringLiteral("Hao Fang") &&
+           fixed.value("authorsSource").toString()==QStringLiteral("Crossref") &&
+           !fixed.value("authorsReconciledFromProvider").toBool(),
+           "Persist verified names but retain old wrong automatic name for recovery");
+
+    const QString legacyMachineId=QStringLiteral("synthetic:p0:legacy-unknown-author");
+    QVariantMap legacyRecord=oldMachine;
+    legacyRecord.remove("authorsSource");
+    expect(store.save(legacyMachineId,legacyRecord,false) &&
+           store.record(legacyMachineId).value("authors").toString()==orderedAuthors.join(QStringLiteral(", ")) &&
+           store.reconcileVerifiedAuthorship(legacyMachineId),
+           "Previously unowned auto author can be corrected only with DOI-backed full list");
+
+    const QString manualAuthorId=QStringLiteral("synthetic:p0:manual-keeps-ownership");
+    QVariantMap manualRecord=oldMachine;
+    manualRecord["authors"]=QStringLiteral("Verified User Corrected Author");
+    manualRecord["authorsSource"]=QStringLiteral("manual");
+    expect(store.save(manualAuthorId,manualRecord,false) &&
+           store.record(manualAuthorId).value("authors").toString()==QStringLiteral("Verified User Corrected Author") &&
+           !store.reconcileVerifiedAuthorship(manualAuthorId) &&
+           Bibliography::citation(store.record(manualAuthorId))
+                .startsWith(QStringLiteral("Verified User Corrected Author, ")),
+           "A user-edited author always overrides an older provider list");
+    const QString manualWholeId=QStringLiteral("synthetic:p0:manual-record-flag");
+    QVariantMap manualWhole=oldMachine;
+    manualWhole["manual"]=true;
+    expect(store.save(manualWholeId,manualWhole,true) &&
+           !store.reconcileVerifiedAuthorship(manualWholeId),
+           "Legacy record-wide manual flag cannot authorize silent migrations");
+
+    const QString unprovenId=QStringLiteral("synthetic:p0:unproven-list");
+    QVariantMap unproven=oldMachine;
+    unproven.remove("authors_structuredSource");
+    expect(store.save(unprovenId,unproven,false) &&
+           store.record(unprovenId).value("authors").toString()==QStringLiteral("Hao Fang") &&
+           !store.reconcileVerifiedAuthorship(unprovenId) &&
+           Bibliography::citation(store.record(unprovenId))
+                .startsWith(QStringLiteral("Hao Fang, ")),
+           "Unproven structured names must not silently replace printed last author");
+    const QVariantMap freshVerified{
+        {"doi",QStringLiteral("10.1039/d5sc05518k")},
+        {"metadata_source",QStringLiteral("Crossref")},
+        {"authors",orderedAuthors.join(QStringLiteral(", "))},
+        {"authors_structured",orderedAuthors}
+    };
+    expect(store.mergeVerifiedOnline(unprovenId,QStringLiteral("10.1039/d5sc05518k"),
+               freshVerified) &&
+           store.record(unprovenId).value("authors")==orderedAuthors.join(QStringLiteral(", ")) &&
+           store.record(unprovenId).value("legacyStructuredAuthors")
+                .toStringList()==unproven.value("authors_structured").toStringList(),
+           "Fresh DOI-verified source replaces and archives incomplete prior auto list");
+    const QString conflictId=QStringLiteral("synthetic:p0:two-verified-list-conflict");
+    QVariantMap disagree=oldMachine;
+    disagree["authors"]=QStringLiteral("Hannah M. Kortman, Hao Fang");
+    disagree["authors_structured"]=QStringList{QStringLiteral("Hannah M. Kortman"),
+                                              QStringLiteral("Hao Fang")};
+    expect(store.save(conflictId,disagree,false) &&
+           store.mergeVerifiedOnline(conflictId,QStringLiteral("10.1039/d5sc05518k"),
+               freshVerified) &&
+           store.record(conflictId).value("metadata_status")==QStringLiteral("needs_review") &&
+           store.record(conflictId).value("authorListReviewCandidate").toStringList()==orderedAuthors &&
+           store.record(conflictId).value("authors").toString()==disagree.value("authors").toString(),
+           "Two conflicting DOI-verified ordered lists require review, not silent overwrite");
+    const QString siId=QStringLiteral("synthetic:p0:SI-exclusion");
+    QVariantMap fakeSi=oldMachine;
+    fakeSi["documentKind"]=QStringLiteral("supporting_information");
+    expect(store.save(siId,fakeSi,false) && !store.reconcileVerifiedAuthorship(siId),
+           "An SI document cannot inherit or migrate parent authors automatically");
+
     const QString identity=QStringLiteral("synthetic:test:one");
     expect(store.mergeVerifiedOnline(identity,doi,online),"persist verified record");
     expect(Bibliography::citation(store.record(identity))==expectedCitation,

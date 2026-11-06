@@ -548,3 +548,25 @@ including own-widget versus host pixels, styled-background flag and visible
 width diagnostics. Require #E0E4ED at all existing process scales; a subsequent
 full Windows run must validate the behavior. This is an additional UI gate,
 not a relaxation of the prior tests.
+
+## Windows Build #281 / fractional-DPI border oracle: 42135118919
+
+- Source `d32f4b5d1592d628e2807e86dec28a0b61fad7fe`. Python 191, native
+  metadata 1 CTest, dialog 11 CTests, MSVC and portable checks passed.
+- Style refresh fixed the observed rendering: both expanded borders are exactly
+  #E0E4ED in host and widget captures at 100% (empty, three-PDF and restart).
+- New chrome test failed at 125% empty launch. The widget's own right pixel is
+  #E0E4ED for both panels; Library host pixel is #E0E4ED but Papers host sample
+  is #E8EBF2. Its next device pixel is #F0F2F6. The logical right-edge interval
+  561..562 becomes physical 701.25..702.5, so fractional positioning blends the
+  1px border with the canvas. Comparing one host pixel to an unblended color
+  was an invalid test oracle, not proof of a missing historical border.
+- Keep exact #E0E4ED in the widget capture. For host visibility, render a
+  test-only reference widget with the historical fill/border at the exact
+  original geometry/DPR and require exact equality across the entire physical
+  edge strip. No arbitrary RGB tolerance or removed scale/state is introduced;
+  a missing/covered border still fails the reference comparison.
+- Preserve ordinary captures/color diagnostics, source and logs in this run's
+  artifacts. The full corpus and downstream native gates were skipped after
+  the chrome failure; no full validation or release is claimed. Revalidate
+  every gate on the next exact source SHA.

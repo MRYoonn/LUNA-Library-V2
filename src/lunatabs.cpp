@@ -963,12 +963,32 @@ static bool auditChrome(NativeTabs& host, QJsonObject& out) {
         const QColor border = chrome.rect().contains(pixel) ? chrome.pixelColor(pixel) : QColor();
         const QImage own = panel->grab().toImage();
         const QColor ownBorder=own.pixelColor(own.width()-1,own.height()/2);
+        // Fractional DPI blends a one-logical-pixel edge across device pixels.
+        // Compare exact host pixels to Qt's reference at the SAME geometry/DPR,
+        // rather than declaring a blended but correct border the wrong color.
+        QWidget reference(&host);
+        reference.setAttribute(Qt::WA_StyledBackground, true);
+        reference.setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        reference.setStyleSheet(QStringLiteral("background:%1; border:0; border-right:1px solid #E0E4ED;")
+            .arg(QString::fromLatin1(name)==QStringLiteral("LunaNavigation")
+                ? QStringLiteral("#F7F8FC") : QStringLiteral("#FFFFFF")));
+        reference.setGeometry(QRect(panel->mapTo(&host,QPoint()),panel->size()));
+        reference.show(); reference.raise();
+        const QImage expected = host.grab().toImage();
+        reference.hide();
+        bool edgeMatches = true;
+        for (int x=qFloor(edge.x()*dpr); x<qCeil((edge.x()+1)*dpr); ++x) {
+            const QPoint sample(x,pixel.y());
+            edgeMatches &= chrome.rect().contains(sample) && expected.rect().contains(sample) &&
+                chrome.pixelColor(sample)==expected.pixelColor(sample);
+        }
         panels.append(QJsonObject{{"name",QString::fromLatin1(name)},
             {"x",edge.x()-panel->width()+1},{"width",panel->width()},
             {"rightEdge",border.name()},{"ownRightEdge",ownBorder.name()},
+            {"referenceRightEdge",expected.pixelColor(pixel).name()},{"renderedEdgeMatchesReference",edgeMatches},
             {"styledBackground",panel->testAttribute(Qt::WA_StyledBackground)},
             {"visibleWidth",panel->visibleRegion().boundingRect().width()}});
-        ok &= border == QColor(QStringLiteral("#E0E4ED"));
+        ok &= ownBorder == QColor(QStringLiteral("#E0E4ED")) && edgeMatches;
     }
     out["panelColors"] = panels;
     out["accepted"] = ok;

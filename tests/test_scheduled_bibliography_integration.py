@@ -53,6 +53,35 @@ class ScheduledBibliographyIntegration(unittest.TestCase):
         self.assertIn("1234-1245", NATIVE)
         self.assertIn("12345", NATIVE)
 
+    def test_p0_historic_author_reconciliation_and_no_manual_loss(self):
+        library = (ROOT / "src/lunalibrary.cpp").read_text(encoding="utf-8")
+        meta = (ROOT / "src/lunametadataengine.h").read_text(encoding="utf-8")
+        native = (ROOT / "tests/native_metadata/main.cpp").read_text(encoding="utf-8")
+        self.assertIn("reconcileVerifiedAuthorship", BIB)
+        self.assertIn('verifiedProvider(structuredSource)', BIB)
+        self.assertIn('value["legacyAuthors"]', BIB)
+        self.assertIn('original.value("manual").toBool()', BIB)
+        self.assertIn('original.value("documentKind").toString()', BIB)
+        self.assertIn('authorsReconciledFromProvider', BIB)
+        self.assertIn('verifiedAuthorConflict', BIB)
+        self.assertIn('authorListReviewCandidate', BIB)
+        self.assertIn('legacyStructuredAuthors', BIB)
+        self.assertIn('bibliography_.reconcileVerifiedAuthorship(identity)', library)
+        self.assertIn('needsAuthorRepair', library)
+        self.assertIn('trustedOrdered', library)
+        self.assertIn('freshProviderResponse', meta)
+        self.assertIn('verifiedList', meta)
+        self.assertIn('const bool verifiedList=sourceVerified(structuredSource)', meta)
+        for token in (
+            'p0-historic-automated-author-reconciliation',
+            'Stored DOI-confirmed ordered list outranks old displayed Hao Fang',
+            'One-time lazy reconciliation is durable and idempotent',
+            'A user-edited author always overrides an older provider list',
+            'Two conflicting DOI-verified ordered lists require review',
+            'Unproven structured names must not silently replace printed last author',
+        ):
+            self.assertIn(token, native, token)
+
     def test_no_user_document_or_online_payload_in_new_header(self):
         for forbidden in ("QNetworkAccessManager", "QFile::open", "QFileInfo",
                           "QSettings", "https://api.", "Invoke-WebRequest"):

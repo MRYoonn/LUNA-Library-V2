@@ -492,6 +492,42 @@ public:
             }
         }
         const bool manual = value.value("manual").toBool();
+        // Repair display of historic first-author caches only when a *saved*
+        // DOI-matched provider record already contains a trusted ordered list.
+        // A legacy "Hao Fang" authors string must never outrank the final
+        // contributor in that list. Never infer trust from a bare QStringList.
+        // The raw QSettings remains intact for rollback until an explicit
+        // confirmed re-extraction writes the improved field.
+        const QString authorSource = value.value("authorsSource").toString();
+        const QString structuredSource =
+            value.value("authors_structuredSource").toString().isEmpty()
+                ? value.value("field_sources").toMap()
+                    .value("authors_structured").toString()
+                : value.value("authors_structuredSource").toString();
+        const auto verifiedProvider = [](const QString& source) {
+            return source == QStringLiteral("Crossref") ||
+                   source == QStringLiteral("OpenAlex") ||
+                   source == QStringLiteral("Crossref + OpenAlex");
+        };
+        const QStringList ordered = value.value("authors_structured").toStringList();
+        if (authorSource != QStringLiteral("manual") &&
+            (!manual || authorSource == QStringLiteral("first_page_verified") ||
+             verifiedProvider(authorSource)) &&
+            verifiedProvider(structuredSource) &&
+            !Metadata::normalizeDoi(value.value("doi").toString()).isEmpty() &&
+            !ordered.isEmpty() && credibleAuthor(ordered.constLast())) {
+            const QString verifiedLast = ordered.constLast().simplified();
+            const QString savedLast = lastListedAuthor(value.value("authors").toString());
+            if (savedLast != verifiedLast) {
+                if (!value.value("authors").toString().isEmpty() &&
+                    !value.contains("legacyAuthors"))
+                    value["legacyAuthors"] = value.value("authors");
+                value["authors"] = ordered.join(QStringLiteral(", "));
+                value["authorsSource"] = structuredSource;
+                value["authorEvidence"] = QStringLiteral("doi-matched-ordered-authors");
+                value["authorsReconciledFromProvider"] = true;
+            }
+        }
         if (manual && !value.contains("titleSource") && !value.value("title").toString().isEmpty())
             value["titleSource"] = QStringLiteral("legacy_preserved");
         const QString title = value.value("title").toString().simplified();

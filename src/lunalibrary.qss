@@ -77,7 +77,9 @@ QTabBar#LunaPdfTabBar::tab:hover { background:#EDF3FC; }
 QTabBar#LunaPdfTabBar::tab:selected { background:#FFFFFF; color:#14396C; border-bottom:2px solid #4F84DC; }
 QToolButton#LunaCloseTab, QToolButton#LunaNewTab { background:transparent; color:#71809A; border:0; border-radius:4px; padding:0; }
 QToolButton#LunaCloseTab:hover, QToolButton#LunaNewTab:hover { background:#E5ECF5; }
-QToolButton#LunaCloseTab:disabled { color:#B7C3D4; }
+/* The empty "PDF 열기" X is disabled but should remain readable. */
+QToolButton#LunaCloseTab:disabled { color:#7488A0; }
+QToolButton#LunaCloseTab:hover { background:#DDE8F7; }
 QScrollBar:vertical { background:#F3F6FB; width:15px; margin:0; }
 QScrollBar::handle:vertical { background:#B9C6D8; border-radius:4px; min-height:25px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }

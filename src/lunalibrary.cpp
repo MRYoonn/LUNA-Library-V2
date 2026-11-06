@@ -1486,7 +1486,12 @@ public:
         documents_->setAttribute(Qt::WA_StyledBackground, true);
         documents_->setMinimumWidth(195);
         auto* docs = new QVBoxLayout(documents_);
-        docs->setContentsMargins(0, 0, 1, 0);
+        // Match the 7px top inset of LunaLibraryPanel's outer layout.
+        // The paper-header button was 7px ABOVE the library-header button:
+        // because each folded rail copies its own header Y, the two restore
+        // icons were also visibly staggered even though both were centered
+        // horizontally in their original 36px slots.
+        docs->setContentsMargins(0, 7, 1, 0);
         docs->setSpacing(0);
         auto* heading = new QWidget(documents_);
         auto* headingLayout = new QVBoxLayout(heading);

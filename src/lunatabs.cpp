@@ -1303,8 +1303,23 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             // Compare global logical Y coordinates, not fractions of panel height.
             const int navButtonY = navigationToggle->mapTo(&host, QPoint()).y();
             const int docsButtonY = documentsToggle->mapTo(&host, QPoint()).y();
+            // The two titlebar icons must share a real horizontal baseline;
+            // checking each fold against its own header alone allowed the
+            // paper-list button to remain 7px higher in every folded state.
+            integrationRequire(qAbs(navButtonY - docsButtonY) <= 1,
+                "Expanded library and paper header buttons are vertically misaligned");
             QJsonArray panelGeometry;
             auto capturePanels = [&](const QString& state, bool capture) {
+                const QToolButton* visibleNavButton = navigationPanel->isHidden()
+                    ? navRestore : navigationToggle;
+                const QToolButton* visibleDocsButton = documentsPanel->isHidden()
+                    ? docsRestore : documentsToggle;
+                const int navCenterY = visibleNavButton->mapTo(&host,
+                    visibleNavButton->rect().center()).y();
+                const int docsCenterY = visibleDocsButton->mapTo(&host,
+                    visibleDocsButton->rect().center()).y();
+                integrationRequire(qAbs(navCenterY - docsCenterY) <= 1,
+                    "Side-by-side library/papers icons are vertically staggered");
                 integrationRequire(integrationWait([&] {
                     return (!navigationPanel->isHidden() ||
                         navRestore->mapTo(&host, QPoint()).y() == navButtonY) &&

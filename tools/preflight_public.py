@@ -7,6 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "tests/test_panel_capture.py",
     "tools/capture_panel_comparison_windows.py", ".github/workflows/panel-before-v262-once.yml",
     "tools/evaluate_goldset.py", "tests/test_goldset.py", "tests/goldset/public-papers.json", "tests/goldset/README.md",
     "src/lunafirstpageevidence.h", "tests/native_metadata/snapshot.cpp",

@@ -1212,6 +1212,9 @@ public:
         };
         pdfTab_ = navButton(QStringLiteral("전체 문서"), QStringLiteral("documents"));
         folderTab_ = navButton(QStringLiteral("선택한 폴더"), QStringLiteral("folder"));
+        // A long root-folder name must not widen the scroll contents beyond
+        // its viewport and push the header's collapse button out of reach.
+        folderTab_->setSizePolicy(QSizePolicy::Ignored, folderTab_->sizePolicy().verticalPolicy());
         auto* favorites = navButton(QStringLiteral("즐겨찾기"), QStringLiteral("star"));
         auto* recent = navButton(QStringLiteral("최근 열람"), QStringLiteral("recent"));
         pdfTab_->setObjectName(QStringLiteral("LunaAllDocumentsButton"));

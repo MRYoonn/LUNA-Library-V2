@@ -618,7 +618,7 @@ jobs:
         run: |
           python -m pip install pywinauto==0.6.9 pillow==11.3.0
           if ($LASTEXITCODE -ne 0) { throw 'Native panel capture dependency setup failed' }
-          python -B tools/capture_panel_comparison_windows.py LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/panels-after"
+          python -B tools/capture_panel_comparison_windows.py LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/panels-after" --fixed-top
           if ($LASTEXITCODE -ne 0) { throw 'Actual panel comparison capture failed' }
 
       - name: Same-machine PDF open benchmark against the released v261 baseline

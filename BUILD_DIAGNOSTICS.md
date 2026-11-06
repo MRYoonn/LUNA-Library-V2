@@ -758,3 +758,33 @@ complete actual PDF snapshot already passed before this fixture adjustment.
   source stays below its unchanged 280000-byte cap. Preserve this run's PLOS
   geometry, real screens and build diagnostics. Corpus/CDB were skipped after
   the research-step failure; require fresh complete validation before release.
+
+## Actual screenshot review / default-width Library control clipping
+
+- While reviewing original Build #284 (`42138055853`, source
+  `5b18f8114005fb0fee35bd9c93b1d929c665bc35`) PNGs, the nominal
+  library-folded image still showed the expanded navigation. UIA geometry
+  confirms Library x248..277 did not move, and the nominal both-folded image
+  had only Papers folded. These state labels are NOT accepted as fold proof.
+- The displayed root-folder name is stored in folderTab_. QPushButton's
+  minimum width for a long root name widened the scroll contents beyond the
+  viewport, clipping the header's collapse control. Its visible UIA object
+  remained discoverable but the center mouse click missed the clipped button.
+  The existing 280px custom-width native cycles did not expose this default
+  225px-width case.
+- A standalone Qt Widgets reproduction with the same scroll/vertical minimum
+  layout and long-folder button showed contents245 > viewport225. Ignoring
+  only that button's horizontal size hint restored contents226 == viewport226
+  and moved the entire header control inside. Apply that policy to folderTab_
+  while retaining its height, text, tooltip and selection styling.
+- Strengthen the existing real UIA capture: assert each requested fold moves
+  its control into the original left rail, both folded rails are adjacent,
+  restores recover original positions, and final builds preserve original Y.
+  Persist screenshots/geometry before failure. A visible object or a filename
+  alone cannot prove the requested state. Regression tests reject the actual
+  misleading Build284 geometry and distinguish the actual v261 Y regression.
+- Cancel in-progress #289 (`42151234726`, source
+  `939f499e3fe83399b60b4e4f0f4077907c8cb04d`) to validate the corrected default
+  case in a fresh complete run. Keep all original native/custom-width/corpus/
+  research/CDB assertions. Recheck the final screenshots visually and with the
+  stronger state oracle; no release until all gates pass.

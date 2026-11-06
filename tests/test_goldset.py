@@ -1,6 +1,12 @@
 """Behavioral tests for exactness and missing-versus-wrong evaluation."""
 import unittest
-from tools.evaluate_goldset import score, FIELDS
+from unittest.mock import patch
+from urllib.error import HTTPError
+import hashlib
+import io
+from pathlib import Path
+import tempfile
+from tools.evaluate_goldset import score, fetch, FIELDS
 
 
 class GoldsetScoring(unittest.TestCase):
@@ -46,3 +52,47 @@ class GoldsetScoring(unittest.TestCase):
         result = score([item], {'PMC1': {'documentKind': 'supporting_information', 'title': 'Parent title'}})
         self.assertEqual(result['fields']['title']['wrong'], 1)
         self.assertEqual(result['exact'], 0)
+
+
+class GoldsetAcquisition(unittest.TestCase):
+    payload = b'%PDF-1.7\nSynthetic acquisition fixture only\n'
+
+    def fixture(self):
+        return dict(id='PMC1', pdf_url='https://example.invalid/public.pdf',
+                    sha256=hashlib.sha256(self.payload).hexdigest())
+
+    @patch('tools.evaluate_goldset.time.sleep')
+    @patch('tools.evaluate_goldset.urlopen')
+    def test_transient_service_failure_retries_same_fixture_and_verifies_hash(self, opening, sleep):
+        opening.side_effect = [HTTPError(self.fixture()['pdf_url'], 503, 'Unavailable', {}, None),
+                               io.BytesIO(self.payload)]
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary)
+            self.assertEqual(fetch([self.fixture()], destination), [])
+            self.assertEqual((destination/'PMC1.pdf').read_bytes(), self.payload)
+        self.assertEqual(opening.call_count, 2)
+        self.assertEqual(opening.call_args_list[0].args[0].full_url,
+                         opening.call_args_list[1].args[0].full_url)
+        sleep.assert_called_once_with(1)
+
+    @patch('tools.evaluate_goldset.time.sleep')
+    @patch('tools.evaluate_goldset.urlopen')
+    def test_missing_fixture_is_failure_without_retry_or_replacement(self, opening, sleep):
+        opening.side_effect = HTTPError(self.fixture()['pdf_url'], 404, 'Not found', {}, None)
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary)
+            self.assertEqual(fetch([self.fixture()], destination),
+                             [dict(id='PMC1', error='HTTPError', httpStatus=404)])
+            self.assertFalse((destination/'PMC1.pdf').exists())
+        self.assertEqual(opening.call_count, 1)
+        sleep.assert_not_called()
+
+    @patch('tools.evaluate_goldset.urlopen')
+    def test_checksum_mismatch_is_failure_without_accepting_bytes(self, opening):
+        opening.return_value = io.BytesIO(self.payload+b'changed')
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary)
+            self.assertEqual(fetch([self.fixture()], destination),
+                             [dict(id='PMC1', error='ValueError')])
+            self.assertFalse((destination/'PMC1.pdf').exists())
+        self.assertEqual(opening.call_count, 1)

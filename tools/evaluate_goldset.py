@@ -11,7 +11,9 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import time
 import unicodedata
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 import zipfile
 
@@ -75,6 +77,22 @@ def score(manifest, predictions):
                 normalization='Title/author/journal: Unicode NFKC, case, punctuation and whitespace; official journal aliases. DOI retains punctuation; year/volume/type exact; page dash/whitespace normalization. No fuzzy matching.')
 
 
+def download_public_fixture(request):
+    # The same pinned fixture must succeed; a transient service failure is
+    # neither an extraction result nor permission to skip a goldset member.
+    for attempt in range(3):
+        try:
+            with urlopen(request, timeout=120) as response:
+                return response.read(100_000_001)
+        except HTTPError as error:
+            if error.code not in (408, 429, 500, 502, 503, 504) or attempt == 2:
+                raise
+        except (URLError, TimeoutError):
+            if attempt == 2:
+                raise
+        time.sleep(2 ** attempt)
+
+
 def fetch(manifest, destination):
     destination.mkdir(parents=True, exist_ok=True)
     failures = []
@@ -87,8 +105,7 @@ def fetch(manifest, destination):
             continue
         try:
             request = Request(item['pdf_url'], headers={'User-Agent': 'LUNA-public-fixture-validation'})
-            with urlopen(request, timeout=120) as response:
-                data = response.read(100_000_001)
+            data = download_public_fixture(request)
             if len(data) > 100_000_000:
                 raise ValueError('Fixture exceeds download bound')
             if 'archive_member' in item:
@@ -101,7 +118,10 @@ def fetch(manifest, destination):
                 raise ValueError('Fixture checksum mismatch')
             path.write_bytes(data)
         except Exception as error:
-            failures.append(dict(id=identifier, error=type(error).__name__))
+            failure = dict(id=identifier, error=type(error).__name__)
+            if isinstance(error, HTTPError):
+                failure['httpStatus'] = error.code
+            failures.append(failure)
     return failures
 
 

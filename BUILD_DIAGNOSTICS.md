@@ -493,7 +493,7 @@ raw/mapped sizes in the bounded public diagnostic. This corrects units rather
 than changing confidence thresholds or any golden answer.
 
 
-## Windows Build #276 / floating final-author ampersand: 42053722965
+## Windows Build #277 / floating final-author ampersand: 42053722965
 
 - Source `01a521ff36f6bf5505bcdb2d124deef9e1620dc7`.
 - Title containment verified: 29 correct / 2 missing / 0 wrong. The public
@@ -512,3 +512,25 @@ than changing confidence thresholds or any golden answer.
 - Original logs/predictions/score and build diagnostic artifacts are retained.
   Goldset thresholds and all original fixtures remain unchanged. A fresh full
   Windows run on the corrective SHA must pass before publication.
+
+## Windows Build #279 / public fixture acquisition HTTP failure: 42058893645
+
+- Source `dfcf1db39b1b97a1798f04fb2e7c97e129ea93bc`. Preflight, native Qt
+  metadata/dialog tests, MSVC, portable structure, and all panel captures passed.
+- The full goldset was blocked before extraction: PMC11586709 download raised
+  HTTPError. No incomplete-corpus score or downstream UI success is claimed.
+  Original downloader recorded the exception class but not its HTTP status;
+  that historical status cannot be reconstructed from the artifact.
+- Same official URL was independently fetched again: HTTP 200, 20,762,850 bytes,
+  exact pinned SHA256 `0407162c598a998a28d1b22f9cf8d7b7c01819ebd4826b42dff34056b78adc48`.
+- Add at most three same-URL attempts for HTTP 408/429/500/502/503/504 and
+  connection/timeouts, with 1s/2s bounded backoff. Do not retry permanent HTTP
+  errors, bypass access controls, change hashes, skip members, or relax scoring.
+  Subsequent failures record HTTP status. Behavioral tests cover retry success,
+  permanent 404 failure, and rejection of changed bytes.
+- The early direct-PDF audit confirms PMC10025926 has only a review candidate
+  plus unmapped-glyph status; PMC10766651 no longer confirms Eleonora Aronica.
+  Its actual native stream has a standalone & before an intermediate name and
+  the true final name much later. Bounded diagnostics support abstention.
+- Preserve this run's LUNA-UI-Synthetic, LUNA-Public-Title-Audit and build
+  diagnostics. Rerun every full Windows gate on the new exact source SHA.

@@ -1311,6 +1311,19 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                         (!documentsPanel->isHidden() ||
                         docsRestore->mapTo(&host, QPoint()).y() == docsButtonY);
                 }), "Folded restore moved vertically away from its original header");
+                // Pixel-precise horizontal center inside each ORIGINAL 36px rail.
+                // This detects accidental left/right anchoring when the dock
+                // shrinks or the main window height changes.
+                if (navigationPanel->isHidden()) {
+                    const int center = navRestore->mapTo(navSlot, QPoint(navRestore->width()/2, 0)).x();
+                    integrationRequire(qAbs(center - navSlot->width()/2) <= 1,
+                        "Folded navigation icon lost its original rail's horizontal center");
+                }
+                if (documentsPanel->isHidden()) {
+                    const int center = docsRestore->mapTo(docsSlot, QPoint(docsRestore->width()/2, 0)).x();
+                    integrationRequire(qAbs(center - docsSlot->width()/2) <= 1,
+                        "Folded papers icon lost its original rail's horizontal center");
+                }
                 if (!capture) return;
                 QJsonObject geometry{{"state", state}, {"height", host.height()},
                     {"navWidth", navSlot->width()}, {"docsWidth", docsSlot->width()},

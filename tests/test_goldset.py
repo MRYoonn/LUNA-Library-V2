@@ -2,6 +2,7 @@
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
+from email.utils import formatdate
 import hashlib
 import io
 from pathlib import Path
@@ -96,3 +97,27 @@ class GoldsetAcquisition(unittest.TestCase):
                              [dict(id='PMC1', error='ValueError')])
             self.assertFalse((destination/'PMC1.pdf').exists())
         self.assertEqual(opening.call_count, 1)
+
+    def test_rate_limit_honors_seconds_and_http_date_retry_after(self):
+        epoch = 1762477200
+        for header in ('45', formatdate(epoch+45, usegmt=True)):
+            with self.subTest(header=header), tempfile.TemporaryDirectory() as temporary:
+                error = HTTPError(self.fixture()['pdf_url'], 429, 'Rate limited',
+                                  {'Retry-After': header}, None)
+                with patch('tools.evaluate_goldset.urlopen', side_effect=[error, io.BytesIO(self.payload)]) as opening, \
+                     patch('tools.evaluate_goldset.time.sleep') as sleep, \
+                     patch('tools.evaluate_goldset.time.time', return_value=epoch):
+                    self.assertEqual(fetch([self.fixture()], Path(temporary)), [])
+                    self.assertEqual(opening.call_count, 2)
+                    sleep.assert_called_once_with(45)
+
+    def test_long_service_cooldown_fails_without_premature_retry(self):
+        error = HTTPError(self.fixture()['pdf_url'], 429, 'Rate limited',
+                          {'Retry-After': '901'}, None)
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch('tools.evaluate_goldset.urlopen', side_effect=error) as opening, \
+             patch('tools.evaluate_goldset.time.sleep') as sleep:
+            self.assertEqual(fetch([self.fixture()], Path(temporary)),
+                             [dict(id='PMC1', error='HTTPError', httpStatus=429, retryAfter='901')])
+            self.assertEqual(opening.call_count, 1)
+            sleep.assert_not_called()

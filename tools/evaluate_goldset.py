@@ -5,6 +5,7 @@ Only the versioned manifest is public. Downloaded PDFs, JATS, text snapshots and
 local paths stay outside the repository and never enter the portable package.
 """
 import argparse
+from email.utils import parsedate_to_datetime
 import hashlib
 import io
 import json
@@ -81,16 +82,31 @@ def download_public_fixture(request):
     # The same pinned fixture must succeed; a transient service failure is
     # neither an extraction result nor permission to skip a goldset member.
     for attempt in range(3):
+        delay = 2 ** attempt
         try:
             with urlopen(request, timeout=120) as response:
                 return response.read(100_000_001)
         except HTTPError as error:
             if error.code not in (408, 429, 500, 502, 503, 504) or attempt == 2:
                 raise
+            delay = 30 * (2 ** attempt) if error.code == 429 else delay
+            retry_after = (error.headers or {}).get('Retry-After', '')
+            if retry_after:
+                try:
+                    delay = max(0, int(retry_after))
+                except ValueError:
+                    try:
+                        delay = max(0, parsedate_to_datetime(retry_after).timestamp() - time.time())
+                    except (TypeError, ValueError, OverflowError):
+                        pass
+                # A longer service cooldown is a failure for this attempt;
+                # never retry earlier than the server allows to fit CI time.
+                if delay > 300:
+                    raise
         except (URLError, TimeoutError):
             if attempt == 2:
                 raise
-        time.sleep(2 ** attempt)
+        time.sleep(delay)
 
 
 def fetch(manifest, destination):
@@ -121,6 +137,9 @@ def fetch(manifest, destination):
             failure = dict(id=identifier, error=type(error).__name__)
             if isinstance(error, HTTPError):
                 failure['httpStatus'] = error.code
+                retry_after = (error.headers or {}).get('Retry-After', '')
+                if retry_after:
+                    failure['retryAfter'] = str(retry_after)[:80]
             failures.append(failure)
     return failures
 

@@ -669,3 +669,29 @@ complete actual PDF snapshot already passed before this fixture adjustment.
   snapshot. No parser/renderer, assertion, fixture or threshold is changed.
   Preserve original compiler log and diagnostic artifact. New exact-SHA full
   Windows compilation and every subsequent gate are still required.
+
+## Windows Build #286 / public PDF service rate limit: 42142539323
+
+- Source `5f10c30d39024cd773ec29a1a519b097914a50fd`. The const API fix
+  compiled successfully. Python 191, all native Qt tests, ordinary chrome at
+  all DPIs, actual panel captures and benchmark passed.
+- Complete corpus acquisition failed on PMC10189874, HTTP 429. The stored
+  score contains only downloadFailures; no new native accuracy is claimed.
+  All 31 fixed members remain mandatory; none are removed or replaced.
+- Existing 1s/2s transient backoff was too short for an actual rate-limit
+  response. Honor Retry-After delta seconds or HTTP dates, use 30s/60s for
+  429 without a valid hint, keep three attempts, and fail without prematurely
+  retrying if the service requests a cooldown longer than five minutes.
+  Record the header on failure. New behavioral tests cover seconds, date,
+  and long cooldown; 404/checksum failures still fail without bypass.
+- Checked source licensing before considering cross-run PDF caches. Some
+  sources lack an explicit redistribution grant in their JATS; do not upload
+  any source PDFs to a public cache/repository/release. Temporary downloads
+  retain the same official URL and SHA256, with no access-control bypass.
+- Run the read-only full goldset gate after native UI/tabs/public-paper probes
+  so slow/rate-limited downloads cannot hide the existing PLOS diagnosis for
+  ten more minutes. Every original corpus assertion is retained verbatim and
+  still gates the same full Windows success/portable upload. The evaluator
+  opens no library windows/settings and has no GUI-state side effects.
+- Preserve original HTTP status, logs and diagnostic artifact. Full Windows
+  success on the new exact source is required; no release has been published.

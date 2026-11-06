@@ -162,6 +162,22 @@ int main(int argc,char** argv){
     },792);
     expect(sideColumn.value("title").toString().endsWith(QStringLiteral("Bio-Applications and Challenges")),
         "RSC citation sidebar must not truncate the three-line title in the other column");
+    const auto edgeArticle = TitleExtraction::infer({
+        {QStringLiteral("Chemical"),41,32,20.92},
+        {QStringLiteral("Science"),41,53,20.92},
+        {QStringLiteral("EDGE ARTICLE"),51,92,15.94},
+        {QStringLiteral("Fused 3D boron heterocycles via EnT catalysis:"),173,131,15.94},
+        {QString::fromUtf8("synthesis, modiﬁcation and validation as beta-"),173,149,15.94},
+        {QStringLiteral("Cite this: Chem. Sci., 2026, 17, 247"),42,164,7.22},
+        {QStringLiteral("lactamase inhibitors"),173,167,15.94},
+        {QStringLiteral("All publication charges for this article"),50,182,7.22},
+        {QStringLiteral("Alice Green, Brian White, and John J. Molloy"),173,194,9.96},
+        {QStringLiteral("Department of Chemistry"),173,220,7.97},
+        {QStringLiteral("Abstract"),173,245,7.97}
+    },779.528);
+    expect(edgeArticle.value("title").toString()==QStringLiteral(
+        "Fused 3D boron heterocycles via EnT catalysis: synthesis, modification and validation as beta-lactamase inhibitors"),
+        "RSC EDGE ARTICLE is a header; mapped fi ligatures preserve exact printed words");
     expect(Bibliography::firstPageLastAuthor(QStringLiteral(
         "Enzyme Technologies and Industrial Applications\n"
         "Alice Green, Brian White, and Hassan Mohamed El-Said Azzazy*\n"

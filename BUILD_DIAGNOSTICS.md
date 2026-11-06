@@ -570,3 +570,25 @@ not a relaxation of the prior tests.
   artifacts. The full corpus and downstream native gates were skipped after
   the chrome failure; no full validation or release is claimed. Revalidate
   every gate on the next exact source SHA.
+
+### Pinned RSC UI fixture: independently observed heading/ligature interaction
+
+Before the downstream public bibliography-card probe, evaluated its unchanged
+PMC12599387 main PDF (SHA256 c9dbf56b210daa1518408b37d1ff172136ea049ab3e1f5bc4aeca00254f85b93)
+with a real PyMuPDF first-page snapshot and the current production C++ evidence.
+The current algorithm returned only a review candidate, whereas the existing
+Windows UI test requires the exact verified title. The equally prominent
+`EDGE ARTICLE` publisher label was missing from excluded article headers and
+competed with the real three-line title; the middle title row contains a mapped
+Unicode fi ligature. This is a real observed local PDF diagnostic, **not** a
+fabricated Windows UI failure or a reason to weaken its assertion.
+
+Exclude the exact EDGE ARTICLE heading and normalize mapped title typography
+with Unicode NFKC. Do not synthesize unmapped glyphs: the existing unreliable
+flag and review-only guards remain. The identical actual snapshot now yields
+the full exact title, first_page_layout source and John J. Molloy; all 31 main
+goldset snapshot counts stay unchanged (20 complete, zero wrong fields). Add a
+native regression retaining the header, small interleaved citation sidebar,
+hyphenated continuation and fi ligature. Keep the existing public UI title and
+last-author assertions unchanged. Full Windows validation on the new SHA remains
+mandatory; superseded runs are not proof of this fix.

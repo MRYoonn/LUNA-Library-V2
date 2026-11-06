@@ -27,7 +27,7 @@ inline bool isExcluded(QString text, bool continuation = false) {
         text.contains(QStringLiteral("All publication charges"), Qt::CaseInsensitive))
         return true;
     static const QRegularExpression bad(QString::fromUtf8(
-        R"(^(?:(?:research|review|original|full|open access)\s+(?:article|paper)|(?:article|abstract|introduction|keywords?|contents|references|communication|letters?|perspectives?|editorial|supplementary|supporting|revised supporting|table of contents|graphical abstract|copyright|©|published|received|accepted|correspondence|author contributions|funding|acknowledg(?:e)?ments|view article online|cite this|journal homepage|volume|issue|article in press)\b|(?:www\.|doi:|10\.\d{4,9}/)|(?:journal of the american chemical society|chemical science|nature communications|organic letters|angewandte chemie|acs catalysis)$))"),
+        R"(^(?:(?:research|review|original|full|edge|open access)\s+(?:article|paper)|(?:article|abstract|introduction|keywords?|contents|references|communication|letters?|perspectives?|editorial|supplementary|supporting|revised supporting|table of contents|graphical abstract|copyright|©|published|received|accepted|correspondence|author contributions|funding|acknowledg(?:e)?ments|view article online|cite this|journal homepage|volume|issue|article in press)\b|(?:www\.|doi:|10\.\d{4,9}/)|(?:journal of the american chemical society|chemical science|nature communications|organic letters|angewandte chemie|acs catalysis)$))"),
         QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression affiliation(QString::fromUtf8(
         R"(\b(?:department of|university|institution|institute of|faculty of|school of|laboratory of|research center)\b)"),
@@ -54,7 +54,10 @@ inline QVariantMap infer(const QList<Line>& source, double pageHeight) {
     QList<Line> lines;
     QList<double> sizes;
     for (const Line& raw : source) {
-        const QString clean = raw.text.simplified();
+        // Normalize mapped typographic ligatures, not missing glyphs. This
+        // keeps the printed word (modiﬁcation -> modification) intact while
+        // unreliable/unmapped characters still force a review-only candidate.
+        const QString clean = raw.text.normalized(QString::NormalizationForm_KC).simplified();
         if (clean.isEmpty() || raw.y < 10 || raw.y > pageHeight*0.75 ||
             raw.fontSize < 5 || raw.fontSize > 72) continue;
         lines.append({clean,raw.x,raw.y,raw.fontSize,raw.unreliable});

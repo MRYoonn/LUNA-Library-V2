@@ -695,3 +695,29 @@ complete actual PDF snapshot already passed before this fixture adjustment.
   opens no library windows/settings and has no GUI-state side effects.
 - Preserve original HTTP status, logs and diagnostic artifact. Full Windows
   success on the new exact source is required; no release has been published.
+
+## Windows Build #287 / expired old performance artifact: 42145849790
+
+- Source `019b665687fc91d4167f14e204d0dbd3ee9f9a8c`. Python 193, native
+  metadata/dialog tests, full MSVC and portable structure passed.
+- Failed before GUI tests at baseline acquisition: actions/download-artifact
+  reports `Artifact not found for name: LUNA-Windows-Portable` for run
+  40984112766 (Build 119, a9cb703622752273f22f1600b83af5d1c9658e54,
+  created 2026-10-30). The API now lists only its long-retention HTML reference;
+  the portable has disappeared after its retention window. Earlier #286 still
+  downloaded it successfully. This is unavailable CI input, not app behavior.
+- Use the task's actual shipping baseline v0.9.0.261 from permanent release
+  assets, pinned source c40470847d3f22fbb7c993d2c91dfae6b6b50c4c. Pin ZIP
+  SHA256 72cbcbb58d326eb24a222f3b91429c4018e4693284785d1961fee1a7af07718c
+  and manifest SHA256 617a707613feafe1dcb7dcf1c1a58ffc4a55cb4e0ff86ba3d13af94f2b036379;
+  verify every path/size/hash, EXE provenance and x64 portable structure.
+- Retain the entire native benchmark implementation and its 10 synthetic
+  reopen, 10 public-paper reopen and 5 mixed-tab opens for EACH package. It has
+  no speed-improvement threshold to relax. Metrics now explicitly compare the
+  current shipping v261 to this change; earlier Build119 measurements remain
+  historical evidence, not mislabeled as v261. Preserve baseline provenance.
+- The original expired-source comparator cannot run from a deleted artifact.
+  Replacing this input with the user's pinned released baseline retains all
+  native open/copy/close/byte-preservation assertions. No test is skipped.
+- Preserve raw artifact error, original source/run and diagnostics. Full new
+  Windows success including public PLOS/RSC/SI, corpus and CDB remains required.

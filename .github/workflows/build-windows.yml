@@ -566,13 +566,42 @@ jobs:
           python -B tools/verify_portable.py LUNA-Windows-Portable
           if ($LASTEXITCODE -ne 0) { throw "Portable package verification failed" }
 
-      - name: Download the measured pre-fix baseline for same-machine comparison
-        uses: actions/download-artifact@v4
-        with:
-          name: LUNA-Windows-Portable
-          run-id: 40984112766
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/luna-performance-before
+      - name: Verify immutable released v261 baseline for same-machine comparison
+        id: benchmark-baseline
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $download = Join-Path $env:RUNNER_TEMP 'luna-v261-release-baseline'
+          $baseline = Join-Path $env:RUNNER_TEMP 'luna-performance-before'
+          $evidence = Join-Path $env:RUNNER_TEMP 'luna-ui/performance'
+          New-Item -ItemType Directory -Force $download, $evidence | Out-Null
+          gh release download v0.9.0.261 --repo $env:GITHUB_REPOSITORY --pattern LUNA-Windows-Portable.zip --pattern LUNA-Release.json --dir $download
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned v261 baseline release download failed' }
+          @'
+          import hashlib,json,pathlib,sys,zipfile
+          source,destination,evidence=map(pathlib.Path,sys.argv[1:])
+          archive=source/'LUNA-Windows-Portable.zip'
+          manifest=source/'LUNA-Release.json'
+          assert hashlib.sha256(archive.read_bytes()).hexdigest()=='72cbcbb58d326eb24a222f3b91429c4018e4693284785d1961fee1a7af07718c'
+          assert hashlib.sha256(manifest.read_bytes()).hexdigest()=='617a707613feafe1dcb7dcf1c1a58ffc4a55cb4e0ff86ba3d13af94f2b036379'
+          m=json.loads(manifest.read_text())
+          assert m['tag']=='v0.9.0.261' and m['commit']=='c40470847d3f22fbb7c993d2c91dfae6b6b50c4c'
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None and len(z.namelist())==len(set(z.namelist()))
+              assert set(z.namelist())=={f['path'] for f in m['files']}
+              assert all(not pathlib.PurePosixPath(n).is_absolute() and '..' not in pathlib.PurePosixPath(n).parts and '\\' not in n and ':' not in n for n in z.namelist())
+              assert all(len(z.read(f['path']))==f['size'] and hashlib.sha256(z.read(f['path'])).hexdigest()==f['sha256'] for f in m['files'])
+              info=json.loads(z.read('build-info.json'))
+              assert info['commit']==m['commit'] and info['validation']['windowsCpp']=='passed'
+              assert hashlib.sha256(z.read('LUNA.exe')).hexdigest()==info['exeSha256']
+              z.extractall(destination)
+          (evidence/'baseline-provenance.json').write_text(json.dumps(dict(tag=m['tag'],commit=m['commit'],source_run=m['source_run'],zip_sha256=m['sha256'],exe_sha256=info['exeSha256']),indent=2))
+          print('Pinned released v261 ZIP, manifest, all managed files and native EXE verified.')
+          '@ | python -B - $download $baseline $evidence
+          if ($LASTEXITCODE -ne 0) { throw 'Released baseline source/hash validation failed' }
+          python -B tools/verify_portable.py $baseline
+          if ($LASTEXITCODE -ne 0) { throw 'Released baseline portable layout invalid' }
 
       - name: Ordinary launch visibility and native toolbar input
         id: chrome-test
@@ -592,7 +621,7 @@ jobs:
           python -B tools/capture_panel_comparison_windows.py LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/panels-after"
           if ($LASTEXITCODE -ne 0) { throw 'Actual panel comparison capture failed' }
 
-      - name: Same-machine PDF open benchmark against the pre-fix baseline
+      - name: Same-machine PDF open benchmark against the released v261 baseline
         shell: pwsh
         run: |
           python -B tools/benchmark_open_windows.py "$env:RUNNER_TEMP/luna-performance-before" LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/performance"

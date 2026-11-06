@@ -563,6 +563,39 @@ public:
         return value;
     }
 
+    // Public, side-effect-free trust checks shared by the UI and native Qt
+    // tests. A stale "complete" status is not evidence of ordered authors.
+    static bool needsVerifiedAuthorRefresh(const QVariantMap& entry) {
+        if (entry.value("manual").toBool() ||
+            entry.value("authorsSource").toString()==QStringLiteral("manual") ||
+            entry.value("documentKind").toString()==QStringLiteral("supporting_information"))
+            return false;
+        const QString source=entry.value("authorsSource").toString();
+        const QString orderedSource=entry.value("authors_structuredSource").toString().isEmpty()
+            ? entry.value("field_sources").toMap().value("authors_structured").toString()
+            : entry.value("authors_structuredSource").toString();
+        const bool trustedOrdered=(orderedSource==QStringLiteral("Crossref") ||
+            orderedSource==QStringLiteral("OpenAlex") ||
+            orderedSource==QStringLiteral("Crossref + OpenAlex")) &&
+            !entry.value("authors_structured").toStringList().isEmpty();
+        return entry.value("authors").toString().isEmpty() ||
+               source==QStringLiteral("legacy_unknown") ||
+               (source==QStringLiteral("first_page_verified") && !trustedOrdered);
+    }
+
+    static QString trustedSavedDoi(const QVariantMap& entry, bool explicitRestore=false) {
+        if (entry.value("documentKind").toString()==QStringLiteral("supporting_information"))
+            return {};
+        const QString doi=Metadata::normalizeDoi(entry.value("doi").toString());
+        if (doi.isEmpty()) return {};
+        if (explicitRestore) return doi;
+        const QString source=entry.value("doiSource").toString();
+        for(const char* accepted : {"manual","page1","pdf_front_matter",
+                                   "first_page_verified","Crossref","OpenAlex","metadata"})
+            if(source==QString::fromLatin1(accepted)) return doi;
+        return {};
+    }
+
     // Lazily migrate a VERIFIED DOI-matched ordered author list on first
     // document open. Keep the wrong auto string in legacyAuthors and never
     // rewrite a user-owned record or an explicitly edited author.

@@ -516,6 +516,9 @@ int main(int argc,char** argv){
     const QString oldMachineId=QStringLiteral("synthetic:p0:hao-fang-old-machine");
     QVariantMap oldMachine{{"doi",QStringLiteral("10.1039/d5sc05518k")},
                            {"doiSource",QStringLiteral("page1")},
+                           {"journal",QStringLiteral("Chemical Science")},
+                           {"year",QStringLiteral("2025")},
+                           {"volume",QStringLiteral("16")},
                            {"authors",QStringLiteral("Hao Fang")},
                            {"authorsSource",QStringLiteral("first_page_verified")},
                            {"authors_structured",orderedAuthors},

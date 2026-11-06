@@ -2042,7 +2042,9 @@ private:
                 // even though a DOI-verified full ordered author list already
                 // exists. Preserve the old value under legacyAuthors and repair
                 // only machine-owned fields, on the UI thread, not in the worker.
-                if (!restore) bibliography_.reconcileVerifiedAuthorship(identity);
+                if (!restore && result->value(QStringLiteral("documentKind")).toString() !=
+                    QStringLiteral("supporting_information"))
+                    bibliography_.reconcileVerifiedAuthorship(identity);
                 const bool found = restore ?
                     bibliography_.restoreFromFirstPage(identity, *result) :
                     bibliography_.enrichFromFirstPage(identity, *result);

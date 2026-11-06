@@ -696,6 +696,22 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('preview->trigger()', tabs)
         self.assertIn('보기 → 페이지 미리보기', guide)
 
+    def test_v292_library_and_paper_icons_use_one_shared_header_y(self):
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        library = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')
+        # Navigation has an existing 7px top frame inset; the paper list used
+        # 0px, so both-folded and one-folded screenshots showed the paper icon
+        # approximately 7px above the adjacent library icon.
+        self.assertIn('layout->setContentsMargins(7, 7, 0, 7)', library)
+        self.assertIn('docs->setContentsMargins(0, 7, 1, 0)', library)
+        self.assertIn('Expanded library and paper header buttons are vertically misaligned', tabs)
+        self.assertIn('Side-by-side library/papers icons are vertically staggered', tabs)
+        self.assertIn('visibleNavButton->mapTo(&host,', tabs)
+        self.assertIn('visibleDocsButton->mapTo(&host,', tabs)
+        self.assertIn('capturePanels(QStringLiteral("both-folded"), turn == 0)', tabs)
+        self.assertIn('capturePanels(QStringLiteral("papers-folded"), turn == 0)', tabs)
+        self.assertIn('capturePanels(QStringLiteral("both-folded-short"), turn == 0)', tabs)
+
     def test_v291_top_rail_alignment_and_compact_tab_contrast(self):
         tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
         lib = (ROOT / 'src/lunalibrary.cpp').read_text(encoding='utf-8')

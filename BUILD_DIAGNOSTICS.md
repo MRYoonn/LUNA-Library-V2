@@ -592,3 +592,10 @@ native regression retaining the header, small interleaved citation sidebar,
 hyphenated continuation and fi ligature. Keep the existing public UI title and
 last-author assertions unchanged. Full Windows validation on the new SHA remains
 mandatory; superseded runs are not proof of this fix.
+
+The first shortened native unit fixture for this cover failed locally because
+its median font became 15.94pt after omitting the actual page's ordinary body
+rows; the confidence algorithm correctly kept that artificial low-prominence
+layout review-only. Retain representative body-font rows in the unit fixture,
+without changing confidence thresholds or its exact full-title assertion. The
+complete actual PDF snapshot already passed before this fixture adjustment.

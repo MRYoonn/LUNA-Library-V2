@@ -173,7 +173,10 @@ int main(int argc,char** argv){
         {QStringLiteral("All publication charges for this article"),50,182,7.22},
         {QStringLiteral("Alice Green, Brian White, and John J. Molloy"),173,194,9.96},
         {QStringLiteral("Department of Chemistry"),173,220,7.97},
-        {QStringLiteral("Abstract"),173,245,7.97}
+        {QStringLiteral("Abstract"),173,245,7.97},
+        {QStringLiteral("Ordinary article body at its original small font size."),173,260,7.97},
+        {QStringLiteral("A second body row establishes the ordinary typography baseline."),173,272,7.97},
+        {QStringLiteral("A third body row keeps title prominence representative."),173,284,7.97}
     },779.528);
     expect(edgeArticle.value("title").toString()==QStringLiteral(
         "Fused 3D boron heterocycles via EnT catalysis: synthesis, modification and validation as beta-lactamase inhibitors"),

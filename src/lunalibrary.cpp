@@ -3790,6 +3790,12 @@ static void installLibraryBase(QMainWindow& window, pdfviewer::PDFEditorMainWind
         QStringLiteral("LunaDocumentsRestoreButton"));
     library->navigationFold()->layout()->addWidget(restoreNav);
     library->documentsFold()->layout()->addWidget(restoreDocs);
+    // Both 36px rails have a 1px outline. Center the 28px controls in
+    // the remaining content width; preserve their original header Y anchors.
+    restoreNav->setFixedWidth(28);
+    restoreDocs->setFixedWidth(28);
+    library->navigationFold()->layout()->setAlignment(restoreNav, Qt::AlignHCenter);
+    library->documentsFold()->layout()->setAlignment(restoreDocs, Qt::AlignHCenter);
     restoreNav->setToolTip(QStringLiteral("라이브러리 펼치기"));
     restoreDocs->setToolTip(QStringLiteral("논문 목록 펼치기"));
 

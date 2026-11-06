@@ -86,6 +86,7 @@ APPROVED = {
     ".github/workflows/hidden-storage-build-once.yml",
     ".github/workflows/metadata-live-validate-once.yml",
     ".github/workflows/bibliography-v261-once.yml",
+    ".github/workflows/tab-rail-polish-v291-once.yml",
     ".github/workflows/metadata-native-quickcheck-once.yml",
     "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunabibliography.h", "src/lunafirstpage.h", "src/lunathumbnailcache.h",
     "src/lunafrontmatter.h",

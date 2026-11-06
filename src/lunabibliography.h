@@ -666,6 +666,8 @@ public:
             oldOrderedSource==QStringLiteral("Crossref + OpenAlex");
         const bool orderedManual=oldOrderedSource==QStringLiteral("manual") ||
             entry.value("authorsSource").toString()==QStringLiteral("manual");
+        const bool verifiedAuthorConflict=!newOrdered.isEmpty() && !oldOrdered.isEmpty() &&
+            oldOrdered!=newOrdered && !orderedManual && oldOrderedVerified;
         if (!newOrdered.isEmpty() && !oldOrdered.isEmpty() && oldOrdered!=newOrdered &&
             !orderedManual) {
             if (!oldOrderedVerified) {
@@ -682,6 +684,11 @@ public:
         for (const char* k : {"title","journal","journal_abbreviation","year","volume",
                                "issue","page","article_number","authors","authors_structured"}) {
             const QString key=QString::fromLatin1(k);
+            // Do not let a replacement "authors" string slip past a verified
+            // ordered-list conflict. Keep BOTH candidates for manual review.
+            if (verifiedAuthorConflict &&
+                (key==QStringLiteral("authors") ||
+                 key==QStringLiteral("authors_structured"))) continue;
             const QVariant value=incoming.value(key);
             if(value.toString().simplified().isEmpty() &&
                !(key==QStringLiteral("authors_structured") && !value.toStringList().isEmpty()))

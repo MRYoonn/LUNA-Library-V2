@@ -599,3 +599,23 @@ rows; the confidence algorithm correctly kept that artificial low-prominence
 layout review-only. Retain representative body-font rows in the unit fixture,
 without changing confidence thresholds or its exact full-title assertion. The
 complete actual PDF snapshot already passed before this fixture adjustment.
+
+## Windows Build #282 / 150% edge coverage coordinates: 42136580288
+
+- Source `78294621ecc361280ae2f26422e84199097b9bfd`. All 100% and 125%
+  empty/three-PDF/restart chrome checks passed with exact Qt-reference matches.
+- At 150% the actual host center edge is exactly #E0E4ED for BOTH panels.
+  The own-widget test sampled the last IMAGE pixel, but odd logical widths
+  225/325 produce half-covered final pixels at 150%, hence #ECEEF4/#F0F2F6.
+  Sample the logical border center, transformed to device pixels, instead.
+- The Papers reference also differed in the partial INNER pixel at x841:
+  physical border bounds 841.5..843 include a half scrollbar/half border cell,
+  while the empty reference has a different adjacent interior. Its fully
+  covered x842 cell matches exactly. Compare every fully covered border cell;
+  if none exist at a fractional position (125% Papers), retain exact comparison
+  of the complete fractional strip. Keep own-center #E0E4ED, exact reference
+  equality, all scales, launch states and visibility checks. Record each
+  compared actual/reference device pixel; do not introduce RGB tolerances.
+- Full corpus and later native gates were skipped after the chrome failure.
+  Preserve original 150% screenshot/color JSON and diagnostics. Supersede #283,
+  whose source lacks this coordinate correction, and require a fresh full run.

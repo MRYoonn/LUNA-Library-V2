@@ -962,7 +962,9 @@ static bool auditChrome(NativeTabs& host, QJsonObject& out) {
         const QPoint pixel(qFloor((edge.x()+0.5)*dpr),qFloor((edge.y()+0.5)*dpr));
         const QColor border = chrome.rect().contains(pixel) ? chrome.pixelColor(pixel) : QColor();
         const QImage own = panel->grab().toImage();
-        const QColor ownBorder=own.pixelColor(own.width()-1,own.height()/2);
+        const QPoint ownPixel(qFloor((panel->width()-0.5)*dpr),
+                              qFloor(panel->height()*0.5*dpr));
+        const QColor ownBorder=own.pixelColor(ownPixel);
         // Fractional DPI blends a one-logical-pixel edge across device pixels.
         // Compare exact host pixels to Qt's reference at the SAME geometry/DPR,
         // rather than declaring a blended but correct border the wrong color.
@@ -976,16 +978,26 @@ static bool auditChrome(NativeTabs& host, QJsonObject& out) {
         reference.show(); reference.raise();
         const QImage expected = host.grab().toImage();
         reference.hide();
+        // Compare fully covered physical cells. A partial INNER cell also
+        // contains the adjacent child's scrollbar, absent from the reference.
+        // If the thin edge covers no whole cell (e.g. 125%), compare its entire
+        // fractional strip instead. No RGB tolerance or scale is discarded.
+        int first=qCeil(edge.x()*dpr), last=qFloor((edge.x()+1)*dpr);
+        if (first>=last) { first=qFloor(edge.x()*dpr); last=qCeil((edge.x()+1)*dpr); }
         bool edgeMatches = true;
-        for (int x=qFloor(edge.x()*dpr); x<qCeil((edge.x()+1)*dpr); ++x) {
+        QJsonArray edgeSamples;
+        for (int x=first; x<last; ++x) {
             const QPoint sample(x,pixel.y());
             edgeMatches &= chrome.rect().contains(sample) && expected.rect().contains(sample) &&
                 chrome.pixelColor(sample)==expected.pixelColor(sample);
+            edgeSamples.append(QJsonObject{{"x",x},{"actual",chrome.pixelColor(sample).name()},
+                                           {"reference",expected.pixelColor(sample).name()}});
         }
         panels.append(QJsonObject{{"name",QString::fromLatin1(name)},
             {"x",edge.x()-panel->width()+1},{"width",panel->width()},
             {"rightEdge",border.name()},{"ownRightEdge",ownBorder.name()},
             {"referenceRightEdge",expected.pixelColor(pixel).name()},{"renderedEdgeMatchesReference",edgeMatches},
+            {"edgeSamples",edgeSamples},
             {"styledBackground",panel->testAttribute(Qt::WA_StyledBackground)},
             {"visibleWidth",panel->visibleRegion().boundingRect().width()}});
         ok &= ownBorder == QColor(QStringLiteral("#E0E4ED")) && edgeMatches;

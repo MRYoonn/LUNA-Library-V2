@@ -64,6 +64,8 @@ APPROVED = {
     "tests/crash_collector/CMakeLists.txt", "tests/crash_collector/main.cpp", "CRASH_DIAGNOSTICS_KO.md",
     "tools/Start-Luna-Diagnostics.ps1", "tools/Start-Luna-Diagnostics.cmd",
     "tools/probe_tabs_integration_windows.py",
+    "tools/probe_shell_pdf_tabs_windows.py",
+    ".github/workflows/v296-full-gui-dispatch-once.yml",
     "src/lunaperformance.h", "tools/apply_performance.py", "tools/probe_chrome_windows.py", "tools/prepare_desktop_windows.py",
     "tools/benchmark_open_windows.py",
     "src/lunatabs.cpp", "src/lunatabs.h",

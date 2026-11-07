@@ -485,6 +485,34 @@ int main(int argc,char** argv){
     expect(articleNumberValid(QStringLiteral("e20591"),doi),"article number usable");
     expect(!articleNumberValid(doi,doi),"DOI is not an article number");
 
+    checkpoint("nature-superscript-final-author");
+    // Native Nature first-page geometry: the terminal '&' can be at the end
+    // of a full author row, while the final name continues on the next row.
+    // Affiliation references contain Unicode superscripts and U+02D2 commas.
+    const QString natureNames =
+        QStringLiteral("Nature Communications\nArticle\nSegment anything in medical images\n")
+        + QStringLiteral("Received: 24 October 2023\n")
+        + QStringLiteral("Jun Ma") + QChar(0x00b9) + QChar(0x02d2) + QChar(0x00b2)
+        + QStringLiteral(", Yuting He") + QChar(0x2074)
+        + QStringLiteral(", Feifei Li") + QChar(0x00b9)
+        + QStringLiteral(", Lin Han") + QChar(0x2075)
+        + QStringLiteral(", Chenyu You") + QChar(0x2076)
+        + QStringLiteral(" &\nBo Wang") + QChar(0x00b9) + QChar(0x02d2)
+        + QChar(0x00b2) + QChar(0x02d2) + QChar(0x00b3)
+        + QStringLiteral("\nAbstract\n");
+    expect(Bibliography::firstPageLastAuthor(natureNames) == QStringLiteral("Bo Wang"),
+           "Nature author-row superscripts and split final name must resolve safely");
+    const QString natureNoEvidence=QStringLiteral(
+        "Nature Communications\n"
+        "Title: New Materials and Industrial Applications\n"
+        "Received: 1 January 2024\n"
+        "Abstract\n");
+    expect(Bibliography::firstPageLastAuthor(natureNoEvidence).isEmpty(),
+           "Title conjunction without a bounded author list must never become a person");
+    expect(Bibliography::firstPageLastAuthor(
+        QStringLiteral("Nature Communications\nJun Ma & Bo Wang\nAbstract\n")).isEmpty(),
+        "Two unbounded names without publisher author-list evidence stay unverified");
+
     checkpoint("qsettings-merge");
     Bibliography store;
     const QString providerIdentity=QStringLiteral("synthetic:provider-upgraded-authors");

@@ -39,12 +39,18 @@ public:
         connect(&server_, &QLocalServer::newConnection, this, [this] {
             while (auto* client = server_.nextPendingConnection()) {
                 auto payload = std::make_shared<QByteArray>();
+                auto handled = std::make_shared<bool>(false);
                 client->setReadBufferSize(32768);
-                connect(client, &QLocalSocket::readyRead, this, [this, client, payload] {
+                connect(client, &QLocalSocket::readyRead, this, [this, client, payload, handled] {
+                    // One request per socket. More than one readyRead event can
+                    // occur before disconnect; never re-dispatch the same JSON
+                    // left in the accumulated input buffer.
+                    if (*handled) { client->readAll(); return; }
                     payload->append(client->readAll());
                     if (payload->size() > 32768) { client->abort(); return; }
                     const qsizetype end = payload->indexOf('\n');
                     if (end < 0) return;
+                    *handled = true;
                     QJsonParseError error;
                     const QJsonDocument message = QJsonDocument::fromJson(payload->left(end), &error);
                     if (error.error != QJsonParseError::NoError || !message.isObject() ||

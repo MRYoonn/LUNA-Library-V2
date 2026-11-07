@@ -8,6 +8,7 @@ on:
       - .github/workflows/bibliography-author-audit-once.yml
       - tools/evaluate_goldset.py
       - tools/diagnose_goldset_authors.py
+      - tools/preflight_public.py
       - tests/test_goldset.py
 
 permissions:

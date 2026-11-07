@@ -190,16 +190,32 @@ public:
             const QString candidate = match.captured(1).simplified();
             if (!credibleAuthor(candidate)) continue;
             QString conjunctionPrefix=authorRow.left(match.capturedStart(1)).simplified();
+            bool verifiedNatureInlineAmpersand = false;
+            // Real PDF4QT extraction on three checksum-pinned Nature covers
+            // contains standalone "& Last Name" lines after a typeset author
+            // list. These are trustworthy ONLY with explicit Nature journal
+            // evidence and a comma-separated pair of personal names above.
+            // Do not accept a floating "&" joined to a later name: that can
+            // name a NON-final contributor on spatially reordered pages.
+            if (i < 24 && line.startsWith(QStringLiteral("& ")) &&
+                firstPageCitation(firstPageText).value("journal").toString()
+                    .compare(QStringLiteral("Nature Communications"), Qt::CaseInsensitive) == 0) {
+                for (qsizetype back = 1; back <= 12 && back <= i; ++back) {
+                    if (pairedNames.match(lines[i - back]).hasMatch()) {
+                        verifiedNatureInlineAmpersand = true;
+                        break;
+                    }
+                }
+            }
             if (conjunctionPrefix.endsWith(QLatin1Char('&'))) {
-                // Nature superscript baselines can float a standalone & onto
-                // a different author's row. Without a named same-row prefix,
-                // text order alone cannot establish the final contributor.
                 conjunctionPrefix.chop(1);
                 conjunctionPrefix.remove(QRegularExpression(QStringLiteral(R"([\p{N},*†‡\s]+$)")));
-                if (!pairedNames.match(conjunctionPrefix).hasMatch() &&
+                if (!verifiedNatureInlineAmpersand &&
+                    !pairedNames.match(conjunctionPrefix).hasMatch() &&
                     !credibleAuthor(conjunctionPrefix.simplified())) continue;
             }
-            bool hasAuthorList = pairedNames.match(line).hasMatch();
+            bool hasAuthorList = pairedNames.match(line).hasMatch() ||
+                verifiedNatureInlineAmpersand;
             // Angewandte two-author reviews use "First Name and Last Name"
             // without a comma. Require its printed journal citation as well as
             // exactly two credible personal names on that complete row.

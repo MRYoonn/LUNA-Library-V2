@@ -1,9 +1,9 @@
-name: LUNA P0 Nature author superscripts - native Windows QtCore safety gate
+name: LUNA P0 RSC vertical final authors - native QtCore safety gate
 
 on:
   push:
     branches:
-      - feature/goldset-nature-superscripts-p0-20261107
+      - feature/bibliography-rsc-vertical-authors-p0-20261107
     paths:
       - .github/workflows/metadata-native-quickcheck-once.yml
 

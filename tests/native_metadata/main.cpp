@@ -517,27 +517,27 @@ int main(int argc,char** argv){
     // Native PDF4QT goldset PMC10915831: Chemical Science places comma
     // terminated author names on separate rows, followed by a final "and".
     const QString rscVerticalNames = QStringLiteral(
-        "Chemical Science\\nCite this: Chem. Sci., 2024, 15, 100-110\\n"
-        "PERSPECTIVE\\nThe intricate link between membrane lipid structure\\n"
-        "Patrick Charchar,\\nGavin E. Reid,\\nFrances Separovic,\\n"
-        "Tzong-Hsien Lee,\\nIrene Yarovsky\\nand Marie-Isabel Aguilar\\n"
-        "Abstract\\nThe science of membrane lipids.\\n");
+        "Chemical Science\nCite this: Chem. Sci., 2024, 15, 100-110\n"
+        "PERSPECTIVE\nThe intricate link between membrane lipid structure\n"
+        "Patrick Charchar,\nGavin E. Reid,\nFrances Separovic,\n"
+        "Tzong-Hsien Lee,\nIrene Yarovsky\nand Marie-Isabel Aguilar\n"
+        "Abstract\nThe science of membrane lipids.\n");
     expect(Bibliography::firstPageLastAuthor(rscVerticalNames) ==
         QStringLiteral("Marie-Isabel Aguilar"),
         "RSC vertical, independently comma-terminated personal names prove final author");
     const QString rscOnePrior = QStringLiteral(
-        "Chemical Science\\nCite this: Chem. Sci., 2024, 15, 100-110\\n"
-        "Manoj Kumar Goshisht,\\nand Manohar Chaskar\\nAbstract\\n");
+        "Chemical Science\nCite this: Chem. Sci., 2024, 15, 100-110\n"
+        "Manoj Kumar Goshisht,\nand Manohar Chaskar\nAbstract\n");
     expect(Bibliography::firstPageLastAuthor(rscOnePrior).isEmpty(),
         "Only one separate preceding author name is insufficient proof");
     const QString rscTitleTrap = QStringLiteral(
-        "Chemical Science\\nCite this: Chem. Sci., 2024, 15, 100-110\\n"
-        "Reactants,\\nCatalysts,\\nand Synthetic Applications\\nAbstract\\n");
+        "Chemical Science\nCite this: Chem. Sci., 2024, 15, 100-110\n"
+        "Reactants,\nCatalysts,\nand Synthetic Applications\nAbstract\n");
     expect(Bibliography::firstPageLastAuthor(rscTitleTrap).isEmpty(),
         "Do not elevate title fragments joined by and into last authors");
     const QString unlabeledNames = QStringLiteral(
-        "The intricate link between membrane lipids\\nPatrick Charchar,\\n"
-        "Gavin E. Reid,\\nand Marie-Isabel Aguilar\\nAbstract\\n");
+        "The intricate link between membrane lipids\nPatrick Charchar,\n"
+        "Gavin E. Reid,\nand Marie-Isabel Aguilar\nAbstract\n");
     expect(Bibliography::firstPageLastAuthor(unlabeledNames).isEmpty(),
         "RSC vertical-name fallback requires real publisher journal citation");
 

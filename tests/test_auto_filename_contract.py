@@ -36,6 +36,19 @@ class VerifiedFileNameContracts(unittest.TestCase):
             self.assertIn(snippet, POLICY, snippet)
         self.assertNotIn('QStringLiteral("pdf_metadata")', POLICY)
 
+    def test_user_can_explicitly_apply_a_displayed_title_to_real_disk_filename(self):
+        for token in (
+            'LunaApplyVerifiedPdfFilename',
+            '서지정보 제목으로 실제 PDF 파일명 변경…',
+            'PDF 실제 파일명 변경',
+            'record["titleSource"]=QStringLiteral("manual")',
+            'renameExtractedTitleFile(id)',
+            'QMessageBox::Yes|QMessageBox::Cancel',
+            'pendingTitleRenames_.remove(id)',
+            'flushLibraryTitleRenames(*this)',
+        ):
+            self.assertIn(token, LIBRARY + TABS, token)
+
     def test_rename_is_no_overwrite_paired_and_deferred_if_open(self):
         for snippet in (
             'const QString& requestedFileName = {}',

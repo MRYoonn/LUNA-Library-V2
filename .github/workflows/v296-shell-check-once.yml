@@ -79,11 +79,13 @@ jobs:
         run: |
           $dir = Join-Path $env:RUNNER_TEMP 'luna-ico-native-resource'
           New-Item -ItemType Directory -Path $dir -Force | Out-Null
-          Copy-Item assets/icons/LUNA-Moon.ico (Join-Path $dir 'LUNA-Moon.ico')
-          Copy-Item assets/icons/LUNA-PDF-approved.ico (Join-Path $dir 'LUNA-PDF.ico')
+          $sources=Join-Path $dir 'inputs'
+          New-Item -ItemType Directory -Path $sources -Force | Out-Null
+          Copy-Item assets/icons/LUNA-Moon.ico (Join-Path $sources 'LUNA-Moon.ico')
+          Copy-Item assets/icons/LUNA-PDF-approved.ico (Join-Path $sources 'LUNA-PDF.ico')
           @'
-          1 ICON DISCARDABLE "LUNA-Moon.ico"
-          2 ICON DISCARDABLE "LUNA-PDF.ico"
+          1 ICON DISCARDABLE "inputs/LUNA-Moon.ico"
+          2 ICON DISCARDABLE "inputs/LUNA-PDF.ico"
           '@ | Set-Content -Encoding ascii (Join-Path $dir 'luna_icon.rc')
           $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
           $vsdir=(& $vswhere -latest -products '*' -property installationPath).Trim()

@@ -680,6 +680,14 @@ jobs:
           python -B tools/probe_tabs_integration_windows.py LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/integrated"
           if ($LASTEXITCODE -ne 0) { throw 'Production tabs/library integration failed' }
 
+      - name: Full LUNA GUI second Explorer PDF must join the existing tabbed window
+        id: shell-tabs-test
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        run: |
+          python -B tools/probe_shell_pdf_tabs_windows.py LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/explorer-shell"
+          if ($LASTEXITCODE -ne 0) { throw 'v296 native Explorer-equivalent shell/tab integration failed; inspect synthetic diagnostics artifact' }
+
       - name: Public CC BY research PDF selection and annotation round trip
         id: research-test
         if: ${{ inputs.research_pdf_probe }}

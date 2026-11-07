@@ -1024,6 +1024,39 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         auto* tabs = host.findChild<QTabWidget*>(QStringLiteral("LunaPdfTabs")); auto* a = host.current();
         auto ready = [](Editor* e) { if (!e) return false; auto* c = e->getProgramController(); return c->getDocument() && c->canClose() && e->isEnabled() && !e->property("LunaRememberedPath").toString().isEmpty(); };
         integrationRequire(tabs && a && integrationWait([&] { return ready(a); }), "Integrated A did not load");
+        phase("custom reading toolbar and trailing search/print");
+        auto* readerBar=host.findChild<QToolBar*>(QStringLiteral("LunaCommonReaderToolbar"));
+        auto* markerMenu=host.findChild<QMenu*>(QStringLiteral("LunaPinnedMarkerMenu"));
+        auto* addMarker=host.findChild<QToolButton*>(QStringLiteral("LunaAddToolbarMarker"));
+        auto* searchRight=host.findChild<QToolButton*>(QStringLiteral("LunaRightSearch"));
+        auto* printRight=host.findChild<QToolButton*>(QStringLiteral("LunaRightPrint"));
+        auto* unsavedDot=host.findChild<QLabel*>(QStringLiteral("LunaReaderUnsavedStatus"));
+        integrationRequire(readerBar && markerMenu && addMarker && searchRight && printRight && unsavedDot,
+            "Custom marker menu, saved indicator or right-side reader actions missing");
+        integrationRequire(searchRight->defaultAction()==a->findChild<QAction*>(QStringLiteral("actionFind")) &&
+            printRight->defaultAction()==a->findChild<QAction*>(QStringLiteral("actionPrint")) &&
+            searchRight->mapTo(readerBar,QPoint()).x()<printRight->mapTo(readerBar,QPoint()).x() &&
+            printRight->mapTo(readerBar,QPoint(printRight->width(),0)).x()<=readerBar->width() &&
+            readerBar->actions().contains(a->findChild<QAction*>(QStringLiteral("actionUndo"))) &&
+            readerBar->actions().contains(a->findChild<QAction*>(QStringLiteral("actionRedo"))),
+            "Print/Search did not remain on the right or native undo/redo toolbar actions were lost");
+        auto* eighth=host.findChild<QAction*>(QStringLiteral("LunaPinnedMarkerChoice8"));
+        integrationRequire(eighth && eighth->isCheckable(), "Eighth marker pin/unpin action missing");
+        QSettings settings;
+        const QVariant oldMarkers=settings.value(QStringLiteral("annotations/pinnedHighlightSwatches"));
+        eighth->setChecked(true);
+        integrationRequire(readerBar->actions().contains(
+            a->findChild<QAction*>(QStringLiteral("LunaHighlightSwatch8"))),
+            "Pinned eighth marker was not added to the active toolbar");
+        eighth->setChecked(false);
+        integrationRequire(!readerBar->actions().contains(
+            a->findChild<QAction*>(QStringLiteral("LunaHighlightSwatch8"))),
+            "Unpinned marker remained in the toolbar");
+        if (oldMarkers.isValid())
+            settings.setValue(QStringLiteral("annotations/pinnedHighlightSwatches"),oldMarkers);
+        else
+            settings.remove(QStringLiteral("annotations/pinnedHighlightSwatches"));
+        result["readerToolbarPinnedColorsAndRightActions"]=true;
         phase("menu vertical alignment and library chrome");
         auto* menu = host.menuBar();
         integrationRequire(menu->height() == 48, "Menu/brand row differs from the approved HTML's 48 logical pixels");

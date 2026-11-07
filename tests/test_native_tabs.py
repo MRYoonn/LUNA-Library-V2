@@ -371,6 +371,40 @@ class NativeTabsContract(unittest.TestCase):
         self.assertLess(section.index('annotations(pdf::AnnotationType::FreeText) != 1'),
                         section.index('if (!select->isChecked()) select->trigger();'))
 
+    def test_v297_pinned_marker_palette_and_trailing_search_print(self):
+        source = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
+        # Upstream PDF4QT owns actual undo/redo and text selection. LUNA only
+        # moves shell UI actions; hidden swatches must never erase PDF markup.
+        for token in (
+            'annotations/pinnedHighlightSwatches',
+            'annotations/customHighlightColor',
+            'QStringList pinnedMarkerIds()',
+            'void savePinnedMarkerIds(const QStringList& ids)',
+            'LunaPinnedMarkerMenu', 'LunaPinnedMarkerChoice%1',
+            'LunaPinnedCustomMarker', 'LunaRegisterCustomMarker',
+            'LunaAddToolbarMarker',
+            'markerButton_->setPopupMode(QToolButton::InstantPopup);',
+            'savePinnedMarkerIds(ids);',
+            'LunaHighlightCustomSwatch',
+            'void rebuild()',
+            'add("actionUndo"); add("actionRedo");',
+            'LunaReaderUnsavedStatus',
+            'hasUnsavedChanges()',
+            'LunaToolbarRightSpacer', 'QSizePolicy::Expanding',
+            'LunaToolbarRightActions', 'LunaRightSearch', 'LunaRightPrint',
+            'searchButton_->setDefaultAction(nativeAction(*editor_,"actionFind"));',
+            'printButton_->setDefaultAction(nativeAction(*editor_,"actionPrint"));',
+        ):
+            self.assertIn(token, source, token)
+        # Anchored right actions come after every user-selected swatch and
+        # the elastic spacer, not between print and the colored pens.
+        view = source.split('    void rebuild() {', 1)[1].split('    void unbind() {', 1)[0]
+        self.assertLess(view.index('for (const QString& id:ids)'), view.index('bar_->addAction(markerButtonAction_)'))
+        self.assertLess(view.index('bar_->addAction(markerButtonAction_)'), view.index('bar_->addAction(spacerAction_)'))
+        self.assertLess(view.index('bar_->addAction(spacerAction_)'), view.index('bar_->addAction(rightGroupAction_)'))
+        self.assertNotIn('bar_->addAction(separators_[3]); add("actionFind"); add("actionPrint");', view)
+        self.assertIn('LunaPinnedMarkerMenu', (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8'))
+
     def test_highlight_palette_uses_eight_one_click_marker_tools(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         self.assertIn('LunaHighlightPalette', adapter)
@@ -397,7 +431,7 @@ class NativeTabsContract(unittest.TestCase):
         self.assertIn('class HighlightSwatchIcon final', adapter)
         self.assertIn('LunaHighlightSwatch%1', adapter)
         self.assertIn('syncSwatches();', adapter)
-        self.assertIn('add("actionPrint");', adapter)
+        self.assertIn('printButton_->setDefaultAction(nativeAction(*editor_,"actionPrint"));', adapter)
         self.assertIn('QPolygonF nib;', adapter)
         self.assertIn('void armEraser()', adapter)
         self.assertIn('eraser_->setCheckable(false);', adapter)

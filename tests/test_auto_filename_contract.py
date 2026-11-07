@@ -42,12 +42,33 @@ class VerifiedFileNameContracts(unittest.TestCase):
             '서지정보 제목으로 실제 PDF 파일명 변경…',
             'PDF 실제 파일명 변경',
             'record["titleSource"]=QStringLiteral("manual")',
-            'renameExtractedTitleFile(id)',
+            'renameExtractedTitleFile(id,&reason)',
             'QMessageBox::Yes|QMessageBox::Cancel',
             'pendingTitleRenames_.remove(id)',
             'flushLibraryTitleRenames(*this)',
         ):
             self.assertIn(token, LIBRARY + TABS, token)
+
+    def test_stale_lock_is_checked_by_owner_not_file_existence(self):
+        # A crash can leave a .lock file even when the PDF is not open.
+        # Merely testing QFileInfo::exists(lockPath) blocks real renames forever.
+        self.assertIn('#include <QLockFile>', LIBRARY)
+        self.assertIn('QLockFile renameGuard(lockPath);', LIBRARY)
+        self.assertIn('renameGuard.setStaleLockTime(0);', LIBRARY)
+        self.assertIn('if (!renameGuard.tryLock(0))', LIBRARY)
+        self.assertIn('QDir().mkpath(QFileInfo(lockPath).absolutePath())', LIBRARY)
+        self.assertNotIn('if (QFileInfo::exists(lockPath)) return false;', LIBRARY)
+        self.assertLess(LIBRARY.index('renameGuard.tryLock(0)'), LIBRARY.index('luna::movePdfWithThumbnails(\n            original,source.absolutePath()'))
+
+    def test_manual_rename_reports_real_failure_instead_of_generic_message(self):
+        self.assertIn('renameExtractedTitleFile(id,&reason)', LIBRARY)
+        self.assertIn('QStringLiteral("PDF 파일명 변경 완료")', LIBRARY)
+        self.assertIn('QStringLiteral("PDF 파일명 변경 상태")', LIBRARY)
+        self.assertIn('동일한 이름의 PDF 또는 서지정보가 이미 존재합니다', LIBRARY)
+        self.assertIn('Windows에서 실제 PDF/연결 파일 이동을 거부했습니다', LIBRARY)
+        self.assertIn('다른 LUNA 프로세스가 이 PDF를 사용 중', LIBRARY)
+        self.assertIn('선택한 PDF가 현재 LUNA 라이브러리의 연결 폴더 밖', LIBRARY)
+        self.assertNotIn('QStringLiteral("파일명 변경 대기 또는 건너뜀")', LIBRARY)
 
     def test_rename_is_no_overwrite_paired_and_deferred_if_open(self):
         for snippet in (

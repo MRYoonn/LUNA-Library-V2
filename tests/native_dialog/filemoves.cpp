@@ -9,6 +9,8 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QThread>
+#include <QLockFile>
+#include <QSysInfo>
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
@@ -75,6 +77,29 @@ int main(int argc, char** argv) {
     if(!write(stale,"unrelated") || luna::copyPdfWithThumbnails(pdf,copyTarget).success ||
        read(stale)!="unrelated" || !QFileInfo::exists(pdf))
         return fail("Copy adopted an unrelated MYBOX metadata sidecar");
+    // A dead LUNA process may leave the old DocumentClaim .lock on disk.
+    // Inspect its owner PID with QLockFile, not QFileInfo::exists(lockPath).
+    const QString staleClaim=QDir(root).filePath(QStringLiteral("abandoned-pdf.lock"));
+    const QByteArray fakeDeadPid=QByteArray("2147483647\nLUNA.exe\n")+
+        QSysInfo::machineHostName().toUtf8()+QByteArray("\n");
+    if(!write(staleClaim,fakeDeadPid))
+        return fail("Cannot create an abandoned LUNA claim");
+    {
+        QLockFile recovered(staleClaim);
+        recovered.setStaleLockTime(0);
+        if(!recovered.tryLock(0))
+            return fail("A dead owner's stale PDF claim prevented a title rename");
+        QLockFile competing(staleClaim);
+        competing.setStaleLockTime(0);
+        if(competing.tryLock(0))
+            return fail("Another process claimed a live title-rename lock");
+    }
+    {
+        QLockFile reopened(staleClaim);
+        reopened.setStaleLockTime(0);
+        if(!reopened.tryLock(0))
+            return fail("Released title-rename claim was not reusable");
+    }
     // Title-based rename reuses the same no-overwrite paired move, in place.
     const QVariantMap verifiedTitle{
         {QStringLiteral("title"), QStringLiteral("A Synthetic Title: With Illegal / Characters?")},

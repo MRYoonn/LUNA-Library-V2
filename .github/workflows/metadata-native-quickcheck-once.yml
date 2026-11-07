@@ -1,9 +1,9 @@
-name: LUNA metadata - native QtCore bibliography quickcheck (one-shot)
+name: LUNA P0 Nature author superscripts - native Windows QtCore safety gate
 
 on:
   push:
     branches:
-      - feature/bibliography-scheduled-module-integration-20261103
+      - feature/goldset-nature-superscripts-p0-20261107
     paths:
       - .github/workflows/metadata-native-quickcheck-once.yml
 

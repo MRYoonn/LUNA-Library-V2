@@ -39,6 +39,12 @@ int main(int argc, char** argv) {
     if (!file.open(QIODevice::WriteOnly) ||
         file.write("%PDF-1.4\nSynthetic only\n") < 20) return fail("Synthetic PDF setup failed", 12);
     file.close();
+    const QString secondFilename = directory.filePath(QStringLiteral("두 번째 distinct research paper.pdf"));
+    QFile second(secondFilename);
+    if (!second.open(QIODevice::WriteOnly) ||
+        second.write("%PDF-1.4\nSynthetic second PDF only\n") < 20)
+        return fail("Distinct synthetic PDF setup failed", 21);
+    second.close();
 
     std::fprintf(stderr, "WINDOW_RELAY_STAGE start owner pid=%lld app=%s\n", (long long)app.applicationPid(), qPrintable(appId));
     std::fflush(stderr);
@@ -51,14 +57,14 @@ int main(int argc, char** argv) {
         ++received;
         delivered = paths;
     });
-    auto spawn = [&]() {
+    auto spawn = [&](const QString& requested) {
         QProcess child;
         child.setProcessChannelMode(QProcess::MergedChannels);
         const QString program = app.applicationFilePath();
         child.setProgram(program);
-        child.setArguments({QStringLiteral("--second"), appId, filename});
+        child.setArguments({QStringLiteral("--second"), appId, requested});
         std::fprintf(stderr, "WINDOW_RELAY_CHILD_START program=%s file=%s exists=%d\\n",
-            qPrintable(program), qPrintable(filename), QFileInfo(program).isFile());
+            qPrintable(program), qPrintable(requested), QFileInfo(program).isFile());
         std::fflush(stderr);
         child.start();
         if (!child.waitForStarted(3500)) {
@@ -93,14 +99,36 @@ int main(int argc, char** argv) {
         }
         return finished && child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0;
     };
-    if (!spawn()) return fail("Child PDF launch did not join primary process", 14);
+    if (!spawn(filename)) return fail("Child PDF launch did not join primary process", 14);
     if (received != 1 || delivered != QStringList{filename})
         return fail("First forwarded PDF filename did not survive IPC", 15);
-    // Repeat command: frontend can choose existing tab instead of new duplicate.
+    // Opening a DIFFERENT PDF is the actual user regression. A duplicate
+    // alone does not prove second Explorer launches reach a new document.
     received = 0;
-    if (!spawn()) return fail("Second shell launch did not join primary", 16);
-    if (received != 1 || delivered != QStringList{filename})
-        return fail("Duplicate forwarded filename was corrupted", 17);
+    delivered.clear();
+    if (!spawn(secondFilename)) return fail("Distinct second PDF did not join primary", 22);
+    if (received != 1 || delivered != QStringList{secondFilename})
+        return fail("Distinct second PDF path changed over real Windows IPC", 23);
+
+    // Repeating the second file also forwards its exact path so NativeTabs
+    // may select the existing document rather than create another tab.
+    received = 0;
+    delivered.clear();
+    if (!spawn(secondFilename)) return fail("Repeated second PDF did not join primary", 16);
+    if (received != 1 || delivered != QStringList{secondFilename})
+        return fail("Duplicate second PDF filename was corrupted", 17);
+
+    // Batch delivery must preserve ordering and exact Unicode paths.
+    received = 0;
+    delivered.clear();
+    if (!owner.forward({filename, secondFilename}))
+        return fail("Two-file batch was rejected", 24);
+    QElapsedTimer batchClock;
+    batchClock.start();
+    while (received == 0 && batchClock.elapsed() < 2000)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+    if (received != 1 || delivered != (QStringList{filename, secondFilename}))
+        return fail("Two-file batch lost ordering or Unicode path", 25);
 
     const QString invalid = directory.filePath(QStringLiteral("malicious.exe"));
     QFile binary(invalid);
@@ -109,7 +137,7 @@ int main(int argc, char** argv) {
     if (owner.forward({invalid}) || owner.forward({QStringLiteral("missing.pdf")}))
         return fail("Non-PDF or missing document unexpectedly accepted", 19);
     if (received != 1) return fail("Bad request changed primary document batch", 20);
-    qInfo() << "PASS: same-user child PDF launch joins existing window,"
-                 " Korean paths, spaces, repeated launches, bad-path rejection";
+    qInfo() << "PASS: same-user child joins first window; distinct PDF,"
+                 " Unicode/space paths, duplicate and batch launches, bad-path rejection";
     return 0;
 }

@@ -52,5 +52,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native window relay CMake configure failed' }
           cmake --build $probe --target luna-native-windowrelay --config Release --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Native LUNA window relay compile failed' }
-          ctest --test-dir $probe -C Release -R '^native_window_relay$' --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows second-process to first-window IPC failed' }
+          Write-Host "QT_ROOT_DIR=$env:QT_ROOT_DIR"
+          Write-Host "Built EXE: $(Get-Item "$probe/Release/luna-native-windowrelay.exe" | Select-Object -ExpandProperty Length)"
+          & "$probe/Release/luna-native-windowrelay.exe"
+          $directCode=$LASTEXITCODE
+          Write-Host "Direct native test exit code: $directCode"
+          ctest --test-dir $probe -C Release -R '^native_window_relay
+ --verbose --output-on-failure
+          $testCode=$LASTEXITCODE
+          if ($testCode -ne 0 -or $directCode -ne 0) { throw "Actual Windows second-process tab IPC failed: direct=$directCode ctest=$testCode" }

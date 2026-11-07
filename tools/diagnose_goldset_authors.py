@@ -18,8 +18,32 @@ def summarize(manifest, score, predictions):
         raise ValueError("Wrong or incomplete public fixture IDs")
     if not all(item.get("sha256") and item.get("pdf_url") for item in manifest):
         raise ValueError("Missing public fixture verification data")
-    if any(field["wrong"] for field in score["fields"].values()):
-        raise ValueError("Incorrect automatic metadata: investigate before reporting")
+    # A surprising wrong auto-value is a FAILURE, but must not suppress its
+    # public-only diagnostic artifact: capture it before exiting nonzero.
+    wrongs = []
+    for row in score["rows"]:
+        bad = [key for key, value in row["fields"].items() if value == "wrong"]
+        if not bad:
+            continue
+        actual = predictions.get(row["id"], {})
+        expected_kind = expected[row["id"]]["expected"]["documentKind"]
+        audit = actual.get("_titleAudit", {})
+        if not isinstance(audit, dict):
+            audit = {}
+        wrongs.append({
+            "id": row["id"], "publisher": row["publisher"],
+            "wrongFields": bad,
+            "expectedDocumentKind": expected_kind,
+            "actualDocumentKind": actual.get("documentKind", "article"),
+            "actualTitleStatus": actual.get("titleStatus", ""),
+            "auditPresent": bool(audit),
+            "headlineLines": [
+                {"text": str(line.get("text", ""))[:160],
+                 "y": line.get("y", 0), "fontSize": line.get("fontSize", 0)}
+                for line in audit.get("lines", [])[:35]
+                if isinstance(line, dict) and "@" not in str(line.get("text", ""))
+            ],
+        })
     misses = [r for r in score["rows"] if r["fields"]["authors"] == "missing"]
     details = []
     for item in misses:
@@ -62,7 +86,8 @@ def summarize(manifest, score, predictions):
         "wholeRecordExact": score["exact"],
         "correctLastAuthors": score["fields"]["authors"]["correct"],
         "missingLastAuthors": len(misses),
-        "wrongAutomaticFields": 0,
+        "wrongAutomaticFields": sum(item["wrong"] for item in score["fields"].values()),
+        "wrongCases": wrongs,
         "misses": details,
     }
 
@@ -82,10 +107,15 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
     print("Public native author audit:", output["correctLastAuthors"], "correct,",
-          output["missingLastAuthors"], "missing, zero wrong; no user files read")
+          output["missingLastAuthors"], "missing, wrong fields; no user files read")
     for item in output["misses"]:
         print(item["id"], item["publisher"], "authorRows=", len(item["authorRows"]),
               "headlineLines=", len(item["headlineLines"]))
+    for item in output["wrongCases"]:
+        print("UNSAFE AUTO EVIDENCE", item["id"], "wrongFields=", item["wrongFields"])
+    # Audit artifacts are diagnostic evidence, never a release pass.
+    if output["wrongAutomaticFields"]:
+        raise SystemExit("Public-only audit found wrong auto metadata; report saved, release must be blocked")
 
 
 if __name__ == "__main__":

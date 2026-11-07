@@ -57,7 +57,6 @@ jobs:
           & "$probe/Release/luna-native-windowrelay.exe"
           $directCode=$LASTEXITCODE
           Write-Host "Direct native test exit code: $directCode"
-          ctest --test-dir $probe -C Release -R '^native_window_relay
- --verbose --output-on-failure
+          ctest --test-dir $probe -C Release -R '^native_window_relay$' --verbose --output-on-failure
           $testCode=$LASTEXITCODE
           if ($testCode -ne 0 -or $directCode -ne 0) { throw "Actual Windows second-process tab IPC failed: direct=$directCode ctest=$testCode" }

@@ -45,6 +45,8 @@
 #include <QtMath>
 #include <QPointer>
 #include <QPushButton>
+#include <QHBoxLayout>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QTimer>
 #include <QToolBar>
@@ -142,6 +144,27 @@ constexpr HighlightPreset kHighlightPresets[] = {
     {"주황색", "#FFC58A"}, {"보라색", "#C7B2FF"},
     {"민트색", "#A3E8DF"}, {"회색", "#CED4DE"}
 };
+
+// Personalize which marker buttons appear, not the PDF's annotations.
+// The common toolbar reads this library-wide setting whenever tabs change.
+const QString kPinnedMarkerKey=QStringLiteral("annotations/pinnedHighlightSwatches");
+const QString kCustomMarkerKey=QStringLiteral("annotations/customHighlightColor");
+QStringList pinnedMarkerIds() {
+    const QVariant stored=QSettings().value(kPinnedMarkerKey);
+    const QStringList values=stored.isValid()?stored.toStringList():
+        QStringList{QStringLiteral("1"),QStringLiteral("2"),QStringLiteral("3")};
+    QStringList safe;
+    for (const QString& id : values) {
+        bool numeric=false;
+        const int index=id.toInt(&numeric);
+        if ((numeric && index>=1 && index<=8) || id==QStringLiteral("custom"))
+            if (!safe.contains(id)) safe.append(id);
+    }
+    return safe;
+}
+void savePinnedMarkerIds(const QStringList& ids) {
+    QSettings().setValue(kPinnedMarkerKey,ids);
+}
 
 class HighlightSwatchIcon final : public QIconEngine {
 public:
@@ -243,6 +266,15 @@ public:
             swatches_.append(swatch);
         }
         syncSwatches();
+        customSwatch_ = new QAction(QIcon(new HighlightSwatchIcon(
+            QColor(QSettings().value(kCustomMarkerKey,QStringLiteral("#FFE049")).toString()))),
+            QStringLiteral("사용자 지정 형광펜"), &window_);
+        customSwatch_->setObjectName(QStringLiteral("LunaHighlightCustomSwatch"));
+        customSwatch_->setToolTip(QStringLiteral("직접 등록한 형광펜 색상 · 선택한 텍스트에 한 번 적용"));
+        connect(customSwatch_, &QAction::triggered, this, [this] {
+            const QColor color(QSettings().value(kCustomMarkerKey,QStringLiteral("#FFE049")).toString());
+            if (color.isValid()) armHighlighter(color);
+        });
         eraser_ = new QAction(readerIcon(QStringLiteral("erase")), QStringLiteral("형광펜 지우개"), &window_);
         eraser_->setObjectName(QStringLiteral("LunaEraseSelected"));
         eraser_->setToolTip(QStringLiteral("텍스트를 먼저 선택한 뒤 클릭하면 해당 영역의 형광펜만 지웁니다. 텍스트 선택 모드는 유지합니다."));
@@ -1251,6 +1283,7 @@ private:
     QAction* eraser_ = nullptr;
     QAction* chooseColor_ = nullptr;
     QList<QAction*> swatches_;
+    QAction* customSwatch_ = nullptr;
     QWidget* autoscrollMarker_ = nullptr;
     QTimer autoscrollTimer_;
     QPoint scrollOrigin_;
@@ -1303,6 +1336,103 @@ public:
         zoom_->setToolTip(QStringLiteral("PDF 확대 비율 · 직접 입력 가능")); zoom_->setAccessibleName(QStringLiteral("확대 비율"));
         zoomAction_ = new QWidgetAction(bar_); zoomAction_->setText(QStringLiteral("확대 비율")); zoomAction_->setDefaultWidget(zoom_);
         for (auto& separator : separators_) { separator = new QAction(bar_); separator->setSeparator(true); }
+        markerMenu_=new QMenu(&shell_);
+        markerMenu_->setObjectName(QStringLiteral("LunaPinnedMarkerMenu"));
+        for (int i=1;i<=8;++i) {
+            auto* choice=markerMenu_->addAction(QString::fromUtf8(kHighlightPresets[i-1].label));
+            choice->setObjectName(QStringLiteral("LunaPinnedMarkerChoice%1").arg(i));
+            choice->setCheckable(true);
+            choice->setIcon(QIcon(new HighlightSwatchIcon(
+                QColor(QString::fromLatin1(kHighlightPresets[i-1].value)))));
+            connect(choice,&QAction::toggled,this,[this,i](bool enabled) {
+                QStringList ids=pinnedMarkerIds();
+                const QString id=QString::number(i);
+                ids.removeAll(id);
+                if (enabled) ids.append(id);
+                savePinnedMarkerIds(ids);
+                rebuild();
+            });
+            markerChecks_.append(choice);
+        }
+        customMarkerCheck_=markerMenu_->addAction(QStringLiteral("사용자 지정 색상 표시"));
+        customMarkerCheck_->setObjectName(QStringLiteral("LunaPinnedCustomMarker"));
+        customMarkerCheck_->setCheckable(true);
+        connect(customMarkerCheck_,&QAction::toggled,this,[this](bool enabled) {
+            QStringList ids=pinnedMarkerIds();
+            ids.removeAll(QStringLiteral("custom"));
+            if (enabled) ids.append(QStringLiteral("custom"));
+            savePinnedMarkerIds(ids);
+            rebuild();
+        });
+        markerMenu_->addSeparator();
+        auto* chooseCustom=markerMenu_->addAction(QStringLiteral("색상 직접 등록…"));
+        chooseCustom->setObjectName(QStringLiteral("LunaRegisterCustomMarker"));
+        connect(chooseCustom,&QAction::triggered,this,[this] {
+            const QColor previous(QSettings().value(kCustomMarkerKey,QStringLiteral("#FFE049")).toString());
+            const QColor color=QColorDialog::getColor(previous,&shell_,QStringLiteral("사용자 지정 형광펜"));
+            if (!color.isValid()) return;
+            QSettings().setValue(kCustomMarkerKey,color.name(QColor::HexRgb));
+            QStringList ids=pinnedMarkerIds();
+            if (!ids.contains(QStringLiteral("custom"))) ids.append(QStringLiteral("custom"));
+            savePinnedMarkerIds(ids);
+            rebuild();
+        });
+        auto* reset=markerMenu_->addAction(QStringLiteral("기본 색상 3개로 복원"));
+        connect(reset,&QAction::triggered,this,[this] {
+            savePinnedMarkerIds({QStringLiteral("1"),QStringLiteral("2"),QStringLiteral("3")});
+            rebuild();
+        });
+        connect(markerMenu_,&QMenu::aboutToShow,this,[this] {
+            const QStringList ids=pinnedMarkerIds();
+            for (int i=0;i<markerChecks_.size();++i) {
+                const QSignalBlocker blocked(markerChecks_[i]);
+                markerChecks_[i]->setChecked(ids.contains(QString::number(i+1)));
+            }
+            const QSignalBlocker blocked(customMarkerCheck_);
+            customMarkerCheck_->setChecked(ids.contains(QStringLiteral("custom")));
+        });
+        markerButton_=new QToolButton(bar_);
+        markerButton_->setObjectName(QStringLiteral("LunaAddToolbarMarker"));
+        markerButton_->setIcon(readerIcon(QStringLiteral("plus")));
+        markerButton_->setToolTip(QStringLiteral("툴바 형광펜 색상 추가·숨기기 (PDF 주석 삭제 아님)"));
+        markerButton_->setAccessibleName(QStringLiteral("형광펜 색상 추가"));
+        markerButton_->setMenu(markerMenu_);
+        markerButton_->setPopupMode(QToolButton::InstantPopup);
+        markerButton_->setAutoRaise(true);
+        markerButton_->setFixedSize(30,32);
+        markerButtonAction_=new QWidgetAction(bar_);
+        markerButtonAction_->setDefaultWidget(markerButton_);
+        spacer_=new QWidget(bar_);
+        spacer_->setObjectName(QStringLiteral("LunaToolbarRightSpacer"));
+        spacer_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);
+        spacerAction_=new QWidgetAction(bar_);
+        spacerAction_->setDefaultWidget(spacer_);
+        rightGroup_=new QWidget(bar_);
+        rightGroup_->setObjectName(QStringLiteral("LunaToolbarRightActions"));
+        auto* rightLayout=new QHBoxLayout(rightGroup_);
+        rightLayout->setContentsMargins(0,0,5,0);
+        rightLayout->setSpacing(4);
+        searchButton_=new QToolButton(rightGroup_);
+        searchButton_->setObjectName(QStringLiteral("LunaRightSearch"));
+        searchButton_->setToolTip(QStringLiteral("본문 검색 (Ctrl+F)"));
+        printButton_=new QToolButton(rightGroup_);
+        printButton_->setObjectName(QStringLiteral("LunaRightPrint"));
+        printButton_->setToolTip(QStringLiteral("인쇄 (Ctrl+P)"));
+        for (auto* button : {searchButton_,printButton_}) {
+            button->setAutoRaise(true);
+            button->setFixedSize(32,33);
+            rightLayout->addWidget(button);
+        }
+        rightGroupAction_=new QWidgetAction(bar_);
+        rightGroupAction_->setDefaultWidget(rightGroup_);
+        saveStatus_=new QLabel(bar_);
+        saveStatus_->setObjectName(QStringLiteral("LunaReaderUnsavedStatus"));
+        saveStatus_->setAccessibleName(QStringLiteral("PDF 저장 상태"));
+        saveStatus_->setFixedWidth(15);
+        saveStatus_->setAlignment(Qt::AlignCenter);
+        saveStatus_->setStyleSheet(QStringLiteral("color:#CC713B; font-size:15px;"));
+        saveStatusAction_=new QWidgetAction(bar_);
+        saveStatusAction_->setDefaultWidget(saveStatus_);
         connect(page_, &QSpinBox::editingFinished, this, [this] {
             if (!editor_ || !page_->isEnabled()) return;
             if (auto* native = editor_->findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"))) {
@@ -1326,29 +1456,63 @@ public:
         connect(&poll_, &QTimer::timeout, this, [this] { synchronize(); }); poll_.start(100);
     }
     void bind(pdfviewer::PDFEditorMainWindow& editor) {
-        // Unbinding stops polling; re-enabling it is necessary on tab reopen.
         if (!poll_.isActive()) poll_.start(100);
-        if (editor_ == &editor) { bar_->show(); synchronize(); return; }
-        // Finish an old tab's view edit before changing its recipient. A late
-        // focus-out must never apply one document's page/zoom text to another.
-        page_->clearFocus(); zoom_->lineEdit()->clearFocus(); zoom_->clearFocus();
-        if (editor_) editor_->removeEventFilter(this);
-        for (auto* action : bar_->actions()) bar_->removeAction(action);
-        editor_ = &editor;
-        editor.installEventFilter(this);
-        auto add = [this](const char* name) { if (auto* action = nativeAction(*editor_, name)) bar_->addAction(action); };
-        if (auto* open = shell_.findChild<QAction*>(QStringLiteral("LunaOpenDocuments"), Qt::FindDirectChildrenOnly)) bar_->addAction(open);
-        add("actionSave"); bar_->addAction(separators_[0]);
-        add("actionGoToPreviousPage"); bar_->addAction(pageAction_); add("actionGoToNextPage"); bar_->addAction(separators_[1]);
-        add("actionZoom_Out"); bar_->addAction(zoomAction_); add("actionZoom_In"); bar_->addAction(separators_[2]);
-        add("actionSelectText"); add("LunaFreeTextBox"); add("LunaCropThumbnail");
-        bar_->addAction(separators_[3]); add("actionFind"); add("actionPrint");
-        bar_->addAction(separators_[4]); // Print | Eraser | 8 marker colors
-        add("LunaEraseSelected");
-        for (int i = 1; i <= 8; ++i) {
-            const QByteArray name = QStringLiteral("LunaHighlightSwatch%1").arg(i).toLatin1();
-            add(name.constData());
+        if (editor_ != &editor) {
+            // Avoid applying a focus-out zoom/page edit to the next PDF tab.
+            page_->clearFocus(); zoom_->lineEdit()->clearFocus(); zoom_->clearFocus();
+            if (editor_) editor_->removeEventFilter(this);
+            editor_ = &editor;
+            editor.installEventFilter(this);
         }
+        rebuild();
+        bar_->show();
+        synchronize();
+    }
+    void rebuild() {
+        if (!editor_) return;
+        for (auto* action : bar_->actions()) bar_->removeAction(action);
+        auto add=[this](const char* name) {
+            if (auto* action=nativeAction(*editor_,name)) bar_->addAction(action);
+        };
+        if (auto* open=shell_.findChild<QAction*>(QStringLiteral("LunaOpenDocuments"),
+                                                Qt::FindDirectChildrenOnly))
+            bar_->addAction(open);
+        add("actionSave");
+        bar_->addAction(saveStatusAction_);
+        add("actionUndo"); add("actionRedo");
+        bar_->addAction(separators_[0]);
+        add("actionGoToPreviousPage");
+        bar_->addAction(pageAction_);
+        add("actionGoToNextPage");
+        bar_->addAction(separators_[1]);
+        add("actionZoom_Out");
+        bar_->addAction(zoomAction_);
+        add("actionZoom_In");
+        bar_->addAction(separators_[2]);
+        add("actionSelectText"); add("LunaFreeTextBox"); add("LunaCropThumbnail");
+        bar_->addAction(separators_[3]);
+        add("LunaEraseSelected");
+        const QStringList ids=pinnedMarkerIds();
+        for (const QString& id:ids) {
+            const QString object=id==QStringLiteral("custom")?
+                QStringLiteral("LunaHighlightCustomSwatch"):
+                QStringLiteral("LunaHighlightSwatch%1").arg(id);
+            if (auto* action=editor_->findChild<QAction*>(object)) {
+                if (id==QStringLiteral("custom")) {
+                    const QColor color(QSettings().value(kCustomMarkerKey,
+                        QStringLiteral("#FFE049")).toString());
+                    if (color.isValid()) action->setIcon(QIcon(new HighlightSwatchIcon(color)));
+                }
+                bar_->addAction(action);
+            }
+        }
+        bar_->addAction(markerButtonAction_);
+        // Keep search/print in a fixed trailing group rather than behind
+        // the variable-length marker palette. The stretch fills free space.
+        bar_->addAction(spacerAction_);
+        searchButton_->setDefaultAction(nativeAction(*editor_,"actionFind"));
+        printButton_->setDefaultAction(nativeAction(*editor_,"actionPrint"));
+        bar_->addAction(rightGroupAction_);
         bar_->show();
         synchronize();
     }
@@ -1368,6 +1532,11 @@ private:
         auto* nativeCount = editor_->findChild<QLabel*>(QStringLiteral("pageNumberLabel"));
         auto* nativeZoom = editor_->findChild<QDoubleSpinBox*>(QStringLiteral("pageZoomSpinBox"));
         if (!nativePage || !nativeCount || !nativeZoom) return;
+        const bool unsaved=editor_->getProgramController()->getDocument() &&
+            editor_->getProgramController()->hasUnsavedChanges();
+        saveStatus_->setText(unsaved?QStringLiteral("●"):QString());
+        saveStatus_->setToolTip(unsaved?QStringLiteral("저장하지 않은 PDF 변경 사항이 있습니다"):
+            QStringLiteral("PDF 변경 사항 없음"));
         page_->setEnabled(nativePage->isEnabled()); zoom_->setEnabled(nativePage->isEnabled());
         {
             const QSignalBlocker block(page_);
@@ -1396,6 +1565,18 @@ private:
     QComboBox* zoom_ = nullptr;
     QWidgetAction *pageAction_ = nullptr, *zoomAction_ = nullptr;
     QAction* separators_[5]{};
+    QMenu* markerMenu_ = nullptr;
+    QList<QAction*> markerChecks_;
+    QAction* customMarkerCheck_ = nullptr;
+    QToolButton* markerButton_ = nullptr;
+    QWidgetAction* markerButtonAction_ = nullptr;
+    QWidget* spacer_ = nullptr;
+    QWidgetAction* spacerAction_ = nullptr;
+    QWidget* rightGroup_ = nullptr;
+    QWidgetAction* rightGroupAction_ = nullptr;
+    QToolButton *searchButton_ = nullptr, *printButton_ = nullptr;
+    QLabel* saveStatus_ = nullptr;
+    QWidgetAction* saveStatusAction_ = nullptr;
     QTimer poll_;
 };
 }

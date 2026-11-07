@@ -1,0 +1,61 @@
+name: LUNA v297 - personalized reading toolbar Windows validation
+on:
+  push:
+    branches:
+      - feature/v297-custom-reader-toolbar-20261108
+    paths:
+      - .github/workflows/v297-reader-toolbar-once.yml
+      - src/lunareadertoolbar.cpp
+      - src/lunatabs.cpp
+      - tests/test_native_tabs.py
+      - tools/preflight_public.py
+      - USER_GUIDE_KO.md
+permissions:
+  contents: read
+  actions: write
+jobs:
+  verify-source:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public-source gate and full Python regression contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Persist evidence and exact source SHA
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'LUNA v297 reader source=%s run=%s. Check the first failed step on any failure. The source check is not full Windows GUI validation.\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v297-Source-Diagnostics
+          path: evidence/failure-analysis.md
+          retention-days: 90
+  dispatch-windows:
+    needs: verify-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Run full PDF4QT MSVC portable and GUI acceptance at this exact SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$REPO" = 'MRYoonn/LUNA-Library-V2'
+          test "$REF_NAME" = feature/v297-custom-reader-toolbar-20261108
+          test "$(gh api "repos/$REPO/branches/$REF_NAME" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
+          echo "Full Windows GUI/Portable dispatched for v297 SHA=$SOURCE_SHA; do not assert compiled GUI success from dispatch alone."

@@ -82,9 +82,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api "repos/$REPO/actions/runs/$SOURCE_RUN" > evidence/windows-run.json
-          test "$(jq -r .status evidence/windows-run.json)" = completed
-          test "$(jq -r .conclusion evidence/windows-run.json)" = success
+          # Refuse mismatched identity immediately, but permit the known full
+          # Windows build to finish. Never select a newer/different run.
+          result=''
+          for attempt in $(seq 1 220); do
+            gh api "repos/$REPO/actions/runs/$SOURCE_RUN" > evidence/windows-run.json
+            test "$(jq -r .head_sha evidence/windows-run.json)" = "$SOURCE_SHA"
+            test "$(jq -r .head_branch evidence/windows-run.json)" = "$BRANCH"
+            test "$(jq -r .path evidence/windows-run.json)" = .github/workflows/build-windows.yml
+            status="$(jq -r .status evidence/windows-run.json)"
+            result="$(jq -r '.conclusion // empty' evidence/windows-run.json)"
+            echo "Exact Windows build $SOURCE_RUN: $status ($result) gate poll $attempt"
+            if [[ "$status" == completed ]]; then
+              test "$result" = success || { echo 'Native Windows run failed; release blocked' >&2; exit 1; }
+              break
+            fi
+            sleep 30
+          done
+          test "$status" = completed
+          test "$result" = success
           test "$(jq -r .head_sha evidence/windows-run.json)" = "$SOURCE_SHA"
           test "$(jq -r .head_branch evidence/windows-run.json)" = "$BRANCH"
           test "$(jq -r .path evidence/windows-run.json)" = .github/workflows/build-windows.yml

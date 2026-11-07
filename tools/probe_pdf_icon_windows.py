@@ -60,33 +60,38 @@ def probe(exe: Path):
                 raise AssertionError(f"Corrupt icon group {resource_id}")
             result[resource_id]=n
             if resource_id==2:
-                # RT_GROUP_ICON points to RT_ICON image resources. Reassemble
-                # the actual Windows EXE image, NOT the build input filename.
-                # This catches a visually similar but non-approved replacement.
-                ico=bytearray(struct.pack("<HHH",0,1,n))
-                images=bytearray()
-                cursor=6+16*n
+                # The Windows resource compiler may normalize GROUP_ICON
+                # planes/offsets; these are metadata, not original artwork.
+                # Require every actual RT_ICON image byte to match the ICO's
+                # original PNG image for the same size, losslessly.
+                approved=(Path(__file__).resolve().parents[1]/
+                          "assets/icons/LUNA-PDF-approved.ico").read_bytes()
+                if len(approved)!=105070 or hashlib.sha256(approved).hexdigest()!=(
+                    "7f89df11a934690f3a6bae8a9b014efdd9f73a3607f3b699e60b44b185349f0f"):
+                    raise AssertionError("Approved PDF icon input hash changed")
+                _,source_kind,source_n=struct.unpack_from("<HHH",approved)
+                if source_kind!=1 or source_n!=n:
+                    raise AssertionError("Original ICO directory size changed")
+                source_images={}
+                for index in range(n):
+                    w,h,_,_,_,_,length,offset=struct.unpack_from(
+                        "<BBBBHHII",approved,6+index*16)
+                    image=approved[offset:offset+length]
+                    if len(image)!=length:
+                        raise AssertionError("Original ICO PNG image is truncated")
+                    source_images[(w or 256,h or 256)]=image
                 dimensions=set()
                 for index in range(n):
-                    w,h,colors,reserved,planes,bits,size,icon_id=struct.unpack_from(
+                    w,h,_,_,_,_,size,icon_id=struct.unpack_from(
                         "<BBBBHHIH",data,6+index*14)
-                    image=get_resource(3,icon_id)  # RT_ICON
-                    if len(image)!=size:
-                        raise AssertionError("ICO image resource length mismatch")
-                    ico.extend(struct.pack("<BBBBHHII",w,h,colors,reserved,planes,bits,size,cursor))
-                    images.extend(image)
-                    cursor+=len(image)
-                    dimensions.add(w or 256)
-                ico.extend(images)
-                expected=(Path(__file__).resolve().parents[1]/
-                          "assets/icons/LUNA-PDF-approved.ico").read_bytes()
-                required={16,24,32,48,64,128,256}
-                if dimensions!=required or bytes(ico)!=expected:
-                    raise AssertionError(
-                        "Approved red PDF icon differs from embedded Windows resource ID 2")
-                actual_hash=hashlib.sha256(ico).hexdigest()
-                if actual_hash!="7f89df11a934690f3a6bae8a9b014efdd9f73a3607f3b699e60b44b185349f0f":
-                    raise AssertionError("Embedded icon SHA-256 pin mismatch")
+                    image=get_resource(3,icon_id)  # actual compiled RT_ICON
+                    dim=(w or 256,h or 256)
+                    if len(image)!=size or source_images.get(dim)!=image:
+                        raise AssertionError(
+                            "Approved red PDF icon differs from embedded Windows resource ID 2")
+                    dimensions.add(dim[0])
+                if dimensions!={16,24,32,48,64,128,256}:
+                    raise AssertionError("Compiled PDF icon resolution set is incomplete")
         if result[2]<7:
             raise AssertionError("PDF icon missing 16/24/32/48/64/128/256 sizes")
         print(f"[PASS] LUNA.exe icon resource 1=blue app ({result[1]} sizes), "

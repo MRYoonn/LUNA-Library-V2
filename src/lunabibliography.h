@@ -134,7 +134,20 @@ public:
             QRegularExpression(QStringLiteral(R"([\r\n]+)")), Qt::SkipEmptyParts);
         QStringList lines;
         for (const QString& candidate : raw) {
-            const QString line = candidate.simplified();
+            QString line = candidate.simplified();
+            // Nature and other publisher PDFs can encode affiliation labels as
+            // Unicode superscript digits separated by modifier-letter commas
+            // (U+02D2). Normalize ONLY the author-list proof string: without
+            // this, a valid "First Name¹˒², Next Name³ &\\nLast Name⁴" fails
+            // the strict comma-delimited author-list and suffix checks.
+            // Neither the PDF text nor any persisted metadata is rewritten.
+            static constexpr ushort digitSuperscripts[] = {
+                0x2070,0x00b9,0x00b2,0x00b3,0x2074,
+                0x2075,0x2076,0x2077,0x2078,0x2079
+            };
+            for (int digit = 0; digit < 10; ++digit)
+                line.replace(QChar(digitSuperscripts[digit]), QChar('0' + digit));
+            line.replace(QChar(0x02d2), QLatin1Char(','));
             if (!line.isEmpty()) lines.append(line);
             if (lines.size() >= 75) break;
         }

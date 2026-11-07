@@ -1,0 +1,74 @@
+name: LUNA v295 - public 31-PDF native author audit (immutable v294)
+
+on:
+  push:
+    branches:
+      - feature/v295-nature-inline-last-author-p0-20261107
+    paths:
+      - .github/workflows/bibliography-author-audit-once.yml
+      - tools/evaluate_goldset.py
+      - tools/diagnose_goldset_authors.py
+      - tests/test_goldset.py
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  public-native-audit:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: windows-2022
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Refuse unexpected repository, validate public source allowlist
+        shell: pwsh
+        run: |
+          if ("$env:GITHUB_REPOSITORY" -ne "MRYoonn/LUNA-Library-V2") { throw 'Invalid repository' }
+          python -B tools/preflight_public.py
+          if ($LASTEXITCODE -ne 0) { throw 'Strict public source privacy gate failed' }
+          python -B -m unittest discover -s tests -p 'test_goldset.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Goldset scoring contract failed' }
+      - name: Download immutable successful v294 native Windows portable artifact
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 42350033927
+          name: LUNA-Windows-Portable
+          github-token: ${{ github.token }}
+          path: portable
+      - name: Authenticate native EXE and exact v294 release source
+        shell: pwsh
+        run: |
+          python -c "import hashlib,json;from pathlib import Path; d=json.loads(Path('portable/build-info.json').read_text(encoding='utf-8-sig')); assert d['commit']=='f847a5ef4cae56875186058fd2d524b704c25455'; assert int(d['run'])==42350033927; assert hashlib.sha256(Path('portable/LUNA.exe').read_bytes()).hexdigest()==d['exeSha256']; print('Exact immutable v294 Windows EXE verified')"
+          if ($LASTEXITCODE -ne 0) { throw 'Native EXE provenance mismatch' }
+      - name: Audit ONLY 31 checksum-pinned public PDF first-page author rows
+        shell: pwsh
+        env:
+          LUNA_METADATA_OFFLINE: '1'
+          LUNA_PUBLIC_GOLDSET_AUDIT: '1'
+        run: |
+          $corpus=Join-Path $env:RUNNER_TEMP 'luna-public-audit-pdfs'
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          python -B tools/evaluate_goldset.py --fetch "$corpus" --exe portable/LUNA.exe --predictions evidence/predictions-local.json --output evidence/score.json
+          if ($LASTEXITCODE -ne 0) { throw 'Public 31-paper native PDF4QT extraction failed' }
+          python -B tools/diagnose_goldset_authors.py --manifest tests/goldset/public-papers.json --score evidence/score.json --predictions evidence/predictions-local.json --output evidence/public-author-layout.json
+          if ($LASTEXITCODE -ne 0) { throw 'Strict public author-audit contract failed' }
+          Remove-Item -Force evidence/predictions-local.json
+      - name: Record audit scope and failure stage (no user data)
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          Set-Content -Path evidence/audit-scope.txt -Encoding UTF8 -Value "v294 immutable native Windows EXE from run 42350033927; public checksum-pinned Europe PMC 31-PDF corpus only. This workflow never enumerates or uploads a user library, user PDF, note, annotation or local path. Consult first failing CI step and score/public-author-layout.json."
+          if (Test-Path evidence/predictions-local.json) { Remove-Item -Force evidence/predictions-local.json }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-P0-Public-Author-Layout-Audit
+          path: |
+            evidence/score.json
+            evidence/public-author-layout.json
+            evidence/audit-scope.txt
+          retention-days: 90

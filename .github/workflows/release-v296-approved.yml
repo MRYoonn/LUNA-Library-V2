@@ -1,0 +1,113 @@
+name: LUNA v296 authorized one-shot stable release
+# One-time authorization: promote verified v296 to the public stable Release.
+# Never publish from source-only dispatch results or an unverified Windows EXE.
+on:
+  push:
+    branches:
+      - release/v296-approved-20261108
+    paths:
+      - .github/workflows/release-v296-approved.yml
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: luna-authorized-v296-production-release
+  cancel-in-progress: false
+jobs:
+  verify-package-and-publish:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: MRYoonn/LUNA-Library-V2
+      TAG: v0.9.0.296
+      SOURCE_SHA: 26a07716b4d39843b8fbe83c7c093e83c4316e67
+      SOURCE_RUN: '42387080630'
+      NATIVE_RUN: '42386854588'
+      NATIVE_SHA: 9eece917f01c28064fa0eaaa7af7051cfbc4e6d5
+    steps:
+      - name: Validate explicit release scope, exact source and existing stable
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "$REPO"
+          test "$GITHUB_REF_NAME" = release/v296-approved-20261108
+          test "$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" = v0.9.0.295
+          test "$(gh api "repos/$REPO/pulls/70" --jq .head.sha)" = "$SOURCE_SHA"
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo 'The target release already exists; refusing to modify or overwrite it.' >&2
+            exit 1
+          fi
+          test "$(gh api "repos/$REPO/actions/runs/$NATIVE_RUN" --jq .conclusion)" = success
+          test "$(gh api "repos/$REPO/actions/runs/$NATIVE_RUN" --jq .head_sha)" = "$NATIVE_SHA"
+          test "$(gh api "repos/$REPO/compare/$NATIVE_SHA...$SOURCE_SHA" --jq '.files | length')" = 1
+          test "$(gh api "repos/$REPO/compare/$NATIVE_SHA...$SOURCE_SHA" --jq '.files[0].filename')" = .github/workflows/v296-full-gui-dispatch-once.yml
+      - name: Wait for exact-source Windows full GUI and portable verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 150); do
+            status="$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .status)"
+            if [[ "$status" == completed ]]; then break; fi
+            echo "Complete Windows source-run is $status; verification has not passed yet."
+            sleep 20
+          done
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .conclusion)" = success
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .head_sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .head_branch)" = feature/v296-shell-pdf-tabs-approved-icon-20261107
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .path)" = .github/workflows/build-windows.yml
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN/jobs?per_page=100" --jq '.jobs[] | select(.name=="windows-packaging-preflight") | .conclusion')" = success
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN/jobs?per_page=100" --jq '.jobs[] | select(.name=="build-windows") | .conclusion')" = success
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN/artifacts?per_page=100" --jq '[.artifacts[] | select(.name=="LUNA-Windows-Portable" and .expired==false)] | length')" = 1
+      - uses: actions/checkout@v4
+        with:
+          ref: 26a07716b4d39843b8fbe83c7c093e83c4316e67
+          persist-credentials: false
+      - name: Verify release source, privacy, offline updater and installer contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Download the complete verified Windows Portable artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging/portable
+          gh run download "$SOURCE_RUN" --repo "$REPO" --name LUNA-Windows-Portable --dir staging/portable
+          test -s staging/portable/LUNA.exe
+      - name: Repackage exact release tag with signed manifest digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m tools.prepare_release --portable staging/portable --destination dist --tag "$TAG" --source-run "$SOURCE_RUN" --commit "$SOURCE_SHA"
+          python -B - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          p=Path('dist')
+          m=json.loads((p/'LUNA-Release.json').read_text(encoding='utf-8'))
+          z=p/'LUNA-Windows-Portable.zip'
+          assert m['tag']=='v0.9.0.296'
+          assert m['commit']=='26a07716b4d39843b8fbe83c7c093e83c4316e67'
+          assert int(m['source_run'])==42387080630
+          assert m['sha256']==hashlib.sha256(z.read_bytes()).hexdigest()
+          assert z.stat().st_size>1_000_000
+          print('APPROVED v296 RELEASE ARTIFACT VERIFIED')
+          PY
+      - name: Create draft first, check both assets, then publish v0.9.0.296
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" = v0.9.0.295
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then exit 1; fi
+          gh release create "$TAG" dist/LUNA-Windows-Portable.zip dist/LUNA-Release.json \
+            --repo "$REPO" --target "$SOURCE_SHA" --draft \
+            --title 'LUNA Library v0.9.0.296 — Tabs, verified filenames and PDF icon' \
+            --notes 'Windows Portable. Explorer PDF opens in the existing LUNA window as a new tab. Native IPC duplicate delivery fixed. Approved red PDF icon is embedded, blue application icon remains. Verified bibliographic-title filename rename, including explicit user approval and deferred file-handle-safe application. Automatic stable release checking works with user-consented staged update, integrity verification and rollback. Exact Windows GUI/source SHA and native IPC checks passed. Data and annotations are preserved.'
+          assets="$(gh release view "$TAG" --repo "$REPO" --json assets --jq '[.assets[].name] | sort | join(",")')"
+          test "$assets" = LUNA-Release.json,LUNA-Windows-Portable.zip
+          gh release edit "$TAG" --repo "$REPO" --draft=false
+          test "$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" = "$TAG"
+          echo "PUBLIC LUNA STABLE RELEASE VERIFIED: $TAG"

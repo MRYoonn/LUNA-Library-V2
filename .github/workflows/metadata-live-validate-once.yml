@@ -1,10 +1,10 @@
-name: LUNA P0 Nature superscripts - full Windows PDF4QT goldset dispatch
+name: LUNA P0 RSC vertical author names - full Windows PDF4QT goldset dispatch
 
 # Narrow one-shot trigger: full PDF4QT build remains manual-only.
 on:
   push:
     branches:
-      - feature/goldset-nature-superscripts-p0-20261107
+      - feature/bibliography-rsc-vertical-authors-p0-20261107
     paths:
       - .github/workflows/metadata-live-validate-once.yml
 
@@ -28,8 +28,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$REPO" = 'MRYoonn/LUNA-Library-V2'
-          test "$REF_NAME" = 'feature/goldset-nature-superscripts-p0-20261107'
+          test "$REF_NAME" = 'feature/bibliography-rsc-vertical-authors-p0-20261107'
           test "${#SOURCE_SHA}" -eq 40
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
-          echo "LUNA Nature superscript fix: full PDF4QT Windows, 31-public-PDF zero-wrong gate after native MSVC PASS: $SOURCE_SHA"
+          echo "LUNA RSC vertical author evidence: native PDF4QT 31-public-PDF fail-closed zero-wrong gate: $SOURCE_SHA"
           echo "Inspect full preflight/Python/native Qt/PDF4QT/UI/ZIP result, never treat dispatch as PASS."

@@ -1,0 +1,56 @@
+name: LUNA v296 - second PDF joins the existing Windows tab (native IPC)
+on:
+  push:
+    branches:
+      - feature/v296-shell-pdf-tabs-approved-icon-20261107
+    paths:
+      - .github/workflows/v296-shell-check-once.yml
+      - src/lunawindowrelay.h
+      - src/lunatabs.cpp
+      - tools/apply_overlay.py
+      - tests/native_dialog/windowrelay.cpp
+      - tests/native_dialog/CMakeLists.txt
+      - tools/preflight_public.py
+permissions:
+  contents: read
+jobs:
+  public-source-gate:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public-only source and Python regression contracts
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+  native-second-process:
+    needs: public-source-gate
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: 'C:/qt-luna-v296/'
+          install-deps: 'true'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Native Windows MSVC compile and actual second-process shell IPC
+        shell: pwsh
+        run: |
+          $probe=Join-Path $env:RUNNER_TEMP 'luna-window-relay'
+          cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Native window relay CMake configure failed' }
+          cmake --build $probe --target luna-native-windowrelay --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Native LUNA window relay compile failed' }
+          ctest --test-dir $probe -C Release -R '^native_window_relay$' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows second-process to first-window IPC failed' }

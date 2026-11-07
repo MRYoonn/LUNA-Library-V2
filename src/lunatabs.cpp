@@ -10,6 +10,7 @@
 #include "lunabibliography.h"
 #include <QHash>
 #include "lunadocumentclaim.h"
+#include "lunawindowrelay.h"
 #include "lunasidecarpaths.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
@@ -1826,7 +1827,37 @@ int runTabbedLibrary(const QStringList& files, const QString& report, bool resto
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QFileInfo(qEnvironmentVariable("LUNA_UI_AUDIT")).absolutePath() + "/settings");
         QSettings(QSettings::IniFormat, QSettings::UserScope, "LUNA", "LUNA Library").setValue("library/root", qEnvironmentVariable("LUNA_AUDIT_ROOT"));
     }
+    // All normal Explorer .pdf launches must reuse the one tabbed shell.
+    // CI native/Chrome audits deliberately isolate their processes instead.
+    std::unique_ptr<WindowRelay> windowRelay;
+    if (report.isEmpty() && qEnvironmentVariableIsEmpty("LUNA_UI_AUDIT")) {
+        windowRelay = std::make_unique<WindowRelay>();
+        const auto owner = windowRelay->claimOrForward(files);
+        if (owner == WindowRelay::Result::Forwarded) {
+            qApp->setQuitOnLastWindowClosed(previousQuitPolicy);
+            return 0;  // Existing window acknowledged the new PDF batch.
+        }
+        if (owner == WindowRelay::Result::Error) {
+            QMessageBox::warning(nullptr, QStringLiteral("LUNA 창 연결 실패"),
+                QStringLiteral("이미 실행 중인 LUNA에 PDF를 전달할 수 없습니다. "
+                               "기존 창을 확인한 다음 다시 시도해 주세요."));
+            qApp->setQuitOnLastWindowClosed(previousQuitPolicy);
+            return 3;  // Never create an untracked second PDF window.
+        }
+    }
     NativeTabs host;
+    if (windowRelay) {
+        windowRelay->setOpenHandler([&host](const QStringList& newFiles) {
+            for (const auto& path : newFiles) host.open(path, "explorer-shell-ipc");
+            if (host.isMinimized()) host.showNormal();
+            host.show();
+            host.raise();
+            host.activateWindow();
+#ifdef Q_OS_WIN
+            SetForegroundWindow(reinterpret_cast<HWND>(host.winId()));
+#endif
+        });
+    }
     int opened = 0;
     const QStringList initial = !report.isEmpty() && !restore ? files.mid(0, 1) : files;
     for (const auto& file : initial) if (host.open(file)) ++opened;

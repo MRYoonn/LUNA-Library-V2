@@ -10,6 +10,9 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window);
 void installLibraryShell(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& initial);
 void bindLibraryEditor(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor);
 void recordLibraryDocument(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor);
+// After the native reader and document claims release their handles, drain
+// deferred verified-title renames without touching unverified documents.
+void flushLibraryTitleRenames(QMainWindow& shell);
 void setLibraryDocumentRouter(QMainWindow& shell, std::function<void(const QString&)> open,
     std::function<bool(const QString&)> elsewhere,
     std::function<bool(pdfviewer::PDFEditorMainWindow*, const QString&, const QString&)> moved);

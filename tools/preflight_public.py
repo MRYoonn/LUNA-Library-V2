@@ -89,6 +89,7 @@ APPROVED = {
     ".github/workflows/tab-rail-polish-v291-once.yml",
     ".github/workflows/header-align-v292-once.yml",
     ".github/workflows/bibliography-p0-v293-once.yml",
+    ".github/workflows/bibliography-p0-v294-once.yml",
     ".github/workflows/metadata-native-quickcheck-once.yml",
     "src/lunalibrary.cpp", "src/lunalibrary.h", "src/lunabibliography.h", "src/lunafirstpage.h", "src/lunathumbnailcache.h",
     "src/lunafrontmatter.h",

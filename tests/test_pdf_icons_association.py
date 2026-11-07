@@ -4,9 +4,10 @@ The actual Windows EXE resources, registry writes and tab-paint behavior are
 verified by the real Windows CI, not by these source-level checks.
 """
 import struct
+import hashlib
 import unittest
 from pathlib import Path
-from tools.generate_pdf_icon import SIZES, PNG_MAGIC, make_icon
+from tools.generate_pdf_icon import SIZES, PNG_MAGIC
 
 ROOT=Path(__file__).resolve().parents[1]
 ASSOC=(ROOT/"src/lunapdfassociation.h").read_text(encoding="utf-8")
@@ -21,14 +22,18 @@ CMAKE=(ROOT/"tests/native_dialog/CMakeLists.txt").read_text(encoding="utf-8")
 
 class LunaIconContracts(unittest.TestCase):
     def test_pdf_multisize_icon_valid_ico_png_entries(self):
-        data=make_icon()
+        data=(ROOT/"assets/icons/LUNA-PDF-approved.ico").read_bytes()
+        self.assertEqual(len(data),105070)
+        self.assertEqual(hashlib.sha256(data).hexdigest(),"7f89df11a934690f3a6bae8a9b014efdd9f73a3607f3b699e60b44b185349f0f")
         self.assertEqual(struct.unpack_from("<HHH",data), (0,1,len(SIZES)))
         for i,dimension in enumerate(SIZES):
             width,height,colors,reserved,planes,bpp,length,offset=struct.unpack_from(
                 "<BBBBHHII",data,6+i*16)
             self.assertEqual(width,0 if dimension==256 else dimension)
             self.assertEqual(height,0 if dimension==256 else dimension)
-            self.assertEqual((colors,reserved,planes,bpp),(0,0,1,32))
+            # The exact approved Windows ICO legitimately uses biPlanes=0.
+            self.assertEqual((colors,reserved,bpp),(0,0,32))
+            self.assertIn(planes,(0,1))
             self.assertGreater(length,75)
             self.assertLessEqual(offset+length,len(data))
             self.assertEqual(data[offset:offset+8],PNG_MAGIC)
@@ -38,7 +43,9 @@ class LunaIconContracts(unittest.TestCase):
 
     def test_original_blue_exe_icon_preserved_and_pdf_red_icon_embedded(self):
         self.assertIn('folder / "LUNA-Moon.ico": (own.parent / "assets/icons/LUNA-Moon.ico").read_bytes()',OVERLAY)
-        self.assertIn('folder / "LUNA-PDF.ico": make_icon()',OVERLAY)
+        self.assertIn('folder / "LUNA-PDF.ico": approved_pdf_icon',OVERLAY)
+        self.assertIn('Approved red PDF ICO content changed or is missing',OVERLAY)
+        self.assertNotIn('folder / "LUNA-PDF.ico": make_icon()',OVERLAY)
         self.assertIn('1 ICON DISCARDABLE "LUNA-Moon.ico"',OVERLAY)
         self.assertIn('2 ICON DISCARDABLE "LUNA-PDF.ico"',OVERLAY)
         self.assertIn('target_link_libraries(LUNA PRIVATE advapi32 shell32)',OVERLAY)
@@ -48,6 +55,7 @@ class LunaIconContracts(unittest.TestCase):
         self.assertIn('if (root/"LUNA-PDF.ico").exists():',PROBE)
         self.assertIn('for resource_id in (1,2):',PROBE)
         self.assertIn('resource ID {resource_id}',PROBE)
+        self.assertIn('Approved red PDF icon differs from embedded Windows resource ID 2',PROBE)
 
     def test_default_app_registration_only_on_explicit_user_click(self):
         for token in (

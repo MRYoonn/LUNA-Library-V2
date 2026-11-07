@@ -1,11 +1,15 @@
-name: LUNA P0 RSC vertical final authors - native QtCore safety gate
+name: LUNA v295 Nature inline last-author - native QtCore fail-closed gate
 
 on:
   push:
     branches:
-      - feature/bibliography-rsc-vertical-authors-p0-20261107
+      - feature/v295-nature-inline-last-author-p0-20261107
     paths:
       - .github/workflows/metadata-native-quickcheck-once.yml
+      - src/lunabibliography.h
+      - tests/native_metadata/main.cpp
+      - tools/evaluate_goldset.py
+      - tests/test_goldset.py
 
 permissions:
   contents: read

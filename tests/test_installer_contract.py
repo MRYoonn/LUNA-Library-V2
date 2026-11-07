@@ -27,7 +27,7 @@ class InstallerContracts(unittest.TestCase):
 
     def test_installer_only_built_after_native_validation(self):
         gates = [
-            "Independent document windows and native annotation round trip",
+            "Native full GUI Explorer PDF opens in existing LUNA tab",
             "Production native tabs, library and fresh-process memo restoration",
             "Record validation scope in the portable package",
             "Build and smoke-test per-user LUNA Setup EXE",

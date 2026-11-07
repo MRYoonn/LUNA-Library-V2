@@ -1,0 +1,106 @@
+name: LUNA v296 - second PDF joins the existing Windows tab (native IPC)
+on:
+  push:
+    branches:
+      - feature/v296-shell-pdf-tabs-approved-icon-20261107
+    paths:
+      - .github/workflows/v296-shell-check-once.yml
+      - src/lunawindowrelay.h
+      - src/lunatabs.cpp
+      - tools/apply_overlay.py
+      - tests/native_dialog/windowrelay.cpp
+      - tests/native_dialog/CMakeLists.txt
+      - tools/preflight_public.py
+      - tests/test_public_gate.py
+      - src/lunalibrary.cpp
+      - src/lunalibrary.h
+      - tests/test_auto_filename_contract.py
+      - tools/probe_pdf_icon_windows.py
+permissions:
+  contents: read
+jobs:
+  public-source-gate:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public-only source and Python regression contracts
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+  native-second-process:
+    needs: public-source-gate
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: 'C:/qt-luna-v296/'
+          install-deps: 'true'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Native Windows MSVC compile and actual second-process shell IPC
+        shell: pwsh
+        run: |
+          $probe=Join-Path $env:RUNNER_TEMP 'luna-window-relay'
+          cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Native window relay CMake configure failed' }
+          cmake --build $probe --target luna-native-windowrelay --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Native LUNA window relay compile failed' }
+          Write-Host "QT_ROOT_DIR=$env:QT_ROOT_DIR"
+          Write-Host "Built EXE: $(Get-Item "$probe/Release/luna-native-windowrelay.exe" | Select-Object -ExpandProperty Length)"
+          & "$probe/Release/luna-native-windowrelay.exe"
+          $directCode=$LASTEXITCODE
+          Write-Host "Direct native test exit code: $directCode"
+          ctest --test-dir $probe -C Release -R '^native_window_relay$' --verbose --output-on-failure
+          $testCode=$LASTEXITCODE
+          if ($testCode -ne 0 -or $directCode -ne 0) { throw "Actual Windows second-process tab IPC failed: direct=$directCode ctest=$testCode" }
+
+  compiled-icon-resource:
+    needs: public-source-gate
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect exact approved ICO through Windows rc.exe and link.exe
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'luna-ico-native-resource'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $sources=Join-Path $dir 'inputs'
+          New-Item -ItemType Directory -Path $sources -Force | Out-Null
+          Copy-Item assets/icons/LUNA-Moon.ico (Join-Path $sources 'LUNA-Moon.ico')
+          Copy-Item assets/icons/LUNA-PDF-approved.ico (Join-Path $sources 'LUNA-PDF.ico')
+          @'
+          1 ICON DISCARDABLE "inputs/LUNA-Moon.ico"
+          2 ICON DISCARDABLE "inputs/LUNA-PDF.ico"
+          '@ | Set-Content -Encoding ascii (Join-Path $dir 'luna_icon.rc')
+          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vsdir=(& $vswhere -latest -products '*' -property installationPath).Trim()
+          if (-not $vsdir) { throw 'Visual Studio unavailable for icon resource test' }
+          $vsdev=Join-Path $vsdir 'Common7/Tools/VsDevCmd.bat'
+          $commands=@(
+            "call `"$vsdev`" -no_logo -arch=x64 -host_arch=x64",
+            "cd /d `"$dir`"",
+            "rc /nologo /fo`"icon.res`" `"luna_icon.rc`"",
+            "if errorlevel 1 exit /b 1",
+            "link /nologo /dll /noentry /machine:x64 /out:`"LUNA.exe`" `"icon.res`"",
+            "if errorlevel 1 exit /b 1"
+          )
+          $commands | Set-Content -Encoding ascii (Join-Path $dir 'icon-build.cmd')
+          & cmd.exe /c (Join-Path $dir 'icon-build.cmd')
+          if ($LASTEXITCODE -ne 0) { throw 'Isolated Windows ICO resource compile failed' }
+          python -B tools/probe_pdf_icon_windows.py (Join-Path $dir 'LUNA.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Approved icon does not survive rc/link resource embedding' }

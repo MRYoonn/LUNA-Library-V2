@@ -17,8 +17,10 @@ a new PC happen to pass. Fix: embed TWO separate icon groups into the EXE
 Windows RC resource, with stable numeric IDs:
 
 - 1 ICON LUNA-Moon.ico — exact unchanged approved app blue logo.
-- 2 ICON LUNA-PDF.ico — new deterministic red document/file association artwork,
-  generated in memory from tools/generate_pdf_icon.py during source overlay.
+- 2 ICON LUNA-PDF.ico — **the exact user-approved original** in
+  `assets/icons/LUNA-PDF-approved.ico` (SHA-256
+  `7f89df11a934690f3a6bae8a9b014efdd9f73a3607f3b699e60b44b185349f0f`).
+  The overlay checks these original bytes and embeds this asset, not a regenerated image.
 
 The red ICO is an **intermediate build resource only**, not included as an
 independent ZIP file. Windows ProgID DefaultIcon references

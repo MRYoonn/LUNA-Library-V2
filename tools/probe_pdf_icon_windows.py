@@ -7,6 +7,7 @@ already-published LUNA v256 updater will reject that file extension.
 """
 from __future__ import annotations
 import ctypes
+import hashlib
 from pathlib import Path
 import struct
 import sys
@@ -37,26 +38,73 @@ def probe(exe: Path):
     if not mapped:
         raise OSError(ctypes.get_last_error(),"Cannot load LUNA icon resources")
     try:
+        def get_resource(kind, identifier):
+            handle=kernel.FindResourceW(mapped,ctypes.c_void_p(identifier),
+                                         ctypes.c_void_p(kind))
+            if not handle:
+                raise AssertionError(f"Missing resource kind {kind} id {identifier}")
+            length=kernel.SizeofResource(mapped,handle)
+            block=kernel.LoadResource(mapped,handle)
+            pointer=kernel.LockResource(block) if block else None
+            if not pointer or not length:
+                raise AssertionError(f"Empty resource kind {kind} id {identifier}")
+            return ctypes.string_at(pointer,length)
+
         result={}
         for resource_id in (1,2):
-            group=kernel.FindResourceW(mapped,ctypes.c_void_p(resource_id),
-                                       ctypes.c_void_p(14)) # RT_GROUP_ICON
-            if not group:
-                raise AssertionError(f"Missing icon group ID {resource_id}")
-            count=kernel.SizeofResource(mapped,group)
-            h=kernel.LoadResource(mapped,group)
-            pointer=kernel.LockResource(h) if h else None
-            if not pointer or count<6:
+            data=get_resource(14,resource_id)  # RT_GROUP_ICON
+            if len(data)<6:
                 raise AssertionError(f"Invalid ICO resource ID {resource_id}")
-            data=ctypes.string_at(pointer,count)
             reserved,kind,n=struct.unpack_from("<HHH",data)
-            if reserved or kind!=1 or n<1 or count<6+14*n:
+            if reserved or kind!=1 or n<1 or len(data)<6+14*n:
                 raise AssertionError(f"Corrupt icon group {resource_id}")
             result[resource_id]=n
+            if resource_id==2:
+                # The Windows resource compiler may normalize GROUP_ICON
+                # planes/offsets; these are metadata, not original artwork.
+                # Require every actual RT_ICON image byte to match the ICO's
+                # original PNG image for the same size, losslessly.
+                approved=(Path(__file__).resolve().parents[1]/
+                          "assets/icons/LUNA-PDF-approved.ico").read_bytes()
+                if len(approved)!=105070 or hashlib.sha256(approved).hexdigest()!=(
+                    "7f89df11a934690f3a6bae8a9b014efdd9f73a3607f3b699e60b44b185349f0f"):
+                    raise AssertionError("Approved PDF icon input hash changed")
+                _,source_kind,source_n=struct.unpack_from("<HHH",approved)
+                if source_kind!=1 or source_n!=n:
+                    raise AssertionError("Original ICO directory size changed")
+                source_images={}
+                for index in range(n):
+                    w,h,_,_,_,_,length,offset=struct.unpack_from(
+                        "<BBBBHHII",approved,6+index*16)
+                    image=approved[offset:offset+length]
+                    if len(image)!=length:
+                        raise AssertionError("Original ICO PNG image is truncated")
+                    source_images[(w or 256,h or 256)]=image
+                dimensions=set()
+                for index in range(n):
+                    w,h,_,_,_,_,size,icon_id=struct.unpack_from(
+                        "<BBBBHHIH",data,6+index*14)
+                    image=get_resource(3,icon_id)  # actual compiled RT_ICON
+                    dim=(w or 256,h or 256)
+                    expected=source_images.get(dim)
+                    if len(image)!=size or expected!=image:
+                        other=[str(k) for k,v in source_images.items() if v==image]
+                        raise AssertionError(
+                            "Approved red PDF icon differs from embedded Windows resource ID 2"
+                            f": dimension={dim} iconId={icon_id} "
+                            f"groupBytes={size} actualBytes={len(image)} "
+                            f"sourceBytes={len(expected) if expected is not None else 'missing'} "
+                            f"sourceSha256={hashlib.sha256(expected or b'').hexdigest()[:24]} "
+                            f"actualSha256={hashlib.sha256(image).hexdigest()[:24]} "
+                            f"sourceSig={(expected or b'')[:8].hex()} actualSig={image[:8].hex()} "
+                            f"matchesOtherSourceDimensions={other}")
+                    dimensions.add(dim[0])
+                if dimensions!={16,24,32,48,64,128,256}:
+                    raise AssertionError("Compiled PDF icon resolution set is incomplete")
         if result[2]<7:
             raise AssertionError("PDF icon missing 16/24/32/48/64/128/256 sizes")
         print(f"[PASS] LUNA.exe icon resource 1=blue app ({result[1]} sizes), "
-              f"2=red PDF document ({result[2]} sizes); no external ICO")
+              f"2=exact approved red PDF document ({result[2]} sizes); no external ICO")
         return result
     finally:
         kernel.FreeLibrary(mapped)

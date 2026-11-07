@@ -647,12 +647,15 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
-      - name: Independent document windows and native annotation round trip
+      # The original v295 independent-window probe is now obsolete: v296
+      # MUST forward Explorer PDF opens to the one live tabbed GUI instead.
+      # Keeping that legacy probe would reject the intended user requirement.
+      - name: Native full GUI Explorer PDF opens in existing LUNA tab
         id: native-ui
         shell: pwsh
         run: |
-          python -B tools/probe_documents_windows.py LUNA-Windows-Portable --screenshots-directory "$env:RUNNER_TEMP/luna-ui"
-          if ($LASTEXITCODE -ne 0) { throw "Native UI or annotation round trip failed" }
+          python -B tools/probe_shell_pdf_tabs_windows.py LUNA-Windows-Portable "$env:RUNNER_TEMP/luna-ui/explorer-shell"
+          if ($LASTEXITCODE -ne 0) { throw 'Native LUNA second PDF did not join the existing GUI; inspect synthetic diagnostics' }
 
       # Only a failed native UI run triggers this Microsoft-signed debugger.
       # It cannot turn the preceding failure into a success.
@@ -741,7 +744,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Cannot enumerate executed native Qt test scope' }
           $nativeTests = ($nativeScope | ConvertFrom-Json).tests.Count
           if ($nativeTests -lt 1) { throw 'Empty native Qt test scope' }
-          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ publicBibliographyGoldset = '31 checksum-pinned actual PDFs; direct PDF4QT evaluation passed; detailed field counts retained in native UI artifact'; panelOriginalHeaderY = '36px per original slot, custom widths, all states and height changes passed at 100%, 125%, 150%'; nativeMetadata = 'passed'; userPcRepeatedCtrlW = 'User confirmed 30 closes on Windows 10 at 30e2a01; current CI legacy-layout disposal regression passed under CDB/page heap'; pythonTests = $pythonTests; nativeQtTests = $nativeTests; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; nativeTabBibliographyIsolation = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; independentDocumentWindows = '2, 5, 10 passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; publicMainAndSiBibliography = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
+          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ publicBibliographyGoldset = '31 checksum-pinned actual PDFs; direct PDF4QT evaluation passed; detailed field counts retained in native UI artifact'; panelOriginalHeaderY = '36px per original slot, custom widths, all states and height changes passed at 100%, 125%, 150%'; nativeMetadata = 'passed'; userPcRepeatedCtrlW = 'User confirmed 30 closes on Windows 10 at 30e2a01; current CI legacy-layout disposal regression passed under CDB/page heap'; pythonTests = $pythonTests; nativeQtTests = $nativeTests; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; nativeTabBibliographyIsolation = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; singleWindowExplorerPdfTabs = 'first-window ownership, second PDF tab, duplicate activation and Unicode paths passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; publicMainAndSiBibliography = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
       - name: Verify tagged portable release manifest and file hashes (offline)
         if: ${{ !inputs.native_tabs_proof }}

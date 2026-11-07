@@ -15,7 +15,7 @@
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const QStringList args = app.arguments();
-    const bool secondary = args.size() == 4 && args[1] == QStringLiteral("--second");
+    const bool secondary = args.size() >= 4 && args[1] == QStringLiteral("--second");
     const QString appId = secondary ? args[2]
         : QStringLiteral("LUNA-WindowRelay-Native-%1").arg(app.applicationPid());
     QCoreApplication::setOrganizationName(QStringLiteral("LUNA-Test"));
@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
 
     if (secondary) {
         luna::WindowRelay client;
-        return client.claimOrForward({args[3]}) ==
+        return client.claimOrForward(args.mid(3)) ==
                        luna::WindowRelay::Result::Forwarded ? 0 : 4;
     }
 
@@ -57,14 +57,14 @@ int main(int argc, char** argv) {
         ++received;
         delivered = paths;
     });
-    auto spawn = [&](const QString& requested) {
+    auto spawn = [&](const QStringList& requested) {
         QProcess child;
         child.setProcessChannelMode(QProcess::MergedChannels);
         const QString program = app.applicationFilePath();
         child.setProgram(program);
-        child.setArguments({QStringLiteral("--second"), appId, requested});
+        child.setArguments(QStringList{QStringLiteral("--second"), appId} + requested);
         std::fprintf(stderr, "WINDOW_RELAY_CHILD_START program=%s file=%s exists=%d\\n",
-            qPrintable(program), qPrintable(requested), QFileInfo(program).isFile());
+            qPrintable(program), qPrintable(requested.join(QStringLiteral(";"))), QFileInfo(program).isFile());
         std::fflush(stderr);
         child.start();
         if (!child.waitForStarted(3500)) {
@@ -99,14 +99,14 @@ int main(int argc, char** argv) {
         }
         return finished && child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0;
     };
-    if (!spawn(filename)) return fail("Child PDF launch did not join primary process", 14);
+    if (!spawn({filename})) return fail("Child PDF launch did not join primary process", 14);
     if (received != 1 || delivered != QStringList{filename})
         return fail("First forwarded PDF filename did not survive IPC", 15);
     // Opening a DIFFERENT PDF is the actual user regression. A duplicate
     // alone does not prove second Explorer launches reach a new document.
     received = 0;
     delivered.clear();
-    if (!spawn(secondFilename)) return fail("Distinct second PDF did not join primary", 22);
+    if (!spawn({secondFilename})) return fail("Distinct second PDF did not join primary", 22);
     if (received != 1 || delivered != QStringList{secondFilename})
         return fail("Distinct second PDF path changed over real Windows IPC", 23);
 
@@ -114,19 +114,15 @@ int main(int argc, char** argv) {
     // may select the existing document rather than create another tab.
     received = 0;
     delivered.clear();
-    if (!spawn(secondFilename)) return fail("Repeated second PDF did not join primary", 16);
+    if (!spawn({secondFilename})) return fail("Repeated second PDF did not join primary", 16);
     if (received != 1 || delivered != QStringList{secondFilename})
         return fail("Duplicate second PDF filename was corrupted", 17);
 
     // Batch delivery must preserve ordering and exact Unicode paths.
     received = 0;
     delivered.clear();
-    if (!owner.forward({filename, secondFilename}))
+    if (!spawn({filename, secondFilename}))
         return fail("Two-file batch was rejected", 24);
-    QElapsedTimer batchClock;
-    batchClock.start();
-    while (received == 0 && batchClock.elapsed() < 2000)
-        QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
     if (received != 1 || delivered != (QStringList{filename, secondFilename}))
         return fail("Two-file batch lost ordering or Unicode path", 25);
 

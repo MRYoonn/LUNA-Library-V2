@@ -1914,6 +1914,25 @@ public:
             if (dock->width() >= 432 && dock->width() <= 850)
                 settings.setValue(QStringLiteral("library/expandedDockWidth"), dock->width());
     }
+    // A real tab-close or whole-LUNA exit must drain verified filename work
+    // AFTER PDF4QT has closed the reader and released document claim locks.
+    // Otherwise a pending two-second timer disappears at normal app exit.
+    void flushPendingTitleRenamesAfterReaderClose() {
+        titleRenameTimer_.stop();
+        for (int round = 0; round < 2 && !pendingTitleRenames_.isEmpty(); ++round) {
+            const QStringList pending = pendingTitleRenames_.values();
+            bool completed = false;
+            for (const QString& identity : pending) {
+                if (renameExtractedTitleFile(identity)) {
+                    pendingTitleRenames_.remove(identity);
+                    completed = true;
+                }
+            }
+            if (!completed) break;
+        }
+        if (!pendingTitleRenames_.isEmpty() &&
+            !window()->property("LunaClosing").toBool()) titleRenameTimer_.start();
+    }
 private:
     QStringList savedPaths(const QString& key) const {
         return QSettings(QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("LUNA"), QStringLiteral("LUNA Library")).value(key).toStringList();
@@ -1971,11 +1990,13 @@ private:
             localSync_->renamed(original, moved.documentPath);
         if (localSync_) localSync_->publish(moved.documentPath);
         ThumbnailCache::instance()->invalidate();
-        allTimer_->stop(); allIterator_.reset(); allScanned_ = false; allPdfs_->clear();
-        refreshFileLists();
-        if (pages_->currentIndex() == 1) scanAll();
-        else if (pages_->currentIndex() == 2) showHistory(showingFavorites_);
-        model_->refreshPdfCounts(root_);
+        if (!window()->property("LunaClosing").toBool()) {
+            allTimer_->stop(); allIterator_.reset(); allScanned_ = false; allPdfs_->clear();
+            refreshFileLists();
+            if (pages_->currentIndex() == 1) scanAll();
+            else if (pages_->currentIndex() == 2) showHistory(showingFavorites_);
+            model_->refreshPdfCounts(root_);
+        }
         return true;
     }
     // Explicit user action, no modal dialog and no forced auto-save of
@@ -3941,6 +3962,9 @@ static LibraryPanel* panel(QMainWindow& shell) {
 }
 void bindLibraryEditor(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor) { if (auto* p = panel(shell)) p->bindEditor(editor); }
 void recordLibraryDocument(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor) { if (auto* p = panel(shell)) p->recordEditor(editor); }
+void flushLibraryTitleRenames(QMainWindow& shell) {
+    if (auto* p = panel(shell)) p->flushPendingTitleRenamesAfterReaderClose();
+}
 void setLibraryDocumentRouter(QMainWindow& shell, std::function<void(const QString&)> open,
     std::function<bool(const QString&)> elsewhere,
     std::function<bool(pdfviewer::PDFEditorMainWindow*, const QString&, const QString&)> moved) {

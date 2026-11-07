@@ -216,6 +216,31 @@ public:
                 // title ending in "and Industrial Applications" is a name.
                 // Ambiguous reordered covers should abstain, not use that title.
             }
+            // RSC Chemical Science sometimes prints one contributor per
+            // vertical PDF text row ("Patrick Charchar,", "Gavin E. Reid,",
+            // ... "and Marie-Isabel Aguilar"). No single line then matches
+            // pairedNames. Permit ONLY an explicitly terminal "and Name",
+            // backed by >=2 preceding full comma-terminated PERSON rows
+            // within the tight front-matter region and a printed journal cue.
+            // Do not infer from lone names, title conjunctions or body prose.
+            if (!hasAuthorList && i < 32 &&
+                line.startsWith(QStringLiteral("and "), Qt::CaseInsensitive)) {
+                const QString journal = firstPageCitation(firstPageText).value("journal").toString();
+                const bool rscScience = journal.contains(QStringLiteral("Chem. Sci"),
+                        Qt::CaseInsensitive) ||
+                    journal.compare(QStringLiteral("Chemical Science"), Qt::CaseInsensitive) == 0;
+                if (rscScience) {
+                    int precedingNamedCommas = 0;
+                    for (qsizetype back = 1; back <= 12 && back <= i; ++back) {
+                        const QString previous = lines[i - back];
+                        if (bodyBoundary.match(previous).hasMatch()) break;
+                        if (!previous.endsWith(QLatin1Char(','))) continue;
+                        const QString priorName = previous.left(previous.size() - 1).simplified();
+                        if (credibleAuthor(priorName)) ++precedingNamedCommas;
+                    }
+                    hasAuthorList = precedingNamedCommas >= 2;
+                }
+            }
             if (!hasAuthorList) continue;
             if (!found.isEmpty() && found != candidate) return {};
             found = candidate;

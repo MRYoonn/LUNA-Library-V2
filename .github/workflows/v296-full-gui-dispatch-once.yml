@@ -34,5 +34,6 @@ jobs:
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           python -B tools/preflight_public.py
           python -B -m unittest discover -s tests -p 'test_*.py' -v
+          # v296 final-source checkpoint: approved icon, title rename, native one-window tabs.
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
           echo "Full PDF4QT Windows build dispatched for $SOURCE_SHA; dispatch is NOT a passing result."

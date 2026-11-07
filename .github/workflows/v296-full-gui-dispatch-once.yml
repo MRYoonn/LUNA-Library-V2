@@ -1,0 +1,38 @@
+name: LUNA v296 - one-shot full Windows GUI verification dispatch
+on:
+  push:
+    branches:
+      - feature/v296-shell-pdf-tabs-approved-icon-20261107
+    paths:
+      - .github/workflows/v296-full-gui-dispatch-once.yml
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: luna-v296-full-native-one-shot
+  cancel-in-progress: false
+jobs:
+  dispatch-full-native:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify public source and trigger existing full PDF4QT Windows release gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = 'MRYoonn/LUNA-Library-V2'
+          test "$REF_NAME" = 'feature/v296-shell-pdf-tabs-approved-icon-20261107'
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
+          echo "Full PDF4QT Windows build dispatched for $SOURCE_SHA; dispatch is NOT a passing result."

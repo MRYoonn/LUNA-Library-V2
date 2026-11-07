@@ -53,8 +53,34 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Qt Windows CMake configuration failed' }
           cmake --build $probe --target luna-native-filemoves --config Release --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows file move and QLockFile compile failed' }
-          ctest --test-dir $probe -C Release -R '^native_file_moves$' --verbose --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'Native stale document lock / rename / sidecar contract failed' }
+          & "$probe/Release/luna-native-filemoves.exe"
+          $directCode=$LASTEXITCODE
+          Write-Host "Direct native PDF rename test exit: $directCode"
+          ctest --test-dir $probe -C Release -R '^native_file_moves
+  dispatch-full-windows:
+    needs: native-stale-lock-and-filemove
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Dispatch complete Windows Portable build at validated source HEAD
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$REPO" = 'MRYoonn/LUNA-Library-V2'
+          test "$REF_NAME" = feature/v298-title-rename-diagnostics-20261108
+          test "$(gh api "repos/$REPO/branches/$REF_NAME" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
+          echo "Dispatched full LUNA.exe Windows GUI and portable verification. No stable release without success."
+ -V --output-on-failure
+          $ctestCode=$LASTEXITCODE
+          if ($ctestCode -ne 0 -or $directCode -ne 0) {
+            throw "Native stale lock/PDF rename failure: direct=$directCode ctest=$ctestCode"
+          }
   dispatch-full-windows:
     needs: native-stale-lock-and-filemove
     runs-on: ubuntu-latest

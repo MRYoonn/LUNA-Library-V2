@@ -37,3 +37,4 @@ jobs:
           # v296 verified compatibility checkpoint: legacy independent-window test removed; original PDF ICO pinned; installer gate updated.
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
           echo "Full PDF4QT Windows build dispatched for $SOURCE_SHA; dispatch is NOT a passing result."
+# RETRY_ICON_RESOURCE_DIAGNOSTICS_20261107: isolated Windows RC/link resource check passed; rerun full packaged EXE with per-size diagnostic hashes.

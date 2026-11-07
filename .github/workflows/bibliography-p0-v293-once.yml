@@ -184,3 +184,8 @@ jobs:
 # 2026-11-07 exact-source rerun: update previous hardcoded 218px contract to
 # new 192px preference. Native 10-cycle panel geometry, UI and release asset
 # SHA256 validation are unchanged and mandatory.
+
+# 2026-11-07 verified P0 rerun: code has been trimmed back inside the
+# unchanged 280000-byte privacy cap. Continue with full Python source
+# contracts, native Qt metadata tests, real public 31-PDF goldset and
+# exact-SHA audited Windows release. No test or privacy gate bypasses.

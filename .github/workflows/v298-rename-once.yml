@@ -7,6 +7,7 @@ on:
       - src/lunalibrary.cpp
       - tests/native_dialog/filemoves.cpp
       - tests/test_auto_filename_contract.py
+      - tests/test_inline_fold_v260.py
       - tools/preflight_public.py
 permissions:
   contents: read

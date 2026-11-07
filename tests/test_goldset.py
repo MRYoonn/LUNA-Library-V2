@@ -54,6 +54,22 @@ class GoldsetScoring(unittest.TestCase):
         self.assertEqual(result['fields']['title']['wrong'], 1)
         self.assertEqual(result['exact'], 0)
 
+    def test_audit_only_field_cannot_implicitly_classify_image_only_si_as_article(self):
+        si = self.fixture(True)
+        # Real Windows case: PMC10803759-SI1 has no extracted metadata in
+        # normal mode, but LUNA_PUBLIC_GOLDSET_AUDIT supplies _titleAudit.
+        blank = score([si], {'PMC1': {}})
+        audited = score([si], {'PMC1': {'_titleAudit': {'authorRows': [], 'runs': []}}})
+        self.assertEqual(blank['fields']['documentKind'], audited['fields']['documentKind'])
+        self.assertEqual(audited['fields']['documentKind']['missing'], 1)
+        self.assertEqual(audited['fields']['documentKind']['wrong'], 0)
+        # A genuinely identified paper still gets the article default.
+        article = self.fixture()
+        identified = score([article], {'PMC1': {'doi': '10.1039/example',
+                                                '_titleAudit': {'authorRows': []}}})
+        self.assertEqual(identified['fields']['documentKind']['correct'], 1)
+
+
 
 class GoldsetAcquisition(unittest.TestCase):
     payload = b'%PDF-1.7\nSynthetic acquisition fixture only\n'

@@ -39,3 +39,4 @@ jobs:
           echo "Full PDF4QT Windows build dispatched for $SOURCE_SHA; dispatch is NOT a passing result."
 # RETRY_ICON_RESOURCE_DIAGNOSTICS_20261107: isolated Windows RC/link resource check passed; rerun full packaged EXE with per-size diagnostic hashes.
 # FINAL_20261108_WINDOWS_IPC_ACK_DRAIN: full Windows EXE/GUI/ICO/filename gates on exact fixed source.
+# FINAL_20261108_IPC_SINGLE_SHOT_FULL_SOURCE_PROOF: rerun real portable Windows GUI at passed native IPC source 9eece917.

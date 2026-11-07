@@ -1951,8 +1951,8 @@ private:
             if (!query_->text().isEmpty()) filter(list, query_->text());
         }
     }
-    // Rename only a closed, ordinary paper with trusted title provenance.
-    // The paired move keeps PDF, cropped thumbnail and hidden sidecars together.
+    // Closed PDF title rename; preserve companions.
+
     bool renameExtractedTitleFile(const QString& identity, QString* reason = nullptr) {
         const auto explain=[reason](const QString& message) {
             if (reason) *reason=message;
@@ -1964,13 +1964,13 @@ private:
         }
         const QString original=source.canonicalFilePath();
         if (!original.startsWith(root_ + QLatin1Char('/'), Qt::CaseInsensitive)) {
-            explain(QStringLiteral("선택한 PDF가 현재 LUNA 라이브러리의 연결 폴더 밖에 있습니다. 해당 PDF의 실제 폴더를 라이브러리로 연결한 뒤 다시 시도하세요."));
+            explain(QStringLiteral("선택한 PDF가 현재 LUNA 라이브러리의 연결 폴더 밖에 있습니다. 연결 폴더를 확인하세요."));
             return true;
         }
         const QString filename=luna::AutoFileName::fromVerifiedTitle(
             bibliography_.record(identity),source.absolutePath());
         if (filename.isEmpty()) {
-            explain(QStringLiteral("서지정보 제목 또는 파일 경로가 자동 파일명 정책을 통과하지 못했습니다. 제목을 확인해 주세요."));
+            explain(QStringLiteral("제목 또는 경로가 유효하지 않습니다."));
             return true;
         }
         if (source.fileName().compare(filename,Qt::CaseInsensitive)==0) {
@@ -1981,14 +1981,14 @@ private:
         // No implicit replacement of another article or orphaned companion.
         if (QFileInfo::exists(destination) || QFileInfo(destination).isSymLink() ||
             !bibliography_.record(DocumentClaim::identity(destination)).isEmpty()) {
-            explain(QStringLiteral("동일한 이름의 PDF 또는 서지정보가 이미 존재합니다. 덮어쓰지 않았습니다.\n대상: %1").arg(destination));
+            explain(QStringLiteral("동일한 이름의 PDF 또는 서지정보가 이미 존재합니다.\n대상: %1").arg(destination));
             return true;
         }
         for (auto* editor:window()->findChildren<pdfviewer::PDFEditorMainWindow*>()) {
             auto* controller=editor->getProgramController();
             if (controller && controller->getDocument() &&
                 DocumentClaim::identity(controller->getOriginalFileName())==identity) {
-                explain(QStringLiteral("이 PDF가 LUNA 읽기 탭에서 열려 있습니다. 해당 PDF 탭을 닫으면 파일명 변경을 다시 시도합니다."));
+                explain(QStringLiteral("PDF가 LUNA 탭에서 열려 있습니다. 탭을 닫으면 다시 시도합니다."));
                 return false;
             }
         }
@@ -1996,17 +1996,17 @@ private:
             QStandardPaths::AppLocalDataLocation)+QStringLiteral("/document-claims/")+
             DocumentClaim::endpoint(original)+QStringLiteral(".lock");
         if (!QDir().mkpath(QFileInfo(lockPath).absolutePath())) {
-            explain(QStringLiteral("LUNA 문서 잠금 폴더를 만들 수 없습니다. 사용자 폴더의 쓰기 권한을 확인해 주세요."));
+            explain(QStringLiteral("문서 잠금 폴더를 만들 수 없습니다. 쓰기 권한을 확인하세요."));
             return true;
         }
-        // A .lock file's mere existence does NOT mean an active PDF.
-        // Crashed processes can leave stale locks; QLockFile checks the owner
-        // PID and safely recovers stale entries instead of blocking forever.
-        // Hold the exclusive claim through the paired PDF + sidecar rename.
+        // A stale lock file is not an active document.
+
+
+
         QLockFile renameGuard(lockPath);
         renameGuard.setStaleLockTime(0);
         if (!renameGuard.tryLock(0)) {
-            explain(QStringLiteral("다른 LUNA 프로세스가 이 PDF를 사용 중이거나 문서 잠금을 확보할 수 없습니다. 모든 관련 PDF 탭을 닫은 뒤 다시 시도하세요."));
+            explain(QStringLiteral("다른 LUNA 프로세스가 이 PDF를 사용 중이거나 잠금 확보에 실패했습니다. PDF 탭을 닫으세요."));
             return false;
         }
         const auto moved=luna::movePdfWithThumbnails(

@@ -727,7 +727,9 @@ private:
         for (const auto& s : sessions_) {
             s->editor->removeEventFilter(this);
             s->editor->getProgramController()->closeDocument();
+            s->claim.reset(); s->saveClaim.reset();
         }
+        flushLibraryTitleRenames(*this);
         // Children remain owned by the shell until app.exec returns. This keeps
         // the library's model alive throughout close callbacks and Qt shutdown.
         event->accept(); trace("shell-close-approved"); qApp->quit();

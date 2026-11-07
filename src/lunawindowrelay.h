@@ -60,7 +60,11 @@ public:
                         }
                         paths.append(QFileInfo(item.toString()).absoluteFilePath());
                     }
-                    client->write("ok\n");
+                    if (client->write("ok\n") != 3) {
+                        client->abort(); return;
+                    }
+                    // Complete the reply promptly before the GUI processes
+                    // an Explorer-open batch (which may temporarily block).
                     client->flush();
                     pending_.append(paths);
                     QTimer::singleShot(0, this, [this] { dispatchPending(); });

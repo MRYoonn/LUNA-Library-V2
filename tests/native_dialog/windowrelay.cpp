@@ -88,10 +88,22 @@ int main(int argc, char** argv) {
             std::fflush(stderr);
             child.kill(); child.waitForFinished(); return false;
         }
-        // On a fast child, processing the server IPC event may outlive the
-        // subprocess: waitForFinished() returns false if it ALREADY exited.
-        // That is not a failure; check recorded exit status either way.
-        const bool finished = child.state() == QProcess::NotRunning || child.waitForFinished(10000);
+        // IMPORTANT: the primary process also owns the Qt local-socket server.
+        // Blocking waitForFinished() on this GUI/event-loop thread starves the
+        // server of the event needed to flush its acknowledgement. This caused
+        // intermittent timeouts even after a valid PDF batch was received.
+        // Wait asynchronously so the server can finish its pending IPC writes.
+        QEventLoop completion;
+        QTimer completionTimeout;
+        completionTimeout.setSingleShot(true);
+        QObject::connect(&child, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                         &completion, &QEventLoop::quit);
+        QObject::connect(&completionTimeout, &QTimer::timeout, &completion, &QEventLoop::quit);
+        if (child.state() != QProcess::NotRunning) {
+            completionTimeout.start(10000);
+            completion.exec();
+        }
+        const bool finished = child.state() == QProcess::NotRunning;
         if (!finished || child.exitStatus() != QProcess::NormalExit || child.exitCode() != 0) {
             std::fprintf(stderr, "WINDOW_RELAY_CHILD_RESULT finished=%d state=%d code=%d error=%d output=%s\\n",
                 int(finished), int(child.state()), child.exitCode(), int(child.error()), child.readAll().constData());

@@ -80,8 +80,8 @@ int main(int argc, char** argv) {
     // A dead LUNA process may leave the old DocumentClaim .lock on disk.
     // Inspect its owner PID with QLockFile, not QFileInfo::exists(lockPath).
     const QString staleClaim=QDir(root).filePath(QStringLiteral("abandoned-pdf.lock"));
-    const QByteArray fakeDeadPid=QByteArray("2147483647\\n")+
-        QSysInfo::machineHostName().toUtf8()+QByteArray("\\nLUNA.exe\\n");
+    const QByteArray fakeDeadPid=QByteArray("2147483647\n")+
+        QSysInfo::machineHostName().toUtf8()+QByteArray("\nLUNA.exe\n");
     if(!write(staleClaim,fakeDeadPid))
         return fail("Cannot create an abandoned LUNA claim");
     {

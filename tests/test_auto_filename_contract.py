@@ -42,7 +42,7 @@ class VerifiedFileNameContracts(unittest.TestCase):
             '서지정보 제목으로 실제 PDF 파일명 변경…',
             'PDF 실제 파일명 변경',
             'record["titleSource"]=QStringLiteral("manual")',
-            'renameExtractedTitleFile(id)',
+            'renameExtractedTitleFile(id,&reason)',
             'QMessageBox::Yes|QMessageBox::Cancel',
             'pendingTitleRenames_.remove(id)',
             'flushLibraryTitleRenames(*this)',

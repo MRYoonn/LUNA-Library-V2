@@ -82,6 +82,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QLockFile>
 #include <QItemSelectionModel>
 #include <QMouseEvent>
 #include <QMessageBox>
@@ -1952,38 +1953,70 @@ private:
     }
     // Rename only a closed, ordinary paper with trusted title provenance.
     // The paired move keeps PDF, cropped thumbnail and hidden sidecars together.
-    bool renameExtractedTitleFile(const QString& identity) {
+    bool renameExtractedTitleFile(const QString& identity, QString* reason = nullptr) {
+        const auto explain=[reason](const QString& message) {
+            if (reason) *reason=message;
+        };
         const QFileInfo source(identity);
-        if (root_.isEmpty() || !source.isFile() || source.isSymLink()) return true;
-        const QString original = source.canonicalFilePath();
-        if (!original.startsWith(root_ + QLatin1Char('/'), Qt::CaseInsensitive))
+        if (root_.isEmpty() || !source.isFile() || source.isSymLink()) {
+            explain(QStringLiteral("원본 PDF를 찾을 수 없거나 일반 PDF 파일이 아닙니다."));
             return true;
-        const QString filename = luna::AutoFileName::fromVerifiedTitle(
-            bibliography_.record(identity), source.absolutePath());
-        if (filename.isEmpty() ||
-            source.fileName().compare(filename, Qt::CaseInsensitive) == 0) return true;
-        const QString destination = QDir(source.absolutePath()).filePath(filename);
+        }
+        const QString original=source.canonicalFilePath();
+        if (!original.startsWith(root_ + QLatin1Char('/'), Qt::CaseInsensitive)) {
+            explain(QStringLiteral("선택한 PDF가 현재 LUNA 라이브러리의 연결 폴더 밖에 있습니다. 해당 PDF의 실제 폴더를 라이브러리로 연결한 뒤 다시 시도하세요."));
+            return true;
+        }
+        const QString filename=luna::AutoFileName::fromVerifiedTitle(
+            bibliography_.record(identity),source.absolutePath());
+        if (filename.isEmpty()) {
+            explain(QStringLiteral("서지정보 제목 또는 파일 경로가 자동 파일명 정책을 통과하지 못했습니다. 제목을 확인해 주세요."));
+            return true;
+        }
+        if (source.fileName().compare(filename,Qt::CaseInsensitive)==0) {
+            explain(QStringLiteral("실제 PDF 파일명이 이미 서지정보 제목과 일치합니다."));
+            return true;
+        }
+        const QString destination=QDir(source.absolutePath()).filePath(filename);
         // No implicit replacement of another article or orphaned companion.
         if (QFileInfo::exists(destination) || QFileInfo(destination).isSymLink() ||
-            !bibliography_.record(DocumentClaim::identity(destination)).isEmpty())
+            !bibliography_.record(DocumentClaim::identity(destination)).isEmpty()) {
+            explain(QStringLiteral("동일한 이름의 PDF 또는 서지정보가 이미 존재합니다. 덮어쓰지 않았습니다.\n대상: %1").arg(destination));
             return true;
-        // Reader handles and cross-process document claims must remain stable.
-        for (auto* editor : window()->findChildren<pdfviewer::PDFEditorMainWindow*>()) {
-            auto* controller = editor->getProgramController();
+        }
+        for (auto* editor:window()->findChildren<pdfviewer::PDFEditorMainWindow*>()) {
+            auto* controller=editor->getProgramController();
             if (controller && controller->getDocument() &&
-                DocumentClaim::identity(controller->getOriginalFileName()) == identity)
-                return false; // Try again after the tab has closed.
+                DocumentClaim::identity(controller->getOriginalFileName())==identity) {
+                explain(QStringLiteral("이 PDF가 LUNA 읽기 탭에서 열려 있습니다. 해당 PDF 탭을 닫으면 파일명 변경을 다시 시도합니다."));
+                return false;
+            }
         }
-        const QString lockPath = QStandardPaths::writableLocation(
-            QStandardPaths::AppLocalDataLocation) + QStringLiteral("/document-claims/") +
-            DocumentClaim::endpoint(original) + QStringLiteral(".lock");
-        if (QFileInfo::exists(lockPath)) return false;
-        const auto moved = luna::movePdfWithThumbnails(
-            original, source.absolutePath(), luna::renameWithoutReplacement, filename);
+        const QString lockPath=QStandardPaths::writableLocation(
+            QStandardPaths::AppLocalDataLocation)+QStringLiteral("/document-claims/")+
+            DocumentClaim::endpoint(original)+QStringLiteral(".lock");
+        if (!QDir().mkpath(QFileInfo(lockPath).absolutePath())) {
+            explain(QStringLiteral("LUNA 문서 잠금 폴더를 만들 수 없습니다. 사용자 폴더의 쓰기 권한을 확인해 주세요."));
+            return true;
+        }
+        // A .lock file's mere existence does NOT mean an active PDF.
+        // Crashed processes can leave stale locks; QLockFile checks the owner
+        // PID and safely recovers stale entries instead of blocking forever.
+        // Hold the exclusive claim through the paired PDF + sidecar rename.
+        QLockFile renameGuard(lockPath);
+        renameGuard.setStaleLockTime(0);
+        if (!renameGuard.tryLock(0)) {
+            explain(QStringLiteral("다른 LUNA 프로세스가 이 PDF를 사용 중이거나 문서 잠금을 확보할 수 없습니다. 모든 관련 PDF 탭을 닫은 뒤 다시 시도하세요."));
+            return false;
+        }
+        const auto moved=luna::movePdfWithThumbnails(
+            original,source.absolutePath(),luna::renameWithoutReplacement,filename);
         if (!moved.success) {
-            qWarning().noquote() << "LUNA title-file rename skipped:" << moved.error;
-            return true; // Failed or locked file is never replaced or deleted.
+            explain(QStringLiteral("Windows에서 실제 PDF/연결 파일 이동을 거부했습니다.\n%1").arg(moved.error));
+            qWarning().noquote()<<"LUNA title-file rename skipped:"<<moved.error;
+            return true; // Explain the actual failure; never claim a rename.
         }
+        explain(QStringLiteral("파일명 변경 완료: %1").arg(QFileInfo(moved.documentPath).fileName()));
         // This existing reconciliation rewrites recent/favorite/memo keys,
         // bibliography identity, and manually linked SI parent names.
         if (localSync_ && localSync_->renamed)
@@ -3091,12 +3124,14 @@ private:
                         QMessageBox::warning(this,QStringLiteral("파일명 변경 실패"),
                             QStringLiteral("서지정보 확인 상태를 저장하지 못했습니다."));
                     } else {
-                        if(renameExtractedTitleFile(id)) pendingTitleRenames_.remove(id);
+                        QString reason;
+                        if(renameExtractedTitleFile(id,&reason)) pendingTitleRenames_.remove(id);
                         const bool changed=QFileInfo(path).fileName().compare(name,Qt::CaseInsensitive)==0 ||
                             (!QFileInfo::exists(path) && QFileInfo(QDir(QFileInfo(path).absolutePath()).filePath(name)).isFile());
-                        if (!changed) QMessageBox::information(this,QStringLiteral("파일명 변경 대기 또는 건너뜀"),
-                            QStringLiteral("PDF가 열려 있거나 같은 이름의 파일이 있으면 덮어쓰지 않습니다. "
-                                           "탭을 닫은 후 파일명을 확인해 주세요."));
+                        if (changed) QMessageBox::information(this,QStringLiteral("PDF 파일명 변경 완료"),
+                            QStringLiteral("Windows 탐색기의 실제 PDF 파일명을 확인했습니다.\n%1").arg(name));
+                        else QMessageBox::information(this,QStringLiteral("PDF 파일명 변경 상태"),
+                            reason.isEmpty()?QStringLiteral("파일명 변경 결과를 확인할 수 없습니다."):reason);
                     }
                 }
             }

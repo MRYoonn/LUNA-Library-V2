@@ -541,6 +541,51 @@ int main(int argc,char** argv){
     expect(Bibliography::firstPageLastAuthor(unlabeledNames).isEmpty(),
         "RSC vertical-name fallback requires real publisher journal citation");
 
+    checkpoint("nature-inlined-final-ampersand-pinned-public-pdf-layout");
+    // Real native first-page PDF4QT audit: PMC10354071, PMC10338508
+    // and PMC10821893. Every candidate has a terminal inline "& Name"
+    // after printed multi-author evidence, not an isolated floating "&".
+    const QString natureBodenmiller = QStringLiteral(
+        "Nature Communications\nCancer-associated fibroblast classification\n"
+        "Received: 18 January 2023\n"
+        "Lena Cords 1,2,3,6 , Sandra Tietscher 1,2,3,6 , Tobias Anzeneder 4 , Claus Langwieder 5 ,\n"
+        "1,2\n& Bernd Bodenmiller\nAccepted: 26 June 2023\nAbstract\n");
+    expect(Bibliography::firstPageLastAuthor(natureBodenmiller) ==
+        QStringLiteral("Bernd Bodenmiller"),
+        "Nature: named inline ampersand after printed multi-author line");
+    const QString natureNesvizhskii = QStringLiteral(
+        "Nature Communications\nAnalysis of DIA proteomics data\n"
+        "Fengchao Yu 1 , Andy T. Kong 1,2 , Klemens Fröhlich 1,2\n"
+        "Ginny Xiaohe Li 1 , Vadim Demichev 4,5\n"
+        "& Alexey I. Nesvizhskii\nAccepted: 28 June 2023\nAbstract\n");
+    expect(Bibliography::firstPageLastAuthor(natureNesvizhskii) ==
+        QStringLiteral("Alexey I. Nesvizhskii"),
+        "Nature: separate author ampersand with middle initial");
+    const QString natureBoya = QStringLiteral(
+        "Nature Communications\nMitophagy curtails cytosolic mtDNA\n"
+        "Juan Zapata-Muñoz 1 , Rocío Benítez-Fernández 1,2 ,\n"
+        "3 , Estela Area-Gómez 4 ,\n"
+        "1,2\nAurora Gomez-Duran\n"
+        "& Patricia Boya\nCheck for updates\nAbstract\n");
+    expect(Bibliography::firstPageLastAuthor(natureBoya) ==
+        QStringLiteral("Patricia Boya"),
+        "Nature: named inline ampersand follows multi-author list despite numbered affiliation rows");
+    const QString natureNoProof = QStringLiteral(
+        "Nature Communications\nA title and Research Applications\n"
+        "& Provisional Author\nAbstract\n");
+    expect(Bibliography::firstPageLastAuthor(natureNoProof).isEmpty(),
+        "Nature: terminal ampersand without paired names must abstain");
+    const QString natureNotPrinted = QStringLiteral(
+        "Article title\nLena Cords 1 , Sandra Tietscher 2 ,\n"
+        "& Bernd Bodenmiller\nAbstract\n");
+    expect(Bibliography::firstPageLastAuthor(natureNotPrinted).isEmpty(),
+        "Nature: author row requires explicit printed journal masthead");
+    const QString natureFloatingAmp = QStringLiteral(
+        "Nature Communications\nLena Cords 1 , Sandra Tietscher 2 ,\n"
+        "&\nEleonora Aronica\nAccepted: 13 December 2023\nAbstract\n");
+    expect(Bibliography::firstPageLastAuthor(natureFloatingAmp).isEmpty(),
+        "Nature: floating ampersand next to a non-final contributor must not be guessed");
+
     checkpoint("qsettings-merge");
     Bibliography store;
     const QString providerIdentity=QStringLiteral("synthetic:provider-upgraded-authors");

@@ -52,6 +52,8 @@ class VerifiedFileNameContracts(unittest.TestCase):
             'QFileInfo::exists(destination) || QFileInfo(destination).isSymLink()',
             'movePdfWithThumbnails(',
             'localSync_->renamed(original, moved.documentPath)',
+            'void flushLibraryTitleRenames(QMainWindow& shell)',
+            'flushPendingTitleRenamesAfterReaderClose()',
         ):
             self.assertIn(snippet, LIBRARY, snippet)
         self.assertIn('folder / "lunaautofilename.h"', OVERLAY)

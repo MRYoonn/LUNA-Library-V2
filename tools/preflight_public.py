@@ -131,6 +131,7 @@ APPROVED = {
     "src/lunasavedialog.h", "tests/native_dialog/CMakeLists.txt", "tests/native_dialog/main.cpp",
 }
 APPROVED_BINARY = {'assets/icons/LUNA-Moon.ico': '5c1dec76af47b7c37e3d41e5fb05d62a02783f4f4af0247503096feb4cd7b51f', 'assets/icons/LUNA-Moon.png': '2d08386badd6d1d3a80f6d53213ccc53296fb46590a6c45b734a83e457aba4c3'}
+APPROVED_BINARY["assets/icons/LUNA-PDF-approved.ico"] = "7f89df11a934690f3a6bae8a9b014efdd9f73a3607f3b699e60b44b185349f0f"
 APPROVED.update(APPROVED_BINARY)
 # Keep the default cap; allow a tightly scoped larger Qt UI source after review.
 # Verified-title rename adds bounded library orchestration without relaxing the default 200 KB cap.

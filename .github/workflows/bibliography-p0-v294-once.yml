@@ -1,0 +1,209 @@
+name: LUNA v0.9.0.294 RSC author fidelity - exact Windows source verified release
+on:
+  push:
+    branches:
+      - release/v0.9.0.294-gated
+    paths:
+      - .github/workflows/bibliography-p0-v294-once.yml
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: luna-v294-verified-release-once
+  cancel-in-progress: false
+
+jobs:
+  public-source-gate:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate privacy allowlist and all Python/source regression contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Record source failure-analysis evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'v294 source gate exact commit=%s, run=%s. Inspect first failed step, never bypass checks.\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > evidence/failure-analysis.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v294-Source-Diagnostics
+          path: evidence/failure-analysis.md
+          retention-days: 90
+
+  windows-validate-and-release:
+    needs: public-source-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      BRANCH: feature/bibliography-rsc-vertical-authors-p0-20261107
+      SOURCE_SHA: f847a5ef4cae56875186058fd2d524b704c25455
+      SOURCE_RUN: 42350033927
+      RELEASE_BRANCH: ${{ github.ref_name }}
+      ORCHESTRATION_SHA: ${{ github.sha }}
+      TAG: v0.9.0.294
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Authorize exact fully verified source and refuse any unreviewed release-branch change
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          test "$REPO" = MRYoonn/LUNA-Library-V2
+          test "$RELEASE_BRANCH" = release/v0.9.0.294-gated
+          test "$SOURCE_SHA" = f847a5ef4cae56875186058fd2d524b704c25455
+          test "$SOURCE_RUN" = 42350033927
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq .commit.sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" = v0.9.0.293
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo 'v294 already exists, refuse overwrite'; exit 1
+          fi
+          test -z "$(git ls-remote --tags origin "refs/tags/$TAG")"
+          changed="$(gh api "repos/$REPO/compare/$SOURCE_SHA...$ORCHESTRATION_SHA" | jq -r '.files[].filename' | sort)"
+          expected="$(printf '%s\n' '.github/workflows/bibliography-p0-v294-once.yml' 'tools/preflight_public.py' | sort)"
+          test "$changed" = "$expected"
+          echo "Immutable source verified; release branch changes are only the allowlist and release workflow"
+      - name: Require existing completed successful exact-SHA full PDF4QT Windows build
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/actions/runs/$SOURCE_RUN" > evidence/windows-run.json
+          test "$(jq -r .status evidence/windows-run.json)" = completed
+          test "$(jq -r .conclusion evidence/windows-run.json)" = success
+          test "$(jq -r .head_sha evidence/windows-run.json)" = "$SOURCE_SHA"
+          test "$(jq -r .head_branch evidence/windows-run.json)" = "$BRANCH"
+          test "$(jq -r .path evidence/windows-run.json)" = .github/workflows/build-windows.yml
+          gh api "repos/$REPO/actions/runs/$SOURCE_RUN/jobs?per_page=100" > evidence/windows-jobs.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          jobs=json.loads(Path('evidence/windows-jobs.json').read_text())['jobs']
+          required=('Evaluate checksum-pinned real public PDF bibliography corpus',
+                    'Regress legacy layout restoration and actual Ctrl+W disposal under CDB and full page heap')
+          native=[j for j in jobs if j['name'] in ('build-windows','windows-packaging-preflight')]
+          assert len(native)==2 and all(j['conclusion']=='success' for j in native)
+          steps={s['name']:s.get('conclusion') for j in native for s in j.get('steps',[])}
+          assert all(steps.get(name)=='success' for name in required),steps
+          print('Two successful Windows jobs, public PDF and CDB native checks authenticated')
+          PY
+          echo "$SOURCE_RUN" > evidence/source-run.txt
+      - name: Independently score exact public 31-PDF corpus before any release creation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/goldset
+          gh run download "$SOURCE_RUN" --repo "$REPO" --name LUNA-UI-Synthetic --dir evidence/goldset
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          score=json.loads(Path('evidence/goldset/goldset/score.json').read_text(encoding='utf-8-sig'))
+          pred=json.loads(Path('evidence/goldset/goldset/predictions.json').read_text(encoding='utf-8-sig'))
+          assert score['documents']==31 and score['exact']>=16
+          assert score['fields']['authors']['correct']>=21
+          assert score['fields']['title']['correct']>=29
+          assert score['fields']['doi']['correct']==31
+          assert score['fields']['documentKind']['correct']>=30
+          assert all(v['wrong']==0 for v in score['fields'].values())
+          target=next(x for x in score['rows'] if x['id']=='PMC10915831')
+          assert target['fields']['authors']=='correct'
+          assert pred['PMC10915831']['authors']=='Marie-Isabel Aguilar'
+          print('PASS: >=16 full exact, >=21 last authors, DOI 31/31, zero wrong fields')
+          PY
+      - name: Retrieve verified Windows Portable and repeat deterministic release provenance checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_RUN="$(cat evidence/source-run.txt)"
+          mkdir -p staging/portable dist
+          gh run download "$SOURCE_RUN" --repo "$REPO" --name LUNA-Windows-Portable --dir staging/portable
+          python -B -m tools.prepare_release --portable staging/portable --destination dist --tag "$TAG" --source-run "$SOURCE_RUN" --commit "$SOURCE_SHA" > evidence/release-info.json
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,json,zipfile
+          m=json.loads(Path('dist/LUNA-Release.json').read_text())
+          p=Path('dist/LUNA-Windows-Portable.zip')
+          info=json.loads(Path('staging/portable/build-info.json').read_text(encoding='utf-8-sig'))
+          assert m['tag']=='v0.9.0.294' and m['schema']==2
+          assert m['commit']==info['commit'] and int(info['run'])==m['source_run']
+          assert hashlib.sha256(p.read_bytes()).hexdigest()==m['sha256']
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              assert len(z.namelist())==len(m['files'])
+              assert set(z.namelist())==set(f['path'] for f in m['files'])
+              for f in m['files']:
+                  b=z.read(f['path'])
+                  assert len(b)==f['size'] and hashlib.sha256(b).hexdigest()==f['sha256'],f['path']
+              tagged=json.loads(z.read('build-info.json'))
+              assert tagged['commit']==m['commit'] and tagged['version']==m['tag']
+              assert int(tagged['run'])==m['source_run']
+              assert hashlib.sha256(z.read('LUNA.exe')).hexdigest()==info['exeSha256']
+          print('v294: audited manifest, all file sha256, zip, unchanged Windows EXE')
+          PY
+      - name: Create immutable draft release; verify server-side SHA256 digests before publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq .commit.sha)" = "$SOURCE_SHA"
+          gh release create "$TAG" dist/LUNA-Windows-Portable.zip dist/LUNA-Release.json \
+            --repo "$REPO" --target "$SOURCE_SHA" --draft --title "LUNA Library v0.9.0.294 — Verified RSC last-author recognition" \
+            --notes "Windows Portable from immutable verified source f847a5ef4cae56875186058fd2d524b704c25455 (Actions run 42350033927). Public 31-PDF accuracy: fully exact 15 to 16, final authors 20 to 21, DOI 31 of 31, zero wrong across every metadata field. Recognizes the RSC Chemical Science vertical last-author list on public PMC10915831: Marie-Isabel Aguilar. Adds safe Nature affiliation superscript normalization without claiming unmeasured gains. Preserves v293 existing cache correction, manual edits, SI and viewer stability. Windows full PDF4QT/Qt build, CDB disposal, all UI tests, provenance and SHA256 release gates passed. Portable only; user files never uploaded."
+          id="$(gh api "repos/$REPO/releases?per_page=30" | jq -r --arg tag "$TAG" '
+                 [.[] | select(.tag_name==$tag and .draft==true)] | first | .id // empty')"
+          test "$id" != ''
+          gh api "repos/$REPO/releases/$id" > evidence/draft-release.json
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          r=json.loads(Path('evidence/draft-release.json').read_text())
+          m=json.loads(Path('dist/LUNA-Release.json').read_text())
+          assert r['draft'] is True and r['prerelease'] is False and r['tag_name']==m['tag']
+          assert r['target_commitish']==m['commit'] and len(r['assets'])==2
+          expected={
+              'LUNA-Windows-Portable.zip':('sha256:'+m['sha256'],len(Path('dist/LUNA-Windows-Portable.zip').read_bytes())),
+              'LUNA-Release.json':('sha256:'+hashlib.sha256(Path('dist/LUNA-Release.json').read_bytes()).hexdigest(),len(Path('dist/LUNA-Release.json').read_bytes()))
+          }
+          assert {a['name']:(a['digest'],a['size']) for a in r['assets']}==expected
+          print('GitHub uploaded release assets independently match local ZIP/manifest digests')
+          PY
+          echo "$id" > evidence/draft-id.txt
+      - name: Publish v294 and verify updater-visible latest tag plus immutable source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          id="$(cat evidence/draft-id.txt)"
+          gh api -X PATCH "repos/$REPO/releases/$id" -F draft=false -F prerelease=false --jq '.tag_name,.draft,.published_at'
+          test "$(gh api "repos/$REPO/releases/$id" --jq .draft)" = false
+          test "$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq .object.sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" = "$TAG"
+          echo "SUCCESS https://github.com/$REPO/releases/tag/$TAG"
+      - name: Preserve failure analysis, immutable provenance and CI summary
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'v294 exact source=%s, orchestration run=%s. Any failed gate prevents release publication. Historical Build #250 failed manual dock-width persistence, now checked by 10-cycle native test.\n' "$SOURCE_SHA" "$GITHUB_RUN_ID" > evidence/failure-analysis.md
+          test ! -f dist/LUNA-Release.json || cp dist/LUNA-Release.json evidence/release-manifest.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v294-Release-Diagnostics
+          path: evidence/
+          retention-days: 90
+
+# v294 release source remains immutable: f847a5ef4cae56875186058fd2d524b704c25455.
+# The release-branch diff is exactly this workflow and its public source allowlist.

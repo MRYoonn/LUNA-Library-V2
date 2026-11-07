@@ -86,9 +86,18 @@ def probe(exe: Path):
                         "<BBBBHHIH",data,6+index*14)
                     image=get_resource(3,icon_id)  # actual compiled RT_ICON
                     dim=(w or 256,h or 256)
-                    if len(image)!=size or source_images.get(dim)!=image:
+                    expected=source_images.get(dim)
+                    if len(image)!=size or expected!=image:
+                        other=[str(k) for k,v in source_images.items() if v==image]
                         raise AssertionError(
-                            "Approved red PDF icon differs from embedded Windows resource ID 2")
+                            "Approved red PDF icon differs from embedded Windows resource ID 2"
+                            f": dimension={dim} iconId={icon_id} "
+                            f"groupBytes={size} actualBytes={len(image)} "
+                            f"sourceBytes={len(expected) if expected is not None else 'missing'} "
+                            f"sourceSha256={hashlib.sha256(expected or b'').hexdigest()[:24]} "
+                            f"actualSha256={hashlib.sha256(image).hexdigest()[:24]} "
+                            f"sourceSig={(expected or b'')[:8].hex()} actualSig={image[:8].hex()} "
+                            f"matchesOtherSourceDimensions={other}")
                     dimensions.add(dim[0])
                 if dimensions!={16,24,32,48,64,128,256}:
                     raise AssertionError("Compiled PDF icon resolution set is incomplete")

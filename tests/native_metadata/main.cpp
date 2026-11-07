@@ -513,6 +513,34 @@ int main(int argc,char** argv){
         QStringLiteral("Nature Communications\nJun Ma & Bo Wang\nAbstract\n")).isEmpty(),
         "Two unbounded names without publisher author-list evidence stay unverified");
 
+    checkpoint("rsc-vertical-last-author-from-pinned-public-pdf-layout");
+    // Native PDF4QT goldset PMC10915831: Chemical Science places comma
+    // terminated author names on separate rows, followed by a final "and".
+    const QString rscVerticalNames = QStringLiteral(
+        "Chemical Science\\nCite this: Chem. Sci., 2024, 15, 100-110\\n"
+        "PERSPECTIVE\\nThe intricate link between membrane lipid structure\\n"
+        "Patrick Charchar,\\nGavin E. Reid,\\nFrances Separovic,\\n"
+        "Tzong-Hsien Lee,\\nIrene Yarovsky\\nand Marie-Isabel Aguilar\\n"
+        "Abstract\\nThe science of membrane lipids.\\n");
+    expect(Bibliography::firstPageLastAuthor(rscVerticalNames) ==
+        QStringLiteral("Marie-Isabel Aguilar"),
+        "RSC vertical, independently comma-terminated personal names prove final author");
+    const QString rscOnePrior = QStringLiteral(
+        "Chemical Science\\nCite this: Chem. Sci., 2024, 15, 100-110\\n"
+        "Manoj Kumar Goshisht,\\nand Manohar Chaskar\\nAbstract\\n");
+    expect(Bibliography::firstPageLastAuthor(rscOnePrior).isEmpty(),
+        "Only one separate preceding author name is insufficient proof");
+    const QString rscTitleTrap = QStringLiteral(
+        "Chemical Science\\nCite this: Chem. Sci., 2024, 15, 100-110\\n"
+        "Reactants,\\nCatalysts,\\nand Synthetic Applications\\nAbstract\\n");
+    expect(Bibliography::firstPageLastAuthor(rscTitleTrap).isEmpty(),
+        "Do not elevate title fragments joined by and into last authors");
+    const QString unlabeledNames = QStringLiteral(
+        "The intricate link between membrane lipids\\nPatrick Charchar,\\n"
+        "Gavin E. Reid,\\nand Marie-Isabel Aguilar\\nAbstract\\n");
+    expect(Bibliography::firstPageLastAuthor(unlabeledNames).isEmpty(),
+        "RSC vertical-name fallback requires real publisher journal citation");
+
     checkpoint("qsettings-merge");
     Bibliography store;
     const QString providerIdentity=QStringLiteral("synthetic:provider-upgraded-authors");

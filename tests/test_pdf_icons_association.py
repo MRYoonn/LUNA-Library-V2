@@ -31,7 +31,9 @@ class LunaIconContracts(unittest.TestCase):
                 "<BBBBHHII",data,6+i*16)
             self.assertEqual(width,0 if dimension==256 else dimension)
             self.assertEqual(height,0 if dimension==256 else dimension)
-            self.assertEqual((colors,reserved,planes,bpp),(0,0,1,32))
+            # The exact approved Windows ICO legitimately uses biPlanes=0.
+            self.assertEqual((colors,reserved,bpp),(0,0,32))
+            self.assertIn(planes,(0,1))
             self.assertGreater(length,75)
             self.assertLessEqual(offset+length,len(data))
             self.assertEqual(data[offset:offset+8],PNG_MAGIC)

@@ -54,8 +54,15 @@ def score(manifest, predictions):
     for item in manifest:
         present = item['id'] in predictions
         actual = dict(predictions.get(item['id'], {}))
-        # Production treats a successfully read, non-SI document as an article.
-        if present and actual and not actual.get('evaluationError'):
+        # Only actual bibliographic evidence can imply a successfully read
+        # article. Diagnostic-only keys (e.g. _titleAudit) are not extracted
+        # metadata; counting them incorrectly turns abstained image-only SI
+        # covers into false-positive 'article' classifications.
+        has_bibliography = any(
+            actual.get(key) for key in (*FIELDS, 'article_number')
+            if key != 'documentKind'
+        )
+        if present and has_bibliography and not actual.get('evaluationError'):
             actual.setdefault('documentKind', 'article')
         actual['page'] = actual.get('page') or actual.get('article_number', '')
         statuses = {}

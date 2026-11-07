@@ -10,6 +10,7 @@ APPROVED = {
     "tests/test_panel_capture.py",
     "tools/capture_panel_comparison_windows.py", ".github/workflows/panel-before-v262-once.yml",
     "tools/evaluate_goldset.py", "tests/test_goldset.py", "tests/goldset/public-papers.json", "tests/goldset/README.md",
+    "tools/diagnose_goldset_authors.py", ".github/workflows/bibliography-author-audit-once.yml",
     "src/lunafirstpageevidence.h", "tests/native_metadata/snapshot.cpp",
     "assets/folder_icons/README.md",
     "assets/folder_icons/svg_bundle.b85",

@@ -1,0 +1,75 @@
+name: LUNA v298 - real PDF filename rename and stale lock regression
+on:
+  push:
+    branches: [feature/v298-title-rename-diagnostics-20261108]
+    paths:
+      - .github/workflows/v298-rename-once.yml
+      - src/lunalibrary.cpp
+      - tests/native_dialog/filemoves.cpp
+      - tests/test_auto_filename_contract.py
+      - tools/preflight_public.py
+permissions:
+  contents: read
+  actions: write
+jobs:
+  public-source-gate:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify release-safe source, filename status and the complete regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+  native-stale-lock-and-filemove:
+    needs: public-source-gate
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: 'C:/qt-luna-v298/'
+          install-deps: 'true'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Verify stale PID .lock cleanup, simultaneous claim exclusion, PDF sidecars and no-overwrite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $probe=Join-Path $env:RUNNER_TEMP 'luna-title-rename-probe'
+          cmake -S tests/native_dialog -B $probe -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Qt Windows CMake configuration failed' }
+          cmake --build $probe --target luna-native-filemoves --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows file move and QLockFile compile failed' }
+          ctest --test-dir $probe -C Release -R '^native_file_moves$' --verbose --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Native stale document lock / rename / sidecar contract failed' }
+  dispatch-full-windows:
+    needs: native-stale-lock-and-filemove
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Dispatch complete Windows Portable build at validated source HEAD
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$REPO" = 'MRYoonn/LUNA-Library-V2'
+          test "$REF_NAME" = feature/v298-title-rename-diagnostics-20261108
+          test "$(gh api "repos/$REPO/branches/$REF_NAME" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
+          echo "Dispatched full LUNA.exe Windows GUI and portable verification. No stable release without success."

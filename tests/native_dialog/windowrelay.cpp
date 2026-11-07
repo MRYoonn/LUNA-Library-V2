@@ -10,6 +10,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QDebug>
+#include <cstdio>
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
@@ -19,9 +20,10 @@ int main(int argc, char** argv) {
         : QStringLiteral("LUNA-WindowRelay-Native-%1").arg(app.applicationPid());
     QCoreApplication::setOrganizationName(QStringLiteral("LUNA-Test"));
     QCoreApplication::setApplicationName(appId);
-    auto fail = [](const char* message) {
-        qCritical() << message;
-        return 1;
+    auto fail = [](const char* message, int exitCode) {
+        std::fprintf(stderr, "WINDOW_RELAY_STAGE_FAIL %d %s\n", exitCode, message);
+        std::fflush(stderr);
+        return exitCode;
     };
 
     if (secondary) {
@@ -31,16 +33,18 @@ int main(int argc, char** argv) {
     }
 
     QTemporaryDir directory;
-    if (!directory.isValid()) return fail("Temporary directory unavailable");
+    if (!directory.isValid()) return fail("Temporary directory unavailable", 11);
     const QString filename = directory.filePath(QStringLiteral("논문 Sample with spaces.pdf"));
     QFile file(filename);
     if (!file.open(QIODevice::WriteOnly) ||
-        file.write("%PDF-1.4\nSynthetic only\n") < 20) return fail("Synthetic PDF setup failed");
+        file.write("%PDF-1.4\nSynthetic only\n") < 20) return fail("Synthetic PDF setup failed", 12);
     file.close();
 
+    std::fprintf(stderr, "WINDOW_RELAY_STAGE start owner pid=%lld app=%s\n", (long long)app.applicationPid(), qPrintable(appId));
+    std::fflush(stderr);
     luna::WindowRelay owner;
     if (owner.claimOrForward({}) != luna::WindowRelay::Result::Primary)
-        return fail("Fresh app could not acquire exclusive window ownership");
+        return fail("Fresh app could not acquire exclusive window ownership", 13);
     int received = 0;
     QStringList delivered;
     owner.setOpenHandler([&](const QStringList& paths) {
@@ -66,22 +70,22 @@ int main(int argc, char** argv) {
         return child.waitForFinished(3500) && child.exitStatus() == QProcess::NormalExit &&
                child.exitCode() == 0;
     };
-    if (!spawn()) return fail("Child PDF launch did not join primary process");
+    if (!spawn()) return fail("Child PDF launch did not join primary process", 14);
     if (received != 1 || delivered != QStringList{filename})
-        return fail("First forwarded PDF filename did not survive IPC");
+        return fail("First forwarded PDF filename did not survive IPC", 15);
     // Repeat command: frontend can choose existing tab instead of new duplicate.
     received = 0;
-    if (!spawn()) return fail("Second shell launch did not join primary");
+    if (!spawn()) return fail("Second shell launch did not join primary", 16);
     if (received != 1 || delivered != QStringList{filename})
-        return fail("Duplicate forwarded filename was corrupted");
+        return fail("Duplicate forwarded filename was corrupted", 17);
 
     const QString invalid = directory.filePath(QStringLiteral("malicious.exe"));
     QFile binary(invalid);
-    if (!binary.open(QIODevice::WriteOnly)) return fail("Bad extension fixture failed");
+    if (!binary.open(QIODevice::WriteOnly)) return fail("Bad extension fixture failed", 18);
     binary.write("MZ"); binary.close();
     if (owner.forward({invalid}) || owner.forward({QStringLiteral("missing.pdf")}))
-        return fail("Non-PDF or missing document unexpectedly accepted");
-    if (received != 1) return fail("Bad request changed primary document batch");
+        return fail("Non-PDF or missing document unexpectedly accepted", 19);
+    if (received != 1) return fail("Bad request changed primary document batch", 20);
     qInfo() << "PASS: same-user child PDF launch joins existing window,"
                  " Korean paths, spaces, repeated launches, bad-path rejection";
     return 0;

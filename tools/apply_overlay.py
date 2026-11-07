@@ -11,10 +11,7 @@ import json
 import zlib
 from pathlib import Path
 import sys
-try:
-    from .generate_pdf_icon import make_icon
-except ImportError:
-    from generate_pdf_icon import make_icon
+APPROVED_PDF_ICON_SHA256 = "7f89df11a934690f3a6bae8a9b014efdd9f73a3607f3b699e60b44b185349f0f"
 
 PIN = "67b6b9903cb4e318803342f2d428f02e1bb124e3"
 BLOBS = {
@@ -269,6 +266,9 @@ def apply(root: Path, dry_run=False) -> None:
         if not verify_file(root / rel, sha):
             raise ValueError("PDF4QT source pin mismatch or unsafe symlink: " + rel)
     own = Path(__file__).resolve().parents[1] / "src"
+    approved_pdf_icon = (own.parent / "assets/icons/LUNA-PDF-approved.ico").read_bytes()
+    if len(approved_pdf_icon) != 105070 or hashlib.sha256(approved_pdf_icon).hexdigest() != APPROVED_PDF_ICON_SHA256:
+        raise ValueError("Approved red PDF ICO content changed or is missing")
     files = {
         folder / "lunatabs.cpp": (own / "lunatabs.cpp").read_bytes(),
         folder / "lunatabs.h": (own / "lunatabs.h").read_bytes(),
@@ -304,7 +304,7 @@ def apply(root: Path, dry_run=False) -> None:
         folder / "LUNA-Moon.ico": (own.parent / "assets/icons/LUNA-Moon.ico").read_bytes(),
         # Resource 1 = original blue EXE, 2 = red PDF document only.
         # The PDF icon is embedded; legacy auto-updaters reject standalone .ico.
-        folder / "LUNA-PDF.ico": make_icon(),
+        folder / "LUNA-PDF.ico": approved_pdf_icon,
         folder / "LUNA-Moon.png": (own.parent / "assets/icons/LUNA-Moon.png").read_bytes(),
         folder / "luna_icon.rc": b'1 ICON DISCARDABLE "LUNA-Moon.ico"\n2 ICON DISCARDABLE "LUNA-PDF.ico"\n',
         folder / "luna_resources.qrc": b'<RCC><qresource prefix="/luna"><file>lunalibrary.qss</file><file>LUNA-Moon.ico</file><file>LUNA-Moon.png</file></qresource></RCC>\n',

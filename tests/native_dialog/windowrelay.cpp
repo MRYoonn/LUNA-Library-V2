@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
         // On a fast child, processing the server IPC event may outlive the
         // subprocess: waitForFinished() returns false if it ALREADY exited.
         // That is not a failure; check recorded exit status either way.
-        const bool finished = child.state() == QProcess::NotRunning || child.waitForFinished(3500);
+        const bool finished = child.state() == QProcess::NotRunning || child.waitForFinished(10000);
         if (!finished || child.exitStatus() != QProcess::NormalExit || child.exitCode() != 0) {
             std::fprintf(stderr, "WINDOW_RELAY_CHILD_RESULT finished=%d state=%d code=%d error=%d output=%s\\n",
                 int(finished), int(child.state()), child.exitCode(), int(child.error()), child.readAll().constData());

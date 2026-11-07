@@ -53,10 +53,20 @@ int main(int argc, char** argv) {
     });
     auto spawn = [&]() {
         QProcess child;
-        child.setProgram(app.applicationFilePath());
+        child.setProcessChannelMode(QProcess::MergedChannels);
+        const QString program = app.applicationFilePath();
+        child.setProgram(program);
         child.setArguments({QStringLiteral("--second"), appId, filename});
+        std::fprintf(stderr, "WINDOW_RELAY_CHILD_START program=%s file=%s exists=%d\\n",
+            qPrintable(program), qPrintable(filename), QFileInfo(program).isFile());
+        std::fflush(stderr);
         child.start();
-        if (!child.waitForStarted(3500)) return false;
+        if (!child.waitForStarted(3500)) {
+            std::fprintf(stderr, "WINDOW_RELAY_CHILD_START_FAIL code=%d error=%s output=%s\\n",
+                int(child.error()), qPrintable(child.errorString()), child.readAll().constData());
+            std::fflush(stderr);
+            return false;
+        }
         QEventLoop loop;
         QTimer interval;
         QTimer timeout;
@@ -66,7 +76,12 @@ int main(int argc, char** argv) {
         });
         QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
         interval.start(); timeout.start(5000); loop.exec();
-        if (received < 1) { child.kill(); child.waitForFinished(); return false; }
+        if (received < 1) {
+            std::fprintf(stderr, "WINDOW_RELAY_CHILD_NO_MESSAGE state=%d error=%d exit=%d output=%s\\n",
+                int(child.state()), int(child.error()), child.exitCode(), child.readAll().constData());
+            std::fflush(stderr);
+            child.kill(); child.waitForFinished(); return false;
+        }
         return child.waitForFinished(3500) && child.exitStatus() == QProcess::NormalExit &&
                child.exitCode() == 0;
     };

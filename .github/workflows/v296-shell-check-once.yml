@@ -11,6 +11,10 @@ on:
       - tests/native_dialog/windowrelay.cpp
       - tests/native_dialog/CMakeLists.txt
       - tools/preflight_public.py
+      - tests/test_public_gate.py
+      - src/lunalibrary.cpp
+      - src/lunalibrary.h
+      - tests/test_auto_filename_contract.py
 permissions:
   contents: read
 jobs:

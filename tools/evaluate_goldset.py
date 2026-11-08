@@ -124,11 +124,11 @@ def public_sources(item):
     sources = [('manifest', primary, 'zip' if 'archive_member' in item else 'pdf')]
     identifier = item['id'].split('-SI', 1)[0]
     # Do not redirect arbitrary manifest entries to untrusted locations.
-    if not re.fullmatch(r'PMC[1-9]\\d*', identifier):
+    if not re.fullmatch(r'PMC[1-9]\d*', identifier):
         return sources
     if 'archive_member' in item:
         member = item['archive_member']
-        if member != Path(member).name or not re.fullmatch(r'[A-Za-z0-9_.-]+\\.pdf', member):
+        if member != Path(member).name or not re.fullmatch(r'[A-Za-z0-9_.-]+\.pdf', member):
             raise ValueError('Unsafe pinned supplementary filename')
         sources.extend([
             ('ncbi-supplement', f'https://pmc.ncbi.nlm.nih.gov/articles/{identifier}/bin/{quote(member)}', 'pdf'),
@@ -175,7 +175,7 @@ def fetch(manifest, destination):
     failures = []
     for item in manifest:
         identifier = item['id']
-        if not re.fullmatch(r'PMC\\d+(?:-SI\\d+)?', identifier):
+        if not re.fullmatch(r'PMC\d+(?:-SI\d+)?', identifier):
             raise ValueError('Invalid public fixture identifier')
         path = destination / (identifier + '.pdf')
         if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() == item['sha256']:

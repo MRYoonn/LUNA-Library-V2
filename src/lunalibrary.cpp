@@ -2053,6 +2053,8 @@ private:
         // its Windows 8.3 / long-name paths are changed by the real rename.
         // A title migration must not discard already recorded opened dates.
         QString renamedOpenedDate=openedDates_.value(openedDateKey(original));
+        if (renamedOpenedDate.isEmpty() && !identity.isEmpty())
+            renamedOpenedDate=openedDates_.value(openedDateKey(identity));
         if (renamedOpenedDate.isEmpty())
             renamedOpenedDate=displayedDates_.value(identity);
         QPointer<pdfviewer::PDFEditorMainWindow> activeEditor;
@@ -2471,10 +2473,12 @@ private:
         item->setData(Qt::UserRole + 1, location == QStringLiteral(".") ? QStringLiteral("라이브러리 폴더 · PDF") : location);
         item->setData(Qt::UserRole + 2, favorites_.contains(path));
         QString date = openedDates_.value(openedDateKey(path));
-        // Windows sometimes reports the same PDF under an 8.3 spelling or
-        // differently cased directory. The physical-path hash is historical;
-        // the canonical DocumentClaim identity is the safe fallback.
-        if (date.isEmpty()) date = displayedDates_.value(fileIdentity);
+        // The historical raw-path hash can differ between WIN32 short/long
+        // spellings. Resolve the *physical* identity key before looking at the
+        // in-memory alias; this survives a library list refresh/restart.
+        if (date.isEmpty() && !fileIdentity.isEmpty())
+            date=openedDates_.value(openedDateKey(fileIdentity));
+        if (date.isEmpty()) date=displayedDates_.value(fileIdentity);
         const QDateTime opened = QDateTime::fromString(date, Qt::ISODate);
         item->setData(Qt::UserRole + 3, opened.isValid() ? opened.toLocalTime().date().toString(QStringLiteral("yy.MM.dd.")) : QString());
         const QString memo = memos_.value(openedDateKey(path));
@@ -2561,7 +2565,19 @@ private:
     }
     void rememberOpenedDocument() { if (!window()->property("LunaClosing").toBool()) rememberEditor(*viewer_); }
     void rememberDateAlias(const QString& path, const QString& date) {
-        displayedDates_.insert(DocumentClaim::identity(path), date);
+        if (date.isEmpty()) return;
+        const QString identity=DocumentClaim::identity(path);
+        if (identity.isEmpty()) return;
+        // Preserve the original raw-path hash for v299 rollback, but store a
+        // second opened-date key derived from the same expanded, case-folded
+        // physical file identity used by library cards and native PDF tabs.
+        // Windows 8.3 paths (RUNNER~1) and long paths then share a durable key.
+        const QString key=openedDateKey(identity);
+        displayedDates_.insert(identity,date);
+        openedDates_.insert(key,date);
+        QSettings(QSettings::defaultFormat(),QSettings::UserScope,
+                  QStringLiteral("LUNA"),QStringLiteral("LUNA Library"))
+            .setValue(QStringLiteral("library/openedDates/")+key,date);
         datedNames_.insert(QFileInfo(path).fileName().toCaseFolded());
     }
     void rememberEditor(pdfviewer::PDFEditorMainWindow& editor) {

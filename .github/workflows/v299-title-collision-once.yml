@@ -9,6 +9,8 @@ on:
       - src/lunabibliography.h
       - src/lunaautofilename.h
       - src/lunawindowrelay.h
+      - src/lunatabs.cpp
+      - tools/probe_tabs_integration_windows.py
       - tests/native_dialog/windowrelay.cpp
       - tests/native_dialog/bibliography.cpp
       - tests/native_dialog/filemoves.cpp

@@ -20,9 +20,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       REPO: MRYoonn/LUNA-Library-V2
       VERSION: v0.9.0.299
-      SOURCE_RUN: '42454348353'
-      SOURCE_GATE: '42454112753'
-      SOURCE_SHA: b54e9aff43fd7cfc2e1459a64f0755745da16900
+      SOURCE_RUN: '42456918269'
+      SOURCE_GATE: '42456729458'
+      SOURCE_SHA: 17a57c8ef8a12d5aa5959112f1780ffa0c21ea24
     steps:
       - name: Refuse unrelated release, incorrect source and preexisting tags
         shell: bash
@@ -62,7 +62,7 @@ jobs:
           test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN/artifacts?per_page=100" --jq '[.artifacts[] | select(.name=="LUNA-Windows-Portable" and .expired==false)] | length')" = 1
       - uses: actions/checkout@v4
         with:
-          ref: b54e9aff43fd7cfc2e1459a64f0755745da16900
+          ref: 17a57c8ef8a12d5aa5959112f1780ffa0c21ea24
           persist-credentials: false
       - name: Validate exact v299 source and offline release contracts
         shell: bash
@@ -89,8 +89,8 @@ jobs:
           manifest=json.loads(Path("dist/LUNA-Release.json").read_text())
           package=Path("dist/LUNA-Windows-Portable.zip")
           assert manifest["tag"]=="v0.9.0.299"
-          assert int(manifest["source_run"])==42454348353
-          assert manifest["commit"]=="b54e9aff43fd7cfc2e1459a64f0755745da16900"
+          assert int(manifest["source_run"])==42456918269
+          assert manifest["commit"]=="17a57c8ef8a12d5aa5959112f1780ffa0c21ea24"
           assert manifest["sha256"]==hashlib.sha256(package.read_bytes()).hexdigest()
           assert package.stat().st_size>1000000
           print("v299 automatic update package integrity PASSED")

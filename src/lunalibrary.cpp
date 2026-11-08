@@ -2049,6 +2049,12 @@ private:
             explain(QStringLiteral("파일명이 다른 작업과 충돌했습니다. 다시 시도하면 번호를 다시 선택합니다."));
             return false;
         }
+        // Capture the old opened-date identity before the PDF is closed and
+        // its Windows 8.3 / long-name paths are changed by the real rename.
+        // A title migration must not discard already recorded opened dates.
+        QString renamedOpenedDate=openedDates_.value(openedDateKey(original));
+        if (renamedOpenedDate.isEmpty())
+            renamedOpenedDate=displayedDates_.value(identity);
         QPointer<pdfviewer::PDFEditorMainWindow> activeEditor;
         int page=0;
         double zoom=2.0;
@@ -2069,6 +2075,13 @@ private:
                 return false;
             }
             activeEditor=editor;
+            if (renamedOpenedDate.isEmpty()) {
+                const QString currentlyOpened=controller->getOriginalFileName();
+                renamedOpenedDate=openedDates_.value(openedDateKey(currentlyOpened));
+                if (renamedOpenedDate.isEmpty())
+                    renamedOpenedDate=displayedDates_.value(
+                        DocumentClaim::identity(currentlyOpened));
+            }
             const auto pages=controller->getPdfWidget()->getDrawWidget()->getCurrentPages();
             if (!pages.empty())page=int(pages.front());
             zoom=controller->getPdfWidget()->getDrawWidgetProxy()->getZoom();
@@ -2152,6 +2165,25 @@ private:
         // bibliography identity, and manually linked SI parent names.
         if (localSync_ && localSync_->renamed)
             localSync_->renamed(original, moved.documentPath);
+        // The historical opened-date cache uses raw path hashes. A genuine
+        // rename can turn C:/Users/RUNNER~1 into C:/Users/runneradmin, so
+        // migrating only the original hash is insufficient. Persist both new
+        // path spellings while keeping the old entry for safe rollback.
+        if (!renamedOpenedDate.isEmpty()) {
+            QSettings store(QSettings::defaultFormat(), QSettings::UserScope,
+                            QStringLiteral("LUNA"),QStringLiteral("LUNA Library"));
+            const QString canonical=QFileInfo(moved.documentPath).canonicalFilePath();
+            for (const QString& newPath : {moved.documentPath, canonical}) {
+                if (newPath.isEmpty()) continue;
+                const QString key=openedDateKey(newPath);
+                openedDates_.insert(key,renamedOpenedDate);
+                store.setValue(QStringLiteral("library/openedDates/")+key,renamedOpenedDate);
+            }
+            rememberDateAlias(moved.documentPath,renamedOpenedDate);
+            store.sync();
+            if (store.status()!=QSettings::NoError)
+                qWarning()<<"LUNA auto-rename opened-date persistence failed";
+        }
         if (localSync_) localSync_->publish(moved.documentPath);
         reopenReader(moved.documentPath,true);
         ThumbnailCache::instance()->invalidate();
@@ -2439,8 +2471,10 @@ private:
         item->setData(Qt::UserRole + 1, location == QStringLiteral(".") ? QStringLiteral("라이브러리 폴더 · PDF") : location);
         item->setData(Qt::UserRole + 2, favorites_.contains(path));
         QString date = openedDates_.value(openedDateKey(path));
-        if (date.isEmpty() && datedNames_.contains(QFileInfo(path).fileName().toCaseFolded()))
-            date = displayedDates_.value(fileIdentity);
+        // Windows sometimes reports the same PDF under an 8.3 spelling or
+        // differently cased directory. The physical-path hash is historical;
+        // the canonical DocumentClaim identity is the safe fallback.
+        if (date.isEmpty()) date = displayedDates_.value(fileIdentity);
         const QDateTime opened = QDateTime::fromString(date, Qt::ISODate);
         item->setData(Qt::UserRole + 3, opened.isValid() ? opened.toLocalTime().date().toString(QStringLiteral("yy.MM.dd.")) : QString());
         const QString memo = memos_.value(openedDateKey(path));

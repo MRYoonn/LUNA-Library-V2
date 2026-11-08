@@ -22,6 +22,7 @@
 #include "lunareadertoolbar.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
+#include "pdfundoredomanager.h"
 #include "pdfdrawwidget.h"
 #include "pdfdrawspacecontroller.h"
 #include "pdfitemmodels.h"
@@ -1973,6 +1974,30 @@ private:
         }
         return {};
     }
+    // A manually linked SI follows its verified parent's title; never use the
+    // SI cover or guessed PDF Info as if it were an independent article title.
+    QString verifiedFilenameFor(const QString& identity, const QFileInfo& source) {
+        const QVariantMap record=bibliography_.record(identity);
+        if (!record.value(QStringLiteral("manualSI")).toBool())
+            return luna::AutoFileName::fromVerifiedTitle(record,source.absolutePath());
+        const QString parentName=record.value(QStringLiteral("manualSiParentFile")).toString();
+        if (!luna::ManualSI::validParentFileName(parentName)) return {};
+        const QFileInfo parent(QDir(source.absolutePath()).filePath(parentName));
+        if (!parent.isFile() || parent.isSymLink() ||
+            parent.canonicalPath().compare(source.canonicalPath(),Qt::CaseInsensitive)!=0)
+            return {};
+        const QString paperName=luna::AutoFileName::fromVerifiedTitle(
+            bibliography_.record(DocumentClaim::identity(parent.canonicalFilePath())),
+            source.absolutePath());
+        if (paperName.isEmpty()) return {};
+        const int available=qMin(150,235-QFileInfo(source.absolutePath()).absoluteFilePath().size());
+        if (available < 32) return {};
+        QString stem=QStringLiteral("SI · ")+
+            luna::ManualSI::safeTitle(paperName.left(paperName.size()-4));
+        stem=stem.left(available-4).trimmed();
+        while(stem.endsWith(QLatin1Char('.')) || stem.endsWith(QLatin1Char(' ')))stem.chop(1);
+        return stem.size()>=8 ? stem+QStringLiteral(".pdf") : QString();
+    }
     // Return the actual on-disk result only after the paired move is verified.
     bool renameExtractedTitleFile(const QString& identity, QString* reason = nullptr,
                                  QString* renamedPath = nullptr) {
@@ -1989,8 +2014,7 @@ private:
             explain(QStringLiteral("선택한 PDF가 현재 LUNA 라이브러리의 연결 폴더 밖에 있습니다. 연결 폴더를 확인하세요."));
             return true;
         }
-        const QString preferred=luna::AutoFileName::fromVerifiedTitle(
-            bibliography_.record(identity),source.absolutePath());
+        const QString preferred=verifiedFilenameFor(identity,source);
         const QString filename=availableVerifiedTitleName(identity,preferred);
         if (filename.isEmpty()) {
             explain(QStringLiteral("제목이 유효하지 않거나 동일 제목의 PDF·서지정보가 너무 많아 변경하지 않았습니다."));
@@ -2007,39 +2031,100 @@ private:
             explain(QStringLiteral("파일명이 다른 작업과 충돌했습니다. 다시 시도하면 번호를 다시 선택합니다."));
             return false;
         }
+        QPointer<pdfviewer::PDFEditorMainWindow> activeEditor;
+        int page=0;
+        double zoom=2.0;
+        pdf::PageLayout layout=pdf::PageLayout::OneColumn;
         for (auto* editor:window()->findChildren<pdfviewer::PDFEditorMainWindow*>()) {
             auto* controller=editor->getProgramController();
-            if (controller && controller->getDocument() &&
-                DocumentClaim::identity(controller->getOriginalFileName())==identity) {
-                explain(QStringLiteral("PDF가 LUNA 탭에서 열려 있습니다. 탭을 닫으면 다시 시도합니다."));
+            if (!controller || !controller->getDocument() ||
+                DocumentClaim::identity(controller->getOriginalFileName())!=identity)continue;
+            // Only a fully loaded and saved reader may be re-bound silently.
+            // Never open a Save dialog, discard unsaved annotations or switch
+            // tabs while the user is editing a PDF.
+            auto* undo=controller->findChild<pdfviewer::PDFUndoRedoManager*>();
+            if (!movedHandler || !editor->isEnabled() || !controller->canClose() ||
+                controller->getIsBusy() || !undo || !undo->isCurrentSaved() ||
+                editor->property("LunaMoveRestorePending").toBool() ||
+                QApplication::activeModalWidget()) {
+                explain(QStringLiteral("PDF에 저장되지 않은 변경 또는 진행 중인 작업이 있습니다. 저장 후 자동 변경합니다."));
+                return false;
+            }
+            activeEditor=editor;
+            const auto pages=controller->getPdfWidget()->getDrawWidget()->getCurrentPages();
+            if (!pages.empty())page=int(pages.front());
+            zoom=controller->getPdfWidget()->getDrawWidgetProxy()->getZoom();
+            layout=controller->getPdfWidget()->getDrawWidgetProxy()->getPageLayout();
+        }
+        // An active editor owns the original DocumentClaim lock. It is itself
+        // the exclusive writer until the new destination claim is acquired.
+        // Closed PDFs require a separate non-blocking lock against other apps.
+        std::unique_ptr<QLockFile> renameGuard;
+        if (!activeEditor) {
+            const QString lockPath=QStandardPaths::writableLocation(
+                QStandardPaths::AppLocalDataLocation)+QStringLiteral("/document-claims/")+
+                DocumentClaim::endpoint(original)+QStringLiteral(".lock");
+            if (!QDir().mkpath(QFileInfo(lockPath).absolutePath())) {
+                explain(QStringLiteral("문서 잠금 폴더를 만들 수 없습니다. 쓰기 권한을 확인하세요."));
+                return true;
+            }
+            renameGuard=std::make_unique<QLockFile>(lockPath);
+            renameGuard->setStaleLockTime(0);
+            if (!renameGuard->tryLock(0)) {
+                explain(QStringLiteral("다른 LUNA 프로세스가 이 PDF를 사용 중이거나 잠금 확보에 실패했습니다. PDF 탭을 닫으세요."));
                 return false;
             }
         }
-        const QString lockPath=QStandardPaths::writableLocation(
-            QStandardPaths::AppLocalDataLocation)+QStringLiteral("/document-claims/")+
-            DocumentClaim::endpoint(original)+QStringLiteral(".lock");
-        if (!QDir().mkpath(QFileInfo(lockPath).absolutePath())) {
-            explain(QStringLiteral("문서 잠금 폴더를 만들 수 없습니다. 쓰기 권한을 확인하세요."));
-            return true;
-        }
-        // A stale lock file is not an active document.
-
-
-
-        QLockFile renameGuard(lockPath);
-        renameGuard.setStaleLockTime(0);
-        if (!renameGuard.tryLock(0)) {
-            explain(QStringLiteral("다른 LUNA 프로세스가 이 PDF를 사용 중이거나 잠금 확보에 실패했습니다. PDF 탭을 닫으세요."));
-            return false;
+        const auto reopenReader=[this,activeEditor,page,zoom,layout,original](
+                const QString& target, bool moved) {
+            if (!activeEditor)return;
+            auto* controller=activeEditor->getProgramController();
+            if (moved && movedHandler) {
+                const bool accepted=movedHandler(activeEditor.data(),original,target);
+                activeEditor->setProperty("LunaMoveClaimAccepted",accepted);
+                if (!accepted) {
+                    activeEditor->setProperty("LunaMoveRestorePending",false);
+                    qWarning()<<"LUNA auto-rename moved PDF but could not acquire new tab claim:"<<target;
+                    return;
+                }
+            }
+            controller->openDocument(target);
+            auto* restore=new QTimer(this);
+            connect(restore,&QTimer::timeout,this,
+                [restore,editor=activeEditor,target,page,zoom,layout,attempts=0]() mutable {
+                    if (!editor) {restore->stop();restore->deleteLater();return;}
+                    auto* c=editor->getProgramController();
+                    if (++attempts>200) {
+                        editor->setProperty("LunaMoveRestorePending",false);
+                        restore->stop();restore->deleteLater();return;
+                    }
+                    if (!editor->isEnabled() || !c->getDocument() ||
+                        DocumentClaim::identity(c->getOriginalFileName())!=
+                            DocumentClaim::identity(target)) return;
+                    c->getPdfWidget()->getDrawWidgetProxy()->setPageLayout(layout);
+                    c->getPdfWidget()->getDrawWidgetProxy()->zoom(zoom);
+                    c->getPdfWidget()->getDrawWidgetProxy()->goToPage(page);
+                    editor->setProperty("LunaMoveRestorePending",false);
+                    restore->stop();restore->deleteLater();
+                });
+            restore->start(50);
+        };
+        if (activeEditor) {
+            activeEditor->setProperty("LunaMoveRestorePending",true);
+            activeEditor->setProperty("LunaPreserveReopenView",true);
+            activeEditor->getProgramController()->closeDocument();
         }
         const auto moved=luna::movePdfWithThumbnails(
             original,source.absolutePath(),luna::renameWithoutReplacement,filename);
         if (!moved.success) {
+            reopenReader(original,false);
             explain(QStringLiteral("Windows에서 실제 PDF/연결 파일 이동을 거부했습니다.\n%1").arg(moved.error));
             qWarning().noquote()<<"LUNA title-file rename skipped:"<<moved.error;
             return true; // Explain the actual failure; never claim a rename.
         }
         if (QFileInfo::exists(original) || !QFileInfo(moved.documentPath).isFile()) {
+            reopenReader(QFileInfo(original).isFile()?original:moved.documentPath,
+                         !QFileInfo(original).isFile());
             explain(QStringLiteral("실제 파일명 변경 검증 실패: 원본 또는 대상 파일 상태를 확인하세요."));
             return false;
         }
@@ -2050,6 +2135,7 @@ private:
         if (localSync_ && localSync_->renamed)
             localSync_->renamed(original, moved.documentPath);
         if (localSync_) localSync_->publish(moved.documentPath);
+        reopenReader(moved.documentPath,true);
         ThumbnailCache::instance()->invalidate();
         if (!window()->property("LunaClosing").toBool()) {
             allTimer_->stop(); allIterator_.reset(); allScanned_ = false; allPdfs_->clear();

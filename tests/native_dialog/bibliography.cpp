@@ -12,6 +12,16 @@ int main(int argc, char** argv) {
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, directory.path());
     luna::Bibliography store;
+    // Real v298 user failure: record() generates default display provenance
+    // for a never-saved target, so checking !record().isEmpty() incorrectly
+    // declared every filename occupied. Only persisted data can reserve it.
+    const QString missing=QStringLiteral("fresh-title-target");
+    if (store.hasStoredRecord(missing)) return 201;
+    const QVariantMap decorated=store.record(missing);
+    if (!decorated.contains("authorsSource") || store.hasStoredRecord(missing)) return 202;
+    const QString occupied=QStringLiteral("existing-bibliography-target");
+    if (!store.save(occupied, {{"title",QStringLiteral("Previously Saved Paper")}}, false) ||
+        !store.hasStoredRecord(occupied) || store.hasStoredRecord(missing)) return 203;
 
     const QString firstPage = QStringLiteral(
         "Research Article\nJ. Am. Chem. Soc. 2025, 147, 10012–10019\n"

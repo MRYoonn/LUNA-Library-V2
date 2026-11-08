@@ -95,7 +95,12 @@ public:
                         pending_.append(paths);
                         QTimer::singleShot(0, this, [this] { dispatchPending(); });
                     }
-                    client->disconnectFromServer();
+                    // Disconnect on the next event-loop turn so the sender
+                    // can receive our short ACK even on a busy Windows socket.
+                    QTimer::singleShot(0, client, [client] {
+                        if (client->state() == QLocalSocket::ConnectedState)
+                            client->disconnectFromServer();
+                    });
                 });
                 connect(client, &QLocalSocket::disconnected, client, &QObject::deleteLater);
                 QTimer::singleShot(3000, client, [client] {
@@ -160,14 +165,33 @@ public:
         QByteArray payload = QJsonDocument(object).toJson(QJsonDocument::Compact);
         payload.append('\n');
         if (payload.size() > 32768) return false;
-        QLocalSocket socket;
-        socket.connectToServer(channel_, QIODevice::ReadWrite);
-        if (!socket.waitForConnected(200)) return false;
-        if (socket.write(payload) != payload.size() || !socket.waitForBytesWritten(1000))
-            return false;
-        if (!socket.waitForReadyRead(1500)) return false;
-        const QByteArray answer = socket.readAll();
-        return answer.startsWith("ok\n");
+        // The server may have received the request and begun disconnecting
+        // before Windows signals readyRead. Check buffered ACK bytes even
+        // when waitForReadyRead reports a disconnect. Only retries after a
+        // real connection are allowed; never spend seconds contacting an
+        // absent app. Every retry retains the exact same idempotency ID.
+        bool connectedOnce = false;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            QLocalSocket socket;
+            socket.connectToServer(channel_, QIODevice::ReadWrite);
+            if (!socket.waitForConnected(200)) {
+                if (!connectedOnce) return false;
+                continue;
+            }
+            connectedOnce = true;
+            if (socket.write(payload) != payload.size() ||
+                !socket.waitForBytesWritten(1000)) continue;
+            QByteArray answer;
+            for (int poll = 0; poll < 3; ++poll) {
+                answer.append(socket.readAll());
+                if (answer.startsWith("ok\n")) return true;
+                if (socket.state() == QLocalSocket::UnconnectedState) break;
+                socket.waitForReadyRead(500);
+            }
+            answer.append(socket.readAll());
+            if (answer.startsWith("ok\n")) return true;
+        }
+        return false;
     }
 
 private:

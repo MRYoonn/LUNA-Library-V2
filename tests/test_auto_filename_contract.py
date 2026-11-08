@@ -112,7 +112,7 @@ class VerifiedFileNameContracts(unittest.TestCase):
             'int scrollPosition=0;',
             'scrollPosition=controller->getPdfWidget()->getVerticalScrollbar()->value();',
             'scrollPosition,original',
-            'scrollPosition,attempts=0',
+            'attempts=0,lastShortRange=-1,shortRangeTicks=0',
             'if (scrollPosition>0 && available<scrollPosition) {',
             'if (++shortRangeTicks<10) return;',
             'const int restoredScroll=qMin(scrollPosition,available);',

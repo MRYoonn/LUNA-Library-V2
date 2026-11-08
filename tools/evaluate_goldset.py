@@ -242,17 +242,21 @@ def fetch(manifest, destination):
                     if retry_after:
                         fault['retryAfter'] = str(retry_after)[:80]
                 attempt_errors.append(fault)
-                # A valid source that returns a different PDF must never
-                # replace the immutable corpus or silently alter scoring.
+                # A rate limit must be respected; do not switch routes to
+                # circumvent a provider's explicit Retry-After instruction.
                 if label == 'manifest' and isinstance(error, HTTPError) and error.code == 429:
                     break
-        if not resolved and not any(x.get('httpStatus') == 429 for x in attempt_errors) and \
-                item['pdf_url'].startswith(('https://europepmc.org/', 'https://www.ebi.ac.uk/')):
-            try:
-                path.write_bytes(aws_openaccess_pdf(item))
-                resolved=True
-            except ValueError as error:
-                attempt_errors.append(dict(source='official-pmc-aws',error=type(error).__name__))
+                # Try the official August-2026 PMC AWS dataset first, avoiding
+                # obsolete FTP packages and browser-facing PMC pages when possible.
+                if label == 'manifest' and item['pdf_url'].startswith(
+                        ('https://europepmc.org/', 'https://www.ebi.ac.uk/')):
+                    try:
+                        path.write_bytes(aws_openaccess_pdf(item))
+                        resolved=True
+                        break
+                    except ValueError as aws_error:
+                        attempt_errors.append(dict(source='official-pmc-aws',
+                                                   error=type(aws_error).__name__))
         if not resolved:
             fault = dict(id=identifier, **{k: v for k, v in attempt_errors[0].items() if k != 'source'})
             if len(attempt_errors) > 1:

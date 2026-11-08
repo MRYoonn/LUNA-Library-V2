@@ -72,6 +72,7 @@ APPROVED = {
     "src/lunawindowrelay.h", "tests/native_dialog/windowrelay.cpp",
     ".github/workflows/v296-shell-check-once.yml",
     ".github/workflows/v297-reader-toolbar-once.yml",
+    ".github/workflows/v299-title-collision-once.yml",
     ".github/workflows/v298-rename-once.yml",
     "src/lunatabmoon.h", "src/lunapdfassociation.h",
     "tools/generate_pdf_icon.py", "tools/probe_pdf_icon_windows.py",

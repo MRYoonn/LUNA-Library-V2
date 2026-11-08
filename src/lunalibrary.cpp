@@ -3154,6 +3154,10 @@ private:
                     } else {
                         QString reason, renamedPath;
                         if(renameExtractedTitleFile(id,&reason,&renamedPath)) pendingTitleRenames_.remove(id);
+                        else {
+                            pendingTitleRenames_.insert(id);
+                            if (!titleRenameTimer_.isActive()) titleRenameTimer_.start();
+                        }
                         const bool changed=!renamedPath.isEmpty() && !QFileInfo::exists(path) &&
                             QFileInfo(renamedPath).isFile();
                         if (changed) QMessageBox::information(this,QStringLiteral("PDF 파일명 변경 완료"),

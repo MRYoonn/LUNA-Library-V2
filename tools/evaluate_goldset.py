@@ -213,7 +213,7 @@ def aws_openaccess_pdf(item):
     raise ValueError('No exact SHA256-matching open-access PMC cloud object available')
 
 
-def fetch(manifest, destination):
+def fetch(manifest, destination, *, retry_rounds=1):
     destination.mkdir(parents=True, exist_ok=True)
     failures = []
     for item in manifest:
@@ -262,6 +262,32 @@ def fetch(manifest, destination):
             if len(attempt_errors) > 1:
                 fault['attempts'] = attempt_errors
             failures.append(fault)
+    # An external service's short Retry-After is not a broken PDF. Wait until
+    # all other fixtures are processed, then make ONE bounded second pass.
+    # Explicit long cooldowns are never ignored or shortened.
+    if retry_rounds:
+        deferred = []
+        delay = 0
+        for item in manifest:
+            result = next((e for e in failures if e['id'] == item['id']), None)
+            if not result or result.get('httpStatus') != 429:
+                continue
+            value = result.get('retryAfter', '10')
+            try:
+                seconds = int(value)
+            except (TypeError, ValueError):
+                try:
+                    seconds = max(0, int(parsedate_to_datetime(value).timestamp()-time.time()))
+                except (TypeError, ValueError, OverflowError):
+                    seconds = 10
+            if 0 <= seconds <= 60:
+                deferred.append(item)
+                delay = max(delay, seconds)
+        if deferred:
+            time.sleep(max(1, delay))
+            retried = fetch(deferred, destination, retry_rounds=0)
+            ids = {item['id'] for item in deferred}
+            failures = [entry for entry in failures if entry['id'] not in ids] + retried
     return failures
 
 

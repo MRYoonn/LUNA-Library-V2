@@ -11,7 +11,7 @@ import io
 import json
 from pathlib import Path
 import re
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 import subprocess
 import time
 import unicodedata
@@ -170,6 +170,49 @@ def verified_pdf(data, item, kind):
     raise ValueError('Pinned PDF SHA256 mismatch or invalid archive')
 
 
+
+def aws_openaccess_pdf(item):
+    """Read publisher-authorized PMC S3 article metadata, then exact SHA256 media.
+
+    August 2026 moved PMC dataset distribution from legacy FTP packages to
+    versioned S3 article objects. Never trust arbitrary URLs in S3 metadata.
+    """
+    identifier = item['id'].split('-SI',1)[0]
+    for version in (1,2,3):
+        folder = f'{identifier}.{version}/'
+        meta_url = f'https://pmc-oa-opendata.s3.amazonaws.com/metadata/{identifier}.{version}.json'
+        try:
+            with urlopen(Request(meta_url,headers={'User-Agent':'LUNA-public-fixture-validation'}),timeout=25) as reply:
+                info = json.loads(reply.read(100_000))
+            if info.get('pmcid') != identifier or info.get('version') != version:
+                continue
+            if not info.get('is_pmc_openaccess'):
+                continue
+            media = list(info.get('media_urls') or []) if 'archive_member' in item else [info.get('pdf_url')]
+            for uri in media:
+                if not isinstance(uri,str):
+                    continue
+                parsed = urlsplit(uri)
+                if parsed.scheme != 's3' or parsed.netloc != 'pmc-oa-opendata':
+                    continue
+                if not parsed.path.lstrip('/').startswith(folder):
+                    continue
+                if 'archive_member' in item and parsed.path.rsplit('/',1)[-1] != item['archive_member']:
+                    continue
+                if 'archive_member' not in item and not parsed.path.endswith('.pdf'):
+                    continue
+                public_url = f'https://pmc-oa-opendata.s3.amazonaws.com{parsed.path}'
+                try:
+                    raw = download_public_fixture(Request(public_url,
+                        headers={'User-Agent':'LUNA-public-fixture-validation'}))
+                    return verified_pdf(raw,item,'pdf')
+                except (HTTPError,URLError,TimeoutError,ValueError):
+                    continue
+        except (HTTPError,URLError,TimeoutError,ValueError,json.JSONDecodeError):
+            continue
+    raise ValueError('No exact SHA256-matching open-access PMC cloud object available')
+
+
 def fetch(manifest, destination):
     destination.mkdir(parents=True, exist_ok=True)
     failures = []
@@ -202,6 +245,13 @@ def fetch(manifest, destination):
                 # replace the immutable corpus or silently alter scoring.
                 if label == 'manifest' and isinstance(error, HTTPError) and error.code == 429:
                     break
+        if not resolved and not any(x.get('httpStatus') == 429 for x in attempt_errors) and \
+                item['pdf_url'].startswith(('https://europepmc.org/', 'https://www.ebi.ac.uk/')):
+            try:
+                path.write_bytes(aws_openaccess_pdf(item))
+                resolved=True
+            except ValueError as error:
+                attempt_errors.append(dict(source='official-pmc-aws',error=type(error).__name__))
         if not resolved:
             fault = dict(id=identifier, **{k: v for k, v in attempt_errors[0].items() if k != 'source'})
             if len(attempt_errors) > 1:

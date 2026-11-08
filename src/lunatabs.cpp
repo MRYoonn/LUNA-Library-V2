@@ -1023,6 +1023,14 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         phase("load and persistent library");
         auto* tabs = host.findChild<QTabWidget*>(QStringLiteral("LunaPdfTabs")); auto* a = host.current();
         auto ready = [](Editor* e) { if (!e) return false; auto* c = e->getProgramController(); return c->getDocument() && c->canClose() && e->isEnabled() && !e->property("LunaRememberedPath").toString().isEmpty(); };
+        // Reused in the late Ctrl+W stress phase after the initial UI test
+        // block has exited. Keep its lifetime at the integration function scope.
+        auto liveBSource = [&]() -> QString {
+            if (QFileInfo(files[1]).isFile()) return files[1];
+            const QString verifiedName = QDir(QFileInfo(files[1]).absolutePath()).filePath(
+                QStringLiteral("LUNA synthetic bravo test.pdf"));
+            return QFileInfo(verifiedName).isFile() ? verifiedName : files[1];
+        };
         integrationRequire(tabs && a && integrationWait([&] { return ready(a); }), "Integrated A did not load");
         phase("custom reading toolbar and trailing search/print");
         auto* readerBar=host.findChild<QToolBar*>(QStringLiteral("LunaCommonReaderToolbar"));
@@ -1133,12 +1141,6 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             // Resolve only the explicitly known synthetic article's new name,
             // and continue to inspect the real paper card + opened date.
             // Never weaken the date assertion or assume the old file survived.
-            auto liveBSource = [&]() -> QString {
-                if (QFileInfo(files[1]).isFile()) return files[1];
-                const QString verifiedName = QDir(QFileInfo(files[1]).absolutePath()).filePath(
-                    QStringLiteral("LUNA synthetic bravo test.pdf"));
-                return QFileInfo(verifiedName).isFile() ? verifiedName : files[1];
-            };
             auto isolatedBibliography = [&] {
                 if (!qEnvironmentVariableIsSet("LUNA_BIBLIOGRAPHY_TAB_FIXTURE")) return true;
                 for (int index = 0; index < 2; ++index) {

@@ -197,9 +197,10 @@ def aws_openaccess_pdf(item):
                     continue
                 if not parsed.path.lstrip('/').startswith(folder):
                     continue
-                if 'archive_member' in item and parsed.path.rsplit('/',1)[-1] != item['archive_member']:
-                    continue
-                if 'archive_member' not in item and not parsed.path.endswith('.pdf'):
+                # Publisher-to-PMC transfers can rename supplementary media.
+                # Its filename is not identity; the manifest SHA256 is.
+                # Look only at PDF media under the SAME licensed PMC article.
+                if not parsed.path.lower().endswith('.pdf'):
                     continue
                 public_url = f'https://pmc-oa-opendata.s3.amazonaws.com{parsed.path}'
                 try:

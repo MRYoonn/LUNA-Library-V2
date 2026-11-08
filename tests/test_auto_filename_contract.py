@@ -74,7 +74,7 @@ class VerifiedFileNameContracts(unittest.TestCase):
         # Never report success from a metadata title alone or a target-side file.
         for code in (
             'availableVerifiedTitleName(identity,preferred)',
-            'luna::AutoFileName::numberedCopy(preferred,i)',
+            'luna::AutoFileName::numberedCopy(preferred,i,budget)',
             'SidecarStorage::companions(identity,target)',
             'QFileInfo::exists(pair.second)',
             'QString reason, renamedPath;',

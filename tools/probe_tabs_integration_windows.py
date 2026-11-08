@@ -161,8 +161,25 @@ def run(package, output, debugger=None):
                     reports.append(result)
                     if code != 0 or result.get('accepted') is not True:
                         break
-                untouched_b = hashlib.sha256(b.read_bytes()).hexdigest() == original_b
-                results.append({'qtScale': scale, 'runs': reports, 'originalBUnchanged': untouched_b})
+                # B can be renamed by the production verified-title policy
+                # when its last tab closes. Do not require the obsolete B.pdf
+                # name: require ONE real PDF in the SAME folder whose bytes
+                # retain B's original SHA256. Never accept a missing, copied,
+                # modified or symlinked B as a successful library operation.
+                b_candidates = [
+                    candidate for candidate in root.iterdir()
+                    if candidate.is_file() and not candidate.is_symlink()
+                    and candidate.suffix.casefold() == '.pdf'
+                    and hashlib.sha256(candidate.read_bytes()).hexdigest() == original_b
+                ]
+                untouched_b = len(b_candidates) == 1
+                results.append({
+                    'qtScale': scale, 'runs': reports,
+                    'originalBUnchanged': untouched_b,
+                    'actualBFileName': b_candidates[0].name if untouched_b else None,
+                    'originalBWasRenamed': untouched_b and b_candidates[0] != b,
+                    'originalBHashSha256': original_b,
+                })
                 if len(reports) != 2 or not untouched_b or any(r['exitCode'] != 0 or not r.get('accepted') for r in reports):
                     break
     accepted = len(results) == 3 and all(len(s['runs']) == 2 and s['originalBUnchanged'] and

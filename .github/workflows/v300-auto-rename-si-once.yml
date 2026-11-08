@@ -8,6 +8,7 @@ on:
       - src/lunalibrary.cpp
       - src/lunatabs.cpp
       - tests/test_live_title_si_contract.py
+      - tests/test_hidden_storage_contract.py
       - tests/test_auto_filename_contract.py
       - tests/test_manual_si_contract.py
       - tests/test_public_gate.py

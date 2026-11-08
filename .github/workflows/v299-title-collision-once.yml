@@ -17,7 +17,28 @@ on:
 permissions:
   contents: read
   actions: write
+concurrency:
+  group: luna-v299-fix-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
+  cancel-superseded:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Stop only older v299 validation runs from the same branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = MRYoonn/LUNA-Library-V2
+          gh api "repos/$REPO/actions/workflows/v299-title-collision-once.yml/runs?branch=feature/v299-safe-title-collision-20261108&per_page=100" --jq '.workflow_runs[] | select(.status != "completed") | .id' | while read -r id; do
+            if [ "$id" != "$RUN_ID" ]; then
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null || true
+            fi
+          done
   source-gate:
     if: github.repository == 'MRYoonn/LUNA-Library-V2'
     runs-on: ubuntu-latest

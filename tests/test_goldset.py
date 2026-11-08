@@ -114,6 +114,54 @@ class GoldsetAcquisition(unittest.TestCase):
             self.assertFalse((destination/'PMC1.pdf').exists())
         self.assertEqual(opening.call_count, 1)
 
+    @patch('tools.evaluate_goldset.time.sleep')
+    @patch('tools.evaluate_goldset.urlopen')
+    def test_mirror_zip_recovers_identical_pinned_article_not_new_pdf(self, opening, sleep):
+        article = dict(id='PMC10025926',
+            pdf_url='https://europepmc.org/api/getPdf?pmcid=PMC10025926',
+            sha256=hashlib.sha256(self.payload).hexdigest())
+        archive_bytes=io.BytesIO()
+        import zipfile
+        with zipfile.ZipFile(archive_bytes,'w') as zipped:
+            zipped.writestr('PMC10025926.pdf',self.payload)
+        bad=HTTPError(article['pdf_url'],500,'Server failure',{},None)
+        opening.side_effect=[bad,bad,bad,io.BytesIO(archive_bytes.getvalue())]
+        with tempfile.TemporaryDirectory() as temporary:
+            target=Path(temporary)
+            self.assertEqual(fetch([article],target),[])
+            self.assertEqual((target/'PMC10025926.pdf').read_bytes(),self.payload)
+        self.assertEqual(opening.call_count,4)
+        self.assertIn('ftp.ebi.ac.uk', opening.call_args_list[3].args[0].full_url)
+        self.assertEqual(opening.call_args_list[3].args[0].full_url,
+            'https://ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA/PMCxxxx1003/PMC10025926.zip')
+
+    @patch('tools.evaluate_goldset.urlopen')
+    def test_bad_supplement_archive_uses_hash_pinned_pmc_supplement(self, opening):
+        article=dict(id='PMC10803759-SI1',
+            pdf_url='https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10803759/supplementaryFiles',
+            archive_member='41467_2024_44824_MOESM2_ESM.pdf',
+            sha256=hashlib.sha256(self.payload).hexdigest())
+        opening.side_effect=[io.BytesIO(b'html not zip'),io.BytesIO(self.payload)]
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary)
+            self.assertEqual(fetch([article],directory),[])
+            self.assertEqual((directory/'PMC10803759-SI1.pdf').read_bytes(),self.payload)
+        self.assertIn('/bin/41467_2024_44824_MOESM2_ESM.pdf',
+                      opening.call_args_list[1].args[0].full_url)
+
+    @patch('tools.evaluate_goldset.urlopen')
+    def test_mirror_different_pdf_sha_is_rejected_without_saving(self, opening):
+        article=dict(id='PMC10025926',
+            pdf_url='https://europepmc.org/api/getPdf?pmcid=PMC10025926',
+            sha256=hashlib.sha256(self.payload).hexdigest())
+        opening.return_value=io.BytesIO(self.payload+b'swapped')
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary)
+            failures=fetch([article],directory)
+            self.assertEqual(failures[0]['id'],article['id'])
+            self.assertIn('attempts',failures[0])
+            self.assertFalse((directory/'PMC10025926.pdf').exists())
+
     def test_rate_limit_honors_seconds_and_http_date_retry_after(self):
         epoch = 1762477200
         for header in ('45', formatdate(epoch+45, usegmt=True)):

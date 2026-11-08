@@ -1330,6 +1330,37 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             // never mistake PDF4QT's temporary 0..1 loading scrollbar for a
             // persistent independent-document view regression.
             flushLibraryTitleRenames(host);
+            QJsonArray renameViewportEvidence;
+            for (int i=0; i<documents.size(); ++i) {
+                auto* editor=documents[i].data();
+                tabs->setCurrentWidget(editor); QCoreApplication::processEvents();
+                const bool settled=integrationWait([&] {
+                    return ready(editor) && !editor->property("LunaMoveRestorePending").toBool();
+                }, 10000);
+                auto* view=editor->getProgramController()->getPdfWidget();
+                auto* vertical=view->getVerticalScrollbar();
+                const int available=vertical->maximum();
+                const int expected=qMin(scrollPositions[i],available);
+                const int observed=vertical->value();
+                const double actualZoom=view->getDrawWidgetProxy()->getZoom();
+                renameViewportEvidence.append(QJsonObject{
+                    {"tabIndex",i}, {"rebindSettled",settled},
+                    {"priorScroll",scrollPositions[i]}, {"scrollMax",available},
+                    {"expectedWithinViewport",expected}, {"actualScroll",observed},
+                    {"expectedZoom",zoomValues[i]}, {"actualZoom",actualZoom},
+                    {"renamePending",editor->property("LunaMoveRestorePending").toBool()},
+                    {"documentPresent",bool(editor->getProgramController()->getDocument())}
+                });
+                result["fiveTabRenameViewportDiagnostics"]=renameViewportEvidence; write();
+                integrationRequire(settled, "Automatic title rename did not restore its original reader tab");
+                integrationRequire(observed==expected && qAbs(actualZoom-zoomValues[i])<.001,
+                    "Automatic title rename lost a reachable PDF reading position or zoom");
+                // Re-seed after native reflow. A page that entirely fits its
+                // new DPI viewport legitimately has no nonzero scroll value;
+                // all subsequent 10x5 independent-tab comparisons stay exact.
+                vertical->setValue(available/3);
+                scrollPositions[i]=vertical->value();
+            }
             for (int turn = 0; turn < 10; ++turn) for (int i = 0; i < documents.size(); ++i) {
                 tabs->setCurrentWidget(documents[i]); QCoreApplication::processEvents();
                 auto* editor=documents[i].data();

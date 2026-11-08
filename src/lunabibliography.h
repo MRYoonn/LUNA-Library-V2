@@ -527,6 +527,12 @@ public:
         return save(identity, value, false);
     }
 
+    // record() adds display-time provenance fields even if no value was saved.
+    // Use raw QSettings when checking whether a destination filename is reserved.
+    bool hasStoredRecord(const QString& identity) const {
+        return !settings().value(key(resolve(identity))).toMap().isEmpty();
+    }
+
     QVariantMap record(const QString& identity) const {
         QVariantMap value = settings().value(key(resolve(identity))).toMap();
         // The full citation field had only a manual-paste writer in the legacy

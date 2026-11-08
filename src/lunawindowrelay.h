@@ -18,6 +18,9 @@
 #include <QThread>
 #include <QTimer>
 #include <QStringList>
+#include <QSet>
+#include <QQueue>
+#include <QUuid>
 #include <functional>
 #include <memory>
 
@@ -66,15 +69,38 @@ public:
                         }
                         paths.append(QFileInfo(item.toString()).absoluteFilePath());
                     }
+                    // A sender retries when its acknowledgement is lost.
+                    // A retry is the same Explorer-open request, not another
+                    // instruction to open the PDF. Key by a client-stable UUID.
+                    const QJsonValue token = message.object().value(QStringLiteral("requestId"));
+                    QString id;
+                    if (!token.isUndefined()) {
+                        if (!token.isString()) { client->abort(); return; }
+                        id = token.toString();
+                        if (id.size() != 36 || QUuid::fromString(id).isNull()) {
+                            client->abort(); return;
+                        }
+                    }
                     if (client->write("ok\n") != 3) {
                         client->abort(); return;
                     }
-                    // Complete the reply promptly before the GUI processes
-                    // an Explorer-open batch (which may temporarily block).
                     client->flush();
-                    pending_.append(paths);
-                    QTimer::singleShot(0, this, [this] { dispatchPending(); });
-                    client->disconnectFromServer();
+                    if (id.isEmpty() || !seenRequestIds_.contains(id)) {
+                        if (!id.isEmpty()) {
+                            seenRequestIds_.insert(id);
+                            requestOrder_.enqueue(id);
+                            if (requestOrder_.size() > 256)
+                                seenRequestIds_.remove(requestOrder_.dequeue());
+                        }
+                        pending_.append(paths);
+                        QTimer::singleShot(0, this, [this] { dispatchPending(); });
+                    }
+                    // Disconnect on the next event-loop turn so the sender
+                    // can receive our short ACK even on a busy Windows socket.
+                    QTimer::singleShot(0, client, [client] {
+                        if (client->state() == QLocalSocket::ConnectedState)
+                            client->disconnectFromServer();
+                    });
                 });
                 connect(client, &QLocalSocket::disconnected, client, &QObject::deleteLater);
                 QTimer::singleShot(3000, client, [client] {
@@ -104,7 +130,10 @@ public:
 
     Result claimOrForward(const QStringList& paths) {
         if (!allValid(paths)) return Result::Error;
-        if (forward(paths)) return Result::Forwarded;
+        // Reuse one ID for every retry in this process. A lost ack must not
+        // dispatch a duplicate tab-open request in the already-running LUNA.
+        const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        if (forward(paths, requestId)) return Result::Forwarded;
         if (!QDir().mkpath(QFileInfo(lockPath_).absolutePath())) return Result::Error;
         lock_ = std::make_unique<QLockFile>(lockPath_);
         lock_->setStaleLockTime(0);
@@ -113,7 +142,7 @@ public:
             // Another invocation may own the lock before it starts listening.
             for (int attempt = 0; attempt < 50; ++attempt) {
                 QThread::msleep(50);
-                if (forward(paths)) return Result::Forwarded;
+                if (forward(paths, requestId)) return Result::Forwarded;
             }
             return Result::Error;  // Do not silently create another window.
         }
@@ -125,21 +154,44 @@ public:
         return Result::Primary;
     }
 
-    bool forward(const QStringList& paths) const {
+    bool forward(const QStringList& paths, const QString& requestId = {}) const {
         if (!allValid(paths)) return false;
+        const QString id = requestId.isEmpty()
+            ? QUuid::createUuid().toString(QUuid::WithoutBraces) : requestId;
+        if (id.size() != 36 || QUuid::fromString(id).isNull()) return false;
         QJsonObject object;
         object.insert(QStringLiteral("files"), QJsonArray::fromStringList(paths));
+        object.insert(QStringLiteral("requestId"), id);
         QByteArray payload = QJsonDocument(object).toJson(QJsonDocument::Compact);
         payload.append('\n');
         if (payload.size() > 32768) return false;
-        QLocalSocket socket;
-        socket.connectToServer(channel_, QIODevice::ReadWrite);
-        if (!socket.waitForConnected(200)) return false;
-        if (socket.write(payload) != payload.size() || !socket.waitForBytesWritten(1000))
-            return false;
-        if (!socket.waitForReadyRead(1500)) return false;
-        const QByteArray answer = socket.readAll();
-        return answer.startsWith("ok\n");
+        // The server may have received the request and begun disconnecting
+        // before Windows signals readyRead. Check buffered ACK bytes even
+        // when waitForReadyRead reports a disconnect. Only retries after a
+        // real connection are allowed; never spend seconds contacting an
+        // absent app. Every retry retains the exact same idempotency ID.
+        bool connectedOnce = false;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            QLocalSocket socket;
+            socket.connectToServer(channel_, QIODevice::ReadWrite);
+            if (!socket.waitForConnected(200)) {
+                if (!connectedOnce) return false;
+                continue;
+            }
+            connectedOnce = true;
+            if (socket.write(payload) != payload.size() ||
+                !socket.waitForBytesWritten(1000)) continue;
+            QByteArray answer;
+            for (int poll = 0; poll < 3; ++poll) {
+                answer.append(socket.readAll());
+                if (answer.startsWith("ok\n")) return true;
+                if (socket.state() == QLocalSocket::UnconnectedState) break;
+                socket.waitForReadyRead(500);
+            }
+            answer.append(socket.readAll());
+            if (answer.startsWith("ok\n")) return true;
+        }
+        return false;
     }
 
 private:
@@ -160,6 +212,8 @@ private:
     std::unique_ptr<QLockFile> lock_;
     QLocalServer server_;
     QList<QStringList> pending_;
+    QSet<QString> seenRequestIds_;
+    QQueue<QString> requestOrder_;
     OpenHandler handler_;
 };
 } // namespace luna

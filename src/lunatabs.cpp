@@ -1768,7 +1768,29 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         integrationLayouts(host, report);
         integrationRequire(integrationWait([&] { return ready(host.current()); }), "Reader remained busy after layout captures");
         phase("repeated Ctrl+W across two, one and empty documents");
-        const QString reopenPath = host.current()->getProgramController()->getOriginalFileName();
+        QString reopenPath = host.current()->getProgramController()->getOriginalFileName();
+        // Closing the final tab can legitimately rename a verified-title PDF
+        // on disk. Follow that SAME article, not a now-obsolete filename.
+        // This integration fixture owns exactly one PDF inside the Moved folder.
+        auto followRealReopenPath = [&]() {
+            const QFileInfo original(reopenPath);
+            if (!original.isFile() || original.isSymLink()) {
+                const QDir directory(original.absolutePath());
+                QStringList candidates;
+                for (const QFileInfo& candidate : directory.entryInfoList(
+                         QDir::Files | QDir::NoSymLinks)) {
+                    if (candidate.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) == 0)
+                        candidates.append(candidate.absoluteFilePath());
+                }
+                if (candidates.size() != 1) return false;
+                result["verifiedTitleRenameFollowedAfterClose"] = true;
+                result["renamedFrom"] = reopenPath;
+                reopenPath = candidates.constFirst();
+            }
+            result["actualReopenPath"] = reopenPath;
+            return QFileInfo(reopenPath).isFile();
+        };
+        integrationRequire(followRealReopenPath(), "Moved PDF unavailable before Ctrl+W");
         auto keyClose = [&](int focusKind) {
             auto* focus = host.findChild<QAction*>(QStringLiteral("LunaFocusMode")); focus->setChecked(focusKind == 0 || focusKind == 3);
             if (focus->isChecked()) { const QSize available = host.screen()->availableGeometry().size(); host.resize(available - QSize(24, 48)); host.move(8, 8); }
@@ -1779,8 +1801,19 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 integrationRequire(integrationClick(host, query, query->rect().center()), "Search focus click failed");
                 integrationRequire(integrationWait([&] { return query->hasFocus(); }), "Search did not receive focus");
             } else if (focusKind == 2) {
-                QListWidgetItem* card = nullptr; auto* list = integrationList(host, reopenPath, &card);
-                integrationRequire(list && integrationClick(host, list->viewport(), QPoint(20, 20)), "Paper-list focus click failed");
+                QListWidgetItem* card = nullptr;
+                QListWidget* list = nullptr;
+                integrationRequire(integrationWait([&] {
+                    if (!followRealReopenPath()) return false;
+                    card = nullptr;
+                    list = integrationList(host, reopenPath, &card);
+                    return list && card && list->isVisible() && list->viewport()->isVisible();
+                }, 4000), "Actual renamed paper card missing after last-tab close");
+                list->scrollToItem(card);
+                QCoreApplication::processEvents();
+                const QPoint point = list->visualItemRect(card).center();
+                integrationRequire(list->viewport()->rect().contains(point) &&
+                    integrationClick(host, list->viewport(), point), "Paper-list focus click failed");
                 integrationRequire(integrationWait([&] { return list->hasFocus(); }), "Paper list did not receive focus");
             } else if (auto* widget = QApplication::focusWidget()) widget->clearFocus();
             const int delivered = host.property("LunaCtrlWKeys").toInt();
@@ -1808,6 +1841,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         }
         result["emptyCtrlWEditorCreationsBefore"] = creations; result["emptyCtrlWEditorCreationsAfter"] = host.property("LunaEditorCreations").toInt();
         result["emptyCtrlWTenStable"] = true;
+        integrationRequire(integrationWait(followRealReopenPath), "Renamed PDF missing before reopening");
         auto* reopened = host.open(reopenPath);
         integrationRequire(reopened == emptyEditor && integrationWait([&] { return ready(reopened); }) && integrationHighlights(reopened) == 1, "Reopening after repeated empty Ctrl+W lost the document or annotation");
         auto* query = host.findChild<QLineEdit*>(QStringLiteral("LunaGlobalSearch")); query->setFocus();
@@ -1816,6 +1850,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         const int delivered = host.property("LunaCtrlWKeys").toInt();
         integrationRequire(find->findChild<QLineEdit*>()->hasFocus() && integrationKey('W', true) && integrationWait([&] { return host.property("LunaCtrlWKeys").toInt() == delivered + 1 && host.documentCount() == 0 && host.isVisible(); }), "Ctrl+W from PDF search did not safely close its document");
         result["repeatedCtrlWFocusReopenAndPdfSearch"] = true;
+        integrationRequire(integrationWait(followRealReopenPath), "Renamed PDF missing before File Close");
         auto* fileCloseEditor = host.open(reopenPath);
         integrationRequire(fileCloseEditor && integrationWait([&] { return ready(fileCloseEditor); }), "Native File Close reopen failed");
         auto* fileClose = fileCloseEditor->findChild<QAction*>(QStringLiteral("actionClose"));
@@ -1825,6 +1860,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         phase("user sequence: close third and initial Editor, preserve second");
         QTemporaryDir sequenceFiles; integrationRequire(sequenceFiles.isValid(), "User-sequence temporary directory failed");
         QStringList sequencePaths;
+        integrationRequire(integrationWait(followRealReopenPath), "Renamed PDF missing before sequence copy");
         for (const auto* name : {"A.pdf", "B.pdf", "C.pdf"}) {
             const QString path = sequenceFiles.filePath(QString::fromLatin1(name));
             integrationRequire(QFile::copy(reopenPath, path), "User-sequence disposable PDF copy failed"); sequencePaths.append(path);

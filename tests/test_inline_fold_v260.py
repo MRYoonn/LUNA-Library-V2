@@ -67,7 +67,7 @@ class InlinePanelV260(unittest.TestCase):
     def test_v259_icon_bibliography_and_file_rename_unchanged(self):
         self.assertIn('tabs_->tabBar()->setIconSize(QSize(19,19))', TABS)
         self.assertIn('articleTitle.isEmpty() ? QFileInfo(display).fileName() : articleTitle', TABS)
-        self.assertIn('renameExtractedTitleFile(const QString& identity, QString* reason = nullptr)', LIBRARY)
+        self.assertIn('renameExtractedTitleFile(const QString& identity, QString* reason = nullptr,', LIBRARY)
         self.assertIn('supporting_information', AUTO)
 
 

@@ -11,6 +11,7 @@ import io
 import json
 from pathlib import Path
 import re
+from urllib.parse import quote, urlsplit
 import subprocess
 import time
 import unicodedata
@@ -85,16 +86,16 @@ def score(manifest, predictions):
                 normalization='Title/author/journal: Unicode NFKC, case, punctuation and whitespace; official journal aliases. DOI retains punctuation; year/volume/type exact; page dash/whitespace normalization. No fuzzy matching.')
 
 
-def download_public_fixture(request):
+def download_public_fixture(request, *, attempts=3, timeout=120):
     # The same pinned fixture must succeed; a transient service failure is
     # neither an extraction result nor permission to skip a goldset member.
-    for attempt in range(3):
+    for attempt in range(attempts):
         delay = 2 ** attempt
         try:
-            with urlopen(request, timeout=120) as response:
+            with urlopen(request, timeout=timeout) as response:
                 return response.read(100_000_001)
         except HTTPError as error:
-            if error.code not in (408, 429, 500, 502, 503, 504) or attempt == 2:
+            if error.code not in (408, 429, 500, 502, 503, 504) or attempt == attempts-1:
                 raise
             delay = 30 * (2 ** attempt) if error.code == 429 else delay
             retry_after = (error.headers or {}).get('Retry-After', '')
@@ -111,12 +112,109 @@ def download_public_fixture(request):
                 if delay > 300:
                     raise
         except (URLError, TimeoutError):
-            if attempt == 2:
+            if attempt == attempts-1:
                 raise
         time.sleep(delay)
 
 
-def fetch(manifest, destination):
+
+def public_sources(item):
+    """Explicit public archival mirrors. Each candidate must match manifest SHA256."""
+    primary = item['pdf_url']
+    sources = [('manifest', primary, 'zip' if 'archive_member' in item else 'pdf')]
+    identifier = item['id'].split('-SI', 1)[0]
+    # Do not redirect arbitrary manifest entries to untrusted locations.
+    if not re.fullmatch(r'PMC[1-9]\d*', identifier):
+        return sources
+    if 'archive_member' in item:
+        member = item['archive_member']
+        if member != Path(member).name or not re.fullmatch(r'[A-Za-z0-9_.-]+\.pdf', member):
+            raise ValueError('Unsafe pinned supplementary filename')
+        sources.extend([
+            ('ncbi-supplement', f'https://pmc.ncbi.nlm.nih.gov/articles/{identifier}/bin/{quote(member)}', 'pdf'),
+            ('europepmc-supplement', f'https://europepmc.org/articles/{identifier}/bin/{quote(member)}', 'pdf'),
+        ])
+    elif primary.startswith('https://europepmc.org/api/getPdf?pmcid='):
+        numeric = int(identifier[3:])
+        batch = (numeric + 9999) // 10000
+        sources.extend([
+            ('ebi-oa-archive', f'https://ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA/PMCxxxx{batch:03d}/{identifier}.zip', 'zip'),
+            ('ncbi-pdf', f'https://pmc.ncbi.nlm.nih.gov/articles/{identifier}/pdf/', 'pdf'),
+            ('europepmc-render', f'https://europepmc.org/articles/{identifier}?pdf=render', 'pdf'),
+        ])
+    return sources
+
+
+def verified_pdf(data, item, kind):
+    expected = item['sha256']
+    if len(data) > 100_000_000:
+        raise ValueError('Public fixture exceeds download bound')
+    if kind == 'zip':
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            if 'archive_member' in item:
+                members = [item['archive_member']]
+            else:
+                members = [name for name in archive.namelist()
+                           if name.lower().endswith('.pdf') and name == Path(name).name]
+            for name in members:
+                if archive.namelist().count(name) != 1:
+                    continue
+                info = archive.getinfo(name)
+                if info.file_size > 30_000_000 or info.file_size < 32:
+                    continue
+                candidate = archive.read(info)
+                if candidate.startswith(b'%PDF-') and hashlib.sha256(candidate).hexdigest() == expected:
+                    return candidate
+    elif kind == 'pdf' and data.startswith(b'%PDF-') and hashlib.sha256(data).hexdigest() == expected:
+        return data
+    raise ValueError('Pinned PDF SHA256 mismatch or invalid archive')
+
+
+
+def aws_openaccess_pdf(item):
+    """Read publisher-authorized PMC S3 article metadata, then exact SHA256 media.
+
+    August 2026 moved PMC dataset distribution from legacy FTP packages to
+    versioned S3 article objects. Never trust arbitrary URLs in S3 metadata.
+    """
+    identifier = item['id'].split('-SI',1)[0]
+    for version in (1,2,3):
+        folder = f'{identifier}.{version}/'
+        meta_url = f'https://pmc-oa-opendata.s3.amazonaws.com/metadata/{identifier}.{version}.json'
+        try:
+            with urlopen(Request(meta_url,headers={'User-Agent':'LUNA-public-fixture-validation'}),timeout=25) as reply:
+                info = json.loads(reply.read(100_000))
+            if info.get('pmcid') != identifier or info.get('version') != version:
+                continue
+            if not info.get('is_pmc_openaccess'):
+                continue
+            media = list(info.get('media_urls') or []) if 'archive_member' in item else [info.get('pdf_url')]
+            for uri in media:
+                if not isinstance(uri,str):
+                    continue
+                parsed = urlsplit(uri)
+                if parsed.scheme != 's3' or parsed.netloc != 'pmc-oa-opendata':
+                    continue
+                if not parsed.path.lstrip('/').startswith(folder):
+                    continue
+                # Publisher-to-PMC transfers can rename supplementary media.
+                # Its filename is not identity; the manifest SHA256 is.
+                # Look only at PDF media under the SAME licensed PMC article.
+                if not parsed.path.lower().endswith('.pdf'):
+                    continue
+                public_url = f'https://pmc-oa-opendata.s3.amazonaws.com{parsed.path}'
+                try:
+                    raw = download_public_fixture(Request(public_url,
+                        headers={'User-Agent':'LUNA-public-fixture-validation'}), attempts=1, timeout=35)
+                    return verified_pdf(raw,item,'pdf')
+                except (HTTPError,URLError,TimeoutError,ValueError):
+                    continue
+        except (HTTPError,URLError,TimeoutError,ValueError,json.JSONDecodeError):
+            continue
+    raise ValueError('No exact SHA256-matching open-access PMC cloud object available')
+
+
+def fetch(manifest, destination, *, retry_rounds=1):
     destination.mkdir(parents=True, exist_ok=True)
     failures = []
     for item in manifest:
@@ -126,28 +224,85 @@ def fetch(manifest, destination):
         path = destination / (identifier + '.pdf')
         if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() == item['sha256']:
             continue
-        try:
-            request = Request(item['pdf_url'], headers={'User-Agent': 'LUNA-public-fixture-validation'})
-            data = download_public_fixture(request)
-            if len(data) > 100_000_000:
-                raise ValueError('Fixture exceeds download bound')
-            if 'archive_member' in item:
-                with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                    member = item['archive_member']
-                    if archive.namelist().count(member) != 1 or archive.getinfo(member).file_size > 30_000_000:
-                        raise ValueError('Supplement member changed or exceeds bound')
-                    data = archive.read(member)
-            if not data.startswith(b'%PDF-') or hashlib.sha256(data).hexdigest() != item['sha256']:
-                raise ValueError('Fixture checksum mismatch')
-            path.write_bytes(data)
-        except Exception as error:
-            failure = dict(id=identifier, error=type(error).__name__)
-            if isinstance(error, HTTPError):
-                failure['httpStatus'] = error.code
-                retry_after = (error.headers or {}).get('Retry-After', '')
-                if retry_after:
-                    failure['retryAfter'] = str(retry_after)[:80]
-            failures.append(failure)
+        attempt_errors = []
+        resolved = False
+        for label, url, kind in public_sources(item):
+            try:
+                request = Request(url, headers={'User-Agent': 'LUNA-public-fixture-validation'})
+                data = download_public_fixture(request, attempts=3 if label=='manifest' else 1,
+                                               timeout=120 if label=='manifest' else 30)
+                verified = verified_pdf(data, item, kind)
+                path.write_bytes(verified)
+                resolved = True
+                break
+            except Exception as error:
+                fault = dict(source=label, error=type(error).__name__)
+                if isinstance(error, HTTPError):
+                    fault['httpStatus'] = error.code
+                    retry_after = (error.headers or {}).get('Retry-After', '')
+                    if retry_after:
+                        fault['retryAfter'] = str(retry_after)[:80]
+                attempt_errors.append(fault)
+                # A rate limit must be respected; do not switch routes to
+                # circumvent a provider's explicit Retry-After instruction.
+                if label == 'manifest' and isinstance(error, HTTPError) and error.code == 429:
+                    # After a fully honored short cooldown and one complete
+                    # second pass, an independent official OA cloud source may
+                    # serve identical pinned bytes. Never ignore long bans.
+                    retry_after=fault.get('retryAfter','10')
+                    if not retry_rounds and retry_after.isdigit() and int(retry_after)<=60 and \
+                            item['pdf_url'].startswith(('https://europepmc.org/','https://www.ebi.ac.uk/')):
+                        time.sleep(int(retry_after))
+                        try:
+                            path.write_bytes(aws_openaccess_pdf(item))
+                            resolved=True
+                            break
+                        except ValueError as aws_error:
+                            attempt_errors.append(dict(source='official-pmc-aws',
+                                                       error=type(aws_error).__name__))
+                    break
+                # Try the official August-2026 PMC AWS dataset first, avoiding
+                # obsolete FTP packages and browser-facing PMC pages when possible.
+                if label == 'manifest' and item['pdf_url'].startswith(
+                        ('https://europepmc.org/', 'https://www.ebi.ac.uk/')):
+                    try:
+                        path.write_bytes(aws_openaccess_pdf(item))
+                        resolved=True
+                        break
+                    except ValueError as aws_error:
+                        attempt_errors.append(dict(source='official-pmc-aws',
+                                                   error=type(aws_error).__name__))
+        if not resolved:
+            fault = dict(id=identifier, **{k: v for k, v in attempt_errors[0].items() if k != 'source'})
+            if len(attempt_errors) > 1:
+                fault['attempts'] = attempt_errors
+            failures.append(fault)
+    # An external service's short Retry-After is not a broken PDF. Wait until
+    # all other fixtures are processed, then make ONE bounded second pass.
+    # Explicit long cooldowns are never ignored or shortened.
+    if retry_rounds:
+        deferred = []
+        delay = 0
+        for item in manifest:
+            result = next((e for e in failures if e['id'] == item['id']), None)
+            if not result or result.get('httpStatus') != 429:
+                continue
+            value = result.get('retryAfter', '10')
+            try:
+                seconds = int(value)
+            except (TypeError, ValueError):
+                try:
+                    seconds = max(0, int(parsedate_to_datetime(value).timestamp()-time.time()))
+                except (TypeError, ValueError, OverflowError):
+                    seconds = 10
+            if 0 <= seconds <= 60:
+                deferred.append(item)
+                delay = max(delay, seconds)
+        if deferred:
+            time.sleep(max(1, delay))
+            retried = fetch(deferred, destination, retry_rounds=0)
+            ids = {item['id'] for item in deferred}
+            failures = [entry for entry in failures if entry['id'] not in ids] + retried
     return failures
 
 

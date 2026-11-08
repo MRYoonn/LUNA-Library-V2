@@ -1951,9 +1951,31 @@ private:
             if (!query_->text().isEmpty()) filter(list, query_->text());
         }
     }
-    // Closed PDF title rename; preserve companions.
-
-    bool renameExtractedTitleFile(const QString& identity, QString* reason = nullptr) {
+    // Prefer the exact title. Existing PDFs, records or orphaned managed files
+    // get distinct names; never delete an existing user's data.
+    QString availableVerifiedTitleName(const QString& identity, const QString& preferred) {
+        if (preferred.isEmpty()) return {};
+        const QFileInfo source(identity);
+        const int budget=qMin(150,235-QFileInfo(source.absolutePath()).absoluteFilePath().size());
+        for (int i=1;i<=99;++i) {
+            const QString name=i==1?preferred:luna::AutoFileName::numberedCopy(preferred,i,budget);
+            if (name.isEmpty()) return {};
+            if (source.fileName().compare(name,Qt::CaseInsensitive)==0) return name;
+            const QString target=QDir(source.absolutePath()).filePath(name);
+            if (QFileInfo::exists(target) || QFileInfo(target).isSymLink() ||
+                bibliography_.hasStoredRecord(DocumentClaim::identity(target))) continue;
+            bool conflict=false;
+            for (const auto& pair:SidecarStorage::companions(identity,target))
+                if (QFileInfo::exists(pair.second) || QFileInfo(pair.second).isSymLink()) {
+                    conflict=true; break;
+                }
+            if (!conflict) return name;
+        }
+        return {};
+    }
+    // Return the actual on-disk result only after the paired move is verified.
+    bool renameExtractedTitleFile(const QString& identity, QString* reason = nullptr,
+                                 QString* renamedPath = nullptr) {
         const auto explain=[reason](const QString& message) {
             if (reason) *reason=message;
         };
@@ -1967,10 +1989,11 @@ private:
             explain(QStringLiteral("선택한 PDF가 현재 LUNA 라이브러리의 연결 폴더 밖에 있습니다. 연결 폴더를 확인하세요."));
             return true;
         }
-        const QString filename=luna::AutoFileName::fromVerifiedTitle(
+        const QString preferred=luna::AutoFileName::fromVerifiedTitle(
             bibliography_.record(identity),source.absolutePath());
+        const QString filename=availableVerifiedTitleName(identity,preferred);
         if (filename.isEmpty()) {
-            explain(QStringLiteral("제목 또는 경로가 유효하지 않습니다."));
+            explain(QStringLiteral("제목이 유효하지 않거나 동일 제목의 PDF·서지정보가 너무 많아 변경하지 않았습니다."));
             return true;
         }
         if (source.fileName().compare(filename,Qt::CaseInsensitive)==0) {
@@ -1978,11 +2001,11 @@ private:
             return true;
         }
         const QString destination=QDir(source.absolutePath()).filePath(filename);
-        // No implicit replacement of another article or orphaned companion.
+        // Another process may have used our proposed name since selection.
         if (QFileInfo::exists(destination) || QFileInfo(destination).isSymLink() ||
-            !bibliography_.record(DocumentClaim::identity(destination)).isEmpty()) {
-            explain(QStringLiteral("동일한 이름의 PDF 또는 서지정보가 이미 존재합니다.\n대상: %1").arg(destination));
-            return true;
+            bibliography_.hasStoredRecord(DocumentClaim::identity(destination))) {
+            explain(QStringLiteral("파일명이 다른 작업과 충돌했습니다. 다시 시도하면 번호를 다시 선택합니다."));
+            return false;
         }
         for (auto* editor:window()->findChildren<pdfviewer::PDFEditorMainWindow*>()) {
             auto* controller=editor->getProgramController();
@@ -2016,6 +2039,11 @@ private:
             qWarning().noquote()<<"LUNA title-file rename skipped:"<<moved.error;
             return true; // Explain the actual failure; never claim a rename.
         }
+        if (QFileInfo::exists(original) || !QFileInfo(moved.documentPath).isFile()) {
+            explain(QStringLiteral("실제 파일명 변경 검증 실패: 원본 또는 대상 파일 상태를 확인하세요."));
+            return false;
+        }
+        if (renamedPath) *renamedPath=moved.documentPath;
         explain(QStringLiteral("파일명 변경 완료: %1").arg(QFileInfo(moved.documentPath).fileName()));
         // This existing reconciliation rewrites recent/favorite/memo keys,
         // bibliography identity, and manually linked SI parent names.
@@ -3108,8 +3136,9 @@ private:
                 QVariantMap record=bibliography_.record(id);
                 QVariantMap approved=record;
                 approved["titleSource"]=QStringLiteral("manual");
-                const QString name=luna::AutoFileName::fromVerifiedTitle(
+                const QString preferred=luna::AutoFileName::fromVerifiedTitle(
                     approved,QFileInfo(path).absolutePath());
+                const QString name=availableVerifiedTitleName(id,preferred);
                 if (name.isEmpty()) {
                     QMessageBox::information(this,QStringLiteral("파일명 변경 불가"),
                         QStringLiteral("제목 또는 경로를 확인해 주세요. 원본 PDF는 변경하지 않았습니다."));
@@ -3124,12 +3153,16 @@ private:
                         QMessageBox::warning(this,QStringLiteral("파일명 변경 실패"),
                             QStringLiteral("서지정보 확인 상태를 저장하지 못했습니다."));
                     } else {
-                        QString reason;
-                        if(renameExtractedTitleFile(id,&reason)) pendingTitleRenames_.remove(id);
-                        const bool changed=QFileInfo(path).fileName().compare(name,Qt::CaseInsensitive)==0 ||
-                            (!QFileInfo::exists(path) && QFileInfo(QDir(QFileInfo(path).absolutePath()).filePath(name)).isFile());
+                        QString reason, renamedPath;
+                        if(renameExtractedTitleFile(id,&reason,&renamedPath)) pendingTitleRenames_.remove(id);
+                        else {
+                            pendingTitleRenames_.insert(id);
+                            if (!titleRenameTimer_.isActive()) titleRenameTimer_.start();
+                        }
+                        const bool changed=!renamedPath.isEmpty() && !QFileInfo::exists(path) &&
+                            QFileInfo(renamedPath).isFile();
                         if (changed) QMessageBox::information(this,QStringLiteral("PDF 파일명 변경 완료"),
-                            QStringLiteral("Windows 탐색기의 실제 PDF 파일명을 확인했습니다.\n%1").arg(name));
+                            QStringLiteral("Windows 탐색기의 실제 PDF 파일명을 확인했습니다.\n%1").arg(QFileInfo(renamedPath).fileName()));
                         else QMessageBox::information(this,QStringLiteral("PDF 파일명 변경 상태"),
                             reason.isEmpty()?QStringLiteral("파일명 변경 결과를 확인할 수 없습니다."):reason);
                     }

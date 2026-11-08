@@ -111,6 +111,17 @@ def run(package, output, debugger=None):
                 for phase in ('edit', 'restore'):
                     report = evidence / (phase + '.json')
                     target = a if phase == 'edit' else root / 'Moved' / 'A.pdf'
+                    if phase == 'restore' and not target.is_file():
+                        # The verified title may have renamed Moved/A.pdf after
+                        # its last reader tab closed. Restore the real file,
+                        # without assuming the old filesystem name still exists.
+                        moved = root / 'Moved'
+                        candidates = [p for p in moved.iterdir()
+                                      if p.is_file() and not p.is_symlink()
+                                      and p.suffix.casefold() == '.pdf']
+                        if len(candidates) != 1:
+                            raise RuntimeError('Cannot identify the one physically renamed PDF in fixture Moved folder')
+                        target = candidates[0]
                     command = [str(package / 'LUNA.exe'), '--luna-tabs-report', str(report)]
                     if phase == 'restore':
                         command += ['--luna-tabs-restore', str(target)]
@@ -150,8 +161,25 @@ def run(package, output, debugger=None):
                     reports.append(result)
                     if code != 0 or result.get('accepted') is not True:
                         break
-                untouched_b = hashlib.sha256(b.read_bytes()).hexdigest() == original_b
-                results.append({'qtScale': scale, 'runs': reports, 'originalBUnchanged': untouched_b})
+                # B can be renamed by the production verified-title policy
+                # when its last tab closes. Do not require the obsolete B.pdf
+                # name: require ONE real PDF in the SAME folder whose bytes
+                # retain B's original SHA256. Never accept a missing, copied,
+                # modified or symlinked B as a successful library operation.
+                b_candidates = [
+                    candidate for candidate in root.iterdir()
+                    if candidate.is_file() and not candidate.is_symlink()
+                    and candidate.suffix.casefold() == '.pdf'
+                    and hashlib.sha256(candidate.read_bytes()).hexdigest() == original_b
+                ]
+                untouched_b = len(b_candidates) == 1
+                results.append({
+                    'qtScale': scale, 'runs': reports,
+                    'originalBUnchanged': untouched_b,
+                    'actualBFileName': b_candidates[0].name if untouched_b else None,
+                    'originalBWasRenamed': untouched_b and b_candidates[0] != b,
+                    'originalBHashSha256': original_b,
+                })
                 if len(reports) != 2 or not untouched_b or any(r['exitCode'] != 0 or not r.get('accepted') for r in reports):
                     break
     accepted = len(results) == 3 and all(len(s['runs']) == 2 and s['originalBUnchanged'] and

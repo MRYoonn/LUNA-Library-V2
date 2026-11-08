@@ -16,7 +16,8 @@ int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const QStringList args = app.arguments();
     const bool secondary = args.size() >= 4 && args[1] == QStringLiteral("--second");
-    const QString appId = secondary ? args[2]
+    const bool duplicateRetry = args.size() >= 5 && args[1] == QStringLiteral("--retry-same-id");
+    const QString appId = (secondary || duplicateRetry) ? args[2]
         : QStringLiteral("LUNA-WindowRelay-Native-%1").arg(app.applicationPid());
     QCoreApplication::setOrganizationName(QStringLiteral("LUNA-Test"));
     QCoreApplication::setApplicationName(appId);
@@ -30,6 +31,14 @@ int main(int argc, char** argv) {
         luna::WindowRelay client;
         return client.claimOrForward(args.mid(3)) ==
                        luna::WindowRelay::Result::Forwarded ? 0 : 4;
+    }
+    if (duplicateRetry) {
+        luna::WindowRelay client;
+        // Two acknowledged sends with the same request ID model a lost-ack
+        // retry. Only ONE callback may reach the actual LUNA reader.
+        const bool first=client.forward(args.mid(4), args[3]);
+        const bool second=client.forward(args.mid(4), args[3]);
+        return first && second ? 0 : 5;
     }
 
     QTemporaryDir directory;
@@ -57,12 +66,16 @@ int main(int argc, char** argv) {
         ++received;
         delivered = paths;
     });
-    auto spawn = [&](const QStringList& requested) {
+    auto spawn = [&](const QStringList& requested, bool retrySameId=false) {
         QProcess child;
         child.setProcessChannelMode(QProcess::MergedChannels);
         const QString program = app.applicationFilePath();
         child.setProgram(program);
-        child.setArguments(QStringList{QStringLiteral("--second"), appId} + requested);
+        if (retrySameId)
+            child.setArguments(QStringList{QStringLiteral("--retry-same-id"), appId,
+                QStringLiteral("a93249ac-bd2b-44b5-8b74-9c21fc275145")} + requested);
+        else
+            child.setArguments(QStringList{QStringLiteral("--second"), appId} + requested);
         std::fprintf(stderr, "WINDOW_RELAY_CHILD_START program=%s file=%s exists=%d\\n",
             qPrintable(program), qPrintable(requested.join(QStringLiteral(";"))), QFileInfo(program).isFile());
         std::fflush(stderr);
@@ -127,8 +140,20 @@ int main(int argc, char** argv) {
     received = 0;
     delivered.clear();
     if (!spawn({secondFilename})) return fail("Repeated second PDF did not join primary", 16);
-    if (received != 1 || delivered != QStringList{secondFilename})
+    if (received != 1 || delivered != QStringList{secondFilename}) {
+        std::fprintf(stderr, "WINDOW_RELAY_REPEAT_DIAGNOSTIC received=%d expected=%s actual=%s\n",
+            received, secondFilename.toUtf8().toHex().constData(),
+            delivered.join(QStringLiteral(";")).toUtf8().toHex().constData());
         return fail("Duplicate second PDF filename was corrupted", 17);
+    }
+    // A lost ACK may cause exactly the same launch to be sent twice. It must
+    // NOT create two extra activations, unlike two separate Explorer launches.
+    received = 0;
+    delivered.clear();
+    if (!spawn({secondFilename}, true))
+        return fail("Same-request-id relay retry failed", 27);
+    if (received != 1 || delivered != QStringList{secondFilename})
+        return fail("Same request ID dispatched twice or changed its Unicode path", 28);
 
     // Batch delivery must preserve ordering and exact Unicode paths.
     received = 0;

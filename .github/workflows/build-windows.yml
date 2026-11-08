@@ -693,13 +693,18 @@ jobs:
           python -B tools/probe_research_windows.py LUNA-Windows-Portable --bibliography --screenshots-directory "$env:RUNNER_TEMP/luna-ui/bibliography"
           if ($LASTEXITCODE -ne 0) { throw "Real RSC bibliography verification failed" }
 
+      - name: Restore only SHA256-pinned public bibliography inputs when verified
+        uses: actions/cache/restore@v4
+        with:
+          path: goldset-verified-pdfs
+          key: luna-goldset-${{ runner.os }}-${{ hashFiles('tests/goldset/public-papers.json') }}-v1
       - name: Evaluate checksum-pinned real public PDF bibliography corpus
         id: goldset-test
         shell: pwsh
         env:
           LUNA_METADATA_OFFLINE: '1'
         run: |
-          $corpus = Join-Path $env:RUNNER_TEMP 'luna-public-goldset'
+          $corpus = Join-Path $env:GITHUB_WORKSPACE 'goldset-verified-pdfs'
           $evidence = Join-Path $env:RUNNER_TEMP 'luna-ui/goldset'
           New-Item -ItemType Directory -Force $evidence | Out-Null
           python -B tools/evaluate_goldset.py --fetch "$corpus" --exe LUNA-Windows-Portable/LUNA.exe --predictions "$evidence/predictions.json" --output "$evidence/score.json"

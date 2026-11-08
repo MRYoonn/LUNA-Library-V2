@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TABS = (ROOT / "src/lunatabs.cpp").read_text(encoding="utf-8")
 LIBRARY = (ROOT / "src/lunalibrary.cpp").read_text(encoding="utf-8")
 POLICY = (ROOT / "src/lunaautofilename.h").read_text(encoding="utf-8")
+BIB = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
+BIB_NATIVE = (ROOT / "tests/native_dialog/bibliography.cpp").read_text(encoding="utf-8")
 MOVE = (ROOT / "src/lunafilemove.h").read_text(encoding="utf-8")
 OVERLAY = (ROOT / "tools/apply_overlay.py").read_text(encoding="utf-8")
 NATIVE = (ROOT / "tests/native_dialog/filemoves.cpp").read_text(encoding="utf-8")
@@ -42,7 +44,7 @@ class VerifiedFileNameContracts(unittest.TestCase):
             '서지정보 제목으로 실제 PDF 파일명 변경…',
             'PDF 실제 파일명 변경',
             'record["titleSource"]=QStringLiteral("manual")',
-            'renameExtractedTitleFile(id,&reason)',
+            'renameExtractedTitleFile(id,&reason,&renamedPath)',
             'QMessageBox::Yes|QMessageBox::Cancel',
             'pendingTitleRenames_.remove(id)',
             'flushLibraryTitleRenames(*this)',
@@ -61,14 +63,46 @@ class VerifiedFileNameContracts(unittest.TestCase):
         self.assertLess(LIBRARY.index('renameGuard.tryLock(0)'), LIBRARY.index('luna::movePdfWithThumbnails(\n            original,source.absolutePath()'))
 
     def test_manual_rename_reports_real_failure_instead_of_generic_message(self):
-        self.assertIn('renameExtractedTitleFile(id,&reason)', LIBRARY)
+        self.assertIn('renameExtractedTitleFile(id,&reason,&renamedPath)', LIBRARY)
         self.assertIn('QStringLiteral("PDF 파일명 변경 완료")', LIBRARY)
         self.assertIn('QStringLiteral("PDF 파일명 변경 상태")', LIBRARY)
-        self.assertIn('동일한 이름의 PDF 또는 서지정보가 이미 존재합니다', LIBRARY)
+        self.assertIn('파일명이 다른 작업과 충돌했습니다', LIBRARY)
         self.assertIn('Windows에서 실제 PDF/연결 파일 이동을 거부했습니다', LIBRARY)
         self.assertIn('다른 LUNA 프로세스가 이 PDF를 사용 중', LIBRARY)
         self.assertIn('선택한 PDF가 현재 LUNA 라이브러리의 연결 폴더 밖', LIBRARY)
         self.assertNotIn('QStringLiteral("파일명 변경 대기 또는 건너뜀")', LIBRARY)
+
+    def test_verified_collision_gets_safe_number_and_requires_real_file_move(self):
+        # Never report success from a metadata title alone or a target-side file.
+        for code in (
+            'availableVerifiedTitleName(identity,preferred)',
+            'luna::AutoFileName::numberedCopy(preferred,i,budget)',
+            'SidecarStorage::companions(identity,target)',
+            'QFileInfo::exists(pair.second)',
+            'QString reason, renamedPath;',
+            'renameExtractedTitleFile(id,&reason,&renamedPath)',
+            'QFileInfo::exists(original) || !QFileInfo(moved.documentPath).isFile()',
+            '!renamedPath.isEmpty() && !QFileInfo::exists(path)',
+            'QFileInfo(renamedPath).isFile()',
+        ):
+            self.assertIn(code, LIBRARY, code)
+        self.assertIn('inline QString numberedCopy(', POLICY)
+        self.assertIn('numberedCopy(titledName,2)', NATIVE)
+
+    def test_display_default_author_source_is_not_saved_filename_collision(self):
+        # Native Qt's record() decorates even an ABSENT record with
+        # authorsSource="legacy_unknown". That must never block a rename.
+        self.assertIn('bool hasStoredRecord(const QString& identity) const', BIB)
+        self.assertIn('settings().value(key(resolve(identity))).toMap().isEmpty()', BIB)
+        for token in (
+            'bibliography_.hasStoredRecord(DocumentClaim::identity(target))',
+            'bibliography_.hasStoredRecord(DocumentClaim::identity(destination))',
+        ):
+            self.assertIn(token, LIBRARY)
+        self.assertNotIn('!bibliography_.record(DocumentClaim::identity(target)).isEmpty()', LIBRARY)
+        self.assertNotIn('!bibliography_.record(DocumentClaim::identity(destination)).isEmpty()', LIBRARY)
+        self.assertIn('store.hasStoredRecord(missing)', BIB_NATIVE)
+        self.assertIn('store.hasStoredRecord(occupied)', BIB_NATIVE)
 
     def test_rename_is_no_overwrite_paired_and_deferred_if_open(self):
         for snippet in (

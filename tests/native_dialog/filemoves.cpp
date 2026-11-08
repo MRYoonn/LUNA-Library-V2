@@ -135,6 +135,27 @@ int main(int argc, char** argv) {
         return fail("In-place title rename did not preserve PDF and cropped thumbnail");
     if(!luna::movePdfWithThumbnails(titledTarget,root).success)
         return fail("Same-title destination must be an idempotent no-op");
+    // A second article with the same trustworthy title must remain a separate
+    // disk file, with the first article and both user thumbnails preserved.
+    const QString numberedName=luna::AutoFileName::numberedCopy(titledName,2);
+    const QString numberSource=QDir(root).filePath(QStringLiteral("second-title.pdf"));
+    const QString numberThumb=QDir(root).filePath(QStringLiteral("second-title.luna-thumb.png"));
+    const QString numberTarget=QDir(root).filePath(numberedName);
+    if(numberedName!=QStringLiteral("A Synthetic Title With Illegal Characters (2).pdf") ||
+       !write(numberSource,"second document") || !write(numberThumb,"second thumbnail"))
+        return fail("Could not generate duplicate-title fixture");
+    const auto duplicate=luna::movePdfWithThumbnails(
+        numberSource,root,luna::renameWithoutReplacement,numberedName);
+    if(!duplicate.success || QFileInfo::exists(numberSource) ||
+       read(numberTarget)!="second document" ||
+       read(titledTarget)!=document ||
+       read(luna::SidecarStorage::legacyThumbnail(numberTarget,QStringLiteral(".png")))!="second thumbnail")
+        return fail("Numbered title rename did not preserve both PDFs and both thumbnails");
+    const QString veryLongTitle=QString(145,QLatin1Char('x'))+QStringLiteral(".pdf");
+    const QString longNumber=luna::AutoFileName::numberedCopy(veryLongTitle,99);
+    if(longNumber.size()>150 || !longNumber.endsWith(QStringLiteral(" (99).pdf")) ||
+       !luna::AutoFileName::numberedCopy(veryLongTitle,100).isEmpty())
+        return fail("Numbered filename exceeded the safe Windows title bound");
     // Exercise native Explorer renames with the real OS file identity.
     const QString renamedDir=QDir(root).filePath(QStringLiteral("rename-fixtures"));
     if (!QDir().mkpath(renamedDir)) return fail("Cannot create rename fixture");

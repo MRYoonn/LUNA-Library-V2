@@ -1210,11 +1210,31 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 integrationRequire(editor && integrationWait([&] { return ready(editor); }), "Extra PDF did not load"); extra.append(editor);
             }
             integrationRequire(host.documentCount() == 5, "Five PDFs are not simultaneously open");
+            // Keep full five-card date assertions. Record a per-file synthetic
+            // diagnostic before rejecting so the next Windows CI run can
+            // distinguish missing cards from short/long-path date aliases.
+            QJsonArray openedDateDiagnostics;
+            bool everyOpenedDateVisible=true;
             for (const QString& path : QStringList{files[0], liveBSource()} + QDir(directoryPath).entryList({QStringLiteral("UI-long-*.pdf")}, QDir::Files)) {
                 const QString fullPath = QFileInfo(path).isAbsolute() ? path : QDir(directoryPath).filePath(path);
-                QListWidgetItem* card = nullptr;
-                integrationRequire(integrationList(host, fullPath, &card) && card && !card->data(Qt::UserRole + 3).toString().isEmpty(), "Opened date disappeared across Windows path spellings");
+                QListWidgetItem* card=nullptr;
+                const auto* dateList=integrationList(host,fullPath,&card);
+                const bool cardPresent=dateList && card;
+                const QString visibleDate=cardPresent ? card->data(Qt::UserRole+3).toString() : QString();
+                const bool datePresent=!visibleDate.isEmpty();
+                openedDateDiagnostics.append(QJsonObject{
+                    {"syntheticFile",QFileInfo(fullPath).fileName()},
+                    {"cardPresent",cardPresent},
+                    {"datePresent",datePresent},
+                    {"cardIdentityMatches",cardPresent &&
+                         DocumentClaim::identity(card->data(Qt::UserRole).toString()) ==
+                         DocumentClaim::identity(fullPath)}
+                });
+                everyOpenedDateVisible &= cardPresent && datePresent;
             }
+            result["openedDateDiagnostics"]=openedDateDiagnostics;
+            write();
+            integrationRequire(everyOpenedDateVisible, "Opened date disappeared across Windows path spellings");
             fitTabInput(); // Keep real OS input inside the hosted runner's 1024px desktop, including at 150%.
             QList<QPointer<Editor>> documents{a, b}; documents.append(extra);
             QList<int> scrollPositions; QList<double> zoomValues;

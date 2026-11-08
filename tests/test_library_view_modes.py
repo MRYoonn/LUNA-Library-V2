@@ -58,10 +58,24 @@ class LibraryModes(unittest.TestCase):
             "QFontMetrics(captionFont).elidedText(metadata, Qt::ElideRight, width)",
             "note.isEmpty() ? QStringLiteral(\"메모 추가\") : note, Qt::ElideRight",
             "title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed)",
-            "documents_->setMinimumWidth(195)",
+            "documents_->setMinimumWidth(145)",
             "list->setResizeMode(QListView::Adjust)",
         ):
             self.assertIn(term, self.cpp, term)
+
+    def test_150_percent_dpi_can_fit_1366_physical_pixels_without_forced_fold(self):
+        # 1366 physical pixels at 150% DPI offer ~911 logical px.
+        # Retain independent expanded panes, but let narrow screens reduce
+        # their minimum widths. The full native 1366x768 capture still runs.
+        for contract in (
+            'navigation_->setMinimumWidth(175)',
+            'documents_->setMinimumWidth(145)',
+            'navigationSlot_->setMinimumWidth(showNav ? 175 : foldWidth_)',
+            'documentsSlot_->setMinimumWidth(showDocs ? 145 : foldWidth_)',
+            'const int minWidth = (showNav ? 175 : foldWidth_) +',
+            '(showDocs ? 145 : foldWidth_) + framing;',
+        ):
+            self.assertIn(contract, self.cpp, contract)
 
     def test_buttons_order_selection_and_brand_typography(self):
         for name in ("LunaListViewMode", "LunaCardViewMode"):
@@ -96,8 +110,8 @@ class LibraryModes(unittest.TestCase):
         self.assertIn('split_->addWidget(navigationSlot_)', self.cpp)
         self.assertIn('split_->addWidget(documentsSlot_)', self.cpp)
         self.assertIn('static constexpr int foldWidth_ = 36', self.cpp)
-        self.assertIn('navigationSlot_->setMinimumWidth(showNav ? 225 : foldWidth_)', self.cpp)
-        self.assertIn('documentsSlot_->setMinimumWidth(showDocs ? 195 : foldWidth_)', self.cpp)
+        self.assertIn('navigationSlot_->setMinimumWidth(showNav ? 175 : foldWidth_)', self.cpp)
+        self.assertIn('documentsSlot_->setMinimumWidth(showDocs ? 145 : foldWidth_)', self.cpp)
         self.assertIn('documentsSlot_->setMaximumWidth(showDocs ? 850 : foldWidth_)', self.cpp)
         self.assertIn('dock->show(); // Both folded rails remain visible', self.cpp)
         self.assertIn('const int collapsedTarget', self.cpp)

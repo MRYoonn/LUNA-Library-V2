@@ -890,7 +890,27 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
     for (const QSize pixels : {QSize(1366, 768), QSize(1920, 1080)}) {
         const QSize logical(qRound(pixels.width() / scale), qRound(pixels.height() / scale));
         host.resize(logical); host.show();
-        if (!integrationWait([&] { return host.size() == logical; }) || !host.grab().save(report + QStringLiteral(".%1.png").arg(pixels.width()))) { captured = false; break; }
+        const bool sizeMatches=integrationWait([&] { return host.size() == logical; });
+        const bool imageSaved=sizeMatches &&
+            host.grab().save(report + QStringLiteral(".%1.png").arg(pixels.width()));
+        if (!sizeMatches || !imageSaved) {
+            QJsonObject failedLayout{
+                {"physicalWidth",pixels.width()}, {"physicalHeight",pixels.height()},
+                {"qtScale",scale},
+                {"targetLogicalWidth",logical.width()}, {"targetLogicalHeight",logical.height()},
+                {"actualLogicalWidth",host.width()}, {"actualLogicalHeight",host.height()},
+                {"minimumWidth",host.minimumWidth()}, {"minimumHeight",host.minimumHeight()},
+                {"hintWidth",host.minimumSizeHint().width()},
+                {"hintHeight",host.minimumSizeHint().height()},
+                {"resizeAccepted",sizeMatches}, {"grabSaved",imageSaved}
+            };
+            QSaveFile failure(report + QStringLiteral(".layout-failure.json"));
+            if (failure.open(QIODevice::WriteOnly)) {
+                failure.write(QJsonDocument(failedLayout).toJson());
+                failure.commit();
+            }
+            captured=false;break;
+        }
         QJsonObject metrics{{"width", host.width()}, {"height", host.height()}, {"dpr", scale}};
         for (const auto* name : {"LunaMainMenuBar", "LunaBrandFrame", "LunaCommonReaderToolbar", "LunaNavigation", "LunaDocuments", "LunaContentStack", "LunaPdfTabs", "LunaPdfTabBar"}) {
             if (auto* widget = host.findChild<QWidget*>(QString::fromLatin1(name))) {

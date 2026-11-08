@@ -199,7 +199,7 @@ class GoldsetAcquisition(unittest.TestCase):
             sha256=hashlib.sha256(self.payload).hexdigest())
         metadata=dict(pmcid=identifier,version=1,is_pmc_openaccess=True,
             media_urls=[f's3://untrusted-external/{identifier}.1/{member}',
-                        f's3://pmc-oa-opendata/{identifier}.1/{member}?md5=0123'])
+                        f's3://pmc-oa-opendata/{identifier}.1/publisher-renamed-si.pdf?md5=0123'])
         opening.side_effect=[io.BytesIO(__import__('json').dumps(metadata).encode()),
                              io.BytesIO(self.payload)]
         self.assertEqual(aws_openaccess_pdf(item),self.payload)

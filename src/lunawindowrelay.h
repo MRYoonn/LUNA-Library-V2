@@ -18,6 +18,9 @@
 #include <QThread>
 #include <QTimer>
 #include <QStringList>
+#include <QSet>
+#include <QQueue>
+#include <QUuid>
 #include <functional>
 #include <memory>
 
@@ -66,14 +69,32 @@ public:
                         }
                         paths.append(QFileInfo(item.toString()).absoluteFilePath());
                     }
+                    // A sender retries when its acknowledgement is lost.
+                    // A retry is the same Explorer-open request, not another
+                    // instruction to open the PDF. Key by a client-stable UUID.
+                    const QJsonValue token = message.object().value(QStringLiteral("requestId"));
+                    QString id;
+                    if (!token.isUndefined()) {
+                        if (!token.isString()) { client->abort(); return; }
+                        id = token.toString();
+                        if (id.size() != 36 || QUuid::fromString(id).isNull()) {
+                            client->abort(); return;
+                        }
+                    }
                     if (client->write("ok\n") != 3) {
                         client->abort(); return;
                     }
-                    // Complete the reply promptly before the GUI processes
-                    // an Explorer-open batch (which may temporarily block).
                     client->flush();
-                    pending_.append(paths);
-                    QTimer::singleShot(0, this, [this] { dispatchPending(); });
+                    if (id.isEmpty() || !seenRequestIds_.contains(id)) {
+                        if (!id.isEmpty()) {
+                            seenRequestIds_.insert(id);
+                            requestOrder_.enqueue(id);
+                            if (requestOrder_.size() > 256)
+                                seenRequestIds_.remove(requestOrder_.dequeue());
+                        }
+                        pending_.append(paths);
+                        QTimer::singleShot(0, this, [this] { dispatchPending(); });
+                    }
                     client->disconnectFromServer();
                 });
                 connect(client, &QLocalSocket::disconnected, client, &QObject::deleteLater);
@@ -104,7 +125,10 @@ public:
 
     Result claimOrForward(const QStringList& paths) {
         if (!allValid(paths)) return Result::Error;
-        if (forward(paths)) return Result::Forwarded;
+        // Reuse one ID for every retry in this process. A lost ack must not
+        // dispatch a duplicate tab-open request in the already-running LUNA.
+        const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        if (forward(paths, requestId)) return Result::Forwarded;
         if (!QDir().mkpath(QFileInfo(lockPath_).absolutePath())) return Result::Error;
         lock_ = std::make_unique<QLockFile>(lockPath_);
         lock_->setStaleLockTime(0);
@@ -113,7 +137,7 @@ public:
             // Another invocation may own the lock before it starts listening.
             for (int attempt = 0; attempt < 50; ++attempt) {
                 QThread::msleep(50);
-                if (forward(paths)) return Result::Forwarded;
+                if (forward(paths, requestId)) return Result::Forwarded;
             }
             return Result::Error;  // Do not silently create another window.
         }
@@ -125,10 +149,14 @@ public:
         return Result::Primary;
     }
 
-    bool forward(const QStringList& paths) const {
+    bool forward(const QStringList& paths, const QString& requestId = {}) const {
         if (!allValid(paths)) return false;
+        const QString id = requestId.isEmpty()
+            ? QUuid::createUuid().toString(QUuid::WithoutBraces) : requestId;
+        if (id.size() != 36 || QUuid::fromString(id).isNull()) return false;
         QJsonObject object;
         object.insert(QStringLiteral("files"), QJsonArray::fromStringList(paths));
+        object.insert(QStringLiteral("requestId"), id);
         QByteArray payload = QJsonDocument(object).toJson(QJsonDocument::Compact);
         payload.append('\n');
         if (payload.size() > 32768) return false;
@@ -160,6 +188,8 @@ private:
     std::unique_ptr<QLockFile> lock_;
     QLocalServer server_;
     QList<QStringList> pending_;
+    QSet<QString> seenRequestIds_;
+    QQueue<QString> requestOrder_;
     OpenHandler handler_;
 };
 } // namespace luna

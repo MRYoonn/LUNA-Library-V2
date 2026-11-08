@@ -86,16 +86,16 @@ def score(manifest, predictions):
                 normalization='Title/author/journal: Unicode NFKC, case, punctuation and whitespace; official journal aliases. DOI retains punctuation; year/volume/type exact; page dash/whitespace normalization. No fuzzy matching.')
 
 
-def download_public_fixture(request):
+def download_public_fixture(request, *, attempts=3, timeout=120):
     # The same pinned fixture must succeed; a transient service failure is
     # neither an extraction result nor permission to skip a goldset member.
-    for attempt in range(3):
+    for attempt in range(attempts):
         delay = 2 ** attempt
         try:
-            with urlopen(request, timeout=120) as response:
+            with urlopen(request, timeout=timeout) as response:
                 return response.read(100_000_001)
         except HTTPError as error:
-            if error.code not in (408, 429, 500, 502, 503, 504) or attempt == 2:
+            if error.code not in (408, 429, 500, 502, 503, 504) or attempt == attempts-1:
                 raise
             delay = 30 * (2 ** attempt) if error.code == 429 else delay
             retry_after = (error.headers or {}).get('Retry-After', '')
@@ -112,7 +112,7 @@ def download_public_fixture(request):
                 if delay > 300:
                     raise
         except (URLError, TimeoutError):
-            if attempt == 2:
+            if attempt == attempts-1:
                 raise
         time.sleep(delay)
 
@@ -204,7 +204,7 @@ def aws_openaccess_pdf(item):
                 public_url = f'https://pmc-oa-opendata.s3.amazonaws.com{parsed.path}'
                 try:
                     raw = download_public_fixture(Request(public_url,
-                        headers={'User-Agent':'LUNA-public-fixture-validation'}))
+                        headers={'User-Agent':'LUNA-public-fixture-validation'}), attempts=1, timeout=35)
                     return verified_pdf(raw,item,'pdf')
                 except (HTTPError,URLError,TimeoutError,ValueError):
                     continue
@@ -228,7 +228,8 @@ def fetch(manifest, destination):
         for label, url, kind in public_sources(item):
             try:
                 request = Request(url, headers={'User-Agent': 'LUNA-public-fixture-validation'})
-                data = download_public_fixture(request)
+                data = download_public_fixture(request, attempts=3 if label=='manifest' else 1,
+                                               timeout=120 if label=='manifest' else 30)
                 verified = verified_pdf(data, item, kind)
                 path.write_bytes(verified)
                 resolved = True

@@ -8,6 +8,8 @@ on:
       - src/lunalibrary.cpp
       - src/lunabibliography.h
       - src/lunaautofilename.h
+      - src/lunawindowrelay.h
+      - tests/native_dialog/windowrelay.cpp
       - tests/native_dialog/bibliography.cpp
       - tests/native_dialog/filemoves.cpp
       - tests/test_auto_filename_contract.py
@@ -61,12 +63,68 @@ jobs:
           $probe=Join-Path $env:RUNNER_TEMP 'luna-title-collision-probe'
           cmake -S tests/native_dialog -B $probe -G 'Visual Studio 17 2022' -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
           if ($LASTEXITCODE -ne 0) { throw 'Native CMake configuration failed' }
-          cmake --build $probe --target luna-native-filemoves luna-native-bibliography --config Release --parallel 2
+          cmake --build $probe --target luna-native-filemoves luna-native-bibliography luna-native-windowrelay --config Release --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Native PDF and Bibliography compilation failed' }
           ctest --test-dir $probe -C Release -R native_file_moves -V --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Actual Windows PDF collision/thumbnail rename failed' }
           ctest --test-dir $probe -C Release -R native_bibliography -V --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Phantom Bibliography target collision test failed' }
+          ctest --test-dir $probe -C Release -R '^native_window_relay
+    needs: source-gate
+    runs-on: windows-2022
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache/restore@v4
+        with:
+          path: goldset-verified-pdfs
+          key: luna-goldset-${{ runner.os }}-${{ hashFiles('tests/goldset/public-papers.json') }}-v1
+      - name: Fetch all 31 immutable public PDFs with original SHA256 and official mirrors
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/goldset-evidence" | Out-Null
+          python -B tools/evaluate_goldset.py --fetch "$env:GITHUB_WORKSPACE/goldset-verified-pdfs" --output "$env:RUNNER_TEMP/goldset-evidence/downloads.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Public corpus download failed; inspect downloads.json for actual rejected files.' }
+          python -B -c "import json,hashlib,pathlib; d=pathlib.Path('goldset-verified-pdfs'); m=json.load(open('tests/goldset/public-papers.json',encoding='utf-8')); assert len(m)==31 and len(list(d.glob('*.pdf')))==31; assert all(hashlib.sha256((d/(x['id']+'.pdf')).read_bytes()).hexdigest()==x['sha256'] for x in m); print('31 exact SHA256 public PDFs verified')"
+          if ($LASTEXITCODE -ne 0) { throw 'Public corpus is incomplete or has the wrong SHA256' }
+      - uses: actions/cache/save@v4
+        with:
+          path: goldset-verified-pdfs
+          key: luna-goldset-${{ runner.os }}-${{ hashFiles('tests/goldset/public-papers.json') }}-v1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v299-Public-Download-Diagnostics
+          path: ${{ runner.temp }}/goldset-evidence/downloads.json
+          if-no-files-found: warn
+          retention-days: 90
+  dispatch-full-portable:
+    needs: [native-rename, remote-goldset-fetch]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch full Windows GUI and Portable only for exact tested HEAD
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$REPO" = MRYoonn/LUNA-Library-V2
+          test "$REF_NAME" = feature/v299-safe-title-collision-20261108
+          test "$(gh api "repos/$REPO/branches/$REF_NAME" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
+          echo "Exact v299 source approved for full independent Windows GUI+Portable."
+ --repeat until-fail:10 -V --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Repeated real Unicode Explorer IPC test failed; inspect WINDOW_RELAY_STAGE diagnostics' }
   remote-goldset-fetch:
     needs: source-gate
     runs-on: windows-2022
@@ -78,6 +136,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/cache/restore@v4
+        with:
+          path: goldset-verified-pdfs
+          key: luna-goldset-${{ runner.os }}-${{ hashFiles('tests/goldset/public-papers.json') }}-v1
       - name: Fetch all 31 immutable public PDFs with original SHA256 and official mirrors
         shell: pwsh
         run: |

@@ -56,28 +56,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native Qt configure failed' }
           cmake --build $build --target luna-native-filemoves luna-native-manualsi --config Release --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Windows native Qt compilation failed' }
-          ctest --test-dir $build -C Release -R '^(native_file_moves|native_manual_si_attachment) -V --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'SI or PDF/sidecar native rename regression failed' }
-  full-windows-build:
-    needs: native-windows-si
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    steps:
-      - name: Dispatch complete portable GUI build on EXACT passed SHA
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          REF_NAME: ${{ github.ref_name }}
-          SOURCE_SHA: ${{ github.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$REPO" = MRYoonn/LUNA-Library-V2
-          test "$REF_NAME" = feature/v300-auto-rename-linked-si-20261108
-          test "$(gh api "repos/$REPO/branches/$REF_NAME" --jq '.commit.sha')" = "$SOURCE_SHA"
-          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
-          echo "Dispatched exact source after static+native gates; full GUI build must independently succeed."
- -V --output-on-failure
+          ctest --test-dir $build -C Release -R '^(native_file_moves|native_manual_si_attachment)$' -V --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'SI or PDF/sidecar native rename regression failed' }
   full-windows-build:
     needs: native-windows-si

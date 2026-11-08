@@ -2469,7 +2469,7 @@ private:
 
         if (date.isEmpty() && !fileIdentity.isEmpty())
             date=openedDates_.value(openedDateKey(fileIdentity));
-        if (date.isEmpty()) date=displayedDates_.value(fileIdentity);
+        if (date.isEmpty()) date = displayedDates_.value(fileIdentity);
         const QDateTime opened = QDateTime::fromString(date, Qt::ISODate);
         item->setData(Qt::UserRole + 3, opened.isValid() ? opened.toLocalTime().date().toString(QStringLiteral("yy.MM.dd.")) : QString());
         const QString memo = memos_.value(openedDateKey(path));

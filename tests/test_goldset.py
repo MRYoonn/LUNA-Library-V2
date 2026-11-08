@@ -124,15 +124,21 @@ class GoldsetAcquisition(unittest.TestCase):
         import zipfile
         with zipfile.ZipFile(archive_bytes,'w') as zipped:
             zipped.writestr('PMC10025926.pdf',self.payload)
-        bad=HTTPError(article['pdf_url'],500,'Server failure',{},None)
-        opening.side_effect=[bad,bad,bad,io.BytesIO(archive_bytes.getvalue())]
+        def fake(request, timeout=120):
+            url=request.full_url
+            if '/metadata/' in url:
+                raise HTTPError(url,404,'Cloud object unavailable',{},None)
+            if 'ftp.ebi.ac.uk' in url:
+                return io.BytesIO(archive_bytes.getvalue())
+            raise HTTPError(url,500,'Server failure',{},None)
+        opening.side_effect=fake
         with tempfile.TemporaryDirectory() as temporary:
             target=Path(temporary)
             self.assertEqual(fetch([article],target),[])
             self.assertEqual((target/'PMC10025926.pdf').read_bytes(),self.payload)
-        self.assertEqual(opening.call_count,4)
-        self.assertIn('ftp.ebi.ac.uk', opening.call_args_list[3].args[0].full_url)
-        self.assertEqual(opening.call_args_list[3].args[0].full_url,
+        self.assertEqual(opening.call_count,7)
+        self.assertIn('ftp.ebi.ac.uk', opening.call_args_list[-1].args[0].full_url)
+        self.assertEqual(opening.call_args_list[-1].args[0].full_url,
             'https://ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA/PMCxxxx1003/PMC10025926.zip')
 
     @patch('tools.evaluate_goldset.urlopen')
@@ -141,13 +147,22 @@ class GoldsetAcquisition(unittest.TestCase):
             pdf_url='https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10803759/supplementaryFiles',
             archive_member='41467_2024_44824_MOESM2_ESM.pdf',
             sha256=hashlib.sha256(self.payload).hexdigest())
-        opening.side_effect=[io.BytesIO(b'html not zip'),io.BytesIO(self.payload)]
+        def fake(request, timeout=120):
+            url=request.full_url
+            if '/supplementaryFiles' in url:
+                return io.BytesIO(b'html not zip')
+            if '/metadata/' in url:
+                raise HTTPError(url,404,'Cloud object unavailable',{},None)
+            if '/bin/' in url:
+                return io.BytesIO(self.payload)
+            raise AssertionError('Unexpected public PDF source: '+url)
+        opening.side_effect=fake
         with tempfile.TemporaryDirectory() as temporary:
             directory=Path(temporary)
             self.assertEqual(fetch([article],directory),[])
             self.assertEqual((directory/'PMC10803759-SI1.pdf').read_bytes(),self.payload)
-        self.assertIn('/bin/41467_2024_44824_MOESM2_ESM.pdf',
-                      opening.call_args_list[1].args[0].full_url)
+        self.assertTrue(any('/bin/41467_2024_44824_MOESM2_ESM.pdf' in c.args[0].full_url
+                            for c in opening.call_args_list))
 
     @patch('tools.evaluate_goldset.urlopen')
     def test_mirror_different_pdf_sha_is_rejected_without_saving(self, opening):

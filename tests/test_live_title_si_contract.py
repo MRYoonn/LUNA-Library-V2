@@ -64,6 +64,26 @@ class LiveTitleLinkedSIContracts(unittest.TestCase):
             self.assertIn(text, UI, text)
         self.assertIn('원논문 서지정보를 확인한 후 자동으로 SI 파일명을 변경합니다.', UI)
 
+    def test_real_rename_retains_opened_date_under_win32_short_and_long_paths(self):
+        # Real GUI integration on the v300 first build caught the B.pdf
+        # -> "LUNA synthetic bravo test.pdf" rename losing its opened date.
+        # Never silently clear it when the original path spelling differs.
+        for text in (
+            'QString renamedOpenedDate=openedDates_.value(openedDateKey(original));',
+            'renamedOpenedDate=displayedDates_.value(identity);',
+            'openedDates_.value(openedDateKey(currentlyOpened))',
+            'const QString canonical=QFileInfo(moved.documentPath).canonicalFilePath();',
+            'for (const QString& newPath : {moved.documentPath, canonical})',
+            'store.setValue(QStringLiteral("library/openedDates/")+key,renamedOpenedDate);',
+            'rememberDateAlias(moved.documentPath,renamedOpenedDate);',
+            'if (date.isEmpty()) date = displayedDates_.value(fileIdentity);',
+        ):
+            self.assertIn(text, UI, text)
+        self.assertLess(
+            UI.index('rememberDateAlias(moved.documentPath,renamedOpenedDate);'),
+            UI.index('reopenReader(moved.documentPath,true)'),
+        )
+
     def test_parent_metadata_change_queues_children_and_auto_mode_never_overwrites(self):
         for text in (
             'pendingTitleRenames_.insert(identity);',

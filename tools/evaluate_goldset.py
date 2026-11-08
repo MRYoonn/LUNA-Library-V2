@@ -11,6 +11,7 @@ import io
 import json
 from pathlib import Path
 import re
+from urllib.parse import quote
 import subprocess
 import time
 import unicodedata
@@ -116,38 +117,96 @@ def download_public_fixture(request):
         time.sleep(delay)
 
 
+
+def public_sources(item):
+    """Explicit public archival mirrors. Each candidate must match manifest SHA256."""
+    primary = item['pdf_url']
+    sources = [('manifest', primary, 'zip' if 'archive_member' in item else 'pdf')]
+    identifier = item['id'].split('-SI', 1)[0]
+    # Do not redirect arbitrary manifest entries to untrusted locations.
+    if not re.fullmatch(r'PMC[1-9]\\d*', identifier):
+        return sources
+    if 'archive_member' in item:
+        member = item['archive_member']
+        if member != Path(member).name or not re.fullmatch(r'[A-Za-z0-9_.-]+\\.pdf', member):
+            raise ValueError('Unsafe pinned supplementary filename')
+        sources.extend([
+            ('ncbi-supplement', f'https://pmc.ncbi.nlm.nih.gov/articles/{identifier}/bin/{quote(member)}', 'pdf'),
+            ('europepmc-supplement', f'https://europepmc.org/articles/{identifier}/bin/{quote(member)}', 'pdf'),
+        ])
+    elif primary.startswith('https://europepmc.org/api/getPdf?pmcid='):
+        numeric = int(identifier[3:])
+        batch = (numeric + 9999) // 10000
+        sources.extend([
+            ('ebi-oa-archive', f'https://ftp.ebi.ac.uk/pub/databases/pmc/pdf/OA/PMCxxxx{batch:03d}/{identifier}.zip', 'zip'),
+            ('ncbi-pdf', f'https://pmc.ncbi.nlm.nih.gov/articles/{identifier}/pdf/', 'pdf'),
+            ('europepmc-render', f'https://europepmc.org/articles/{identifier}?pdf=render', 'pdf'),
+        ])
+    return sources
+
+
+def verified_pdf(data, item, kind):
+    expected = item['sha256']
+    if len(data) > 100_000_000:
+        raise ValueError('Public fixture exceeds download bound')
+    if kind == 'zip':
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            if 'archive_member' in item:
+                members = [item['archive_member']]
+            else:
+                members = [name for name in archive.namelist()
+                           if name.lower().endswith('.pdf') and name == Path(name).name]
+            for name in members:
+                if archive.namelist().count(name) != 1:
+                    continue
+                info = archive.getinfo(name)
+                if info.file_size > 30_000_000 or info.file_size < 32:
+                    continue
+                candidate = archive.read(info)
+                if candidate.startswith(b'%PDF-') and hashlib.sha256(candidate).hexdigest() == expected:
+                    return candidate
+    elif kind == 'pdf' and data.startswith(b'%PDF-') and hashlib.sha256(data).hexdigest() == expected:
+        return data
+    raise ValueError('Pinned PDF SHA256 mismatch or invalid archive')
+
+
 def fetch(manifest, destination):
     destination.mkdir(parents=True, exist_ok=True)
     failures = []
     for item in manifest:
         identifier = item['id']
-        if not re.fullmatch(r'PMC\d+(?:-SI\d+)?', identifier):
+        if not re.fullmatch(r'PMC\\d+(?:-SI\\d+)?', identifier):
             raise ValueError('Invalid public fixture identifier')
         path = destination / (identifier + '.pdf')
         if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() == item['sha256']:
             continue
-        try:
-            request = Request(item['pdf_url'], headers={'User-Agent': 'LUNA-public-fixture-validation'})
-            data = download_public_fixture(request)
-            if len(data) > 100_000_000:
-                raise ValueError('Fixture exceeds download bound')
-            if 'archive_member' in item:
-                with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                    member = item['archive_member']
-                    if archive.namelist().count(member) != 1 or archive.getinfo(member).file_size > 30_000_000:
-                        raise ValueError('Supplement member changed or exceeds bound')
-                    data = archive.read(member)
-            if not data.startswith(b'%PDF-') or hashlib.sha256(data).hexdigest() != item['sha256']:
-                raise ValueError('Fixture checksum mismatch')
-            path.write_bytes(data)
-        except Exception as error:
-            failure = dict(id=identifier, error=type(error).__name__)
-            if isinstance(error, HTTPError):
-                failure['httpStatus'] = error.code
-                retry_after = (error.headers or {}).get('Retry-After', '')
-                if retry_after:
-                    failure['retryAfter'] = str(retry_after)[:80]
-            failures.append(failure)
+        attempt_errors = []
+        resolved = False
+        for label, url, kind in public_sources(item):
+            try:
+                request = Request(url, headers={'User-Agent': 'LUNA-public-fixture-validation'})
+                data = download_public_fixture(request)
+                verified = verified_pdf(data, item, kind)
+                path.write_bytes(verified)
+                resolved = True
+                break
+            except Exception as error:
+                fault = dict(source=label, error=type(error).__name__)
+                if isinstance(error, HTTPError):
+                    fault['httpStatus'] = error.code
+                    retry_after = (error.headers or {}).get('Retry-After', '')
+                    if retry_after:
+                        fault['retryAfter'] = str(retry_after)[:80]
+                attempt_errors.append(fault)
+                # A valid source that returns a different PDF must never
+                # replace the immutable corpus or silently alter scoring.
+                if label == 'manifest' and isinstance(error, HTTPError) and error.code == 429:
+                    break
+        if not resolved:
+            fault = dict(id=identifier, **{k: v for k, v in attempt_errors[0].items() if k != 'source'})
+            if len(attempt_errors) > 1:
+                fault['attempts'] = attempt_errors
+            failures.append(fault)
     return failures
 
 

@@ -1231,6 +1231,16 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             result["commonZoomInputDiagnostics"] = QJsonObject{{"text", zoomInput->currentText()}, {"focused", zoomInput->lineEdit()->hasFocus()}, {"nativeZoom", pb->getZoom()}};
             integrationRequire(zoomChanged, "Common zoom input did not update the active Editor");
             integrationRequire(qAbs(pa->getZoom() - 2.0) < .001, "Common toolbar changed an inactive document");
+            // The native zoom input is still focused after the synthetic Enter.
+            // Release the real editor focus and drain its editingFinished event
+            // BEFORE seeding per-tab state through the draw proxy. A pending
+            // 150% focus-out must never overwrite the next test's 135% B view.
+            zoomInput->lineEdit()->clearFocus();
+            QCoreApplication::processEvents();
+            integrationRequire(qAbs(pb->getZoom() - 1.5) < .001 &&
+                qAbs(pa->getZoom() - 2.0) < .001,
+                "Common zoom focus-out changed another document");
+            result["commonZoomFocusOutChecked"] = true;
             result["commonToolbarNativePageZoomAndActionOwnership"] = true;
             pa->zoom(1.25); pb->zoom(1.5);
             auto* focus = host.findChild<QAction*>(QStringLiteral("LunaFocusMode"));

@@ -113,9 +113,11 @@ class VerifiedFileNameContracts(unittest.TestCase):
             'scrollPosition=controller->getPdfWidget()->getVerticalScrollbar()->value();',
             'scrollPosition,original',
             'scrollPosition,attempts=0',
-            'if (scrollPosition>0 && vertical->maximum()<scrollPosition) return;',
-            'vertical->setValue(scrollPosition);',
-            'if (vertical->value()!=scrollPosition) return;',
+            'if (scrollPosition>0 && available<scrollPosition) {',
+            'if (++shortRangeTicks<10) return;',
+            'const int restoredScroll=qMin(scrollPosition,available);',
+            'vertical->setValue(restoredScroll);',
+            'if (vertical->value()!=restoredScroll) return;',
         ):
             self.assertIn(token, LIBRARY, token)
         self.assertIn('flushLibraryTitleRenames(host);', TABS)

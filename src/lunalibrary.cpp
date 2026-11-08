@@ -2166,7 +2166,7 @@ private:
         if (localSync_ && localSync_->renamed)
             localSync_->renamed(original, moved.documentPath);
         // The historical opened-date cache uses raw path hashes. A genuine
-        // rename can turn C:/Users/RUNNER~1 into C:/Users/runneradmin, so
+        // rename can turn a short Win32 path into its expanded spelling, so
         // migrating only the original hash is insufficient. Persist both new
         // path spellings while keeping the old entry for safe rollback.
         if (!renamedOpenedDate.isEmpty()) {

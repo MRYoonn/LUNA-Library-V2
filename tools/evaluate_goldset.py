@@ -246,6 +246,20 @@ def fetch(manifest, destination, *, retry_rounds=1):
                 # A rate limit must be respected; do not switch routes to
                 # circumvent a provider's explicit Retry-After instruction.
                 if label == 'manifest' and isinstance(error, HTTPError) and error.code == 429:
+                    # After a fully honored short cooldown and one complete
+                    # second pass, an independent official OA cloud source may
+                    # serve identical pinned bytes. Never ignore long bans.
+                    retry_after=fault.get('retryAfter','10')
+                    if not retry_rounds and retry_after.isdigit() and int(retry_after)<=60 and \
+                            item['pdf_url'].startswith(('https://europepmc.org/','https://www.ebi.ac.uk/')):
+                        time.sleep(int(retry_after))
+                        try:
+                            path.write_bytes(aws_openaccess_pdf(item))
+                            resolved=True
+                            break
+                        except ValueError as aws_error:
+                            attempt_errors.append(dict(source='official-pmc-aws',
+                                                       error=type(aws_error).__name__))
                     break
                 # Try the official August-2026 PMC AWS dataset first, avoiding
                 # obsolete FTP packages and browser-facing PMC pages when possible.

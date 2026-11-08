@@ -362,7 +362,8 @@ jobs:
           path: |
             vcpkg-binary-cache
             vcpkg/downloads
-          key: ${{ runner.os }}-pdf4qt-vcpkg-${{ env.VCPKG_PIN }}-${{ steps.compiler-image.outputs.identity }}-${{ hashFiles('pdf4qt/vcpkg.json', 'pdf4qt/vcpkg-configuration.json') }}
+            vcpkg/vcpkg.exe
+          key: ${{ runner.os }}-pdf4qt-vcpkg-${{ env.VCPKG_PIN }}-${{ steps.compiler-image.outputs.identity }}-tool-2026-09-26-sha256-${{ hashFiles('pdf4qt/vcpkg.json', 'pdf4qt/vcpkg-configuration.json') }}
           restore-keys: |
             ${{ runner.os }}-pdf4qt-vcpkg-${{ env.VCPKG_PIN }}-${{ steps.compiler-image.outputs.identity }}-
             ${{ runner.os }}-pdf4qt-vcpkg-${{ hashFiles('pdf4qt/vcpkg.json', 'pdf4qt/vcpkg-configuration.json') }}
@@ -380,6 +381,8 @@ jobs:
 
       - name: Prepare vcpkg packages
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
           # Cache restore may already have created vcpkg/downloads. Preserve it.
@@ -395,23 +398,63 @@ jobs:
           $baseline = (Get-Content -Raw pdf4qt/vcpkg.json | ConvertFrom-Json).'builtin-baseline'
           git -C vcpkg fetch --depth 1 origin $baseline
           if ($LASTEXITCODE -ne 0) { throw "vcpkg baseline missing" }
-          # GitHub release assets can return transient HTTP 504s; do not
-          # abort the entire native GUI build after just one failed download.
-          # Retry the *same pinned* bootstrap; never fall back to an unpinned EXE.
-          $bootstrapped = $false
-          for ($attempt = 1; $attempt -le 5; $attempt++) {
-            & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
-            if ($LASTEXITCODE -eq 0 -and (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
-              $bootstrapped = $true
-              break
-            }
-            if ($attempt -lt 5) {
-              $backoff = 8 * $attempt
-              Write-Warning "Pinned vcpkg bootstrap attempt $attempt failed; retrying in $backoff seconds."
-              Start-Sleep -Seconds $backoff
+          # The upstream vcpkg-tool asset is immutable. Verify its official
+          # release SHA-256 even if restored from the Actions dependency cache.
+          # GitHub release URLs have repeatedly returned HTTP 504 on Windows.
+          # Use the official GitHub release-ASSET API endpoint as an independent
+          # path before trying the stock bootstrap download. Reject JSON/error
+          # responses and any wrong binary: no unpinned executable is allowed.
+          $toolPath = Join-Path $env:VCPKG_ROOT 'vcpkg.exe'
+          $expectedToolSha = '2a4ae1467b9e797964c60c919d057b9e5dc1ec03f4b9632c1150026db25201f2'
+          $verifiedTool = $false
+          if (Test-Path $toolPath) {
+            $verifiedTool = (Get-FileHash -Path $toolPath -Algorithm SHA256).Hash.ToLowerInvariant() -eq $expectedToolSha
+            if (-not $verifiedTool) {
+              Remove-Item -LiteralPath $toolPath -Force
+              Write-Warning 'Cached vcpkg-tool hash mismatch; removed untrusted executable'
             }
           }
-          if (-not $bootstrapped) { throw "Pinned vcpkg bootstrap failed after 5 attempts; inspect HTTP status in logs" }
+          if (-not $verifiedTool) {
+            $partial = "$toolPath.api-part"
+            try {
+              $headers = @{
+                'Accept' = 'application/octet-stream'
+                'User-Agent' = 'LUNA-Pinned-Windows-CI'
+                'X-GitHub-Api-Version' = '2022-11-28'
+                'Authorization' = "Bearer $env:GH_TOKEN"
+              }
+              Invoke-WebRequest -Uri 'https://api.github.com/repos/microsoft/vcpkg-tool/releases/assets/589884028' -Headers $headers -OutFile $partial -MaximumRedirection 8 -TimeoutSec 90
+              if ((Test-Path $partial) -and
+                  ((Get-FileHash -Path $partial -Algorithm SHA256).Hash.ToLowerInvariant() -eq $expectedToolSha)) {
+                Move-Item -LiteralPath $partial -Destination $toolPath -Force
+                $verifiedTool = $true
+                Write-Host 'Recovered immutable vcpkg-tool from official GitHub release asset API with verified SHA-256.'
+              } else {
+                Write-Warning 'GitHub release asset API did not supply the pinned executable; falling back to stock bootstrap'
+              }
+            } catch {
+              Write-Warning 'Official GitHub release asset API unavailable; falling back to pinned stock bootstrap'
+            } finally {
+              if (Test-Path $partial) { Remove-Item -LiteralPath $partial -Force }
+            }
+          }
+          if (-not $verifiedTool) {
+            for ($attempt = 1; $attempt -le 5; $attempt++) {
+              & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+              if ($LASTEXITCODE -eq 0 -and (Test-Path $toolPath)) {
+                $verifiedTool = (Get-FileHash -Path $toolPath -Algorithm SHA256).Hash.ToLowerInvariant() -eq $expectedToolSha
+                if (-not $verifiedTool) { throw 'Stock vcpkg bootstrap produced an unexpected SHA-256; refusing to execute' }
+                break
+              }
+              if ($attempt -lt 5) {
+                $backoff = 8 * $attempt
+                Write-Warning "Pinned vcpkg bootstrap attempt $attempt failed; retrying in $backoff seconds."
+                Start-Sleep -Seconds $backoff
+              }
+            }
+          }
+          if (-not $verifiedTool) { throw 'Pinned vcpkg-tool unavailable via both official release asset API and stock bootstrap' }
+          New-Item -Path (Join-Path $env:VCPKG_ROOT 'vcpkg.disable-metrics') -ItemType File -Force | Out-Null
           & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows --x-manifest-root="$env:GITHUB_WORKSPACE\pdf4qt" --x-install-root="$env:VCPKG_INSTALLED_DIR" --clean-buildtrees-after-build --clean-packages-after-build
           if ($LASTEXITCODE -ne 0) { throw "vcpkg dependencies failed" }
 
@@ -424,6 +467,7 @@ jobs:
           path: |
             vcpkg-binary-cache
             vcpkg/downloads
+            vcpkg/vcpkg.exe
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Install Qt

@@ -2065,9 +2065,7 @@ private:
             auto* controller=editor->getProgramController();
             if (!controller || !controller->getDocument() ||
                 DocumentClaim::identity(controller->getOriginalFileName())!=identity)continue;
-            // Only a fully loaded and saved reader may be re-bound silently.
-            // Never open a Save dialog, discard unsaved annotations or switch
-            // tabs while the user is editing a PDF.
+    
             auto* undo=controller->findChild<pdfviewer::PDFUndoRedoManager*>();
             if (!movedHandler || !editor->isEnabled() || !controller->canClose() ||
                 controller->getIsBusy() || !undo || !undo->isCurrentSaved() ||
@@ -2089,9 +2087,7 @@ private:
             zoom=controller->getPdfWidget()->getDrawWidgetProxy()->getZoom();
             layout=controller->getPdfWidget()->getDrawWidgetProxy()->getPageLayout();
         }
-        // An active editor owns the original DocumentClaim lock. It is itself
-        // the exclusive writer until the new destination claim is acquired.
-        // Closed PDFs require a separate non-blocking lock against other apps.
+
         std::unique_ptr<QLockFile> renameGuard;
         if (!activeEditor) {
             const QString lockPath=QStandardPaths::writableLocation(
@@ -2167,10 +2163,7 @@ private:
         // bibliography identity, and manually linked SI parent names.
         if (localSync_ && localSync_->renamed)
             localSync_->renamed(original, moved.documentPath);
-        // The historical opened-date cache uses raw path hashes. A genuine
-        // rename can turn a short Win32 path into its expanded spelling, so
-        // migrating only the original hash is insufficient. Persist both new
-        // path spellings while keeping the old entry for safe rollback.
+
         if (!renamedOpenedDate.isEmpty()) {
             QSettings store(QSettings::defaultFormat(), QSettings::UserScope,
                             QStringLiteral("LUNA"),QStringLiteral("LUNA Library"));
@@ -2473,9 +2466,7 @@ private:
         item->setData(Qt::UserRole + 1, location == QStringLiteral(".") ? QStringLiteral("라이브러리 폴더 · PDF") : location);
         item->setData(Qt::UserRole + 2, favorites_.contains(path));
         QString date = openedDates_.value(openedDateKey(path));
-        // The historical raw-path hash can differ between WIN32 short/long
-        // spellings. Resolve the *physical* identity key before looking at the
-        // in-memory alias; this survives a library list refresh/restart.
+
         if (date.isEmpty() && !fileIdentity.isEmpty())
             date=openedDates_.value(openedDateKey(fileIdentity));
         if (date.isEmpty()) date=displayedDates_.value(fileIdentity);
@@ -2568,10 +2559,7 @@ private:
         if (date.isEmpty()) return;
         const QString identity=DocumentClaim::identity(path);
         if (identity.isEmpty()) return;
-        // Preserve the original raw-path hash for v299 rollback, but store a
-        // second opened-date key derived from the same expanded, case-folded
-        // physical file identity used by library cards and native PDF tabs.
-        // Windows 8.3 paths (RUNNER~1) and long paths then share a durable key.
+
         const QString key=openedDateKey(identity);
         displayedDates_.insert(identity,date);
         openedDates_.insert(key,date);
@@ -2594,14 +2582,11 @@ private:
         editor.setProperty("LunaRememberedSource", source);
         if (path == editor.property("LunaRememberedPath").toString()) return;
         editor.setProperty("LunaRememberedPath", path);
-        // Existing library titles also need disk-name reconciliation after upgrade.
-        // Never rename the document while its reader tab still owns it.
+
         pendingTitleRenames_.insert(DocumentClaim::identity(path));
         if (!titleRenameTimer_.isActive()) titleRenameTimer_.start();
         queueBibliography(DocumentClaim::identity(path), *controller->getDocument());
-        // Inspect only structured fields already present in the PDF info
-        // dictionary. DOI/front-page analysis runs separately in an owned
-        // low-priority worker; QSettings writes stay on the UI thread.
+
         if (const auto* documentInfo = controller->getDocument()->getInfo()) {
             const QString identity = DocumentClaim::identity(path);
             const QString title = documentInfo->title;
@@ -2662,8 +2647,7 @@ private:
         }
         editor.setProperty("LunaPreserveReopenView", false);
         if (viewer_ == &editor) selectActiveCard();
-        // Opening a paper must not rebuild or reorder the visible Recent list.
-        // Refresh it only when the user explicitly reopens that navigation view.
+
     }
     void refreshFileLists() {
         allTimer_->stop();

@@ -99,7 +99,7 @@ class NativeTabsContract(unittest.TestCase):
         end = tabs.index('auto openContextMemo = [&]', start)
         section = tabs[start:end]
         for contract in (
-            'integrationList(host, files[0], &currentCard)',
+            'integrationList(host, a->getProgramController()->getOriginalFileName(), &currentCard)',
             'paper = currentCard;',
             'QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256)',
             'saved.value(QStringLiteral("library/memos/") + key)',
@@ -286,7 +286,7 @@ class NativeTabsContract(unittest.TestCase):
         old = 'integrationClick(host, list->viewport(), card.center(), true)'
         self.assertNotIn(old, tabs)
         for token in (
-            'moveList = integrationList(host, files[0], &movePaper)',
+            'moveList = integrationList(host, sourceAForMove, &movePaper)',
             'moveList->scrollToItem(movePaper, QAbstractItemView::PositionAtCenter)',
             'const QPoint movePoint = moveList->visualItemRect(movePaper).center()',
             'moveList->itemAt(movePoint) == movePaper',
@@ -297,8 +297,21 @@ class NativeTabsContract(unittest.TestCase):
             'integrationRequire(moveReopened, "PDF move did not reopen the same A tab")',
         ):
             self.assertIn(token, tabs, token)
-        self.assertLess(tabs.index('moveList = integrationList(host, files[0], &movePaper)'),
+        self.assertLess(tabs.index('moveList = integrationList(host, sourceAForMove, &movePaper)'),
                         tabs.index('integrationClick(host, moveList->viewport(), movePoint, true)'))
+        # The verified-title rename can replace A.pdf's physical filename.
+        # Selection, target and byte-equality checks must follow the active
+        # tab's current source without weakening paired file move assertions.
+        for token in (
+            'const QString sourceAForMove=a->getProgramController()->getOriginalFileName();',
+            'const QString movedPdf=moved+"/"+QFileInfo(sourceAForMove).fileName();',
+            'integrationBytes(sourceAForMove)==savedA',
+            'integrationBytes(movedPdf)==savedA',
+            'integrationBytes(movedThumb)==originalThumb',
+            '!QFileInfo::exists(sourceThumbnail)',
+        ):
+            self.assertIn(token, tabs, token)
+
 
     def test_page_entry_smoke_uses_real_qt_input_and_verifies_navigation(self):
         smoke = (ROOT / 'src/lunaeditorsmoke.cpp').read_text(encoding='utf-8')
@@ -620,7 +633,7 @@ class NativeTabsContract(unittest.TestCase):
         # The live paper list can rebuild while sidecars sync. Resolve its
         # current card/viewport before the real Win32 right-click instead of
         # requiring the removed stale card-coordinate expression.
-        self.assertIn('integrationList(host, files[0], &currentCard)', tabs)
+        self.assertIn('integrationList(host, a->getProgramController()->getOriginalFileName(), &currentCard)', tabs)
         self.assertIn('const QRect liveCard = list->visualItemRect(paper);', tabs)
         self.assertIn('list->viewport()->rect().contains(currentMemoLocation)', tabs)
         self.assertIn('integrationClick(host, list->viewport(), currentMemoLocation, true)', tabs)

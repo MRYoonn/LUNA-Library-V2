@@ -1451,8 +1451,19 @@ public:
                 native->editingFinished();
             }
         };
-        connect(zoom_, qOverload<int>(&QComboBox::activated), this, [commitZoom](int) { commitZoom(); });
-        connect(zoom_->lineEdit(), &QLineEdit::editingFinished, this, commitZoom);
+        // Qt may emit editingFinished again when a tab rebinding clears focus.
+        // Only real user edits should commit: otherwise the previously typed
+        // zoom (e.g. 150%) can override a PDF's later independent 135% view.
+        connect(zoom_->lineEdit(), &QLineEdit::textEdited, this,
+                [this](const QString&) { zoomTextDirty_ = true; });
+        connect(zoom_, qOverload<int>(&QComboBox::activated), this,
+                [this, commitZoom](int) { zoomTextDirty_ = false; commitZoom(); });
+        connect(zoom_->lineEdit(), &QLineEdit::editingFinished, this,
+                [this, commitZoom] {
+                    if (!zoomTextDirty_) return;
+                    zoomTextDirty_ = false;
+                    commitZoom();
+                });
         connect(&poll_, &QTimer::timeout, this, [this] { synchronize(); }); poll_.start(100);
     }
     void bind(pdfviewer::PDFEditorMainWindow& editor) {
@@ -1561,6 +1572,7 @@ private:
     QMainWindow& shell_;
     QToolBar* bar_ = nullptr;
     QPointer<pdfviewer::PDFEditorMainWindow> editor_;
+    bool zoomTextDirty_ = false;
     QSpinBox* page_ = nullptr;
     QComboBox* zoom_ = nullptr;
     QWidgetAction *pageAction_ = nullptr, *zoomAction_ = nullptr;

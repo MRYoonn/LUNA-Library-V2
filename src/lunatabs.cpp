@@ -1143,13 +1143,34 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             // Never weaken the date assertion or assume the old file survived.
             auto isolatedBibliography = [&] {
                 if (!qEnvironmentVariableIsSet("LUNA_BIBLIOGRAPHY_TAB_FIXTURE")) return true;
-                for (int index = 0; index < 2; ++index) {
-                    QListWidgetItem* card = nullptr;
-                    if (!integrationList(host, index == 0 ? files[0] : liveBSource(), &card) || !card) return false;
-                    const QString expected = index == 0 ? QStringLiteral("Final A. Writer") : QStringLiteral("Final B. Writer");
-                    if (card->data(Qt::UserRole + 5).toMap().value("authors").toString() != expected) return false;
+                QJsonArray authorDiagnostics;
+                bool independent=true;
+                for (int index=0;index<2;++index) {
+                    auto* editor=index==0?a:b;
+                    const QString livePath=editor ?
+                        editor->getProgramController()->getOriginalFileName() : QString();
+                    QListWidgetItem* card=nullptr;
+                    const bool filePresent=!livePath.isEmpty() && QFileInfo(livePath).isFile();
+                    const bool cardPresent=filePresent && integrationList(host,livePath,&card) && card;
+                    const QString expected=index==0 ? QStringLiteral("Final A. Writer") : QStringLiteral("Final B. Writer");
+                    const QString actual=cardPresent ?
+                        card->data(Qt::UserRole+5).toMap().value("authors").toString() : QString();
+                    const bool correct=cardPresent && actual==expected &&
+                        DocumentClaim::identity(card->data(Qt::UserRole).toString())==
+                        DocumentClaim::identity(livePath);
+                    authorDiagnostics.append(QJsonObject{
+                        {"tabIndex",index},
+                        {"syntheticFile",QFileInfo(livePath).fileName()},
+                        {"filePresent",filePresent},
+                        {"cardPresent",cardPresent},
+                        {"author",actual},
+                        {"expectedAuthor",expected},
+                        {"correct",correct}
+                    });
+                    independent &= correct;
                 }
-                return true;
+                result["asyncAuthorDiagnostics"]=authorDiagnostics;
+                return independent;
             };
             if (qEnvironmentVariableIsSet("LUNA_BIBLIOGRAPHY_TAB_FIXTURE")) {
                 integrationRequire(a->getProgramController()->getDocument()->getInfo()->author == QStringLiteral("Hao Fang") &&
@@ -1278,7 +1299,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 auto* widget = documents[i]->getProgramController()->getPdfWidget();
                 integrationRequire(qAbs(widget->getDrawWidgetProxy()->getZoom() - zoomValues[i]) < .001 && widget->getVerticalScrollbar()->value() == scrollPositions[i], "Five-tab switch changed independent position or zoom");
             }
-            integrationRequire(isolatedBibliography(), "Repeated tab switches changed another paper's author");
+            integrationRequire(integrationWait(isolatedBibliography,5000), "Repeated tab switches changed another paper's author");
             auto* tabBar = tabs->tabBar();
             integrationRequire(tabBar->usesScrollButtons() && tabBar->elideMode() == Qt::ElideMiddle &&
                 tabBar->iconSize() == QSize(19,19), "Tab scroll/elision mode changed");

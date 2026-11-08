@@ -1963,7 +1963,7 @@ private:
             if (source.fileName().compare(name,Qt::CaseInsensitive)==0) return name;
             const QString target=QDir(source.absolutePath()).filePath(name);
             if (QFileInfo::exists(target) || QFileInfo(target).isSymLink() ||
-                !bibliography_.record(DocumentClaim::identity(target)).isEmpty()) continue;
+                bibliography_.hasStoredRecord(DocumentClaim::identity(target))) continue;
             bool conflict=false;
             for (const auto& pair:SidecarStorage::companions(identity,target))
                 if (QFileInfo::exists(pair.second) || QFileInfo(pair.second).isSymLink()) {
@@ -2003,7 +2003,7 @@ private:
         const QString destination=QDir(source.absolutePath()).filePath(filename);
         // Another process may have used our proposed name since selection.
         if (QFileInfo::exists(destination) || QFileInfo(destination).isSymLink() ||
-            !bibliography_.record(DocumentClaim::identity(destination)).isEmpty()) {
+            bibliography_.hasStoredRecord(DocumentClaim::identity(destination))) {
             explain(QStringLiteral("파일명이 다른 작업과 충돌했습니다. 다시 시도하면 번호를 다시 선택합니다."));
             return false;
         }

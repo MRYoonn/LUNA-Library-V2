@@ -225,6 +225,19 @@ class GoldsetAcquisition(unittest.TestCase):
                     self.assertEqual(opening.call_count, 2)
                     sleep.assert_called_once_with(45)
 
+    @patch('tools.evaluate_goldset.time.sleep')
+    @patch('tools.evaluate_goldset.urlopen')
+    def test_short_rate_limit_is_retried_after_other_fixtures(self, opening, sleep):
+        url=self.fixture()['pdf_url']
+        throttled=HTTPError(url,429,'Retry after 10 seconds',{'Retry-After':'10'},None)
+        opening.side_effect=[throttled,throttled,throttled,io.BytesIO(self.payload)]
+        with tempfile.TemporaryDirectory() as temporary:
+            self.assertEqual(fetch([self.fixture()],Path(temporary)),[])
+            self.assertEqual((Path(temporary)/'PMC1.pdf').read_bytes(),self.payload)
+        self.assertEqual(opening.call_count,4)
+        self.assertEqual([c.args[0].full_url for c in opening.call_args_list],[url]*4)
+        self.assertEqual(sleep.call_count,3)
+
     def test_long_service_cooldown_fails_without_premature_retry(self):
         error = HTTPError(self.fixture()['pdf_url'], 429, 'Rate limited',
                           {'Retry-After': '901'}, None)

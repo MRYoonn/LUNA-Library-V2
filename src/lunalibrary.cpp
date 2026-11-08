@@ -2122,7 +2122,8 @@ private:
             controller->openDocument(target);
             auto* restore=new QTimer(this);
             connect(restore,&QTimer::timeout,this,
-                [restore,editor=activeEditor,target,page,zoom,layout,scrollPosition,attempts=0]() mutable {
+                [restore,editor=activeEditor,target,page,zoom,layout,scrollPosition,
+                 attempts=0,lastShortRange=-1,shortRangeTicks=0]() mutable {
                     if (!editor) {restore->stop();restore->deleteLater();return;}
                     auto* c=editor->getProgramController();
                     if (++attempts>200) {
@@ -2141,9 +2142,23 @@ private:
                     // after reopening. Keep the rebind pending until the real
                     // layout can accommodate the saved reading position.
                     auto* vertical=c->getPdfWidget()->getVerticalScrollbar();
-                    if (scrollPosition>0 && vertical->maximum()<scrollPosition) return;
-                    vertical->setValue(scrollPosition);
-                    if (vertical->value()!=scrollPosition) return;
+                    // With high-DPI or a resized window, a two-page PDF can
+                    // genuinely fit without the old scroll range. Distinguish
+                    // a transient 0..1 loading range from a settled smaller
+                    // viewport; never leave the reader stuck in pending state.
+                    const int available=vertical->maximum();
+                    if (scrollPosition>0 && available<scrollPosition) {
+                        if (!editor->isVisible()) return;
+                        if (available!=lastShortRange) {
+                            lastShortRange=available; shortRangeTicks=0; return;
+                        }
+                        if (++shortRangeTicks<10) return;
+                        qInfo() << "LUNA auto-rename scroll clamped to resized viewport"
+                                << "requested" << scrollPosition << "available" << available;
+                    }
+                    const int restoredScroll=qMin(scrollPosition,available);
+                    vertical->setValue(restoredScroll);
+                    if (vertical->value()!=restoredScroll) return;
                     editor->setProperty("LunaMoveRestorePending",false);
                     restore->stop();restore->deleteLater();
                 });

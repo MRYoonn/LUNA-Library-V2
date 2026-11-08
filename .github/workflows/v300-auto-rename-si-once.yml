@@ -4,6 +4,7 @@ on:
     branches: [feature/v300-auto-rename-linked-si-20261108]
     paths:
       - .github/workflows/v300-auto-rename-si-once.yml
+      - .github/workflows/build-windows.yml
       - src/lunalibrary.cpp
       - tests/test_live_title_si_contract.py
       - tests/test_auto_filename_contract.py

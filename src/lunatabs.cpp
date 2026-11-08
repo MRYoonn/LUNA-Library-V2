@@ -1210,33 +1210,59 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 integrationRequire(editor && integrationWait([&] { return ready(editor); }), "Extra PDF did not load"); extra.append(editor);
             }
             integrationRequire(host.documentCount() == 5, "Five PDFs are not simultaneously open");
-            // Keep full five-card date assertions. Record a per-file synthetic
-            // diagnostic before rejecting so the next Windows CI run can
-            // distinguish missing cards from short/long-path date aliases.
-            QJsonArray openedDateDiagnostics;
-            bool everyOpenedDateVisible=true;
-            for (const QString& path : QStringList{files[0], liveBSource()} + QDir(directoryPath).entryList({QStringLiteral("UI-long-*.pdf")}, QDir::Files)) {
-                const QString fullPath = QFileInfo(path).isAbsolute() ? path : QDir(directoryPath).filePath(path);
-                QListWidgetItem* card=nullptr;
-                const auto* dateList=integrationList(host,fullPath,&card);
-                const bool cardPresent=dateList && card;
-                const QString visibleDate=cardPresent ? card->data(Qt::UserRole+3).toString() : QString();
-                const bool datePresent=!visibleDate.isEmpty();
-                openedDateDiagnostics.append(QJsonObject{
-                    {"syntheticFile",QFileInfo(fullPath).fileName()},
-                    {"cardPresent",cardPresent},
-                    {"datePresent",datePresent},
-                    {"cardIdentityMatches",cardPresent &&
-                         DocumentClaim::identity(card->data(Qt::UserRole).toString()) ==
-                         DocumentClaim::identity(fullPath)}
-                });
-                everyOpenedDateVisible &= cardPresent && datePresent;
-            }
-            result["openedDateDiagnostics"]=openedDateDiagnostics;
-            write();
-            integrationRequire(everyOpenedDateVisible, "Opened date disappeared across Windows path spellings");
-            fitTabInput(); // Keep real OS input inside the hosted runner's 1024px desktop, including at 150%.
             QList<QPointer<Editor>> documents{a, b}; documents.append(extra);
+            // Title verification can physically rename a PDF after its tab
+            // opens. Match each live reader's owned path, not the obsolete
+            // fixture filename; wait for the asynchronous folder list refresh
+            // without relaxing any of the five opened-date requirements.
+            auto checkFiveOpenedDates = [&]() {
+                QJsonArray diagnostics;
+                QSet<QString> seenIdentities;
+                bool allPresent=true;
+                for (int index=0;index<documents.size();++index) {
+                    const auto* editor=documents[index].data();
+                    const QString actualPath=editor ?
+                        editor->getProgramController()->getOriginalFileName() : QString();
+                    const QString identity=DocumentClaim::identity(actualPath);
+                    const bool filePresent=!actualPath.isEmpty() && QFileInfo(actualPath).isFile();
+                    QListWidgetItem* card=nullptr;
+                    const auto* dateList=filePresent ? integrationList(host,actualPath,&card) : nullptr;
+                    const bool cardPresent=dateList && card;
+                    const QString date=cardPresent ? card->data(Qt::UserRole+3).toString() : QString();
+                    const bool identityMatches=cardPresent &&
+                        DocumentClaim::identity(card->data(Qt::UserRole).toString())==identity;
+                    const bool unique=!identity.isEmpty() && !seenIdentities.contains(identity);
+                    seenIdentities.insert(identity);
+                    diagnostics.append(QJsonObject{
+                        {"tabIndex",index},
+                        {"syntheticFile",QFileInfo(actualPath).fileName()},
+                        {"filePresent",filePresent},
+                        {"cardPresent",cardPresent},
+                        {"datePresent",!date.isEmpty()},
+                        {"cardIdentityMatches",identityMatches},
+                        {"uniqueIdentity",unique}
+                    });
+                    allPresent &= filePresent && cardPresent && !date.isEmpty() &&
+                        identityMatches && unique;
+                }
+                result["openedDateDiagnostics"]=diagnostics;
+                if (auto* pages=host.findChild<QStackedWidget*>(QStringLiteral("LunaDocumentPages"))) {
+                    result["openedDatePageIndex"]=pages->currentIndex();
+                    QJsonArray counts;
+                    for (int i=0;i<pages->count();++i) {
+                        int count=0;
+                        for (auto* list:pages->widget(i)->findChildren<QListWidget*>())
+                            count+=list->count();
+                        counts.append(count);
+                    }
+                    result["openedDatePageRowCounts"]=counts;
+                }
+                return allPresent && seenIdentities.size()==5;
+            };
+            const bool fiveDatesStable=integrationWait(checkFiveOpenedDates,5000);
+            write();
+            integrationRequire(fiveDatesStable, "Opened date disappeared across Windows path spellings");
+            fitTabInput(); // Keep real OS input inside the hosted runner's 1024px desktop, including at 150%.
             QList<int> scrollPositions; QList<double> zoomValues;
             for (int i = 0; i < documents.size(); ++i) {
                 auto* editor = documents[i].data(); tabs->setCurrentWidget(editor);

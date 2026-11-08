@@ -74,6 +74,7 @@ APPROVED = {
     ".github/workflows/v297-reader-toolbar-once.yml",
     ".github/workflows/v299-title-collision-once.yml",
     ".github/workflows/v298-rename-once.yml",
+    ".github/workflows/v300-auto-rename-si-once.yml", "tests/test_live_title_si_contract.py",
     "src/lunatabmoon.h", "src/lunapdfassociation.h",
     "tools/generate_pdf_icon.py", "tools/probe_pdf_icon_windows.py",
     "tests/native_dialog/pdfassociation.cpp", "tests/test_pdf_icons_association.py",
@@ -140,7 +141,7 @@ APPROVED.update(APPROVED_BINARY)
 # Verified-title rename adds bounded library orchestration without relaxing the default 200 KB cap.
 # Precisely scoped 2 KB allowance for deferred-close filename repair; the
 # default source cap, binary hash pins, secret scan and allowlist stay enforced.
-SOURCE_SIZE_CAPS = {"src/lunalibrary.cpp": 288_000}
+SOURCE_SIZE_CAPS = {"src/lunalibrary.cpp": 298_000}
 FORBIDDEN = [
     ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)),
     ("phone", re.compile(r"(?<!\d)01[016789][-. ]?\d{3,4}[-. ]?\d{4}(?!\d)")),

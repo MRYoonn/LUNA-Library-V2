@@ -455,6 +455,48 @@ jobs:
           }
           if (-not $verifiedTool) { throw 'Pinned vcpkg-tool unavailable via both official release asset API and stock bootstrap' }
           New-Item -Path (Join-Path $env:VCPKG_ROOT 'vcpkg.disable-metrics') -ItemType File -Force | Out-Null
+          # The pinned vcpkg registry needs CMake 4.4.3, and its standard
+          # github.com/Kitware release URL returns HTTP 503 on this runner.
+          # Pre-seed the regular vcpkg downloads cache using the official
+          # GitHub asset API. Verify the immutable upstream SHA-256 first;
+          # vcpkg will independently verify its own source-defined hash.
+          $cmakeZip = Join-Path $env:VCPKG_ROOT 'downloads/cmake-4.4.3-windows-x86_64.zip'
+          $expectedCmakeSha = '4d52ebab7193a698651639ed80d8d04fd903358843572cf44c7fd234cb7c26ab'
+          New-Item -Path (Split-Path -Parent $cmakeZip) -ItemType Directory -Force | Out-Null
+          $cmakeVerified = (Test-Path $cmakeZip) -and
+            ((Get-FileHash -Path $cmakeZip -Algorithm SHA256).Hash.ToLowerInvariant() -eq $expectedCmakeSha)
+          if ((Test-Path $cmakeZip) -and -not $cmakeVerified) {
+            Remove-Item -LiteralPath $cmakeZip -Force
+            Write-Warning 'Deleted CMake cached archive with incorrect checksum'
+          }
+          if (-not $cmakeVerified) {
+            $candidateZip = "$cmakeZip.api-part"
+            for ($try = 1; $try -le 3 -and -not $cmakeVerified; $try++) {
+              try {
+                $cmakeHeaders = @{
+                  'Accept' = 'application/octet-stream'
+                  'User-Agent' = 'LUNA-Pinned-Windows-CI'
+                  'X-GitHub-Api-Version' = '2022-11-28'
+                  'Authorization' = "Bearer $env:GH_TOKEN"
+                }
+                Invoke-WebRequest -Uri 'https://api.github.com/repos/Kitware/CMake/releases/assets/529578311' -Headers $cmakeHeaders -OutFile $candidateZip -MaximumRedirection 8 -TimeoutSec 120
+                if ((Test-Path $candidateZip) -and
+                    ((Get-FileHash -Path $candidateZip -Algorithm SHA256).Hash.ToLowerInvariant() -eq $expectedCmakeSha)) {
+                  Move-Item -LiteralPath $candidateZip -Destination $cmakeZip -Force
+                  $cmakeVerified = $true
+                  Write-Host 'Verified CMake 4.4.3 archive from official GitHub release asset API.'
+                } else {
+                  Write-Warning 'CMake release API response did not match pinned SHA-256'
+                }
+              } catch {
+                Write-Warning "Pinned CMake release asset attempt $try failed"
+              } finally {
+                if (Test-Path $candidateZip) { Remove-Item -LiteralPath $candidateZip -Force }
+              }
+              if (-not $cmakeVerified -and $try -lt 3) { Start-Sleep -Seconds (5 * $try) }
+            }
+          }
+          if (-not $cmakeVerified) { throw 'Pinned CMake 4.4.3 archive unavailable; refusing unverified dependency' }
           & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows --x-manifest-root="$env:GITHUB_WORKSPACE\pdf4qt" --x-install-root="$env:VCPKG_INSTALLED_DIR" --clean-buildtrees-after-build --clean-packages-after-build
           if ($LASTEXITCODE -ne 0) { throw "vcpkg dependencies failed" }
 

@@ -352,6 +352,33 @@ class NativeTabsContract(unittest.TestCase):
                         section.index('if (!select->isChecked()) select->trigger();'))
         self.assertNotIn('controller->getDocument() && select->isChecked()', section.split('if (!select->isChecked()) select->trigger();', 1)[0])
 
+    def test_common_zoom_editing_finished_cannot_reapply_stale_value_to_rebound_tab(self):
+        source = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
+        # Enter commits the user's edit once. A tab rebinding can clear focus
+        # again without any intervening user edit; that must not overwrite the
+        # inactive document's independent zoom, scroll, or current page.
+        for required in (
+            'bool zoomTextDirty_ = false;',
+            'connect(zoom_->lineEdit(), &QLineEdit::textEdited, this,',
+            '[this](const QString&) { zoomTextDirty_ = true; });',
+            '[this, commitZoom](int) { zoomTextDirty_ = false; commitZoom(); });',
+            'if (!zoomTextDirty_) return;',
+            'zoomTextDirty_ = false;',
+            'commitZoom();',
+        ):
+            self.assertIn(required, source, required)
+        self.assertNotIn(
+            'connect(zoom_->lineEdit(), &QLineEdit::editingFinished, this, commitZoom);',
+            source,
+        )
+        self.assertLess(
+            source.index('zoom_->lineEdit()->clearFocus()'),
+            source.index('editor_ = &editor;'),
+        )
+        tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')
+        self.assertIn('Five-tab switch changed independent position or zoom', tabs)
+        self.assertIn('fiveTabPositionDiagnostics', tabs)
+
     def test_autoscroll_does_not_register_an_application_wide_mouse_filter(self):
         adapter = (ROOT / 'src/lunareadertoolbar.cpp').read_text(encoding='utf-8')
         tabs = (ROOT / 'src/lunatabs.cpp').read_text(encoding='utf-8')

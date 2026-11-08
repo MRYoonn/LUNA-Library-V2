@@ -104,6 +104,24 @@ class VerifiedFileNameContracts(unittest.TestCase):
         self.assertIn('store.hasStoredRecord(missing)', BIB_NATIVE)
         self.assertIn('store.hasStoredRecord(occupied)', BIB_NATIVE)
 
+    def test_automatic_rename_retains_scroll_until_real_pdf_layout_restores(self):
+        # A native Windows integration run found scroll 51 -> 0 while the
+        # automatic file rename had temporarily collapsed the viewport to 0..1.
+        # Restoring page/zoom alone does not restore the reader's precise place.
+        for token in (
+            'int scrollPosition=0;',
+            'scrollPosition=controller->getPdfWidget()->getVerticalScrollbar()->value();',
+            'scrollPosition,original',
+            'scrollPosition,attempts=0',
+            'if (scrollPosition>0 && vertical->maximum()<scrollPosition) return;',
+            'vertical->setValue(scrollPosition);',
+            'if (vertical->value()!=scrollPosition) return;',
+        ):
+            self.assertIn(token, LIBRARY, token)
+        self.assertIn('flushLibraryTitleRenames(host);', TABS)
+        self.assertIn('Automatic title rename did not restore its original reader tab', TABS)
+        self.assertIn('"Five-tab switch changed independent position or zoom"', TABS)
+
     def test_rename_is_no_overwrite_paired_and_rebinds_only_saved_open_tabs(self):
         for snippet in (
             'const QString& requestedFileName = {}',

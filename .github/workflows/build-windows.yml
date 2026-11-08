@@ -537,6 +537,41 @@ jobs:
             }
           }
           if (-not $ninjaVerified) { throw 'Pinned Ninja 1.13.2 archive unavailable; refusing unverified dependency' }
+          # GitHub's /archive/<sha>.tar.gz endpoint can fail with HTTP 504,
+          # even after verified vcpkg, CMake and Ninja are in place. Its
+          # direct official codeload equivalent avoids the failing gateway.
+          # The hash below comes from PDF4QT's pinned blend2d overlay
+          # portfile.cmake; do not use a different source revision.
+          $blendZip = Join-Path $env:VCPKG_ROOT 'downloads/blend2d-blend2d-6dbc2cefbc996379e07104e34519a440b49b15d7.tar.gz'
+          $blendSha512 = '05c8ff3fd99b22a5a157f18cc57e393c191235a09dc4e8d0d95c7314a665ea8668da0c077c727a77a26879fcbc6ae80cc49df0b93a184cdf7bf90ec55a247c68'
+          $blendVerified = (Test-Path $blendZip) -and
+            ((Get-FileHash -Path $blendZip -Algorithm SHA512).Hash.ToLowerInvariant() -eq $blendSha512)
+          if ((Test-Path $blendZip) -and -not $blendVerified) {
+            Remove-Item -LiteralPath $blendZip -Force
+            Write-Warning 'Deleted unverified Blend2D cache archive'
+          }
+          if (-not $blendVerified) {
+            $blendPart = "$blendZip.api-part"
+            for ($try = 1; $try -le 3 -and -not $blendVerified; $try++) {
+              try {
+                Invoke-WebRequest -Uri 'https://codeload.github.com/blend2d/blend2d/tar.gz/6dbc2cefbc996379e07104e34519a440b49b15d7' -OutFile $blendPart -TimeoutSec 90
+                if ((Test-Path $blendPart) -and
+                    ((Get-FileHash -Path $blendPart -Algorithm SHA512).Hash.ToLowerInvariant() -eq $blendSha512)) {
+                  Move-Item -LiteralPath $blendPart -Destination $blendZip -Force
+                  $blendVerified = $true
+                  Write-Host 'Verified Blend2D pinned source archive from GitHub codeload with overlay SHA-512.'
+                } else {
+                  Write-Warning 'Blend2D archive checksum did not match pinned overlay; refusing source.'
+                }
+              } catch {
+                Write-Warning "Blend2D source archive attempt $try failed."
+              } finally {
+                if (Test-Path $blendPart) { Remove-Item -LiteralPath $blendPart -Force }
+              }
+              if (-not $blendVerified -and $try -lt 3) { Start-Sleep -Seconds (5 * $try) }
+            }
+          }
+          if (-not $blendVerified) { throw 'Pinned Blend2D archive unavailable; refusing unverified source' }
           & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows --x-manifest-root="$env:GITHUB_WORKSPACE\pdf4qt" --x-install-root="$env:VCPKG_INSTALLED_DIR" --clean-buildtrees-after-build --clean-packages-after-build
           if ($LASTEXITCODE -ne 0) { throw "vcpkg dependencies failed" }
 

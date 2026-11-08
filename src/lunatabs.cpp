@@ -1316,8 +1316,28 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             }
             for (int turn = 0; turn < 10; ++turn) for (int i = 0; i < documents.size(); ++i) {
                 tabs->setCurrentWidget(documents[i]); QCoreApplication::processEvents();
-                auto* widget = documents[i]->getProgramController()->getPdfWidget();
-                integrationRequire(qAbs(widget->getDrawWidgetProxy()->getZoom() - zoomValues[i]) < .001 && widget->getVerticalScrollbar()->value() == scrollPositions[i], "Five-tab switch changed independent position or zoom");
+                auto* editor=documents[i].data();
+                auto* controller=editor->getProgramController();
+                auto* widget=controller->getPdfWidget();
+                const double actualZoom=widget->getDrawWidgetProxy()->getZoom();
+                const int actualScroll=widget->getVerticalScrollbar()->value();
+                const bool zoomPreserved=qAbs(actualZoom-zoomValues[i])<.001;
+                const bool scrollPreserved=actualScroll==scrollPositions[i];
+                if (!zoomPreserved || !scrollPreserved) {
+                    result["fiveTabPositionDiagnostics"]=QJsonObject{
+                        {"round",turn}, {"tabIndex",i},
+                        {"expectedZoom",zoomValues[i]}, {"actualZoom",actualZoom},
+                        {"expectedScroll",scrollPositions[i]}, {"actualScroll",actualScroll},
+                        {"scrollMax",widget->getVerticalScrollbar()->maximum()},
+                        {"busy",controller->getIsBusy()},
+                        {"hasDocument",bool(controller->getDocument())},
+                        {"renamePending",editor->property("LunaMoveRestorePending").toBool()},
+                        {"sourceFileExists",QFileInfo(controller->getOriginalFileName()).isFile()}
+                    };
+                    write();
+                }
+                integrationRequire(zoomPreserved && scrollPreserved,
+                    "Five-tab switch changed independent position or zoom");
             }
             integrationRequire(integrationWait(isolatedBibliography,5000), "Repeated tab switches changed another paper's author");
             auto* tabBar = tabs->tabBar();

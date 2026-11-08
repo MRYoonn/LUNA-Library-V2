@@ -1324,9 +1324,18 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 const QRect tab = tabs->tabBar()->tabRect(tabs->indexOf(editor));
                 integrationRequire(tab.width() >= 88 && tab.width() <= 240 && tab.height() == 41, "Responsive tabs exceeded compact size bounds");
             }
+            // An extracted title may initiate an asynchronous close/move/reopen
+            // while the five real PDF tabs are in use. Exercise that transition
+            // with nonzero scroll positions, then require the rebind to finish;
+            // never mistake PDF4QT's temporary 0..1 loading scrollbar for a
+            // persistent independent-document view regression.
+            flushLibraryTitleRenames(host);
             for (int turn = 0; turn < 10; ++turn) for (int i = 0; i < documents.size(); ++i) {
                 tabs->setCurrentWidget(documents[i]); QCoreApplication::processEvents();
                 auto* editor=documents[i].data();
+                integrationRequire(integrationWait([&] {
+                    return ready(editor) && !editor->property("LunaMoveRestorePending").toBool();
+                }, 10000), "Automatic title rename did not restore its original reader tab");
                 auto* controller=editor->getProgramController();
                 auto* widget=controller->getPdfWidget();
                 const double actualZoom=widget->getDrawWidgetProxy()->getZoom();

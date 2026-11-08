@@ -8,6 +8,8 @@ on:
       - src/lunaautofilename.h
       - tests/native_dialog/filemoves.cpp
       - tests/test_auto_filename_contract.py
+      - tests/test_goldset.py
+      - tools/evaluate_goldset.py
       - tests/test_inline_fold_v260.py
       - tests/test_public_gate.py
       - tools/preflight_public.py
@@ -59,8 +61,35 @@ jobs:
           Write-Host "Direct PDF collision test exit code: $directCode"
           ctest --test-dir $probe -C Release -R native_file_moves -V --output-on-failure
           if ($LASTEXITCODE -ne 0 -or $directCode -ne 0) { throw "Native collision and thumbnail rename failed: $directCode" }
+  remote-goldset-fetch:
+    needs: source-gate
+    runs-on: windows-2022
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Acquire all 31 immutable public PDFs, via pinned SHA256 mirrors only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/goldset-evidence" | Out-Null
+          python -B tools/evaluate_goldset.py --fetch "$env:RUNNER_TEMP/luna-goldset-network" --output "$env:RUNNER_TEMP/goldset-evidence/downloads.json"
+          if ($LASTEXITCODE -ne 0) { throw "All 31 checksum-pinned public PDFs could not be acquired: inspect downloads.json; never skip an unavailable fixture." }
+          python -B -c "import json,os,pathlib; d=pathlib.Path(os.environ['RUNNER_TEMP'])/'luna-goldset-network'; m=json.load(open('tests/goldset/public-papers.json',encoding='utf-8')); assert len(m)==31 and len(list(d.glob('*.pdf')))==31; print('All 31 pinned public fixtures verified')"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned corpus was incomplete' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v299-Public-Download-Diagnostics
+          path: ${{ runner.temp }}/goldset-evidence/downloads.json
+          if-no-files-found: warn
+          retention-days: 90
   dispatch-full-portable:
-    needs: native-rename
+    needs: [native-rename, remote-goldset-fetch]
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:

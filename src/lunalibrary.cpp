@@ -1167,7 +1167,7 @@ public:
         navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         navigationScroll->setMinimumHeight(0);
         navigation_ = navigationScroll;
-        navigation_->setMinimumWidth(225);
+        navigation_->setMinimumWidth(175);
         navigation_->setMaximumWidth(300);
         auto* navigationContents = new QWidget(navigationScroll);
         navigationContents->setObjectName(QStringLiteral("LunaNavigationContents"));
@@ -1486,7 +1486,7 @@ public:
         split_->addWidget(documentsSlot_);
         split_->setCollapsible(1, false);
         documents_->setAttribute(Qt::WA_StyledBackground, true);
-        documents_->setMinimumWidth(195);
+        documents_->setMinimumWidth(145);
         auto* docs = new QVBoxLayout(documents_);
         // Match the 7px top inset of LunaLibraryPanel's outer layout.
         // The paper-header button was 7px ABOVE the library-header button:
@@ -1855,16 +1855,16 @@ public:
         documentsFold_->setVisible(!showDocs);
         // QSplitter children are never removed or reordered. Unlike a
         // floating global restore bar, each fold stays at its old x position.
-        navigationSlot_->setMinimumWidth(showNav ? 225 : foldWidth_);
+        navigationSlot_->setMinimumWidth(showNav ? 175 : foldWidth_);
         navigationSlot_->setMaximumWidth(showNav ? 300 : foldWidth_);
-        documentsSlot_->setMinimumWidth(showDocs ? 195 : foldWidth_);
+        documentsSlot_->setMinimumWidth(showDocs ? 145 : foldWidth_);
         documentsSlot_->setMaximumWidth(showDocs ? 850 : foldWidth_);
         const auto margins = layout()->contentsMargins();
         const int framing = split_->handleWidth() + margins.left() + margins.right();
         const int collapsedTarget = (showNav ? expandedNavWidth_ : foldWidth_) +
                                     (showDocs ? expandedDocumentsWidth_ : foldWidth_) + framing;
-        const int minWidth = (showNav ? 225 : foldWidth_) +
-                             (showDocs ? 195 : foldWidth_) + framing;
+        const int minWidth = (showNav ? 175 : foldWidth_) +
+                             (showDocs ? 145 : foldWidth_) + framing;
         setMinimumWidth(minWidth);
         setMaximumWidth(showNav && showDocs ? 850 : qMax(minWidth, collapsedTarget));
         updateGeometry();

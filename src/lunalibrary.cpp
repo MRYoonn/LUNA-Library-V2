@@ -1698,6 +1698,24 @@ public:
             // never rewrites files. Open PDFs remain queued until they close.
             if (!applyingRemote_ && !identity.isEmpty()) {
                 pendingTitleRenames_.insert(identity);
+                // A newly verified parent title can rename its already-linked
+                // SI without asking the user to revisit every child document.
+                const QFileInfo parent(identity);
+                if (parent.isFile() && !bibliography_.record(identity).value("manualSI").toBool()) {
+                    QDirIterator siblings(parent.absolutePath(),
+                        QStringList{QStringLiteral("*.pdf"),QStringLiteral("*.PDF")},
+                        QDir::Files | QDir::NoSymLinks);
+                    while (siblings.hasNext()) {
+                        const QString child=siblings.next();
+                        const QString childId=DocumentClaim::identity(child);
+                        if (childId==identity) continue;
+                        const QVariantMap metadata=bibliography_.record(childId);
+                        if (metadata.value("manualSI").toBool() &&
+                            metadata.value("manualSiParentFile").toString().compare(
+                                parent.fileName(),Qt::CaseInsensitive)==0)
+                            pendingTitleRenames_.insert(childId);
+                    }
+                }
                 if (!titleRenameTimer_.isActive()) titleRenameTimer_.start();
             }
         };

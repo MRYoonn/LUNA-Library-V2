@@ -77,10 +77,15 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/goldset-evidence" | Out-Null
-          python -B tools/evaluate_goldset.py --fetch "$env:RUNNER_TEMP/luna-goldset-network" --output "$env:RUNNER_TEMP/goldset-evidence/downloads.json"
+          python -B tools/evaluate_goldset.py --fetch "$env:GITHUB_WORKSPACE/goldset-verified-pdfs" --output "$env:RUNNER_TEMP/goldset-evidence/downloads.json"
           if ($LASTEXITCODE -ne 0) { throw "All 31 checksum-pinned public PDFs could not be acquired: inspect downloads.json; never skip an unavailable fixture." }
-          python -B -c "import json,os,pathlib; d=pathlib.Path(os.environ['RUNNER_TEMP'])/'luna-goldset-network'; m=json.load(open('tests/goldset/public-papers.json',encoding='utf-8')); assert len(m)==31 and len(list(d.glob('*.pdf')))==31; print('All 31 pinned public fixtures verified')"
+          python -B -c "import json,hashlib,pathlib; d=pathlib.Path('goldset-verified-pdfs'); m=json.load(open('tests/goldset/public-papers.json',encoding='utf-8')); assert len(m)==31 and len(list(d.glob('*.pdf')))==31; assert all(hashlib.sha256((d/(x['id']+'.pdf')).read_bytes()).hexdigest()==x['sha256'] for x in m); print('All 31 immutable public PDFs individually verified')"
           if ($LASTEXITCODE -ne 0) { throw 'Pinned corpus was incomplete' }
+      - name: Preserve verified public evaluation inputs in private Actions cache
+        uses: actions/cache/save@v4
+        with:
+          path: goldset-verified-pdfs
+          key: luna-goldset-${{ runner.os }}-${{ hashFiles('tests/goldset/public-papers.json') }}-v1
       - uses: actions/upload-artifact@v4
         if: always()
         with:

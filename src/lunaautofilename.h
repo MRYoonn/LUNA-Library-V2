@@ -46,13 +46,13 @@ inline QString fromVerifiedTitle(const QVariantMap& record, const QString& folde
 
 // A distinct PDF may have the same verified title. Keep every source PDF;
 // reserve the number inside the validated 150-character Windows basename.
-inline QString numberedCopy(const QString& verifiedName, int ordinal) {
-    if (ordinal < 2 || ordinal > 99 ||
+inline QString numberedCopy(const QString& verifiedName, int ordinal, int maxLength=150) {
+    if (ordinal < 2 || ordinal > 99 || maxLength < 32 ||
         !verifiedName.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive))
         return {};
     const QString suffix=QStringLiteral(" (%1)").arg(ordinal);
     QString name=verifiedName.left(verifiedName.size()-4)
-        .left(qMin(150,verifiedName.size())-4-suffix.size()).trimmed();
+        .left(qMin(150,maxLength)-4-suffix.size()).trimmed();
     while (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' '))) name.chop(1);
     if (name.size()<8) return {};
     return name+suffix+QStringLiteral(".pdf");

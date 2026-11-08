@@ -1956,8 +1956,9 @@ private:
     QString availableVerifiedTitleName(const QString& identity, const QString& preferred) {
         if (preferred.isEmpty()) return {};
         const QFileInfo source(identity);
+        const int budget=qMin(150,235-QFileInfo(source.absolutePath()).absoluteFilePath().size());
         for (int i=1;i<=99;++i) {
-            const QString name=i==1?preferred:luna::AutoFileName::numberedCopy(preferred,i);
+            const QString name=i==1?preferred:luna::AutoFileName::numberedCopy(preferred,i,budget);
             if (name.isEmpty()) return {};
             if (source.fileName().compare(name,Qt::CaseInsensitive)==0) return name;
             const QString target=QDir(source.absolutePath()).filePath(name);

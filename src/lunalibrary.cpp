@@ -2059,6 +2059,7 @@ private:
             renamedOpenedDate=displayedDates_.value(identity);
         QPointer<pdfviewer::PDFEditorMainWindow> activeEditor;
         int page=0;
+        int scrollPosition=0;
         double zoom=2.0;
         pdf::PageLayout layout=pdf::PageLayout::OneColumn;
         for (auto* editor:window()->findChildren<pdfviewer::PDFEditorMainWindow*>()) {
@@ -2086,6 +2087,7 @@ private:
             if (!pages.empty())page=int(pages.front());
             zoom=controller->getPdfWidget()->getDrawWidgetProxy()->getZoom();
             layout=controller->getPdfWidget()->getDrawWidgetProxy()->getPageLayout();
+            scrollPosition=controller->getPdfWidget()->getVerticalScrollbar()->value();
         }
 
         std::unique_ptr<QLockFile> renameGuard;
@@ -2104,7 +2106,7 @@ private:
                 return false;
             }
         }
-        const auto reopenReader=[this,activeEditor,page,zoom,layout,original](
+        const auto reopenReader=[this,activeEditor,page,zoom,layout,scrollPosition,original](
                 const QString& target, bool moved) {
             if (!activeEditor)return;
             auto* controller=activeEditor->getProgramController();
@@ -2120,10 +2122,12 @@ private:
             controller->openDocument(target);
             auto* restore=new QTimer(this);
             connect(restore,&QTimer::timeout,this,
-                [restore,editor=activeEditor,target,page,zoom,layout,attempts=0]() mutable {
+                [restore,editor=activeEditor,target,page,zoom,layout,scrollPosition,attempts=0]() mutable {
                     if (!editor) {restore->stop();restore->deleteLater();return;}
                     auto* c=editor->getProgramController();
                     if (++attempts>200) {
+                        qWarning() << "LUNA auto-rename viewport restoration timed out"
+                                   << target << "wanted scroll" << scrollPosition;
                         editor->setProperty("LunaMoveRestorePending",false);
                         restore->stop();restore->deleteLater();return;
                     }
@@ -2133,6 +2137,13 @@ private:
                     c->getPdfWidget()->getDrawWidgetProxy()->setPageLayout(layout);
                     c->getPdfWidget()->getDrawWidgetProxy()->zoom(zoom);
                     c->getPdfWidget()->getDrawWidgetProxy()->goToPage(page);
+                    // PDF4QT can report a temporary 0..1 scrollbar immediately
+                    // after reopening. Keep the rebind pending until the real
+                    // layout can accommodate the saved reading position.
+                    auto* vertical=c->getPdfWidget()->getVerticalScrollbar();
+                    if (scrollPosition>0 && vertical->maximum()<scrollPosition) return;
+                    vertical->setValue(scrollPosition);
+                    if (vertical->value()!=scrollPosition) return;
                     editor->setProperty("LunaMoveRestorePending",false);
                     restore->stop();restore->deleteLater();
                 });

@@ -395,8 +395,23 @@ jobs:
           $baseline = (Get-Content -Raw pdf4qt/vcpkg.json | ConvertFrom-Json).'builtin-baseline'
           git -C vcpkg fetch --depth 1 origin $baseline
           if ($LASTEXITCODE -ne 0) { throw "vcpkg baseline missing" }
-          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
+          # GitHub release assets can return transient HTTP 504s; do not
+          # abort the entire native GUI build after just one failed download.
+          # Retry the *same pinned* bootstrap; never fall back to an unpinned EXE.
+          $bootstrapped = $false
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+            if ($LASTEXITCODE -eq 0 -and (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
+              $bootstrapped = $true
+              break
+            }
+            if ($attempt -lt 5) {
+              $backoff = 8 * $attempt
+              Write-Warning "Pinned vcpkg bootstrap attempt $attempt failed; retrying in $backoff seconds."
+              Start-Sleep -Seconds $backoff
+            }
+          }
+          if (-not $bootstrapped) { throw "Pinned vcpkg bootstrap failed after 5 attempts; inspect HTTP status in logs" }
           & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows --x-manifest-root="$env:GITHUB_WORKSPACE\pdf4qt" --x-install-root="$env:VCPKG_INSTALLED_DIR" --clean-buildtrees-after-build --clean-packages-after-build
           if ($LASTEXITCODE -ne 0) { throw "vcpkg dependencies failed" }
 

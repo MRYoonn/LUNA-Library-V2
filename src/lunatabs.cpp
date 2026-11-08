@@ -1220,7 +1220,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 QSet<QString> seenIdentities;
                 bool allPresent=true;
                 for (int index=0;index<documents.size();++index) {
-                    const auto* editor=documents[index].data();
+                    auto* editor=documents[index].data();
                     const QString actualPath=editor ?
                         editor->getProgramController()->getOriginalFileName() : QString();
                     const QString identity=DocumentClaim::identity(actualPath);

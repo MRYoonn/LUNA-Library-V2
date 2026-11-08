@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TABS = (ROOT / "src/lunatabs.cpp").read_text(encoding="utf-8")
 LIBRARY = (ROOT / "src/lunalibrary.cpp").read_text(encoding="utf-8")
 POLICY = (ROOT / "src/lunaautofilename.h").read_text(encoding="utf-8")
+BIB = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
+BIB_NATIVE = (ROOT / "tests/native_dialog/bibliography.cpp").read_text(encoding="utf-8")
 MOVE = (ROOT / "src/lunafilemove.h").read_text(encoding="utf-8")
 OVERLAY = (ROOT / "tools/apply_overlay.py").read_text(encoding="utf-8")
 NATIVE = (ROOT / "tests/native_dialog/filemoves.cpp").read_text(encoding="utf-8")
@@ -86,6 +88,21 @@ class VerifiedFileNameContracts(unittest.TestCase):
             self.assertIn(code, LIBRARY, code)
         self.assertIn('inline QString numberedCopy(', POLICY)
         self.assertIn('numberedCopy(titledName,2)', NATIVE)
+
+    def test_display_default_author_source_is_not_saved_filename_collision(self):
+        # Native Qt's record() decorates even an ABSENT record with
+        # authorsSource="legacy_unknown". That must never block a rename.
+        self.assertIn('bool hasStoredRecord(const QString& identity) const', BIB)
+        self.assertIn('settings().value(key(resolve(identity))).toMap().isEmpty()', BIB)
+        for token in (
+            'bibliography_.hasStoredRecord(DocumentClaim::identity(target))',
+            'bibliography_.hasStoredRecord(DocumentClaim::identity(destination))',
+        ):
+            self.assertIn(token, LIBRARY)
+        self.assertNotIn('!bibliography_.record(DocumentClaim::identity(target)).isEmpty()', LIBRARY)
+        self.assertNotIn('!bibliography_.record(DocumentClaim::identity(destination)).isEmpty()', LIBRARY)
+        self.assertIn('store.hasStoredRecord(missing)', BIB_NATIVE)
+        self.assertIn('store.hasStoredRecord(occupied)', BIB_NATIVE)
 
     def test_rename_is_no_overwrite_paired_and_deferred_if_open(self):
         for snippet in (

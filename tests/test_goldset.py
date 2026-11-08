@@ -7,7 +7,7 @@ import hashlib
 import io
 from pathlib import Path
 import tempfile
-from tools.evaluate_goldset import score, fetch, FIELDS
+from tools.evaluate_goldset import score, fetch, FIELDS, aws_openaccess_pdf
 
 
 class GoldsetScoring(unittest.TestCase):
@@ -161,6 +161,41 @@ class GoldsetAcquisition(unittest.TestCase):
             self.assertEqual(failures[0]['id'],article['id'])
             self.assertIn('attempts',failures[0])
             self.assertFalse((directory/'PMC10025926.pdf').exists())
+
+    @patch('tools.evaluate_goldset.urlopen')
+    def test_official_pmc_2026_cloud_metadata_obeys_pinned_sha_and_host(self, opening):
+        identifier='PMC10025926'
+        item=dict(id=identifier,
+            pdf_url=f'https://europepmc.org/api/getPdf?pmcid={identifier}',
+            sha256=hashlib.sha256(self.payload).hexdigest())
+        metadata=dict(pmcid=identifier,version=1,is_pmc_openaccess=True,
+            pdf_url=f's3://pmc-oa-opendata/{identifier}.1/{identifier}.1.pdf?md5=123')
+        opening.side_effect=[io.BytesIO(__import__('json').dumps(metadata).encode()),
+                             io.BytesIO(self.payload)]
+        self.assertEqual(aws_openaccess_pdf(item),self.payload)
+        self.assertEqual(opening.call_args_list[1].args[0].full_url,
+            f'https://pmc-oa-opendata.s3.amazonaws.com/{identifier}.1/{identifier}.1.pdf')
+
+    @patch('tools.evaluate_goldset.urlopen')
+    def test_official_pmc_cloud_supplement_requires_exact_member_and_sha(self, opening):
+        identifier='PMC10803759'
+        member='41467_2024_44824_MOESM2_ESM.pdf'
+        item=dict(id=identifier+'-SI1',archive_member=member,
+            sha256=hashlib.sha256(self.payload).hexdigest())
+        metadata=dict(pmcid=identifier,version=1,is_pmc_openaccess=True,
+            media_urls=[f's3://untrusted-external/{identifier}.1/{member}',
+                        f's3://pmc-oa-opendata/{identifier}.1/{member}?md5=0123'])
+        opening.side_effect=[io.BytesIO(__import__('json').dumps(metadata).encode()),
+                             io.BytesIO(self.payload)]
+        self.assertEqual(aws_openaccess_pdf(item),self.payload)
+        self.assertEqual(opening.call_count,2)
+        item['sha256']=hashlib.sha256(self.payload+b'tampered').hexdigest()
+        opening.side_effect=[io.BytesIO(__import__('json').dumps(metadata).encode()),
+                             io.BytesIO(self.payload),
+                             HTTPError('test',404,'not found',{},None),
+                             HTTPError('test',404,'not found',{},None)]
+        with self.assertRaises(ValueError):
+            aws_openaccess_pdf(item)
 
     def test_rate_limit_honors_seconds_and_http_date_retry_after(self):
         epoch = 1762477200

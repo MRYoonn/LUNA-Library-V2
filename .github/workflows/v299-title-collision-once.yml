@@ -1,0 +1,79 @@
+name: LUNA v299 - real PDF rename with duplicate verified titles
+on:
+  push:
+    branches: [feature/v299-safe-title-collision-20261108]
+    paths:
+      - .github/workflows/v299-title-collision-once.yml
+      - src/lunalibrary.cpp
+      - src/lunaautofilename.h
+      - tests/native_dialog/filemoves.cpp
+      - tests/test_auto_filename_contract.py
+      - tests/test_inline_fold_v260.py
+      - tests/test_public_gate.py
+      - tools/preflight_public.py
+permissions:
+  contents: read
+  actions: write
+jobs:
+  source-gate:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Full public security and real file-rename regression contract suite
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+  native-rename:
+    needs: source-gate
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          dir: 'C:/qt-luna-v299/'
+          install-deps: 'true'
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7'
+      - name: Actually rename two colliding-title PDFs, preserve both thumbnails, never overwrite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $probe=Join-Path $env:RUNNER_TEMP 'luna-title-collision-probe'
+          cmake -S tests/native_dialog -B $probe -G 'Visual Studio 17 2022' -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Qt native PDF rename configure failed' }
+          cmake --build $probe --target luna-native-filemoves --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Native PDF rename C++ compilation failed' }
+          & "$probe/Release/luna-native-filemoves.exe"
+          $directCode=$LASTEXITCODE
+          Write-Host "Direct PDF collision test exit code: $directCode"
+          ctest --test-dir $probe -C Release -R native_file_moves -V --output-on-failure
+          if ($LASTEXITCODE -ne 0 -or $directCode -ne 0) { throw "Native collision and thumbnail rename failed: $directCode" }
+  dispatch-full-portable:
+    needs: native-rename
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Dispatch full Windows EXE + GUI at exact validated branch head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = MRYoonn/LUNA-Library-V2
+          test "$REF_NAME" = feature/v299-safe-title-collision-20261108
+          test "$(gh api "repos/$REPO/branches/$REF_NAME" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
+          echo "Full Windows GUI and Portable must pass independently before any stable release."

@@ -81,7 +81,7 @@ class HiddenStorageContract(unittest.TestCase):
             'const QString thumb = luna::SidecarStorage::thumbnail(files[0], QStringLiteral(".png"));',
             'const QString thumbnail = luna::SidecarStorage::thumbnail(files[0], QStringLiteral(".png"));',
             'const QString movedThumb = luna::SidecarStorage::thumbnail(movedPdf, QStringLiteral(".png"));',
-            'luna::SidecarStorage::thumbnail(files[1], QStringLiteral(".png"))',
+            'luna::SidecarStorage::thumbnail(liveBSource(), QStringLiteral(".png"))',
         ):
             self.assertIn(required, self.tabs, required)
         for stale in (

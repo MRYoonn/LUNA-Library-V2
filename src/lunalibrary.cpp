@@ -3184,9 +3184,15 @@ private:
             auto* renameFromTitle=menu.addAction(QStringLiteral("서지정보 제목으로 실제 PDF 파일명 변경…"));
             renameFromTitle->setObjectName(QStringLiteral("LunaApplyVerifiedPdfFilename"));
             const QVariantMap fileRecord=bibliography_.record(DocumentClaim::identity(path));
-            renameFromTitle->setEnabled(!fileRecord.value("title").toString().simplified().isEmpty() &&
-                !fileRecord.value("manualSI").toBool() &&
-                fileRecord.value("documentKind").toString()!=QStringLiteral("supporting_information"));
+            const bool linkedSI=fileRecord.value("manualSI").toBool();
+            renameFromTitle->setEnabled(linkedSI ||
+                (!fileRecord.value("title").toString().simplified().isEmpty() &&
+                 fileRecord.value("documentKind").toString()!=QStringLiteral("supporting_information")));
+            if(linkedSI) {
+                renameFromTitle->setText(QStringLiteral("연결된 원논문 제목으로 SI 실제 파일명 변경…"));
+                renameFromTitle->setToolTip(QStringLiteral(
+                    "SI는 자신의 첫 페이지가 아닌 연결된 원논문의 검증된 제목으로 이름을 정합니다."));
+            }
             auto* extractCitation = menu.addAction(QStringLiteral("첫 페이지 서지정보 추출…"));
             extractCitation->setObjectName(QStringLiteral("LunaExtractCitationContextMenu"));
             auto* refreshCitation = menu.addAction(QStringLiteral("원본 서지정보로 새로고침"));
@@ -3220,22 +3226,29 @@ private:
             else if (chosen == renameFromTitle) {
                 const QString id=DocumentClaim::identity(path);
                 QVariantMap record=bibliography_.record(id);
+                const bool siLinked=record.value("manualSI").toBool();
                 QVariantMap approved=record;
-                approved["titleSource"]=QStringLiteral("manual");
-                const QString preferred=luna::AutoFileName::fromVerifiedTitle(
-                    approved,QFileInfo(path).absolutePath());
+                if (!siLinked) approved["titleSource"]=QStringLiteral("manual");
+                const QString preferred=siLinked
+                    ? verifiedFilenameFor(id,QFileInfo(path))
+                    : luna::AutoFileName::fromVerifiedTitle(
+                        approved,QFileInfo(path).absolutePath());
                 const QString name=availableVerifiedTitleName(id,preferred);
                 if (name.isEmpty()) {
                     QMessageBox::information(this,QStringLiteral("파일명 변경 불가"),
-                        QStringLiteral("제목 또는 경로를 확인해 주세요. 원본 PDF는 변경하지 않았습니다."));
+                        siLinked ? QStringLiteral(
+                            "연결된 원논문의 제목을 아직 검증하지 못했습니다. 원논문 서지정보를 확인한 후 자동으로 SI 파일명을 변경합니다.")
+                            : QStringLiteral("제목 또는 경로를 확인해 주세요. 원본 PDF는 변경하지 않았습니다."));
                 } else if (QMessageBox::question(this,QStringLiteral("PDF 실제 파일명 변경"),
                     QStringLiteral("탐색기에서 보이는 실제 파일명을 변경할까요?\n\n%1\n→ %2\n\n"
                                    "PDF·썸네일·서지정보를 같이 연결하며, 열린 문서는 탭을 닫은 후 변경됩니다.")
                         .arg(QFileInfo(path).fileName(),name),
                     QMessageBox::Yes|QMessageBox::Cancel,QMessageBox::Cancel)==QMessageBox::Yes) {
-                    record["titleSource"]=QStringLiteral("manual");
-                    record["source"]=QStringLiteral("User-confirmed filename");
-                    if (!bibliography_.save(id,record,false)) {
+                    if (!siLinked) {
+                        record["titleSource"]=QStringLiteral("manual");
+                        record["source"]=QStringLiteral("User-confirmed filename");
+                    }
+                    if (!siLinked && !bibliography_.save(id,record,false)) {
                         QMessageBox::warning(this,QStringLiteral("파일명 변경 실패"),
                             QStringLiteral("서지정보 확인 상태를 저장하지 못했습니다."));
                     } else {

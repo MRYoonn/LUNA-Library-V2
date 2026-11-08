@@ -1,5 +1,19 @@
 # LUNA Library V2 — 자율 개발·빌드 매니저 인수인계
 
+## 최신 정식 배포 기준선 — v0.9.0.299 (2026-11-08)
+
+> 이 절은 2026-11-03 기준의 과거 개발 기록보다 **우선**한다. 단, `main` 소스가 최신 v299 기능을 포함한다는 의미는 아니다. 문서 수정만으로 새 Windows 실행 파일을 다시 빌드할 필요는 없다.
+
+- **정식 릴리스:** [LUNA Library v0.9.0.299](https://github.com/MRYoonn/LUNA-Library-V2/releases/tag/v0.9.0.299), GitHub에서 `draft=false`, `prerelease=false` 확인. 게시 2026-11-08 07:15:37 UTC (KST 16:15:37).
+- **배포 소스 SHA / 태그가 가리키는 SHA / Windows 빌드 SHA:** `17a57c8ef8a12d5aa5959112f1780ffa0c21ea24`. 반드시 동일 커밋 기준으로 증거를 해석한다.
+- **원인 및 변경:** [PR #76](https://github.com/MRYoonn/LUNA-Library-V2/pull/76) — 검증된 제목으로 실제 Windows PDF 파일명을 옮기되 동일 제목·기존 PDF/서지 기록/sidecar 충돌 시 `Title (2).pdf`처럼 비파괴적으로 이름을 결정한다. 파일 이동이 실제로 성공한 뒤에만 성공 메시지 표시. 한글/Unicode 외부 PDF 열기는 기존 단일 창의 PDF 탭으로 전달하고 ACK 재전송을 중복 실행하지 않도록 수정했다.
+- **PR 병합 정보:** #76은 2026-11-08 07:15:19 UTC에 `develop/v0.9.0.295`로 **병합**됐다. Merge commit `bf65fbbf551f7587ae8815d7e843f265ef80ab12`. `main`으로 병합한 것이 아니며 정식 태그는 PR head SHA를 직접 가리킨다. 다음 개발 때 `main`을 v299 최신 기준선이라고 가정하면 안 된다.
+- **정확한 Windows 빌드:** [Actions #42456918269](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/42456918269) — 전체 `completed/success`, `windows-packaging-preflight=success`, `build-windows=success`. 필수 네이티브 Qt 계약, 컴파일/DLL/포터블 패키징, 실제 GUI Explorer 다중 탭, 새로운 프로세스 메모·주석 복원, SHA256 고정된 공개 논문 31개 서지정보 평가, Qt 배율, CDB + Full Page Heap, 오프라인 릴리스 manifest·파일 해시 검사가 `success`로 기록됐다. 선택적 Installer/일부 실험 단계의 `skipped`는 필수 검사 성공으로 대체해 표현하지 않는다.
+- **릴리스 파일 (GitHub Release Assets API의 등록/해시):** [LUNA-Windows-Portable.zip](https://github.com/MRYoonn/LUNA-Library-V2/releases/download/v0.9.0.299/LUNA-Windows-Portable.zip) — 51,993,491 bytes; SHA-256 `9a49c55cc074b4bc267295b79249c54dec59af99e766336b3277934f1f6d7b6f`. [LUNA-Release.json](https://github.com/MRYoonn/LUNA-Library-V2/releases/download/v0.9.0.299/LUNA-Release.json) — 21,539 bytes; SHA-256 `c2f246052c045f00776e9ea6e625d484c74c02658c370a54fd5ff1b978003a37`. 두 에셋 모두 `uploaded`이며 ZIP은 **포터블** 배포판이다. Installer는 선택적으로 보류한다.
+- **남은 현실 검증:** CI에서의 실제 Windows GUI 자동 검사와 사용자 PC 현장 검사는 구별한다. 사용자의 기존 PDF를 대상으로 **원본 파일명→새 파일명, 동일 제목 여러 개, 서지정보/썸네일/메모, 외부 더블클릭 시 기존 탭 재사용, 자동업데이트 동의·교체**를 직접 확인해야 한다. 사용자의 로컬 PDF가 실제로 잘 작동했다고 단정하지 않는다.
+- **주의:** GitHub Assets API 및 CI에서 체크섬이 확인된 사실과 **매니저가 ZIP을 별도로 로컬에 내려받아 재검사했다는 사실**은 구별한다. 독립 다운로드/재검사를 못 했다면 했다고 쓰지 않는다. 다음 변경에는 새 SHA의 전체 Windows 빌드 증거가 필요하다.
+
+
 > **가장 중요한 지시: 사용자가 직접 GitHub에서 빌드를 누르게 하지 말 것.** 다음 매니저는 사용자 요청을 받으면 **스스로 실제 코드를 읽고 고치고 GitHub에 커밋하고, Windows Actions 빌드를 직접 실행하고, 로그를 분석해 수정·재빌드하고, 성공한 포터블 ZIP까지 검증하여 사용자에게 전달한다.** 이것이 기본 업무이며, 단순한 안내문 작성이나 'Run workflow를 누르세요'라고 대답하는 것은 업무 미완료다.
 >
 > 예외: 연결 도구 권한이 실제로 부족하거나 외부 장애 등으로 실행 불가능한 경우에는 **어느 단계가 막혔는지와 확인한 근거**를 밝힌다. 성공하지 않은 빌드를 성공했다고 말하지 않는다. 코드가 변경되지 않은 문서 작업은 불필요하게 EXE 빌드하지 않는다.

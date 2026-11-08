@@ -1,0 +1,111 @@
+name: LUNA v299 authorized stable release after Windows UI verification
+on:
+  push:
+    branches:
+      - release/v299-approved-rename-ipc-20261108
+    paths:
+      - .github/workflows/v299-authorized-release.yml
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: luna-v299-authorized-release
+  cancel-in-progress: false
+jobs:
+  release-exact-v299:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: MRYoonn/LUNA-Library-V2
+      VERSION: v0.9.0.299
+      SOURCE_RUN: '42452980229'
+      SOURCE_GATE: '42452798845'
+      SOURCE_SHA: 6a75beae400e4ccc6cb6f5581ac0af31b4d21265
+    steps:
+      - name: Refuse unrelated release, incorrect source and preexisting tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "$REPO"
+          test "$GITHUB_REF_NAME" = release/v299-approved-rename-ipc-20261108
+          test "$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" = v0.9.0.298
+          test "$(gh api "repos/$REPO/pulls/76" --jq .head.sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_GATE" --jq .conclusion)" = success
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_GATE" --jq .head_sha)" = "$SOURCE_SHA"
+          if gh release view "$VERSION" --repo "$REPO" >/dev/null 2>&1; then
+            echo 'Release already exists: refusing any overwrite.' >&2
+            exit 1
+          fi
+      - name: Require successful exact-source full Windows GUI build and merged feature PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 240); do
+            status="$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .status)"
+            if [ "$status" = completed ]; then break; fi
+            echo "Pending full Windows verification: $status"
+            sleep 20
+          done
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .conclusion)" = success
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .head_sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .head_branch)" = feature/v299-safe-title-collision-20261108
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq .path)" = .github/workflows/build-windows.yml
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN/jobs?per_page=100" --jq '.jobs[] | select(.name=="build-windows") | .conclusion')" = success
+          for attempt in $(seq 1 80); do
+            if [ "$(gh api "repos/$REPO/pulls/76" --jq .merged)" = true ]; then break; fi
+            echo 'Full Windows passed; waiting for validated source PR merge'
+            sleep 20
+          done
+          test "$(gh api "repos/$REPO/pulls/76" --jq .merged)" = true
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN/artifacts?per_page=100" --jq '[.artifacts[] | select(.name=="LUNA-Windows-Portable" and .expired==false)] | length')" = 1
+      - uses: actions/checkout@v4
+        with:
+          ref: 6a75beae400e4ccc6cb6f5581ac0af31b4d21265
+          persist-credentials: false
+      - name: Validate exact v299 source and offline release contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Download verified packaged LUNA.exe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging/portable
+          gh run download "$SOURCE_RUN" --repo "$REPO" --name LUNA-Windows-Portable --dir staging/portable
+          test -s staging/portable/LUNA.exe
+      - name: Repackage v299 Portable ZIP and SHA256 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m tools.prepare_release --portable staging/portable --destination dist --tag "$VERSION" --source-run "$SOURCE_RUN" --commit "$SOURCE_SHA"
+          python -B - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          manifest=json.loads(Path("dist/LUNA-Release.json").read_text())
+          package=Path("dist/LUNA-Windows-Portable.zip")
+          assert manifest["tag"]=="v0.9.0.299"
+          assert int(manifest["source_run"])==42452980229
+          assert manifest["commit"]=="6a75beae400e4ccc6cb6f5581ac0af31b4d21265"
+          assert manifest["sha256"]==hashlib.sha256(package.read_bytes()).hexdigest()
+          assert package.stat().st_size>1000000
+          print("v299 automatic update package integrity PASSED")
+          PY
+      - name: Publish stable v0.9.0.299 only after verified artifact assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" = v0.9.0.298
+          if gh release view "$VERSION" --repo "$REPO" >/dev/null 2>&1; then exit 1; fi
+          gh release create "$VERSION" dist/LUNA-Windows-Portable.zip dist/LUNA-Release.json \
+            --repo "$REPO" --target "$SOURCE_SHA" --draft \
+            --title 'LUNA Library v0.9.0.299 — Real PDF filename and Unicode tab routing fix' \
+            --notes 'Windows Portable v299: Fix actual PDF renames blocked by phantom bibliography display records, safely disambiguate verified duplicate titles without overwriting PDFs or sidecars, and verify physical Windows file moves before success. Unicode/Korean Explorer PDF launches now route to the existing tabbed window with idempotent lost-ack request IDs. Require exact native tests, 31 checksum-pinned public PDFs, full Windows GUI and Portable checks on the published source SHA. Updates require user consent.'
+          names="$(gh release view "$VERSION" --repo "$REPO" --json assets --jq '[.assets[].name] | sort | join(",")')"
+          test "$names" = LUNA-Release.json,LUNA-Windows-Portable.zip
+          gh release edit "$VERSION" --repo "$REPO" --draft=false
+          test "$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" = "$VERSION"

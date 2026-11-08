@@ -8,6 +8,8 @@ on:
       - tests/test_live_title_si_contract.py
       - tests/test_auto_filename_contract.py
       - tests/test_manual_si_contract.py
+      - tests/test_public_gate.py
+      - tools/preflight_public.py
 permissions:
   contents: read
   actions: write

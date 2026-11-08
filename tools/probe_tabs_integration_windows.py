@@ -111,6 +111,17 @@ def run(package, output, debugger=None):
                 for phase in ('edit', 'restore'):
                     report = evidence / (phase + '.json')
                     target = a if phase == 'edit' else root / 'Moved' / 'A.pdf'
+                    if phase == 'restore' and not target.is_file():
+                        # The verified title may have renamed Moved/A.pdf after
+                        # its last reader tab closed. Restore the real file,
+                        # without assuming the old filesystem name still exists.
+                        moved = root / 'Moved'
+                        candidates = [p for p in moved.iterdir()
+                                      if p.is_file() and not p.is_symlink()
+                                      and p.suffix.casefold() == '.pdf']
+                        if len(candidates) != 1:
+                            raise RuntimeError('Cannot identify the one physically renamed PDF in fixture Moved folder')
+                        target = candidates[0]
                     command = [str(package / 'LUNA.exe'), '--luna-tabs-report', str(report)]
                     if phase == 'restore':
                         command += ['--luna-tabs-restore', str(target)]

@@ -1128,11 +1128,22 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             filePicker.start(30); host.findChild<QAction*>(QStringLiteral("LunaOpenDocuments"))->trigger(); filePicker.stop();
             integrationRequire(openedB && integrationWait([&] { return host.documentCount() == 2 && host.current() != a && ready(host.current()); }), "Public open action did not create B tab");
             auto* b = host.current(); integrationRequire(host.open(files[1]) == b && host.documentCount() == 2, "Duplicate PDF opened another tab");
+            // In v300 the verified first-page title physically renames B.pdf
+            // while the integration fixture still retains its original path.
+            // Resolve only the explicitly known synthetic article's new name,
+            // and continue to inspect the real paper card + opened date.
+            // Never weaken the date assertion or assume the old file survived.
+            auto liveBSource = [&]() -> QString {
+                if (QFileInfo(files[1]).isFile()) return files[1];
+                const QString verifiedName = QDir(QFileInfo(files[1]).absolutePath()).filePath(
+                    QStringLiteral("LUNA synthetic bravo test.pdf"));
+                return QFileInfo(verifiedName).isFile() ? verifiedName : files[1];
+            };
             auto isolatedBibliography = [&] {
                 if (!qEnvironmentVariableIsSet("LUNA_BIBLIOGRAPHY_TAB_FIXTURE")) return true;
                 for (int index = 0; index < 2; ++index) {
                     QListWidgetItem* card = nullptr;
-                    if (!integrationList(host, files[index], &card) || !card) return false;
+                    if (!integrationList(host, index == 0 ? files[0] : liveBSource(), &card) || !card) return false;
                     const QString expected = index == 0 ? QStringLiteral("Final A. Writer") : QStringLiteral("Final B. Writer");
                     if (card->data(Qt::UserRole + 5).toMap().value("authors").toString() != expected) return false;
                 }
@@ -1197,7 +1208,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 integrationRequire(editor && integrationWait([&] { return ready(editor); }), "Extra PDF did not load"); extra.append(editor);
             }
             integrationRequire(host.documentCount() == 5, "Five PDFs are not simultaneously open");
-            for (const QString& path : QStringList{files[0], files[1]} + QDir(directoryPath).entryList({QStringLiteral("UI-long-*.pdf")}, QDir::Files)) {
+            for (const QString& path : QStringList{files[0], liveBSource()} + QDir(directoryPath).entryList({QStringLiteral("UI-long-*.pdf")}, QDir::Files)) {
                 const QString fullPath = QFileInfo(path).isAbsolute() ? path : QDir(directoryPath).filePath(path);
                 QListWidgetItem* card = nullptr;
                 integrationRequire(integrationList(host, fullPath, &card) && card && !card->data(Qt::UserRole + 3).toString().isEmpty(), "Opened date disappeared across Windows path spellings");
@@ -1488,7 +1499,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationMouse(overlay, QEvent::MouseButtonPress, {50, 80}, Qt::LeftButton, Qt::LeftButton);
             integrationMouse(overlay, QEvent::MouseMove, {200, 200}, Qt::NoButton, Qt::LeftButton);
             integrationMouse(overlay, QEvent::MouseButtonRelease, {200, 200}, Qt::LeftButton, Qt::NoButton);
-            integrationRequire(integrationWait([&] { return QFileInfo::exists(thumbnail) && !QImage(thumbnail).isNull(); }) && !QFileInfo::exists(luna::SidecarStorage::thumbnail(files[1], QStringLiteral(".png"))), "Crop wrote to the wrong PDF or no image");
+            integrationRequire(integrationWait([&] { return QFileInfo::exists(thumbnail) && !QImage(thumbnail).isNull(); }) && !QFileInfo::exists(luna::SidecarStorage::thumbnail(liveBSource(), QStringLiteral(".png"))), "Crop wrote to the wrong PDF or no image");
             result["activeNativePagesAndCrop"] = true;
             phase("A highlight and real Ctrl+S"); integrationHighlight(host, a, report); result["realDragBlueBorderlessSelectionAndCtrlC"] = true;
             integrationRequire(integrationHighlights(b) == 0, "Integrated A annotation crossed to B");
@@ -1584,12 +1595,12 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             result["collisionDialogSelected"] = selectedCollision; result["collisionWarnings"] = warnings;
             result["unexpectedSaveMessages"] = unexpectedSaveMessages;
             result["collisionAUnchanged"] = integrationBytes(files[0]) == savedA;
-            result["collisionBPathUnchanged"] = DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(files[1]); write();
+            result["collisionBPathUnchanged"] = DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(liveBSource()); write();
             integrationRequire(selectedCollision && warnings == 1 && unexpectedSaveMessages == 0 && result["collisionAUnchanged"].toBool() && result["collisionBPathUnchanged"].toBool(), "Save As collision changed A or rebound B");
-            const QString copy = QFileInfo(files[1]).absolutePath() + "/B-copy.pdf";
+            const QString copy = QFileInfo(liveBSource()).absolutePath() + "/B-copy.pdf";
             integrationRequire(saveAs(copy) && unexpectedSaveMessages == 0 && QFileInfo::exists(copy) && DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(copy), "Save As did not update B path");
             integrationRequire(host.open(copy) == b && host.documentCount() == 2, "Saved path was not deduplicated");
-            auto* originalB = host.open(files[1]); integrationRequire(originalB && originalB != b && host.documentCount() == 3, "Old B path was not released after Save As");
+            auto* originalB = host.open(liveBSource()); integrationRequire(originalB && originalB != b && host.documentCount() == 3, "Old B path was not released after Save As");
             integrationRequire(integrationWait([&] { return ready(originalB); }), "Original B did not load after Save As");
             // Real Windows Ctrl+W must close the active PDF tab, not the LUNA
             // application or any other tab.
@@ -1825,7 +1836,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             host.trace("close-key-observed", host.current());
         };
         if (!restore) {
-            auto* second = host.open(files[1]); integrationRequire(second && integrationWait([&] { return ready(second); }) && host.documentCount() == 2, "Two-document repeated-close setup failed");
+            auto* second = host.open(liveBSource()); integrationRequire(second && integrationWait([&] { return ready(second); }) && host.documentCount() == 2, "Two-document repeated-close setup failed");
             keyClose(0); integrationRequire(host.documentCount() == 1, "First of two Ctrl+W keys closed the wrong document");
             keyClose(1); integrationRequire(host.documentCount() == 0, "Second Ctrl+W did not leave an empty window");
             keyClose(2); integrationRequire(host.documentCount() == 0, "Third Ctrl+W changed the empty document state");

@@ -51,7 +51,8 @@ inline QString numberedCopy(const QString& verifiedName, int ordinal) {
         !verifiedName.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive))
         return {};
     const QString suffix=QStringLiteral(" (%1)").arg(ordinal);
-    QString name=verifiedName.left(verifiedName.size()-4).left(150-4-suffix.size()).trimmed();
+    QString name=verifiedName.left(verifiedName.size()-4)
+        .left(qMin(150,verifiedName.size())-4-suffix.size()).trimmed();
     while (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' '))) name.chop(1);
     if (name.size()<8) return {};
     return name+suffix+QStringLiteral(".pdf");

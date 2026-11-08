@@ -2127,8 +2127,7 @@ private:
                     if (!editor) {restore->stop();restore->deleteLater();return;}
                     auto* c=editor->getProgramController();
                     if (++attempts>200) {
-                        qWarning() << "LUNA auto-rename viewport restoration timed out"
-                                   << target << "wanted scroll" << scrollPosition;
+                        qWarning()<<"LUNA viewport restore timeout"<<target<<scrollPosition;
                         editor->setProperty("LunaMoveRestorePending",false);
                         restore->stop();restore->deleteLater();return;
                     }
@@ -2138,14 +2137,8 @@ private:
                     c->getPdfWidget()->getDrawWidgetProxy()->setPageLayout(layout);
                     c->getPdfWidget()->getDrawWidgetProxy()->zoom(zoom);
                     c->getPdfWidget()->getDrawWidgetProxy()->goToPage(page);
-                    // PDF4QT can report a temporary 0..1 scrollbar immediately
-                    // after reopening. Keep the rebind pending until the real
-                    // layout can accommodate the saved reading position.
                     auto* vertical=c->getPdfWidget()->getVerticalScrollbar();
-                    // With high-DPI or a resized window, a two-page PDF can
-                    // genuinely fit without the old scroll range. Distinguish
-                    // a transient 0..1 loading range from a settled smaller
-                    // viewport; never leave the reader stuck in pending state.
+                    // Allow a settled shorter scroll range at high DPI.
                     const int available=vertical->maximum();
                     if (scrollPosition>0 && available<scrollPosition) {
                         if (!editor->isVisible()) return;
@@ -2153,8 +2146,7 @@ private:
                             lastShortRange=available; shortRangeTicks=0; return;
                         }
                         if (++shortRangeTicks<10) return;
-                        qInfo() << "LUNA auto-rename scroll clamped to resized viewport"
-                                << "requested" << scrollPosition << "available" << available;
+                        qInfo()<<"LUNA DPI scroll clamp"<<scrollPosition<<available;
                     }
                     const int restoredScroll=qMin(scrollPosition,available);
                     vertical->setValue(restoredScroll);

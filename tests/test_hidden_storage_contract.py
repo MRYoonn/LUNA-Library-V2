@@ -79,9 +79,11 @@ class HiddenStorageContract(unittest.TestCase):
         self.assertIn("folder / \"lunasidecarpaths.h\"", (ROOT / "tools/apply_overlay.py").read_text("utf-8"))
         for required in (
             'const QString thumb = luna::SidecarStorage::thumbnail(files[0], QStringLiteral(".png"));',
-            'const QString thumbnail = luna::SidecarStorage::thumbnail(files[0], QStringLiteral(".png"));',
+            'const QString cropSourceA=a->getProgramController()->getOriginalFileName();',
+            'const QString thumbnail=luna::SidecarStorage::thumbnail(cropSourceA,QStringLiteral(".png"));',
+            '"aThumbnailValid",croppedA',
             'const QString movedThumb = luna::SidecarStorage::thumbnail(movedPdf, QStringLiteral(".png"));',
-            'luna::SidecarStorage::thumbnail(files[1], QStringLiteral(".png"))',
+            'b->getProgramController()->getOriginalFileName(),QStringLiteral(".png")',
         ):
             self.assertIn(required, self.tabs, required)
         for stale in (

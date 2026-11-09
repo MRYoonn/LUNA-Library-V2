@@ -55,12 +55,12 @@ class VerifiedFileNameContracts(unittest.TestCase):
         # A crash can leave a .lock file even when the PDF is not open.
         # Merely testing QFileInfo::exists(lockPath) blocks real renames forever.
         self.assertIn('#include <QLockFile>', LIBRARY)
-        self.assertIn('QLockFile renameGuard(lockPath);', LIBRARY)
-        self.assertIn('renameGuard.setStaleLockTime(0);', LIBRARY)
-        self.assertIn('if (!renameGuard.tryLock(0))', LIBRARY)
+        self.assertIn('renameGuard=std::make_unique<QLockFile>(lockPath);', LIBRARY)
+        self.assertIn('renameGuard->setStaleLockTime(0);', LIBRARY)
+        self.assertIn('if (!renameGuard->tryLock(0))', LIBRARY)
         self.assertIn('QDir().mkpath(QFileInfo(lockPath).absolutePath())', LIBRARY)
         self.assertNotIn('if (QFileInfo::exists(lockPath)) return false;', LIBRARY)
-        self.assertLess(LIBRARY.index('renameGuard.tryLock(0)'), LIBRARY.index('luna::movePdfWithThumbnails(\n            original,source.absolutePath()'))
+        self.assertLess(LIBRARY.index('renameGuard->tryLock(0)'), LIBRARY.index('luna::movePdfWithThumbnails(\n            original,source.absolutePath()'))
 
     def test_manual_rename_reports_real_failure_instead_of_generic_message(self):
         self.assertIn('renameExtractedTitleFile(id,&reason,&renamedPath)', LIBRARY)
@@ -104,7 +104,27 @@ class VerifiedFileNameContracts(unittest.TestCase):
         self.assertIn('store.hasStoredRecord(missing)', BIB_NATIVE)
         self.assertIn('store.hasStoredRecord(occupied)', BIB_NATIVE)
 
-    def test_rename_is_no_overwrite_paired_and_deferred_if_open(self):
+    def test_automatic_rename_retains_scroll_until_real_pdf_layout_restores(self):
+        # A native Windows integration run found scroll 51 -> 0 while the
+        # automatic file rename had temporarily collapsed the viewport to 0..1.
+        # Restoring page/zoom alone does not restore the reader's precise place.
+        for token in (
+            'int scrollPosition=0;',
+            'scrollPosition=controller->getPdfWidget()->getVerticalScrollbar()->value();',
+            'scrollPosition,original',
+            'attempts=0,lastShortRange=-1,shortRangeTicks=0',
+            'if (scrollPosition>0 && available<scrollPosition) {',
+            'if (++shortRangeTicks<10) return;',
+            'const int restoredScroll=qMin(scrollPosition,available);',
+            'vertical->setValue(restoredScroll);',
+            'if (vertical->value()!=restoredScroll) return;',
+        ):
+            self.assertIn(token, LIBRARY, token)
+        self.assertIn('flushLibraryTitleRenames(host);', TABS)
+        self.assertIn('Automatic title rename did not restore its original reader tab', TABS)
+        self.assertIn('"Five-tab switch changed independent position or zoom"', TABS)
+
+    def test_rename_is_no_overwrite_paired_and_rebinds_only_saved_open_tabs(self):
         for snippet in (
             'const QString& requestedFileName = {}',
             'SidecarStorage::companions(path, targetPdf)',

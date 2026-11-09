@@ -890,7 +890,27 @@ static void integrationLayouts(NativeTabs& host, const QString& report) {
     for (const QSize pixels : {QSize(1366, 768), QSize(1920, 1080)}) {
         const QSize logical(qRound(pixels.width() / scale), qRound(pixels.height() / scale));
         host.resize(logical); host.show();
-        if (!integrationWait([&] { return host.size() == logical; }) || !host.grab().save(report + QStringLiteral(".%1.png").arg(pixels.width()))) { captured = false; break; }
+        const bool sizeMatches=integrationWait([&] { return host.size() == logical; });
+        const bool imageSaved=sizeMatches &&
+            host.grab().save(report + QStringLiteral(".%1.png").arg(pixels.width()));
+        if (!sizeMatches || !imageSaved) {
+            QJsonObject failedLayout{
+                {"physicalWidth",pixels.width()}, {"physicalHeight",pixels.height()},
+                {"qtScale",scale},
+                {"targetLogicalWidth",logical.width()}, {"targetLogicalHeight",logical.height()},
+                {"actualLogicalWidth",host.width()}, {"actualLogicalHeight",host.height()},
+                {"minimumWidth",host.minimumWidth()}, {"minimumHeight",host.minimumHeight()},
+                {"hintWidth",host.minimumSizeHint().width()},
+                {"hintHeight",host.minimumSizeHint().height()},
+                {"resizeAccepted",sizeMatches}, {"grabSaved",imageSaved}
+            };
+            QSaveFile failure(report + QStringLiteral(".layout-failure.json"));
+            if (failure.open(QIODevice::WriteOnly)) {
+                failure.write(QJsonDocument(failedLayout).toJson());
+                failure.commit();
+            }
+            captured=false;break;
+        }
         QJsonObject metrics{{"width", host.width()}, {"height", host.height()}, {"dpr", scale}};
         for (const auto* name : {"LunaMainMenuBar", "LunaBrandFrame", "LunaCommonReaderToolbar", "LunaNavigation", "LunaDocuments", "LunaContentStack", "LunaPdfTabs", "LunaPdfTabBar"}) {
             if (auto* widget = host.findChild<QWidget*>(QString::fromLatin1(name))) {
@@ -1023,6 +1043,14 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         phase("load and persistent library");
         auto* tabs = host.findChild<QTabWidget*>(QStringLiteral("LunaPdfTabs")); auto* a = host.current();
         auto ready = [](Editor* e) { if (!e) return false; auto* c = e->getProgramController(); return c->getDocument() && c->canClose() && e->isEnabled() && !e->property("LunaRememberedPath").toString().isEmpty(); };
+        // Reused in the late Ctrl+W stress phase after the initial UI test
+        // block has exited. Keep its lifetime at the integration function scope.
+        auto liveBSource = [&]() -> QString {
+            if (QFileInfo(files[1]).isFile()) return files[1];
+            const QString verifiedName = QDir(QFileInfo(files[1]).absolutePath()).filePath(
+                QStringLiteral("LUNA synthetic bravo test.pdf"));
+            return QFileInfo(verifiedName).isFile() ? verifiedName : files[1];
+        };
         integrationRequire(tabs && a && integrationWait([&] { return ready(a); }), "Integrated A did not load");
         phase("custom reading toolbar and trailing search/print");
         auto* readerBar=host.findChild<QToolBar*>(QStringLiteral("LunaCommonReaderToolbar"));
@@ -1128,15 +1156,41 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             filePicker.start(30); host.findChild<QAction*>(QStringLiteral("LunaOpenDocuments"))->trigger(); filePicker.stop();
             integrationRequire(openedB && integrationWait([&] { return host.documentCount() == 2 && host.current() != a && ready(host.current()); }), "Public open action did not create B tab");
             auto* b = host.current(); integrationRequire(host.open(files[1]) == b && host.documentCount() == 2, "Duplicate PDF opened another tab");
+            // In v300 the verified first-page title physically renames B.pdf
+            // while the integration fixture still retains its original path.
+            // Resolve only the explicitly known synthetic article's new name,
+            // and continue to inspect the real paper card + opened date.
+            // Never weaken the date assertion or assume the old file survived.
             auto isolatedBibliography = [&] {
                 if (!qEnvironmentVariableIsSet("LUNA_BIBLIOGRAPHY_TAB_FIXTURE")) return true;
-                for (int index = 0; index < 2; ++index) {
-                    QListWidgetItem* card = nullptr;
-                    if (!integrationList(host, files[index], &card) || !card) return false;
-                    const QString expected = index == 0 ? QStringLiteral("Final A. Writer") : QStringLiteral("Final B. Writer");
-                    if (card->data(Qt::UserRole + 5).toMap().value("authors").toString() != expected) return false;
+                QJsonArray authorDiagnostics;
+                bool independent=true;
+                for (int index=0;index<2;++index) {
+                    auto* editor=index==0?a:b;
+                    const QString livePath=editor ?
+                        editor->getProgramController()->getOriginalFileName() : QString();
+                    QListWidgetItem* card=nullptr;
+                    const bool filePresent=!livePath.isEmpty() && QFileInfo(livePath).isFile();
+                    const bool cardPresent=filePresent && integrationList(host,livePath,&card) && card;
+                    const QString expected=index==0 ? QStringLiteral("Final A. Writer") : QStringLiteral("Final B. Writer");
+                    const QString actual=cardPresent ?
+                        card->data(Qt::UserRole+5).toMap().value("authors").toString() : QString();
+                    const bool correct=cardPresent && actual==expected &&
+                        DocumentClaim::identity(card->data(Qt::UserRole).toString())==
+                        DocumentClaim::identity(livePath);
+                    authorDiagnostics.append(QJsonObject{
+                        {"tabIndex",index},
+                        {"syntheticFile",QFileInfo(livePath).fileName()},
+                        {"filePresent",filePresent},
+                        {"cardPresent",cardPresent},
+                        {"author",actual},
+                        {"expectedAuthor",expected},
+                        {"correct",correct}
+                    });
+                    independent &= correct;
                 }
-                return true;
+                result["asyncAuthorDiagnostics"]=authorDiagnostics;
+                return independent;
             };
             if (qEnvironmentVariableIsSet("LUNA_BIBLIOGRAPHY_TAB_FIXTURE")) {
                 integrationRequire(a->getProgramController()->getDocument()->getInfo()->author == QStringLiteral("Hao Fang") &&
@@ -1177,6 +1231,16 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             result["commonZoomInputDiagnostics"] = QJsonObject{{"text", zoomInput->currentText()}, {"focused", zoomInput->lineEdit()->hasFocus()}, {"nativeZoom", pb->getZoom()}};
             integrationRequire(zoomChanged, "Common zoom input did not update the active Editor");
             integrationRequire(qAbs(pa->getZoom() - 2.0) < .001, "Common toolbar changed an inactive document");
+            // The native zoom input is still focused after the synthetic Enter.
+            // Release the real editor focus and drain its editingFinished event
+            // BEFORE seeding per-tab state through the draw proxy. A pending
+            // 150% focus-out must never overwrite the next test's 135% B view.
+            zoomInput->lineEdit()->clearFocus();
+            QCoreApplication::processEvents();
+            integrationRequire(qAbs(pb->getZoom() - 1.5) < .001 &&
+                qAbs(pa->getZoom() - 2.0) < .001,
+                "Common zoom focus-out changed another document");
+            result["commonZoomFocusOutChecked"] = true;
             result["commonToolbarNativePageZoomAndActionOwnership"] = true;
             pa->zoom(1.25); pb->zoom(1.5);
             auto* focus = host.findChild<QAction*>(QStringLiteral("LunaFocusMode"));
@@ -1197,13 +1261,59 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 integrationRequire(editor && integrationWait([&] { return ready(editor); }), "Extra PDF did not load"); extra.append(editor);
             }
             integrationRequire(host.documentCount() == 5, "Five PDFs are not simultaneously open");
-            for (const QString& path : QStringList{files[0], files[1]} + QDir(directoryPath).entryList({QStringLiteral("UI-long-*.pdf")}, QDir::Files)) {
-                const QString fullPath = QFileInfo(path).isAbsolute() ? path : QDir(directoryPath).filePath(path);
-                QListWidgetItem* card = nullptr;
-                integrationRequire(integrationList(host, fullPath, &card) && card && !card->data(Qt::UserRole + 3).toString().isEmpty(), "Opened date disappeared across Windows path spellings");
-            }
-            fitTabInput(); // Keep real OS input inside the hosted runner's 1024px desktop, including at 150%.
             QList<QPointer<Editor>> documents{a, b}; documents.append(extra);
+            // Title verification can physically rename a PDF after its tab
+            // opens. Match each live reader's owned path, not the obsolete
+            // fixture filename; wait for the asynchronous folder list refresh
+            // without relaxing any of the five opened-date requirements.
+            auto checkFiveOpenedDates = [&]() {
+                QJsonArray diagnostics;
+                QSet<QString> seenIdentities;
+                bool allPresent=true;
+                for (int index=0;index<documents.size();++index) {
+                    auto* editor=documents[index].data();
+                    const QString actualPath=editor ?
+                        editor->getProgramController()->getOriginalFileName() : QString();
+                    const QString identity=DocumentClaim::identity(actualPath);
+                    const bool filePresent=!actualPath.isEmpty() && QFileInfo(actualPath).isFile();
+                    QListWidgetItem* card=nullptr;
+                    const auto* dateList=filePresent ? integrationList(host,actualPath,&card) : nullptr;
+                    const bool cardPresent=dateList && card;
+                    const QString date=cardPresent ? card->data(Qt::UserRole+3).toString() : QString();
+                    const bool identityMatches=cardPresent &&
+                        DocumentClaim::identity(card->data(Qt::UserRole).toString())==identity;
+                    const bool unique=!identity.isEmpty() && !seenIdentities.contains(identity);
+                    seenIdentities.insert(identity);
+                    diagnostics.append(QJsonObject{
+                        {"tabIndex",index},
+                        {"syntheticFile",QFileInfo(actualPath).fileName()},
+                        {"filePresent",filePresent},
+                        {"cardPresent",cardPresent},
+                        {"datePresent",!date.isEmpty()},
+                        {"cardIdentityMatches",identityMatches},
+                        {"uniqueIdentity",unique}
+                    });
+                    allPresent &= filePresent && cardPresent && !date.isEmpty() &&
+                        identityMatches && unique;
+                }
+                result["openedDateDiagnostics"]=diagnostics;
+                if (auto* pages=host.findChild<QStackedWidget*>(QStringLiteral("LunaDocumentPages"))) {
+                    result["openedDatePageIndex"]=pages->currentIndex();
+                    QJsonArray counts;
+                    for (int i=0;i<pages->count();++i) {
+                        int count=0;
+                        for (auto* list:pages->widget(i)->findChildren<QListWidget*>())
+                            count+=list->count();
+                        counts.append(count);
+                    }
+                    result["openedDatePageRowCounts"]=counts;
+                }
+                return allPresent && seenIdentities.size()==5;
+            };
+            const bool fiveDatesStable=integrationWait(checkFiveOpenedDates,5000);
+            write();
+            integrationRequire(fiveDatesStable, "Opened date disappeared across Windows path spellings");
+            fitTabInput(); // Keep real OS input inside the hosted runner's 1024px desktop, including at 150%.
             QList<int> scrollPositions; QList<double> zoomValues;
             for (int i = 0; i < documents.size(); ++i) {
                 auto* editor = documents[i].data(); tabs->setCurrentWidget(editor);
@@ -1214,12 +1324,72 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 const QRect tab = tabs->tabBar()->tabRect(tabs->indexOf(editor));
                 integrationRequire(tab.width() >= 88 && tab.width() <= 240 && tab.height() == 41, "Responsive tabs exceeded compact size bounds");
             }
+            // An extracted title may initiate an asynchronous close/move/reopen
+            // while the five real PDF tabs are in use. Exercise that transition
+            // with nonzero scroll positions, then require the rebind to finish;
+            // never mistake PDF4QT's temporary 0..1 loading scrollbar for a
+            // persistent independent-document view regression.
+            flushLibraryTitleRenames(host);
+            QJsonArray renameViewportEvidence;
+            for (int i=0; i<documents.size(); ++i) {
+                auto* editor=documents[i].data();
+                tabs->setCurrentWidget(editor); QCoreApplication::processEvents();
+                const bool settled=integrationWait([&] {
+                    return ready(editor) && !editor->property("LunaMoveRestorePending").toBool();
+                }, 10000);
+                auto* view=editor->getProgramController()->getPdfWidget();
+                auto* vertical=view->getVerticalScrollbar();
+                const int available=vertical->maximum();
+                const int expected=qMin(scrollPositions[i],available);
+                const int observed=vertical->value();
+                const double actualZoom=view->getDrawWidgetProxy()->getZoom();
+                renameViewportEvidence.append(QJsonObject{
+                    {"tabIndex",i}, {"rebindSettled",settled},
+                    {"priorScroll",scrollPositions[i]}, {"scrollMax",available},
+                    {"expectedWithinViewport",expected}, {"actualScroll",observed},
+                    {"expectedZoom",zoomValues[i]}, {"actualZoom",actualZoom},
+                    {"renamePending",editor->property("LunaMoveRestorePending").toBool()},
+                    {"documentPresent",bool(editor->getProgramController()->getDocument())}
+                });
+                result["fiveTabRenameViewportDiagnostics"]=renameViewportEvidence; write();
+                integrationRequire(settled, "Automatic title rename did not restore its original reader tab");
+                integrationRequire(observed==expected && qAbs(actualZoom-zoomValues[i])<.001,
+                    "Automatic title rename lost a reachable PDF reading position or zoom");
+                // Re-seed after native reflow. A page that entirely fits its
+                // new DPI viewport legitimately has no nonzero scroll value;
+                // all subsequent 10x5 independent-tab comparisons stay exact.
+                vertical->setValue(available/3);
+                scrollPositions[i]=vertical->value();
+            }
             for (int turn = 0; turn < 10; ++turn) for (int i = 0; i < documents.size(); ++i) {
                 tabs->setCurrentWidget(documents[i]); QCoreApplication::processEvents();
-                auto* widget = documents[i]->getProgramController()->getPdfWidget();
-                integrationRequire(qAbs(widget->getDrawWidgetProxy()->getZoom() - zoomValues[i]) < .001 && widget->getVerticalScrollbar()->value() == scrollPositions[i], "Five-tab switch changed independent position or zoom");
+                auto* editor=documents[i].data();
+                integrationRequire(integrationWait([&] {
+                    return ready(editor) && !editor->property("LunaMoveRestorePending").toBool();
+                }, 10000), "Automatic title rename did not restore its original reader tab");
+                auto* controller=editor->getProgramController();
+                auto* widget=controller->getPdfWidget();
+                const double actualZoom=widget->getDrawWidgetProxy()->getZoom();
+                const int actualScroll=widget->getVerticalScrollbar()->value();
+                const bool zoomPreserved=qAbs(actualZoom-zoomValues[i])<.001;
+                const bool scrollPreserved=actualScroll==scrollPositions[i];
+                if (!zoomPreserved || !scrollPreserved) {
+                    result["fiveTabPositionDiagnostics"]=QJsonObject{
+                        {"round",turn}, {"tabIndex",i},
+                        {"expectedZoom",zoomValues[i]}, {"actualZoom",actualZoom},
+                        {"expectedScroll",scrollPositions[i]}, {"actualScroll",actualScroll},
+                        {"scrollMax",widget->getVerticalScrollbar()->maximum()},
+                        {"busy",controller->getIsBusy()},
+                        {"hasDocument",bool(controller->getDocument())},
+                        {"renamePending",editor->property("LunaMoveRestorePending").toBool()},
+                        {"sourceFileExists",QFileInfo(controller->getOriginalFileName()).isFile()}
+                    };
+                    write();
+                }
+                integrationRequire(zoomPreserved && scrollPreserved,
+                    "Five-tab switch changed independent position or zoom");
             }
-            integrationRequire(isolatedBibliography(), "Repeated tab switches changed another paper's author");
+            integrationRequire(integrationWait(isolatedBibliography,5000), "Repeated tab switches changed another paper's author");
             auto* tabBar = tabs->tabBar();
             integrationRequire(tabBar->usesScrollButtons() && tabBar->elideMode() == Qt::ElideMiddle &&
                 tabBar->iconSize() == QSize(19,19), "Tab scroll/elision mode changed");
@@ -1481,14 +1651,26 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             preview->trigger();
             integrationRequire(!preview->isChecked() && !grid->isVisible(),
                 "Native page grid did not return to the clean paper-list view");
-            collapse(); const QString thumbnail = luna::SidecarStorage::thumbnail(files[0], QStringLiteral(".png"));
+            collapse();
+            const QString cropSourceA=a->getProgramController()->getOriginalFileName();
+            integrationRequire(QFileInfo(cropSourceA).isFile(), "Crop source A was renamed or is missing");
+            const QString thumbnail=luna::SidecarStorage::thumbnail(cropSourceA,QStringLiteral(".png"));
             auto* crop = a->findChild<QAction*>(QStringLiteral("LunaCropThumbnail")); integrationRequire(crop && crop->isEnabled(), "Active thumbnail crop action disabled"); crop->trigger();
             auto* draw = integrationSurface(a); QWidget* overlay = nullptr;
             integrationRequire(integrationWait([&] { overlay = draw->findChild<QWidget*>(QStringLiteral("LunaThumbnailCrop")); return overlay && overlay->isVisible(); }), "Shared library crop did not target A");
             integrationMouse(overlay, QEvent::MouseButtonPress, {50, 80}, Qt::LeftButton, Qt::LeftButton);
             integrationMouse(overlay, QEvent::MouseMove, {200, 200}, Qt::NoButton, Qt::LeftButton);
             integrationMouse(overlay, QEvent::MouseButtonRelease, {200, 200}, Qt::LeftButton, Qt::NoButton);
-            integrationRequire(integrationWait([&] { return QFileInfo::exists(thumbnail) && !QImage(thumbnail).isNull(); }) && !QFileInfo::exists(luna::SidecarStorage::thumbnail(files[1], QStringLiteral(".png"))), "Crop wrote to the wrong PDF or no image");
+            const bool croppedA=integrationWait([&] { return QFileInfo::exists(thumbnail) && !QImage(thumbnail).isNull(); });
+            const bool croppedB=QFileInfo::exists(luna::SidecarStorage::thumbnail(
+                b->getProgramController()->getOriginalFileName(),QStringLiteral(".png")));
+            result["cropDiagnostics"]=QJsonObject{
+                {"aSourcePresent",QFileInfo(cropSourceA).isFile()},
+                {"aThumbnailPresent",QFileInfo::exists(thumbnail)},
+                {"aThumbnailValid",croppedA},
+                {"bThumbnailPresent",croppedB}
+            };write();
+            integrationRequire(croppedA && !croppedB, "Crop wrote to the wrong PDF or no image");
             result["activeNativePagesAndCrop"] = true;
             phase("A highlight and real Ctrl+S"); integrationHighlight(host, a, report); result["realDragBlueBorderlessSelectionAndCtrlC"] = true;
             integrationRequire(integrationHighlights(b) == 0, "Integrated A annotation crossed to B");
@@ -1560,7 +1742,8 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(search->findChild<QLineEdit*>()->hasFocus() && integrationType("bravo") && integrationKey(VK_RETURN), "B search input failed");
             integrationRequire(integrationWait([&] { return search && search->windowTitle().contains("1/1"); }), "B typed search did not return 1/1");
             integrationRequire(host.screen()->availableGeometry().contains(search->frameGeometry()), "Integrated search popup extends off screen"); search->reject();
-            const QByteArray savedA = integrationBytes(files[0]); int warnings = 0, unexpectedSaveMessages = 0;
+            const QString savedAPath=a->getProgramController()->getOriginalFileName();
+            const QByteArray savedA=integrationBytes(savedAPath); int warnings=0, unexpectedSaveMessages=0;
             auto* nativeSaveAs = b->findChild<QAction*>(QStringLiteral("actionSave_As"));
             integrationRequire(integrationWait([&] { return ready(b) && nativeSaveAs && nativeSaveAs->isEnabled(); }), "B Save As remained busy after search");
             auto saveAs = [&](const QString& target) {
@@ -1580,16 +1763,16 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                     }
                 }); picker.start(30); b->findChild<QAction*>(QStringLiteral("actionSave_As"))->trigger(); picker.stop(); return selected;
             };
-            const bool selectedCollision = saveAs(files[0]);
+            const bool selectedCollision = saveAs(savedAPath);
             result["collisionDialogSelected"] = selectedCollision; result["collisionWarnings"] = warnings;
             result["unexpectedSaveMessages"] = unexpectedSaveMessages;
-            result["collisionAUnchanged"] = integrationBytes(files[0]) == savedA;
-            result["collisionBPathUnchanged"] = DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(files[1]); write();
+            result["collisionAUnchanged"] = QFileInfo(savedAPath).isFile() && integrationBytes(savedAPath) == savedA;
+            result["collisionBPathUnchanged"] = DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(liveBSource()); write();
             integrationRequire(selectedCollision && warnings == 1 && unexpectedSaveMessages == 0 && result["collisionAUnchanged"].toBool() && result["collisionBPathUnchanged"].toBool(), "Save As collision changed A or rebound B");
-            const QString copy = QFileInfo(files[1]).absolutePath() + "/B-copy.pdf";
+            const QString copy = QFileInfo(liveBSource()).absolutePath() + "/B-copy.pdf";
             integrationRequire(saveAs(copy) && unexpectedSaveMessages == 0 && QFileInfo::exists(copy) && DocumentClaim::identity(b->getProgramController()->getOriginalFileName()) == DocumentClaim::identity(copy), "Save As did not update B path");
             integrationRequire(host.open(copy) == b && host.documentCount() == 2, "Saved path was not deduplicated");
-            auto* originalB = host.open(files[1]); integrationRequire(originalB && originalB != b && host.documentCount() == 3, "Old B path was not released after Save As");
+            auto* originalB = host.open(liveBSource()); integrationRequire(originalB && originalB != b && host.documentCount() == 3, "Old B path was not released after Save As");
             integrationRequire(integrationWait([&] { return ready(originalB); }), "Original B did not load after Save As");
             // Real Windows Ctrl+W must close the active PDF tab, not the LUNA
             // application or any other tab.
@@ -1610,7 +1793,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             result["ctrlWClosesOnlyActiveTabAndPreservesWindow"] = true;
             result["rootShortcutsSearchSaveAsAndSurvivor"] = true;
             phase("context-only memo, search and paired move");
-            integrationRequire(integrationWait([&] { list = integrationList(host, files[0], &paper); return list && paper; }), "A paper card missing before memo"); list->scrollToItem(paper);
+            integrationRequire(integrationWait([&] { list = integrationList(host, a->getProgramController()->getOriginalFileName(), &paper); return list && paper; }), "A paper card missing before memo"); list->scrollToItem(paper);
             const QRect card = list->visualItemRect(paper);
             integrationRequire(card.height() == 322 && list->viewMode() == QListView::ListMode && !list->isWrapping(), "Stacked full-width thumbnail paper card layout changed");
             const QPoint memoLocation(card.left() + 160, card.top() + 293);
@@ -1626,7 +1809,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             // never trust a QListWidgetItem* captured before the edit.
             auto liveMemo = [&](const QString& expected) {
                 QListWidgetItem* currentCard = nullptr;
-                QListWidget* currentList = integrationList(host, files[0], &currentCard);
+                QListWidget* currentList = integrationList(host, a->getProgramController()->getOriginalFileName(), &currentCard);
                 if (!currentList || !currentCard || !currentList->isVisible()) {
                     result["memoCommitDiagnostics"] = QJsonObject{
                         {"cardFound", bool(currentCard)},
@@ -1656,7 +1839,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             };
             auto openContextMemo = [&] {
                 QListWidgetItem* currentCard = nullptr;
-                QListWidget* currentList = integrationList(host, files[0], &currentCard);
+                QListWidget* currentList = integrationList(host, a->getProgramController()->getOriginalFileName(), &currentCard);
                 if (!currentList || !currentCard) return false;
                 list = currentList;
                 paper = currentCard;
@@ -1703,7 +1886,13 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 liveMemo(memo) && !paper->isHidden(); }),
                                "Paper memo search excluded the persisted A card"); query->clear();
             integrationRequire(host.screen()->grabWindow(0).save(report + ".memo.png"), "Could not capture integrated memo");
-            const QByteArray originalThumb = integrationBytes(thumbnail); const QString moved = QFileInfo(files[0]).absolutePath() + "/Moved"; QDir().mkpath(moved);
+            const QString sourceAForMove=a->getProgramController()->getOriginalFileName();
+            const QString sourceThumbnail=luna::SidecarStorage::thumbnail(sourceAForMove,QStringLiteral(".png"));
+            const QByteArray originalThumb=integrationBytes(sourceThumbnail);
+            integrationRequire(QFileInfo(sourceAForMove).isFile() &&
+                integrationBytes(sourceAForMove)==savedA && !originalThumb.isEmpty(),
+                "A PDF or its cropped thumbnail disappeared before the paired move");
+            const QString moved=QFileInfo(sourceAForMove).absolutePath()+"/Moved";QDir().mkpath(moved);
             bool menuChosen = false; QTimer moveUi;
             QObject::connect(&moveUi, &QTimer::timeout, &host, [&] {
                 if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) integrationDirectory(dialog, moved);
@@ -1714,25 +1903,25 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             // items and move their rows. The old 'card' rect was captured
             // before those operations and can right-click a different PDF.
             QListWidgetItem* movePaper = nullptr;
-            QListWidget* moveList = integrationList(host, files[0], &movePaper);
+            QListWidget* moveList = integrationList(host, sourceAForMove, &movePaper);
             integrationRequire(moveList && movePaper && moveList->isVisible(),
                 "A card missing before real move input");
             moveList->scrollToItem(movePaper, QAbstractItemView::PositionAtCenter);
             QCoreApplication::processEvents();
-            moveList = integrationList(host, files[0], &movePaper);
+            moveList = integrationList(host, sourceAForMove, &movePaper);
             integrationRequire(moveList && movePaper, "A card replaced during move setup");
             const QPoint movePoint = moveList->visualItemRect(movePaper).center();
             const bool movingExpectedCard =
                 moveList->viewport()->rect().contains(movePoint) &&
                 moveList->itemAt(movePoint) == movePaper &&
                 DocumentClaim::identity(movePaper->data(Qt::UserRole).toString()) ==
-                    DocumentClaim::identity(files[0]);
+                    DocumentClaim::identity(sourceAForMove);
             result["moveClickedExpectedCard"] = movingExpectedCard;
             integrationRequire(movingExpectedCard, "Move target changed after memo/list refresh");
             moveUi.start(30);
             integrationRequire(integrationClick(host, moveList->viewport(), movePoint, true),
                 "Real move context-menu mouse input failed");
-            const QString movedPdf = moved + "/A.pdf";
+            const QString movedPdf=moved+"/"+QFileInfo(sourceAForMove).fileName();
             const QString movedThumb = luna::SidecarStorage::thumbnail(movedPdf, QStringLiteral(".png"));
             const bool moveReopened = integrationWait([&] {
                 return QFileInfo::exists(movedPdf) && ready(a) &&
@@ -1744,7 +1933,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             result["pairedMoveDiagnostics"] = QJsonObject{
                 {"menuChosen", menuChosen},
                 {"movedPdfExists", QFileInfo::exists(movedPdf)},
-                {"originalPdfExists", QFileInfo::exists(files[0])},
+                {"originalPdfExists", QFileInfo::exists(sourceAForMove)},
                 {"thumbnailMoved", QFileInfo::exists(movedThumb)},
                 {"editorReady", ready(a)},
                 {"editorHasDocument", bool(a->getProgramController()->getDocument())},
@@ -1757,7 +1946,9 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 {"tabCount", host.documentCount()}};
             write();
             integrationRequire(moveReopened, "PDF move did not reopen the same A tab");
-            integrationRequire(menuChosen && !QFileInfo::exists(files[0]) && !QFileInfo::exists(thumbnail) && integrationBytes(movedPdf) == savedA && integrationBytes(movedThumb) == originalThumb && host.documentCount() == 1, "Paired move lost bytes or duplicated the tab");
+            integrationRequire(menuChosen && !QFileInfo::exists(sourceAForMove) && !QFileInfo::exists(sourceThumbnail) &&
+                integrationBytes(movedPdf)==savedA && integrationBytes(movedThumb)==originalThumb && host.documentCount()==1,
+                "Paired move lost bytes or duplicated the tab");
             QTimer selectMoved; QObject::connect(&selectMoved, &QTimer::timeout, &host, [&] { if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) integrationDirectory(dialog, moved); });
             selectMoved.start(30); location->click(); selectMoved.stop();
             integrationRequire(integrationWait([&] { list = integrationList(host, movedPdf, &paper); return list && paper && paper->data(Qt::UserRole + 4).toString() == memo; }), "Memo did not follow A into its new folder");
@@ -1825,7 +2016,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             host.trace("close-key-observed", host.current());
         };
         if (!restore) {
-            auto* second = host.open(files[1]); integrationRequire(second && integrationWait([&] { return ready(second); }) && host.documentCount() == 2, "Two-document repeated-close setup failed");
+            auto* second = host.open(liveBSource()); integrationRequire(second && integrationWait([&] { return ready(second); }) && host.documentCount() == 2, "Two-document repeated-close setup failed");
             keyClose(0); integrationRequire(host.documentCount() == 1, "First of two Ctrl+W keys closed the wrong document");
             keyClose(1); integrationRequire(host.documentCount() == 0, "Second Ctrl+W did not leave an empty window");
             keyClose(2); integrationRequire(host.documentCount() == 0, "Third Ctrl+W changed the empty document state");

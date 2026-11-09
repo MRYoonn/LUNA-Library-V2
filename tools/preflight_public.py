@@ -118,6 +118,7 @@ APPROVED = {
     "tools/probe_research_windows.py",
     "tools/apply_overlay.py", "tools/patch_script_text_layout.py", "tools/patch_thin_vector_strokes.py", "tools/preflight_public.py",
     "tests/test_thin_vector_strokes.py",
+    ".github/workflows/notability-vector-grid-once.yml",
     "tests/test_script_selection_patch.py",
     "tests/test_public_gate.py",
     "tests/test_citation_contract.py",

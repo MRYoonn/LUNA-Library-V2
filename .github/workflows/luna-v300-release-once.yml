@@ -10,88 +10,39 @@ concurrency:
   group: luna-v300-once-publish
   cancel-in-progress: false
 jobs:
-  publish-verified-v300:
+  publish-prepared-draft:
     if: github.repository == 'MRYoonn/LUNA-Library-V2' && github.ref_name == 'release/v0.9.0.300-one-shot-20261109'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: MRYoonn/LUNA-Library-V2
+      TAG: v0.9.0.300
+      RELEASE_ID: '438694016'
       SOURCE_SHA: 93a9232976c8fdf3f3bf79304c84974bf2b26fe9
       SOURCE_RUN: '42535829362'
-      VERSION_TAG: v0.9.0.300
-      EXPECTED_EXE_SHA256: 3d9fa99d057c2862999acbecf4a37a6da8761a25efdf8d8cd2c3213118c2a475
+      EXPECTED_RELEASE_ZIP: 0fc66bef8adae4a5207a0911bb21b6703ba86d247d8110ea90e7c0a1d944a43f
+      EXPECTED_RELEASE_JSON: c2d0cf57bf100e06dbc33c8222688935133b2f747a740dad392ae5fd100d95a8
     steps:
-      - name: Checkout immutable verified source
-        uses: actions/checkout@v4
-        with:
-          ref: 93a9232976c8fdf3f3bf79304c84974bf2b26fe9
-          persist-credentials: false
-      - name: Exact build, security, test and no-existing-release gates
+      - name: Verify original CI, draft and exact release assets without modifying source
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "$REPO"
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          python -B tools/preflight_public.py
-          python -B -m unittest discover -s tests -p 'test_*.py' -v
-          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.head_sha')" = "$SOURCE_SHA"
           test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.conclusion')" = success
-          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.status')" = completed
-          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.path')" = .github/workflows/build-windows.yml
-          gh api "repos/$REPO/actions/runs/$SOURCE_RUN/jobs?per_page=100" --jq '.jobs | (map(select(.name=="build-windows" and .conclusion=="success"))|length)==1 and (map(select(.name=="windows-packaging-preflight" and .conclusion=="success"))|length)==1' | grep -qx true
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.head_sha')" = "$SOURCE_SHA"
           test "$(gh api "repos/$REPO/actions/runs/42535581968" --jq '.conclusion')" = success
           test "$(gh api "repos/$REPO/actions/runs/42535581968" --jq '.head_sha')" = "$SOURCE_SHA"
-          if gh release view "$VERSION_TAG" --repo "$REPO" >/dev/null 2>&1; then
-            echo 'Release exists; refusing duplicate' >&2; exit 1
-          fi
-          test -z "$(git ls-remote --tags origin "refs/tags/$VERSION_TAG")"
-      - name: Download original successful Windows portable
+          gh api "repos/$REPO/releases/$RELEASE_ID" --jq \
+            '.draft == true and .prerelease == false and .tag_name == "v0.9.0.300" and .target_commitish == "93a9232976c8fdf3f3bf79304c84974bf2b26fe9"' | grep -qx true
+          gh api "repos/$REPO/releases/$RELEASE_ID" --jq \
+            '.assets | (map(select(.name=="LUNA-Windows-Portable.zip" and .state=="uploaded" and .digest=="sha256:0fc66bef8adae4a5207a0911bb21b6703ba86d247d8110ea90e7c0a1d944a43f"))|length)==1 and (map(select(.name=="LUNA-Release.json" and .state=="uploaded" and .digest=="sha256:c2d0cf57bf100e06dbc33c8222688935133b2f747a740dad392ae5fd100d95a8"))|length)==1' | grep -qx true
+          test "$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq '.isDraft')" = true
+      - name: Publish approved v300 after independent checks
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p staging/portable
-          gh run download "$SOURCE_RUN" --repo "$REPO" --name LUNA-Windows-Portable --dir staging/portable
-      - name: Make updater-safe tagged release and verify every digest
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(sha256sum staging/portable/LUNA.exe | cut -d' ' -f1)" = "$EXPECTED_EXE_SHA256"
-          python -B -m tools.prepare_release --portable staging/portable --destination dist --tag "$VERSION_TAG" --source-run "$SOURCE_RUN" --commit "$SOURCE_SHA"
-          python - <<'PY'
-          import json, hashlib, zipfile
-          from pathlib import Path
-          m=json.loads(Path('dist/LUNA-Release.json').read_text(encoding='utf-8'))
-          p=Path('dist/LUNA-Windows-Portable.zip')
-          with p.open('rb') as f:
-              assert m['sha256']==hashlib.file_digest(f,'sha256').hexdigest()
-          assert m['tag']=='v0.9.0.300' and m['source_run']==42535829362 and m['commit']=='93a9232976c8fdf3f3bf79304c84974bf2b26fe9'
-          with zipfile.ZipFile(p) as z:
-              assert z.testzip() is None
-              info=json.loads(z.read('build-info.json'))
-              assert info['version']==m['tag'] and info['commit']==m['commit'] and str(info['run'])==str(m['source_run'])
-              assert hashlib.sha256(z.read('LUNA.exe')).hexdigest()==info['exeSha256']
-              assert len(m['files'])==len(z.namelist())
-              for entry in m['files']:
-                  data=z.read(entry['path'])
-                  assert len(data)==entry['size'] and hashlib.sha256(data).hexdigest()==entry['sha256']
-          print('Final release ZIP SHA-256:',m['sha256'])
-          PY
-      - name: Create draft release with verified assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release create "$VERSION_TAG" dist/LUNA-Windows-Portable.zip dist/LUNA-Release.json \
-            --repo "$REPO" --target "$SOURCE_SHA" --draft \
-            --title "LUNA Library v0.9.0.300 — Automatic verified-title and linked SI filenames" \
-            --notes "Windows Portable v300: automatic real filename renaming only for verified-title clean saved PDFs, linked SI inheriting verified parent title, safe collision numbering, sidecar and memo migration. Windows native + full GUI passed at SHA $SOURCE_SHA: https://github.com/$REPO/actions/runs/$SOURCE_RUN. v300 source/security/SI native checks: https://github.com/$REPO/actions/runs/42535581968. Updater consent and rollback safeguards retained. User-owned PDF, unsaved-plugin and physical long-session DPI acceptance remain unverified; Installer remains paused."
-      - name: Verify draft tag and assets, then publish the user-approved stable release
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(gh release view "$VERSION_TAG" --repo "$REPO" --json isDraft --jq '.isDraft')" = true
-          test "$(gh api "repos/$REPO/git/ref/tags/$VERSION_TAG" --jq '.object.sha')" = "$SOURCE_SHA"
-          gh api "repos/$REPO/releases/tags/$VERSION_TAG" --jq '.assets | (map(select(.name=="LUNA-Release.json"))|length)==1 and (map(select(.name=="LUNA-Windows-Portable.zip"))|length)==1' | grep -qx true
-          gh release edit "$VERSION_TAG" --repo "$REPO" --draft=false --latest
-          test "$(gh release view "$VERSION_TAG" --repo "$REPO" --json isDraft --jq '.isDraft')" = false
-          gh release view "$VERSION_TAG" --repo "$REPO" --json url,tagName,isDraft,isPrerelease,assets
+          gh release edit "$TAG" --repo "$REPO" --draft=false --latest
+          gh api "repos/$REPO/releases/$RELEASE_ID" --jq '.draft == false and .prerelease == false' | grep -qx true
+          test "$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.sha')" = "$SOURCE_SHA"
+          gh release view "$TAG" --repo "$REPO" --json url,tagName,isDraft,isPrerelease,assets

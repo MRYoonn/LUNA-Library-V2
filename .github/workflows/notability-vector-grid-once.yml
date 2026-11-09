@@ -1,0 +1,44 @@
+name: LUNA grid-vector screen compatibility validation (one shot)
+on:
+  push:
+    branches: [fix/notability-vector-grid-20261110]
+    paths:
+      - .github/workflows/notability-vector-grid-once.yml
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: luna-vector-grid-once-20261110
+  cancel-in-progress: false
+jobs:
+  source-security:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public source gate and full Python regression
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+  full-native-gui:
+    needs: source-security
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Dispatch full Windows GUI + Portable on the exact passing source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = MRYoonn/LUNA-Library-V2
+          test "$REF_NAME" = fix/notability-vector-grid-20261110
+          test "$(gh api "repos/$REPO/branches/$REF_NAME" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$REF_NAME"
+          echo "Windows GUI build dispatched for verified $SOURCE_SHA (not a release)."

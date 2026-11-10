@@ -1,14 +1,19 @@
 """Regression contracts for PDF4QT device-space clipping replay and grid QA."""
 import unittest
 
-from tools.patch_pdf_clip_transform import BEFORE, AFTER, MARKER, PREREQUISITE_MARKER, patch_text
+from tools.patch_pdf_clip_transform import (
+    BEFORE, AFTER, MARKER, PREREQUISITE_MARKER,
+    INITIAL_CTM_BEFORE, INITIAL_CTM_AFTER, INITIAL_CTM_MARKER, patch_text,
+)
 from tools.probe_synthetic_grid import build, long_synthetic_gray_profile
 
 class PDFClipRendererContracts(unittest.TestCase):
     def test_original_upstream_painter_anchor_replaced_once(self):
-        before = "// " + PREREQUISITE_MARKER + "\n" + BEFORE
+        before = "// " + PREREQUISITE_MARKER + "\n" + INITIAL_CTM_BEFORE + BEFORE
         changed = patch_text(before)
         self.assertEqual(changed.count(MARKER), 1)
+        self.assertEqual(changed.count(INITIAL_CTM_MARKER), 1)
+        self.assertIn('painter->setWorldTransform(pagePointToDevicePointMatrix)', changed)
         self.assertNotIn(BEFORE, changed)
         self.assertIn("originalWorld.map(m_clips[instruction.dataIndex].clipPath)", changed)
         self.assertIn("painter->setClipPath(clipInDeviceSpace, Qt::IntersectClip)", changed)
@@ -18,9 +23,9 @@ class PDFClipRendererContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "v301"):
             patch_text(BEFORE)
         with self.assertRaisesRegex(ValueError, "already applied"):
-            patch_text("// " + PREREQUISITE_MARKER + "\n" + AFTER)
+            patch_text("// " + PREREQUISITE_MARKER + "\n" + INITIAL_CTM_AFTER + AFTER)
         with self.assertRaisesRegex(ValueError, "anchor"):
-            patch_text("// " + PREREQUISITE_MARKER + "\n" + BEFORE + BEFORE)
+            patch_text("// " + PREREQUISITE_MARKER + "\n" + INITIAL_CTM_BEFORE + BEFORE + BEFORE)
 
     def test_clip_uses_same_device_space_as_crop_and_restores_ctm(self):
         for snippet in (
@@ -33,6 +38,12 @@ class PDFClipRendererContracts(unittest.TestCase):
             self.assertIn(snippet, AFTER)
         self.assertNotIn("setPen(", AFTER)
         self.assertNotIn("drawPath(", AFTER)
+
+    def test_initial_page_ctm_precedes_first_clip_and_not_cropbox(self):
+        self.assertIn("painter->setWorldTransform(pagePointToDevicePointMatrix)", INITIAL_CTM_AFTER)
+        self.assertNotIn("painter->setClipPath(", INITIAL_CTM_AFTER)
+        changed = patch_text("// " + PREREQUISITE_MARKER + "\\n" + INITIAL_CTM_BEFORE + BEFORE)
+        self.assertLess(changed.index(INITIAL_CTM_MARKER), changed.index(MARKER))
 
     def test_only_synthetic_user_data_free_icc_and_clip_fixture(self):
         plain = build()

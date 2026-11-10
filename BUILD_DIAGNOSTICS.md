@@ -856,3 +856,11 @@ complete actual PDF snapshot already passed before this fixture adjustment.
 - **Actual first failure:** `[BLOCK] Unexpected file size: src/lunalibrary.cpp`. The new single-click copy API adds source code, increasing UTF-8 file size from **297,881** to **302,884** bytes, which exceeded the exact per-file `SOURCE_SIZE_CAPS` value `298_000`. This is neither a source privacy failure nor a functional defect in the copy flow, but the fail-closed gate appropriately stopped.
 - **Scoped correction:** raise **only** `src/lunalibrary.cpp` cap to `305_000` bytes (current file is 302,884 bytes), leaving other approval lists, private-file checks, SHA256-pinned binary checks, and all existing tests unchanged. Record in source PR and rerun all source/unit then full native Windows tests.
 - **Test acceptance:** native synthetic PDF and thumbnail must duplicate into the selected library folder without modifying original bytes or switching the open reader; include sidecar and metadata clones, source must be active bound tab, collision/same-folder and unsaved-state guards. Do not deploy until actual Windows CI is green.
+
+
+## 2026-11-11 — reader copy source gate: two stale 298KB test assertions
+
+- **Run:** [#42843979832](https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/42843979832), source SHA `6f26e25e1a1cab019b2345610ce3c4b0e3cdd2a7`, failed `source-safety`; Windows pipeline correctly skipped.
+- **First failing checks:** `test_public_gate.PublicGate.test_scoped_lunalibrary_size_limit` and `test_large_ui_source_keeps_lf_on_windows` hardcoded the previous 298,000-byte bound even after the release preflight's narrowly scoped bound was correctly raised to 305,000 bytes. Actual checked size: 302,884 bytes. All four new active-reader copy tests passed.
+- **Fix:** update *only* those two size assertions in `tests/test_public_gate.py` to 305,000. Preserve LF format, rejection of oversized source after synthetic 40 KB append, unchanged default 200 KB bound for other files, approved source path checks, binary SHA256 checks and private-data detection.
+- **Next:** source gate rerun, exact-SHA native Windows compile and copy-to-folder synthetic PDF/sidecar roundtrip. No release or PR merge unless native tests pass.

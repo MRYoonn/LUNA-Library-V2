@@ -1,0 +1,45 @@
+name: LUNA PDF clip grid P0 - one-time Windows source build and visual gate
+on:
+  push:
+    branches: [fix/hwp-grid-renderer-v302-20261110]
+    paths: [.github/workflows/hwp-grid-build-once.yml]
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: luna-hwp-grid-p0-v302-once
+  cancel-in-progress: false
+jobs:
+  source-safety:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Gate all public source files and run Python regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+  dispatch-full-windows:
+    needs: source-safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger exact-SHA native GUI test; this does not publish a release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = MRYoonn/LUNA-Library-V2
+          test "$SOURCE_BRANCH" = fix/hwp-grid-renderer-v302-20261110
+          test "$(gh api "repos/$REPO/branches/$SOURCE_BRANCH" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$SOURCE_BRANCH"
+          echo "Exact native Windows build dispatched for $SOURCE_SHA"

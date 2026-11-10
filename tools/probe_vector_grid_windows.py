@@ -39,14 +39,7 @@ def main(executable: Path, directory: Path) -> None:
     if sys.platform != "win32":
         raise RuntimeError("Requires real Windows, not offscreen approximation")
     directory.mkdir(parents=True, exist_ok=True)
-    pdf = directory / "synthetic-grid.pdf"
     from probe_synthetic_grid import build
-    pdf.write_bytes(build())
-    result_file = directory / "grid-smoke.txt"
-    command = [
-        str(executable.resolve()), "--luna-smoke-report", str(result_file),
-        "--luna-layout-only", str(pdf),
-    ]
     env = os.environ.copy()
     package = executable.parent.resolve()
     windows = Path(os.environ["SystemRoot"])
@@ -57,25 +50,41 @@ def main(executable: Path, directory: Path) -> None:
     env["QT_FORCE_STDERR_LOGGING"] = "1"
     env["QT_SCALE_FACTOR"] = "1"
     env["QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES"] = "1"
-    completed = subprocess.run(command, cwd=directory, env=env,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               text=True, errors="replace", timeout=90)
-    (directory / "luna-process.log").write_text(completed.stdout, encoding="utf-8")
-    image_path = Path(str(result_file) + ".png")
-    if completed.returncode != 0 or result_file.read_bytes() != b"LUNA_SMOKE_LAYOUT_OK\n":
-        raise RuntimeError("LUNA layout-only UI smoke failed (not a grid-render result)")
-    if not image_path.exists():
-        raise RuntimeError("Native Qt UI screenshot not produced")
-    image = Image.open(image_path).convert("RGB")
-    summary = {"source": "public synthetic Gray gamma2.2",
-               "screenshot": image_path.name, "dimensions": image.size,
-               "luna_exit": completed.returncode,
-               "pixel_metrics": classify(image)}
-    (directory / "grid-result.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(json.dumps(summary, indent=2), flush=True)
-    # This baseline diagnostic intentionally does not require either color
-    # path to be visible; the captured data determines the repair.
-    # A later acceptance test MUST assert both path groups are visible.
+    cases = [
+        ("short-icc-no-clip", False, False),
+        ("long-icc-no-clip", True, False),
+        ("short-icc-nested-clip", False, True),
+        ("long-icc-nested-clip", True, True),
+    ]
+    results = {}
+    for name, long_icc, nested_clip in cases:
+        folder = directory / name
+        folder.mkdir()
+        pdf = folder / "synthetic-grid.pdf"
+        pdf.write_bytes(build(long_icc=long_icc, nested_clip=nested_clip))
+        report = folder / "grid-smoke.txt"
+        command = [
+            str(executable.resolve()), "--luna-smoke-report", str(report),
+            "--luna-layout-only", str(pdf)
+        ]
+        completed = subprocess.run(command, cwd=folder, env=env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, errors="replace", timeout=90)
+        (folder / "luna-process.log").write_text(completed.stdout, encoding="utf-8")
+        if (completed.returncode != 0 or not report.exists()
+                or report.read_bytes() != b"LUNA_SMOKE_LAYOUT_OK\n"):
+            raise RuntimeError(f"Native UI rendering smoke failed on {name} with code {completed.returncode}")
+        image_path = Path(str(report) + ".png")
+        if not image_path.is_file():
+            raise RuntimeError(f"Missing real Qt screenshot for {name}")
+        screenshot = Image.open(image_path).convert("RGB")
+        result = classify(screenshot)
+        results[name] = {"long_icc": long_icc, "nested_clip": nested_clip,
+                         "pixel_metrics": result}
+        print(name, json.dumps(result), flush=True)
+    summary = {"source": "synthetic non-user data; gray 2.2 gamma profile",
+               "luna_binary": str(executable.name), "cases": results}
+    (directory / "grid-matrix.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

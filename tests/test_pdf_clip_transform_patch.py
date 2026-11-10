@@ -18,6 +18,11 @@ class PDFClipRendererContracts(unittest.TestCase):
         self.assertIn("originalWorld.map(m_clips[instruction.dataIndex].clipPath)", changed)
         self.assertIn("painter->setClipPath(clipInDeviceSpace, Qt::IntersectClip)", changed)
         self.assertIn("painter->setWorldTransform(originalWorld)", changed)
+        self.assertIn("sourceClip.elementCount() == 5", changed)
+        self.assertIn("overlapArea / totalArea >= 0.998", changed)
+        self.assertIn("originalWorld == pagePointToDevicePointMatrix", changed)
+        self.assertIn("features.testFlag(PDFRenderer::ClipToCropBox)", changed)
+
 
     def test_patched_source_requires_previous_pinned_stroke_patch(self):
         with self.assertRaisesRegex(ValueError, "v301"):

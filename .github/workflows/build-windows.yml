@@ -329,10 +329,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Source pin mismatch" }
           python tools/patch_script_text_layout.py pdf4qt --dry-run
           if ($LASTEXITCODE -ne 0) { throw "Pinned text layout mismatch" }
+          python tools/patch_thin_vector_strokes.py pdf4qt --dry-run
+          if ($LASTEXITCODE -ne 0) { throw "Pinned PDF vector renderer mismatch" }
           python tools/apply_overlay.py pdf4qt
           if ($LASTEXITCODE -ne 0) { throw "LUNA patch failed" }
           python tools/patch_script_text_layout.py pdf4qt
           if ($LASTEXITCODE -ne 0) { throw "LUNA superscript/subscript selection patch failed" }
+          python tools/patch_thin_vector_strokes.py pdf4qt
+          if ($LASTEXITCODE -ne 0) { throw "LUNA thin-vector-stroke screen patch failed" }
 
       - name: Apply opt-in native session proof
         shell: pwsh

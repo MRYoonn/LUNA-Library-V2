@@ -1,3 +1,4 @@
+# Retry after build #331: Pillow was installed after the new grid pixel gate.
 name: LUNA PDF clip grid P0 - one-time Windows source build and visual gate
 on:
   push:

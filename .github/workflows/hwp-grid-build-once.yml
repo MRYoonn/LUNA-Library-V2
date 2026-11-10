@@ -1,3 +1,4 @@
+# Source test anchor correction; recheck full Native Windows pixel gates.
 # Revalidate: bypass only redundant near-CropBox rectangle clip, preserve all other clips.
 # Rebuild #333: initialize PDF page CTM before first clipped vector path.
 # Retry after build #331: Pillow was installed after the new grid pixel gate.

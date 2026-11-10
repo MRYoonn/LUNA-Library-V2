@@ -13,6 +13,23 @@ import sys
 RELATIVE = Path("Pdf4QtLibCore/sources/pdfpainter.cpp")
 PREREQUISITE_MARKER = "LUNA_THIN_VECTOR_STROKES_V1"
 MARKER = "LUNA_DEVICE_SPACE_CLIP_V1"
+INITIAL_CTM_MARKER = "LUNA_INITIAL_PAGE_CTM_V2"
+
+INITIAL_CTM_BEFORE = """    painter->setRenderHint(QPainter::SmoothPixmapTransform, features.testFlag(PDFRenderer::SmoothImages));
+
+    // Process all instructions
+"""
+
+INITIAL_CTM_AFTER = """    // LUNA_INITIAL_PAGE_CTM_V2: PDFPrecompiledPage::draw starts with an
+    // identity world matrix for the already-mapped CropBox clip. Restore the
+    // PDF page->device transform *before the first PDF command*, otherwise
+    // an early W/W* clip is intersected with a crop in a different coordinate
+    // space. Later SetWorldMatrix instructions explicitly override this.
+    painter->setWorldTransform(pagePointToDevicePointMatrix);
+    painter->setRenderHint(QPainter::SmoothPixmapTransform, features.testFlag(PDFRenderer::SmoothImages));
+
+    // Process all instructions
+"""
 
 BEFORE = """            case InstructionType::Clip:
             {
@@ -43,11 +60,11 @@ AFTER = """            case InstructionType::Clip:
 def patch_text(source: str) -> str:
     if PREREQUISITE_MARKER not in source:
         raise ValueError("Pinned v301 PDF4QT painter patch missing")
-    if MARKER in source:
+    if MARKER in source or INITIAL_CTM_MARKER in source:
         raise ValueError("Device-space clipping patch already applied")
-    if source.count(BEFORE) != 1:
-        raise ValueError("PDF4QT clip replay anchor missing or ambiguous")
-    return source.replace(BEFORE, AFTER, 1)
+    if source.count(BEFORE) != 1 or source.count(INITIAL_CTM_BEFORE) != 1:
+        raise ValueError("PDF4QT clip replay or initial CTM anchor missing or ambiguous")
+    return source.replace(BEFORE, AFTER, 1).replace(INITIAL_CTM_BEFORE, INITIAL_CTM_AFTER, 1)
 
 
 def patch_bytes(raw: bytes) -> bytes:

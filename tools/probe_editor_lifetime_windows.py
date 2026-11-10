@@ -16,7 +16,7 @@ import tempfile
 import time
 from smoke_windows import synthetic_pdf
 
-def run(package, output, debugger, legacy_state=None, expect_layout_crash=False, state_reader=None, library_row_y=235):
+def run(package, output, debugger, legacy_state=None, expect_layout_crash=False, state_reader=None, library_row_y=315):
     if os.name!='nt':raise RuntimeError('Actual Windows required')
     import winreg
     output.mkdir(parents=True,exist_ok=True)
@@ -121,9 +121,24 @@ def run(package, output, debugger, legacy_state=None, expect_layout_crash=False,
                             wait(lambda:user.GetForegroundWindow()==main,'foreground ownership')
                             def open_library(letter,editor,generation):
                                 result['phase']='library open '+letter
-                                key(0x4b,True);time.sleep(.1);key(0x41,True);key(ord(letter));time.sleep(.2)
+                                key(0x4b,True);time.sleep(.1);key(0x41,True);key(ord(letter))
+                                # The library asynchronously creates its cards after
+                                # the window becomes visible. Under CDB + full page
+                                # heap and 150% DPI, the search text can exist before
+                                # a QAbstractItemView item is ready to double-click.
+                                # Allow the card model/UI to finish, then require
+                                # foreground ownership before injecting one real
+                                # user double-click. Do not bypass the library route.
+                                time.sleep(1.5)
+                                wait(lambda:user.GetForegroundWindow()==main,
+                                     'library foreground before card click',timeout=10)
+                                # Click the card TITLE row, not the blank thumbnail
+                                # image: the thumbnail can be a separate child
+                                # widget and the earlier 235 logical-pixel location
+                                # produced zero document-open requests in the last
+                                # 150%/case-2 lifetime test.
                                 point=wintypes.POINT(round(350*scale),round(library_row_y*scale));user.ClientToScreen(main,ctypes.byref(point));user.SetCursorPos(point.x,point.y)
-                                for _ in range(2):user.mouse_event(2,0,0,0,0);user.mouse_event(4,0,0,0,0);time.sleep(.07)
+                                for _ in range(2):user.mouse_event(2,0,0,0,0);user.mouse_event(4,0,0,0,0);time.sleep(.12)
                                 wait(lambda:event('document-load-completed',editor,generation),'library load '+letter)
                                 loaded=[r for r in rows() if r['event']=='document-load-completed' and r.get('editor')==editor][-1]
                                 if loaded.get('editorOpenOrigin')!='library-open':raise RuntimeError('Document did not open through the actual library route')
@@ -188,5 +203,5 @@ def run(package, output, debugger, legacy_state=None, expect_layout_crash=False,
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('package',type=Path);p.add_argument('output',type=Path);p.add_argument('--debugger',type=Path,required=True)
     p.add_argument('--legacy-state',type=Path);p.add_argument('--expect-layout-crash',action='store_true');p.add_argument('--state-reader',type=Path)
-    p.add_argument('--library-row-y',type=int,default=235)
+    p.add_argument('--library-row-y',type=int,default=315)
     a=p.parse_args();run(a.package.resolve(strict=True),a.output.resolve(),a.debugger.resolve(strict=True),a.legacy_state,a.expect_layout_crash,a.state_reader.resolve(strict=True) if a.state_reader else None,a.library_row_y)

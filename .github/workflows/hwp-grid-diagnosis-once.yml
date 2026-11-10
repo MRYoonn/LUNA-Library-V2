@@ -1,0 +1,47 @@
+name: LUNA v301 synthetic ICC vs DeviceGray screen diagnosis
+on:
+  push:
+    branches: [fix/hwp-grid-renderer-v302-20261110]
+    paths:
+      - .github/workflows/hwp-grid-diagnosis-once.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  real-windows-render:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare native screen pixel dependency
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check Pillow==11.2.1
+      - name: Download and verify existing official v301 release (not changed)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/grid-release" | Out-Null
+          gh release download v0.9.0.301 --repo "$env:GITHUB_REPOSITORY" --pattern LUNA-Windows-Portable.zip --dir "$env:RUNNER_TEMP/grid-release"
+          if ($LASTEXITCODE -ne 0) { throw 'Official v301 release download failed' }
+          $hash = (Get-FileHash "$env:RUNNER_TEMP/grid-release/LUNA-Windows-Portable.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'a3bfabf6b8048c869eb38ab1f82e1cfcfebc558ae41e3de3ec4ccfa6006acf6f') { throw 'Published release checksum mismatch' }
+          Expand-Archive -LiteralPath "$env:RUNNER_TEMP/grid-release/LUNA-Windows-Portable.zip" -DestinationPath "$env:RUNNER_TEMP/grid-release/portable"
+      - name: Render native Windows LUNA synthetic gray grid at 200 percent
+        shell: pwsh
+        run: |
+          python tools/probe_vector_grid_windows.py "$env:RUNNER_TEMP/grid-release/portable/LUNA.exe" "$env:RUNNER_TEMP/grid-synthetic"
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic actual-LUNA screenshot acquisition failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v301-ICC-DeviceGray-Screen-Diagnostic
+          path: ${{ runner.temp }}/grid-synthetic/
+          if-no-files-found: warn
+          retention-days: 14

@@ -51,17 +51,19 @@ def main(executable: Path, directory: Path) -> None:
     env["QT_SCALE_FACTOR"] = "1"
     env["QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES"] = "1"
     cases = [
-        ("short-icc-no-clip", False, False),
-        ("long-icc-no-clip", True, False),
-        ("short-icc-nested-clip", False, True),
-        ("long-icc-nested-clip", True, True),
+        ("short-icc-no-clip", False, False, False, False),
+        ("long-icc-no-clip", True, False, False, False),
+        ("short-icc-clip-only", False, False, True, False),
+        ("short-icc-ctm-only", False, False, False, True),
+        ("short-icc-nested-clip", False, True, False, False),
+        ("long-icc-nested-clip", True, True, False, False),
     ]
     results = {}
-    for name, long_icc, nested_clip in cases:
+    for name, long_icc, nested_clip, clip_only, ctm_only in cases:
         folder = directory / name
         folder.mkdir()
         pdf = folder / "synthetic-grid.pdf"
-        pdf.write_bytes(build(long_icc=long_icc, nested_clip=nested_clip))
+        pdf.write_bytes(build(long_icc=long_icc, nested_clip=nested_clip, clip_only=clip_only, ctm_only=ctm_only))
         report = folder / "grid-smoke.txt"
         command = [
             str(executable.resolve()), "--luna-smoke-report", str(report),

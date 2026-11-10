@@ -15,7 +15,7 @@ class PDFClipRendererContracts(unittest.TestCase):
         self.assertEqual(changed.count(INITIAL_CTM_MARKER), 1)
         self.assertIn('painter->setWorldTransform(pagePointToDevicePointMatrix)', changed)
         self.assertNotIn(BEFORE, changed)
-        self.assertIn("originalWorld.map(m_clips[instruction.dataIndex].clipPath)", changed)
+        self.assertIn("originalWorld.map(sourceClip)", changed)
         self.assertIn("painter->setClipPath(clipInDeviceSpace, Qt::IntersectClip)", changed)
         self.assertIn("painter->setWorldTransform(originalWorld)", changed)
         self.assertIn("sourceClip.elementCount() == 5", changed)
@@ -35,7 +35,7 @@ class PDFClipRendererContracts(unittest.TestCase):
     def test_clip_uses_same_device_space_as_crop_and_restores_ctm(self):
         for snippet in (
             "const QTransform originalWorld = painter->worldTransform()",
-            "originalWorld.map(m_clips[instruction.dataIndex].clipPath)",
+            "originalWorld.map(sourceClip)",
             "painter->setWorldTransform(QTransform())",
             "painter->setClipPath(clipInDeviceSpace, Qt::IntersectClip)",
             "painter->setWorldTransform(originalWorld)",

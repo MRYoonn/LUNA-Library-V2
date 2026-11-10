@@ -87,6 +87,19 @@ def main(executable: Path, directory: Path) -> None:
     summary = {"source": "synthetic non-user data; gray 2.2 gamma profile",
                "luna_binary": str(executable.name), "cases": results}
     (directory / "grid-matrix.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    if os.getenv("LUNA_REQUIRE_GRID_VISIBILITY") == "1":
+        missing = []
+        for name, case in results.items():
+            pixels = case["pixel_metrics"]
+            if pixels["icc_gray_pixels"] < 400 or pixels["device_gray_pixels"] < 800:
+                missing.append(name)
+        if missing:
+            raise RuntimeError(
+                "Native packaged LUNA lost clipped gray vector strokes: " +
+                ", ".join(missing) + "; see screenshot evidence"
+            )
+        print("[PASS] All six native Windows ICC/DeviceGray/clip/CTM grids are visibly drawn")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

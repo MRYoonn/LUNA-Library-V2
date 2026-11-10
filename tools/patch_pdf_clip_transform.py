@@ -47,8 +47,32 @@ AFTER = """            case InstructionType::Clip:
                 // Quartz/HWP gray vector strokes inside clipped rectangles.
                 // Preserve the original CTM, path, color, alpha and print data.
                 const QTransform originalWorld = painter->worldTransform();
+                const QPainterPath& sourceClip =
+                    m_clips[instruction.dataIndex].clipPath;
+                // Quartz/HWP often adds a nearly full-page rectangular W n
+                // immediately before table grid strokes. Qt's intersect
+                // clips can erase all such lines in the precompiled painter.
+                // The existing PDF CropBox already enforces that page-edge
+                // clipping. Skip only a five-element rectangle whose device
+                // transform is the page transform and whose intersection
+                // covers at least 99.8% of the CropBox. Smaller / nested
+                // clips retain their exact PDF semantics.
+                const QRectF pageBounds = cropBox.normalized();
+                const QRectF clipBounds = sourceClip.boundingRect();
+                const QRectF overlap = pageBounds.intersected(clipBounds);
+                const qreal totalArea = pageBounds.width() * pageBounds.height();
+                const qreal overlapArea = overlap.width() * overlap.height();
+                const bool alreadyCropped =
+                    features.testFlag(PDFRenderer::ClipToCropBox) &&
+                    originalWorld == pagePointToDevicePointMatrix &&
+                    sourceClip.elementCount() == 5 &&
+                    totalArea > 0 && overlapArea / totalArea >= 0.998;
+                if (alreadyCropped)
+                {
+                    break; // CropBox clip remains active.
+                }
                 const QPainterPath clipInDeviceSpace =
-                    originalWorld.map(m_clips[instruction.dataIndex].clipPath);
+                    originalWorld.map(sourceClip);
                 painter->setWorldTransform(QTransform());
                 painter->setClipPath(clipInDeviceSpace, Qt::IntersectClip);
                 painter->setWorldTransform(originalWorld);

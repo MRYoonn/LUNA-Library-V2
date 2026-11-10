@@ -119,6 +119,8 @@ APPROVED = {
     "tools/apply_overlay.py", "tools/patch_script_text_layout.py", "tools/patch_thin_vector_strokes.py", "tools/preflight_public.py",
     "tests/test_thin_vector_strokes.py",
     "tests/test_lifetime_card_input.py",
+    "tests/test_reader_copy_toolbar.py",
+    ".github/workflows/reader-copy-build-once.yml",
     ".github/workflows/notability-vector-grid-once.yml",
     "tests/test_script_selection_patch.py",
     "tests/test_public_gate.py",

@@ -1,3 +1,4 @@
+# Reader-copy retry: scoped source size and test contracts reconciled.
 # Rerun: adjusted source file-size cap after audited copy feature addition.
 name: LUNA reader PDF copy button one-time native Windows validation
 on:

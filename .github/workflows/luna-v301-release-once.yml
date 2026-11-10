@@ -52,14 +52,7 @@ jobs:
           mkdir -p staging/portable
           gh run download "$SOURCE_RUN" --repo "$REPO" --name LUNA-Windows-Portable --dir staging/portable
           python -B -m tools.prepare_release --portable staging/portable --destination dist --tag "$TAG" --source-run "$SOURCE_RUN" --commit "$SOURCE_SHA"
-          test "$(python - <<'PY'
-import json
-with open('dist/LUNA-Release.json',encoding='utf-8') as f: x=json.load(f)
-assert x['tag']=='v0.9.0.301' and x['source_run']==42745093283
-assert x['commit']=='6ae179cfb261aacee9f13e6ea6c8040068d796e2'
-print(x['sha256'])
-PY
-          )" = "$(sha256sum dist/LUNA-Windows-Portable.zip | cut -d' ' -f1)"
+          python -c "import json,hashlib,pathlib; m=json.loads(pathlib.Path('dist/LUNA-Release.json').read_text()); h=hashlib.sha256(pathlib.Path('dist/LUNA-Windows-Portable.zip').read_bytes()).hexdigest(); assert m['tag']=='v0.9.0.301' and m['source_run']==42745093283 and m['commit']=='6ae179cfb261aacee9f13e6ea6c8040068d796e2' and m['sha256']==h; print('ZIP and manifest source SHA256 validated')"
       - name: Create sealed draft, verify exact GitHub asset digests, then publish stable
         shell: bash
         run: |

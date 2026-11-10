@@ -42,7 +42,7 @@ class PDFClipRendererContracts(unittest.TestCase):
     def test_initial_page_ctm_precedes_first_clip_and_not_cropbox(self):
         self.assertIn("painter->setWorldTransform(pagePointToDevicePointMatrix)", INITIAL_CTM_AFTER)
         self.assertNotIn("painter->setClipPath(", INITIAL_CTM_AFTER)
-        changed = patch_text("// " + PREREQUISITE_MARKER + "\\n" + INITIAL_CTM_BEFORE + BEFORE)
+        changed = patch_text("// " + PREREQUISITE_MARKER + "\n" + INITIAL_CTM_BEFORE + BEFORE)
         self.assertLess(changed.index(INITIAL_CTM_MARKER), changed.index(MARKER))
 
     def test_only_synthetic_user_data_free_icc_and_clip_fixture(self):

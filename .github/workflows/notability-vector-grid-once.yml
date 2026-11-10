@@ -1,3 +1,4 @@
+# Rerun after 150%-DPI card-click timing failure, corrected input and diagnostics.
 name: LUNA grid-vector screen compatibility validation (one shot)
 on:
   push:

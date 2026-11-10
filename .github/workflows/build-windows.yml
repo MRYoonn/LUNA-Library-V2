@@ -728,6 +728,13 @@ jobs:
         env:
           LUNA_REQUIRE_GRID_VISIBILITY: '1'
         run: |
+          # This gate runs before panel capture, which normally installs Pillow.
+          # Pin/install it here so a missing dependency never masquerades as
+          # an actual vector-rendering regression.
+          python -m pip install --disable-pip-version-check Pillow==11.3.0
+          if ($LASTEXITCODE -ne 0) { throw 'Native vector-grid Pillow dependency setup failed' }
+          python -B -c "from PIL import Image; print('Native grid image analyzer:', Image.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw 'Native grid pixel analyzer import failed' }
           python -B tools/probe_vector_grid_windows.py LUNA-Windows-Portable/LUNA.exe "$env:RUNNER_TEMP/luna-ui/vector-grid"
           if ($LASTEXITCODE -ne 0) { throw 'Native PDF vector grid/ICC/clip regression failed; screenshots in LUNA-UI-Synthetic' }
 

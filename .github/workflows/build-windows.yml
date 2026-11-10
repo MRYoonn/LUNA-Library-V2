@@ -337,6 +337,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "LUNA superscript/subscript selection patch failed" }
           python tools/patch_thin_vector_strokes.py pdf4qt
           if ($LASTEXITCODE -ne 0) { throw "LUNA thin-vector-stroke screen patch failed" }
+          python tools/patch_pdf_clip_transform.py pdf4qt --dry-run
+          if ($LASTEXITCODE -ne 0) { throw "Pinned PDF clip replay patch source mismatch" }
+          python tools/patch_pdf_clip_transform.py pdf4qt
+          if ($LASTEXITCODE -ne 0) { throw "LUNA PDF clip replay patch failed" }
 
       - name: Apply opt-in native session proof
         shell: pwsh
@@ -717,6 +721,22 @@ jobs:
           python -B tools/probe_pdf_icon_windows.py "$output/LUNA.exe"
           if ($LASTEXITCODE -ne 0) { throw 'Compiled LUNA icon resource validation failed' }
           Get-FileHash "$output/LUNA.exe" -Algorithm SHA256 | Format-List
+
+      - name: Verify actual Windows vector grid visibility through the packaged LUNA UI
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        env:
+          LUNA_REQUIRE_GRID_VISIBILITY: '1'
+        run: |
+          # This gate runs before panel capture, which normally installs Pillow.
+          # Pin/install it here so a missing dependency never masquerades as
+          # an actual vector-rendering regression.
+          python -m pip install --disable-pip-version-check Pillow==11.3.0
+          if ($LASTEXITCODE -ne 0) { throw 'Native vector-grid Pillow dependency setup failed' }
+          python -B -c "from PIL import Image; print('Native grid image analyzer:', Image.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw 'Native grid pixel analyzer import failed' }
+          python -B tools/probe_vector_grid_windows.py LUNA-Windows-Portable/LUNA.exe "$env:RUNNER_TEMP/luna-ui/vector-grid"
+          if ($LASTEXITCODE -ne 0) { throw 'Native PDF vector grid/ICC/clip regression failed; screenshots in LUNA-UI-Synthetic' }
 
       - name: Execute native two-document session acceptance
         if: ${{ inputs.native_tabs_proof }}

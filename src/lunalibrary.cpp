@@ -5148,6 +5148,39 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         !library->folderTab_->isChecked() ||
         !library->tree_->selectionModel()->selectedIndexes().isEmpty())
         return fail("Root shortcut did not clear child-folder highlight");
+    // Exercise the same copy endpoint as the top-right reader button with a
+    // real temporary folder, PDF bytes and cropped-thumbnail sidecar. This is
+    // a synthetic fixture, never a user file or a copy into the source folder.
+    checkpoint("reader-copy");
+    auto* activeReader = window.getProgramController();
+    if (!wait([&] { return activeReader->getDocument() &&
+            !activeReader->getIsBusy() && !activeReader->hasUnsavedChanges() &&
+            QFileInfo(activeReader->getOriginalFileName()).canonicalFilePath() ==
+                QFileInfo(path).canonicalFilePath(); }, 12000))
+        return fail("Reader not ready for top-right current-PDF copy test");
+    {
+        QTemporaryDir readerDestination(pdf.absolutePath() +
+            QStringLiteral("/luna-reader-copy-XXXXXX"));
+        if (!readerDestination.isValid())
+            return fail("Synthetic reader-copy folder could not be created");
+        library->selectFolder(readerDestination.path());
+        const QString copiedPath = luna::copyCurrentReaderPdfToSelectedFolder(window, window);
+        const QString copiedThumbnail = SidecarStorage::thumbnail(
+            copiedPath, QStringLiteral(".png"));
+        if (copiedPath != QDir(readerDestination.path()).filePath(pdf.fileName()) ||
+            !QFileInfo(copiedPath).isFile() || !QFileInfo(copiedThumbnail).isFile())
+            return fail("Reader current-PDF copy button failed to create PDF and thumbnail");
+        QFile sourcePdf(path), targetPdf(copiedPath), sourceThumb(thumbnail), targetThumb(copiedThumbnail);
+        if (!sourcePdf.open(QIODevice::ReadOnly) || !targetPdf.open(QIODevice::ReadOnly) ||
+            !sourceThumb.open(QIODevice::ReadOnly) || !targetThumb.open(QIODevice::ReadOnly) ||
+            sourcePdf.readAll() != targetPdf.readAll() ||
+            sourceThumb.readAll() != targetThumb.readAll())
+            return fail("Reader copy changed PDF/thumbnail bytes or failed to retain sidecar");
+        if (QFileInfo(activeReader->getOriginalFileName()).canonicalFilePath() !=
+            QFileInfo(path).canonicalFilePath())
+            return fail("Reader-copy button changed the active PDF tab");
+        library->selectFolder(pdf.absolutePath());
+    }
     // No previously captured QListWidgetItem* is referenced after this point.
     checkpoint("ui-done");
     return true;

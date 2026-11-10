@@ -1,0 +1,45 @@
+name: LUNA reader PDF copy button one-time native Windows validation
+on:
+  push:
+    branches: [feature/reader-copy-current-pdf-20261111]
+    paths: [.github/workflows/reader-copy-build-once.yml]
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: luna-reader-copy-one-time-20261111
+  cancel-in-progress: false
+jobs:
+  source-safety:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public security and all Python contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+  full-windows:
+    needs: source-safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch exact-SHA Windows native Qt and file-copy smoke
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = MRYoonn/LUNA-Library-V2
+          test "$BRANCH" = feature/reader-copy-current-pdf-20261111
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
+          echo "Windows GUI verification dispatched: $SOURCE_SHA; no release published"

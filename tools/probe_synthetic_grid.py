@@ -34,16 +34,18 @@ def long_synthetic_gray_profile() -> bytes:
     return bytes(data)
 
 
-def build(*, long_icc=False, nested_clip=False) -> bytes:
+def build(*, long_icc=False, nested_clip=False, clip_only=False, ctm_only=False) -> bytes:
     profile = long_synthetic_gray_profile() if long_icc else ICC_GRAY_PROFILE
     assert len(profile) >= 316 and profile[16:20] == b"GRAY"
+    use_clip = nested_clip or clip_only
+    use_ctm = nested_clip or ctm_only
     commands = [b"q 1 1 1 rg 0 0 300 220 re f Q\n"]
     for operation, start in ((b"/Cs1 CS 0.651 SC", 45), (b"0.651 G", 165)):
-        if nested_clip:
+        if use_clip:
             commands.append(b"q -0.08537946 0 300 220 re W n\n")
         commands.append(b"q " + operation + b" 0.36 w\n")
         for x in range(start, start + 81, 20):
-            if nested_clip:
+            if use_ctm:
                 commands.append((
                     f"q 1.028571 0 0 1.028571 -0.08537946 0 cm "
                     f"{x/1.028571:.4f} {35/1.028571:.4f} m "
@@ -52,7 +54,7 @@ def build(*, long_icc=False, nested_clip=False) -> bytes:
             else:
                 commands.append(f"{x} 35 m {x} 115 l S\n".encode())
         for y in (35, 55, 75, 95, 115):
-            if nested_clip:
+            if use_ctm:
                 commands.append((
                     f"q 1.028571 0 0 1.028571 -0.08537946 0 cm "
                     f"{start/1.028571:.4f} {y/1.028571:.4f} m "
@@ -63,7 +65,7 @@ def build(*, long_icc=False, nested_clip=False) -> bytes:
         commands.append(b"1.079 w\n")
         commands.append(f"{start} 75 m {start+80} 75 l S\n".encode())
         commands.append(b"Q\n")
-        if nested_clip:
+        if use_clip:
             commands.append(b"Q\n")
     commands.extend([
         b"0 g BT /F1 14 Tf 40 165 Td (LUNA synthetic smoke test) Tj ET\n",

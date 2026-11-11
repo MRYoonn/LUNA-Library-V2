@@ -1040,6 +1040,21 @@ public:
         return true;
     }
 
+    // Undo only a just-cloned record. If anything modified the copied
+    // bibliography after the snapshot, refuse instead of erasing user edits.
+    bool forgetCopiedRecordIfUnchanged(const QString& identity,
+                                       const QVariantMap& expected) {
+        if (identity.isEmpty() || resolve(identity) != identity) return false;
+        auto store = settings();
+        if (store.value(key(identity)).toMap() != expected) return false;
+        store.remove(key(identity));
+        store.sync();
+        if (store.status() != QSettings::NoError) return false;
+        seen_.remove(identity);
+        if (changed) changed(identity);
+        return true;
+    }
+
     bool relocate(const QString& oldIdentity, const QString& newIdentity) {
         if (oldIdentity.isEmpty() || newIdentity.isEmpty()) return false;
         const QString old = resolve(oldIdentity);

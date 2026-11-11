@@ -1,0 +1,76 @@
+name: LUNA v304 one-time verified stable release
+on:
+  push:
+    branches: [release/v0.9.0.304-one-shot-20261111]
+    paths: [.github/workflows/luna-v304-release-once.yml]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: luna-v304-single-publish
+  cancel-in-progress: false
+jobs:
+  publish-verified-v304:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2' && github.ref_name == 'release/v0.9.0.304-one-shot-20261111'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: MRYoonn/LUNA-Library-V2
+      TAG: v0.9.0.304
+      SOURCE_SHA: 97fe534fa96971ced318998e3cad7811240e83da
+      SOURCE_RUN: '43028300307'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify audited exact source, successful native Windows run, merged PR and predecessor
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "$REPO"
+          test "$GITHUB_REF_NAME" = release/v0.9.0.304-one-shot-20261111
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.head_sha')" = "$SOURCE_SHA"
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.head_branch')" = feature/confirm-undo-reader-copy-20261111
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.path')" = .github/workflows/build-windows.yml
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.conclusion')" = success
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN" --jq '.run_attempt')" = 1
+          test "$(gh api "repos/$REPO/actions/runs/$SOURCE_RUN/jobs?per_page=100" --jq '[.jobs[] | select(.name=="build-windows" and .conclusion=="success")] | length')" = 1
+          test "$(gh api "repos/$REPO/pulls/114" --jq '.merged')" = true
+          test "$(gh api "repos/$REPO/pulls/114" --jq '.merge_commit_sha')" = a7b43d1272c652ef7aa70b13001b7449debbcc4b
+          test "$(gh api "repos/$REPO/pulls/114" --jq '.head.sha')" = 97fe534fa96971ced318998e3cad7811240e83da
+          test "$(gh api "repos/$REPO/releases/latest" --jq '.tag_name')" = v0.9.0.303
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then echo 'v304 release already exists'; exit 1; fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then echo 'v304 tag already exists'; exit 1; fi
+          git checkout --detach "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -q
+      - name: Prepare exact validated Windows Portable ZIP and SHA256 update manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging/portable
+          gh run download "$SOURCE_RUN" --repo "$REPO" --name LUNA-Windows-Portable --dir staging/portable
+          python -B -m tools.prepare_release --portable staging/portable --destination dist --tag "$TAG" --source-run "$SOURCE_RUN" --commit "$SOURCE_SHA"
+          python -c "import json,hashlib,pathlib; m=json.loads(pathlib.Path('dist/LUNA-Release.json').read_text()); h=hashlib.sha256(pathlib.Path('dist/LUNA-Windows-Portable.zip').read_bytes()).hexdigest(); assert m['tag']=='v0.9.0.304' and m['source_run']==43028300307 and m['commit']=='97fe534fa96971ced318998e3cad7811240e83da' and m['sha256']==h; print('ZIP and source manifest SHA256 verified')"
+      - name: Publish only after draft assets and their remote hashes are verified
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" dist/LUNA-Windows-Portable.zip dist/LUNA-Release.json --repo "$REPO" --target "$SOURCE_SHA" --draft --title 'LUNA Library v0.9.0.304 — Confirm copy and Ctrl+Z undo' --notes 'Stable Windows Portable release from fully validated Windows GUI build #43028300307, attempt 1. Adds a Cancel-default confirmation dialog before copying the active PDF tab into the currently selected library folder. After a successful copy, one-shot Ctrl+Z moves the newly created PDF and managed thumbnail/metadata to Recycle Bin if unchanged; source PDF is preserved. Cloned bibliography/memo records are removed only if unchanged; open, modified or unsaved PDFs are protected. All Windows native tabs, library, PDF copy/undo, and 236 Python tests passed. Portable auto-update manifest and SHA256 included. KNOWN ISSUE: Some HWP/Quartz PDF table-grid lines remain invisible in the LUNA viewer; that separate PDF4QT clipping issue is not fixed by this release (PR #107 remains unmerged). The v302 experimental grid fix was never released.'
+          ZIP_SHA=$(sha256sum dist/LUNA-Windows-Portable.zip | cut -d' ' -f1)
+          JSON_SHA=$(sha256sum dist/LUNA-Release.json | cut -d' ' -f1)
+          RELEASE_ID=$(gh api "repos/$REPO/releases?per_page=100" | jq -er --arg tag "$TAG" --arg sha "$SOURCE_SHA" '.[] | select(.tag_name==$tag and .target_commitish==$sha and .draft==true) | .id')
+          test -n "$RELEASE_ID"
+          gh api "repos/$REPO/releases/$RELEASE_ID" | jq -e --arg zip "sha256:$ZIP_SHA" --arg manifest "sha256:$JSON_SHA" '
+            (.draft == true) and (.prerelease == false) and
+            (([.assets[] | select(.name=="LUNA-Windows-Portable.zip" and .state=="uploaded" and .digest==$zip)] | length) == 1) and
+            (([.assets[] | select(.name=="LUNA-Release.json" and .state=="uploaded" and .digest==$manifest)] | length) == 1)'
+          gh release edit "$TAG" --repo "$REPO" --draft=false --latest
+          gh api "repos/$REPO/releases/$RELEASE_ID" --jq '.draft == false and .prerelease == false' | grep -qx true
+          test "$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.sha')" = "$SOURCE_SHA"
+          test "$(gh api "repos/$REPO/releases/latest" --jq '.tag_name')" = "$TAG"
+          gh release view "$TAG" --repo "$REPO" --json url,tagName,isDraft,isPrerelease,assets
+          echo "Published validated $TAG source=$SOURCE_SHA run=$SOURCE_RUN zip=$ZIP_SHA manifest=$JSON_SHA"

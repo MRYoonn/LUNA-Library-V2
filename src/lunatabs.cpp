@@ -1315,11 +1315,45 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             integrationRequire(fiveDatesStable, "Opened date disappeared across Windows path spellings");
             fitTabInput(); // Keep real OS input inside the hosted runner's 1024px desktop, including at 150%.
             QList<int> scrollPositions; QList<double> zoomValues;
+            QJsonArray seedViewportEvidence;
             for (int i = 0; i < documents.size(); ++i) {
                 auto* editor = documents[i].data(); tabs->setCurrentWidget(editor);
-                const double zoom = 1.25 + i * .1; auto* widget = editor->getProgramController()->getPdfWidget();
-                widget->getDrawWidgetProxy()->zoom(zoom); QCoreApplication::processEvents();
-                auto* scroll = widget->getVerticalScrollbar(); scroll->setValue(scroll->maximum() / 3);
+                integrationRequire(integrationWait([&] { return ready(editor) &&
+                    !editor->property("LunaMoveRestorePending").toBool(); }, 10000),
+                    "Reader was not settled before five-tab zoom seed");
+                const double zoom = 1.25 + i * .1;
+                auto* widget = editor->getProgramController()->getPdfWidget();
+                widget->getDrawWidgetProxy()->zoom(zoom);
+                // Capture a REAL settled page viewport. Qt/PDF4QT may install
+                // the page layout a few events after changing tabs or changing
+                // zoom, temporarily exposing a 0..0 scrollbar. Capturing that
+                // transient value and later insisting on it is not a valid
+                // "restore reading position" assertion. Do not weaken the
+                // subsequent exact zoom/scroll checks.
+                int stableTicks = 0;
+                const bool settledZoom = integrationWait([&] {
+                    auto* proxy=widget->getDrawWidgetProxy();
+                    const bool same = qAbs(proxy->getZoom()-zoom)<.001;
+                    stableTicks = same ? stableTicks+1 : 0;
+                    return stableTicks>=8 && !editor->property("LunaMoveRestorePending").toBool();
+                }, 3500);
+                auto* scroll = widget->getVerticalScrollbar();
+                if (settledZoom) {
+                    scroll->setValue(scroll->maximum() / 3);
+                    QCoreApplication::processEvents();
+                }
+                seedViewportEvidence.append(QJsonObject{
+                    {"tabIndex", i}, {"requestedZoom", zoom},
+                    {"settledZoom", settledZoom},
+                    {"actualZoom", widget->getDrawWidgetProxy()->getZoom()},
+                    {"scrollPosition", scroll->value()},
+                    {"scrollMax", scroll->maximum()},
+                    {"renamePending", editor->property("LunaMoveRestorePending").toBool()}
+                });
+                result["fiveTabSeedDiagnostics"] = seedViewportEvidence; write();
+                integrationRequire(settledZoom, "Five-tab zoom seed overwritten before title rename");
+                integrationRequire(qAbs(widget->getDrawWidgetProxy()->getZoom()-zoom)<.001,
+                    "Five-tab zoom seed changed during page layout reflow");
                 scrollPositions.append(scroll->value()); zoomValues.append(zoom);
                 const QRect tab = tabs->tabBar()->tabRect(tabs->indexOf(editor));
                 integrationRequire(tab.width() >= 88 && tab.width() <= 240 && tab.height() == 41, "Responsive tabs exceeded compact size bounds");

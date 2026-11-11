@@ -1,0 +1,36 @@
+name: Package verified P0 grid test Portable and public QA evidence
+on:
+  push:
+    branches: [qa/p0-grid-v304-test-report]
+    paths: [.github/workflows/p0-grid-test-package-once.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verified-test-package:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Checkout the exact Windows-tested product source
+        uses: actions/checkout@v4
+        with:
+          ref: 847a0a384a4214845c816ac0fe286cc0e08b9deb
+          path: validated-source
+          persist-credentials: false
+      - name: Validate successful Windows gates and build test-only package without release permissions
+        run: python -B .github/scripts/package_grid_test.py "$GITHUB_WORKSPACE/validated-source" "$RUNNER_TEMP/luna-grid-test"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LUNA-P0-Grid-Test-Package
+          path: ${{ runner.temp }}/luna-grid-test/test-package/
+          retention-days: 90
+          if-no-files-found: error

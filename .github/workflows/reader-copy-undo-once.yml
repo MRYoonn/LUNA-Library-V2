@@ -1,3 +1,4 @@
+# Revalidate with Qt streaming SHA256 and native Ctrl+Z event dispatch.
 # Retry after update to captured canonical-path reader copy contract.
 name: LUNA confirm PDF copy and Ctrl+Z rollback - one-time Windows validation
 on:

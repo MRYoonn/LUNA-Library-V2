@@ -5289,6 +5289,19 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         if (!readerDestination.isValid())
             return fail("Synthetic reader-copy folder could not be created");
         library->selectFolder(readerDestination.path());
+        // Cancel before copying: no file or metadata must be created.
+        QTimer::singleShot(0, &window, [] {
+            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                box->done(QMessageBox::Cancel);
+        });
+        const QString cancelled = luna::copyCurrentReaderPdfToSelectedFolder(window, window);
+        if (!cancelled.isEmpty() ||
+            QFileInfo(QDir(readerDestination.path()).filePath(pdf.fileName())).exists())
+            return fail("Reader-copy cancellation created a PDF");
+        QTimer::singleShot(0, &window, [] {
+            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                box->done(QMessageBox::Yes);
+        });
         const QString copiedPath = luna::copyCurrentReaderPdfToSelectedFolder(window, window);
         const QString copiedThumbnail = SidecarStorage::thumbnail(
             copiedPath, QStringLiteral(".png"));
@@ -5304,6 +5317,15 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         if (QFileInfo(activeReader->getOriginalFileName()).canonicalFilePath() !=
             QFileInfo(path).canonicalFilePath())
             return fail("Reader-copy button changed the active PDF tab");
+        // One-shot Ctrl+Z handler must move ONLY the copied PDF and its
+        // thumbnail to Trash without changing the source/active tab.
+        if (!library->undoLastReaderPdfCopy() ||
+            QFileInfo(copiedPath).exists() || QFileInfo(copiedThumbnail).exists() ||
+            !QFileInfo(path).isFile() || !QFileInfo(thumbnail).isFile())
+            return fail("Reader copy undo failed to recycle copied PDF/thumbnail safely");
+        // Ctrl+Z is one-shot; a second invocation must not delete anything.
+        if (library->undoLastReaderPdfCopy())
+            return fail("Reader copy undo erroneously retained a second deletion");
         library->selectFolder(pdf.absolutePath());
     }
     // No previously captured QListWidgetItem* is referenced after this point.

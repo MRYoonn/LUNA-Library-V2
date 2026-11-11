@@ -7,6 +7,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "tools/probe_grid_baseline_windows.py",
+    "src/lunagridprobe.h", "tools/patch_blend_clip_strokes.py",
+    "src/lunarendertrace.h", "tools/patch_pdf_render_trace.py",
+    "tools/probe_synthetic_grid.py", "tools/probe_vector_grid_windows.py",
     "tests/test_panel_capture.py",
     "tools/capture_panel_comparison_windows.py", ".github/workflows/panel-before-v262-once.yml",
     "tools/evaluate_goldset.py", "tests/test_goldset.py", "tests/goldset/public-papers.json", "tests/goldset/README.md",

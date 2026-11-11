@@ -42,6 +42,7 @@ install(TARGETS LUNA RUNTIME DESTINATION ${PDF4QT_INSTALL_BIN_DIR}
 # A marker is written only after a one-page synthetic document has been loaded.
 # Annotation persistence is checked through the native Editor actions.
 SMOKE_CHECK = r'''
+    if (parser.isSet(lunaGridReport)) luna::startGridProbe(mainWindow,parser.value(lunaGridReport));
     if (parser.isSet(lunaResearchReport))
     {
         if (arguments.size() != 1) return 2;
@@ -182,12 +183,18 @@ def replace_exact(source: str, old: str, new: str) -> str:
 def make_main(src: str) -> str:
     src = replace_exact(src,
         '#include "pdfeditormainwindow.h"',
-        '#include "pdfeditormainwindow.h"\n#include "lunatabs.h"\n#include "pdfprogramcontroller.h"\n#include "pdfdrawwidget.h"\n#include "pdfdrawspacecontroller.h"\n#include "lunalibrary.h"\n#include "lunareadertoolbar.h"\n#include "lunaeditorsmoke.h"')
+        '#include "pdfeditormainwindow.h"\n#include "lunatabs.h"\n#include "pdfprogramcontroller.h"\n#include "pdfdrawwidget.h"\n#include "pdfdrawspacecontroller.h"\n#include "lunalibrary.h"\n#include "lunareadertoolbar.h"\n#include "lunaeditorsmoke.h"\n#include "lunagridprobe.h"')
     src = replace_exact(src,
         '#include <QCommandLineParser>',
         '#include <QCommandLineParser>\n#include <QPainter>\n#include <QPainterPath>\n#include <QPixmap>\n#include <QTimer>\n#include <QSaveFile>\n#include <QSettings>\n#include <QFileInfo>\n#include <memory>\n#include <QJsonDocument>\n#include <QJsonObject>\n#include <QJsonArray>\n#include <QToolBar>')
     src = replace_exact(src, '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);',
         '    pdf::PDFSettings::applyCommandLineSettingsPath(parser);\n'
+        '    if (parser.isSet(lunaGridReport)) {\n'
+        '        if (parser.positionalArguments().size()!=1) return 2;\n'
+        '        QSettings::setDefaultFormat(QSettings::IniFormat);\n'
+        '        QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,QFileInfo(parser.value(lunaGridReport)).absolutePath()+"/settings");\n'
+        '        QSettings(QSettings::IniFormat,QSettings::UserScope,"LUNA","LUNA Library").setValue("library/root",QFileInfo(parser.positionalArguments().front()).absolutePath());\n'
+        '    }\n'
         '    if (parser.isSet(lunaCorpusReport)) {\n'
         '        if (parser.positionalArguments().size() != 1) return 2;\n'
         '        return luna::evaluatePdfCorpus(parser.positionalArguments().front(), parser.value(lunaCorpusReport));\n'
@@ -217,6 +224,8 @@ def make_main(src: str) -> str:
         '    parser.addVersionOption();\n'
         '    QCommandLineOption lunaCorpusReport("luna-corpus-report", "Offline PDF evidence evaluation; explicit local inputs only.", "path");\n'
         '    lunaCorpusReport.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaCorpusReport);\n'
+        '    QCommandLineOption lunaGridReport("luna-grid-report", "Explicit read-only native grid render probe.", "path");\n'
+        '    lunaGridReport.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaGridReport);\n'
         '    QCommandLineOption lunaLifecycleTrace("luna-lifecycle-trace", "Local opt-in window lifetime trace (no document contents).", "path");\n'
         '    lunaLifecycleTrace.setFlags(QCommandLineOption::HiddenFromHelp); parser.addOption(lunaLifecycleTrace);\n'
         '    QCommandLineOption lunaTabsReport("luna-tabs-report", "CI only: native library/tabs integration.", "path");\n'
@@ -252,7 +261,7 @@ def make_main(src: str) -> str:
         'QApplication::setWindowIcon(QIcon(":/luna/LUNA-Moon.ico"));')
     src = replace_exact(src,
         'pdfviewer::PDFEditorMainWindow mainWindow;\n    mainWindow.show();',
-        'if (!parser.isSet(lunaSmokeReport) && !parser.isSet(lunaResearchReport)) return luna::runTabbedLibrary(parser.positionalArguments(), parser.value(lunaTabsReport), parser.isSet(lunaTabsRestore));\n    std::unique_ptr<QWidget> captureHost;\n    pdfviewer::PDFEditorMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
+        'if (!parser.isSet(lunaGridReport)) { if (!parser.isSet(lunaSmokeReport) && !parser.isSet(lunaResearchReport)) return luna::runTabbedLibrary(parser.positionalArguments(), parser.value(lunaTabsReport), parser.isSet(lunaTabsRestore)); }\n    std::unique_ptr<QWidget> captureHost;\n    pdfviewer::PDFEditorMainWindow mainWindow;\n    luna::installLibrary(mainWindow);\n    mainWindow.show();')
     src = replace_exact(src,
         'mainWindow.getProgramController()->openDocument(arguments.front());',
         'if (!luna::openInitialDocument(mainWindow, arguments.front())) return 0;')
@@ -270,6 +279,7 @@ def apply(root: Path, dry_run=False) -> None:
     if len(approved_pdf_icon) != 105070 or hashlib.sha256(approved_pdf_icon).hexdigest() != APPROVED_PDF_ICON_SHA256:
         raise ValueError("Approved red PDF ICO content changed or is missing")
     files = {
+        folder / "lunagridprobe.h": (own / "lunagridprobe.h").read_bytes(),
         folder / "lunatabs.cpp": (own / "lunatabs.cpp").read_bytes(),
         folder / "lunatabs.h": (own / "lunatabs.h").read_bytes(),
         folder / "lunapagegrid.h": (own / "lunapagegrid.h").read_bytes(),

@@ -337,6 +337,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "LUNA superscript/subscript selection patch failed" }
           python tools/patch_thin_vector_strokes.py pdf4qt
           if ($LASTEXITCODE -ne 0) { throw "LUNA thin-vector-stroke screen patch failed" }
+          python -B tools/patch_blend_clip_strokes.py pdf4qt --dry-run
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Blend2D stroke coverage source changed' }
+          python -B tools/patch_blend_clip_strokes.py pdf4qt
+          if ($LASTEXITCODE -ne 0) { throw 'Blend2D stroke culling patch failed' }
+          python -B tools/patch_pdf_render_trace.py pdf4qt --dry-run
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned render instrumentation anchors changed' }
+          python -B tools/patch_pdf_render_trace.py pdf4qt
+          if ($LASTEXITCODE -ne 0) { throw 'Render instrumentation failed' }
 
       - name: Apply opt-in native session proof
         shell: pwsh
@@ -718,6 +726,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Compiled LUNA icon resource validation failed' }
           Get-FileHash "$output/LUNA.exe" -Algorithm SHA256 | Format-List
 
+      - name: Trace and verify six actual Windows grid cases without clip bypasses
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        env:
+          LUNA_REQUIRE_GRID_VISIBILITY: '1'
+        run: |
+          python -m pip install --disable-pip-version-check Pillow==11.3.0
+          if ($LASTEXITCODE -ne 0) { throw 'Grid pixel analyzer installation failed' }
+          python -B tools/prepare_desktop_windows.py "$env:RUNNER_TEMP/luna-ui/grid-desktop.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Actual native grid desktop resolution failed' }
+          python -B tools/probe_vector_grid_windows.py LUNA-Windows-Portable/LUNA.exe "$env:RUNNER_TEMP/luna-ui/vector-grid"
+          if ($LASTEXITCODE -ne 0) { throw 'Actual rendered grid failed; operator/compiler/replay traces and screens preserved' }
+
+      - name: Prove the exact v304 failure and compare direct/compiled Qt and Blend2D
+        if: ${{ !inputs.native_tabs_proof }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -B tools/probe_grid_baseline_windows.py LUNA-Windows-Portable/LUNA.exe "$env:RUNNER_TEMP/luna-ui/vector-grid-before"
+          if ($LASTEXITCODE -ne 0) { throw 'Immutable baseline or controlled renderer comparison failed' }
+
       - name: Execute native two-document session acceptance
         if: ${{ inputs.native_tabs_proof }}
         shell: pwsh
@@ -929,7 +959,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Cannot enumerate executed native Qt test scope' }
           $nativeTests = ($nativeScope | ConvertFrom-Json).tests.Count
           if ($nativeTests -lt 1) { throw 'Empty native Qt test scope' }
-          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ publicBibliographyGoldset = '31 checksum-pinned actual PDFs; direct PDF4QT evaluation passed; detailed field counts retained in native UI artifact'; panelOriginalHeaderY = '36px per original slot, custom widths, all states and height changes passed at 100%, 125%, 150%'; nativeMetadata = 'passed'; userPcRepeatedCtrlW = 'User confirmed 30 closes on Windows 10 at 30e2a01; current CI legacy-layout disposal regression passed under CDB/page heap'; pythonTests = $pythonTests; nativeQtTests = $nativeTests; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; nativeTabBibliographyIsolation = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; singleWindowExplorerPdfTabs = 'first-window ownership, second PDF tab, duplicate activation and Unicode paths passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; publicMainAndSiBibliography = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
+          @{ product = 'LUNA Library'; status = 'development verification'; betaComplete = $false; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; qt = '6.11.3'; pdf4qt = $env:PDF4QT_PIN; vcpkg = $env:VCPKG_PIN; exeSha256 = (Get-FileHash 'LUNA-Windows-Portable/LUNA.exe' -Algorithm SHA256).Hash.ToLowerInvariant(); validation = @{ publicVectorGrid = 'six unchanged pixel gates plus 36 native 100/150/200% positive/negative clips; direct/compiled Qt and Blend2D comparison passed'; privateOriginalPdfWindows = 'not verified; no stable release or merge before private original Windows acceptance'; publicBibliographyGoldset = '31 checksum-pinned actual PDFs; direct PDF4QT evaluation passed; detailed field counts retained in native UI artifact'; panelOriginalHeaderY = '36px per original slot, custom widths, all states and height changes passed at 100%, 125%, 150%'; nativeMetadata = 'passed'; userPcRepeatedCtrlW = 'User confirmed 30 closes on Windows 10 at 30e2a01; current CI legacy-layout disposal regression passed under CDB/page heap'; pythonTests = $pythonTests; nativeQtTests = $nativeTests; windowsCpp = 'passed'; syntheticAnnotationRoundTrip = 'passed'; nativeTabsAndFreshProcessMemo = 'passed at 100%, 125%, 150%'; nativeTabBibliographyIsolation = 'passed at 100%, 125%, 150%'; compactFiveTabUi = 'passed: bounded tabs, left toggle, blue selection/copy, Ctrl+W and Ctrl+Q'; astraNativeProof = '40584019204 at a69be17'; singleWindowExplorerPdfTabs = 'first-window ownership, second PDF tab, duplicate activation and Unicode paths passed'; publicResearchPdf = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; publicMainAndSiBibliography = '${{ inputs.research_pdf_probe && 'passed' || 'not run (optional)' }}'; qtProcessDpi = '100%, 125%, 150% passed'; physicalOsMonitorDpi = 'unverified'; longSessionUse = 'unverified' } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 'LUNA-Windows-Portable/build-info.json'
 
       - name: Verify tagged portable release manifest and file hashes (offline)
         if: ${{ !inputs.native_tabs_proof }}
@@ -986,7 +1016,7 @@ jobs:
         with:
           name: LUNA-UI-Synthetic
           path: ${{ runner.temp }}/luna-ui/
-          retention-days: 7
+          retention-days: 90
           if-no-files-found: warn
 
       - name: Upload LUNA Windows portable artifact
@@ -995,7 +1025,7 @@ jobs:
         with:
           name: LUNA-Windows-Portable
           path: LUNA-Windows-Portable/
-          retention-days: 7
+          retention-days: 90
           if-no-files-found: error
 
       - name: Finalize Windows build diagnostic record

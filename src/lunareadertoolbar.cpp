@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Presentation and input adapters only; PDF4QT owns all document operations.
 #include "lunareadertoolbar.h"
+#include "lunalibrary.h"
 #include "pdfeditormainwindow.h"
 #include "pdfprogramcontroller.h"
 #include "pdfdrawwidget.h"
@@ -51,6 +52,7 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
+#include <QToolTip>
 #include <QVBoxLayout>
 #include <QWidgetAction>
 #include <algorithm>
@@ -1412,17 +1414,33 @@ public:
         auto* rightLayout=new QHBoxLayout(rightGroup_);
         rightLayout->setContentsMargins(0,0,5,0);
         rightLayout->setSpacing(4);
+        // The current PDF tab, NOT the highlighted paper-list row, is copied
+        // to the currently selected real folder in the library navigation.
+        // Keep this immediately LEFT of Search and Print at all window widths.
+        copyButton_=new QToolButton(rightGroup_);
+        copyButton_->setObjectName(QStringLiteral("LunaRightCopyCurrentPdf"));
+        copyButton_->setIcon(readerIcon(QStringLiteral("file-add")));
+        copyButton_->setToolTip(QStringLiteral("현재 열린 PDF를 선택한 라이브러리 폴더에 복사 (원본 유지)"));
+        copyButton_->setAccessibleName(QStringLiteral("현재 PDF를 선택한 폴더에 복사"));
         searchButton_=new QToolButton(rightGroup_);
         searchButton_->setObjectName(QStringLiteral("LunaRightSearch"));
         searchButton_->setToolTip(QStringLiteral("본문 검색 (Ctrl+F)"));
         printButton_=new QToolButton(rightGroup_);
         printButton_->setObjectName(QStringLiteral("LunaRightPrint"));
         printButton_->setToolTip(QStringLiteral("인쇄 (Ctrl+P)"));
-        for (auto* button : {searchButton_,printButton_}) {
+        for (auto* button : {copyButton_,searchButton_,printButton_}) {
             button->setAutoRaise(true);
             button->setFixedSize(32,33);
             rightLayout->addWidget(button);
         }
+        connect(copyButton_, &QToolButton::clicked, this, [this] {
+            if (!editor_) return;
+            const QString copied = copyCurrentReaderPdfToSelectedFolder(shell_, *editor_);
+            if (!copied.isEmpty())
+                QToolTip::showText(copyButton_->mapToGlobal(copyButton_->rect().bottomLeft()),
+                    QStringLiteral("선택한 폴더에 PDF 복사 완료\n%1").arg(copied),
+                    copyButton_, copyButton_->rect(), 4000);
+        });
         rightGroupAction_=new QWidgetAction(bar_);
         rightGroupAction_->setDefaultWidget(rightGroup_);
         saveStatus_=new QLabel(bar_);
@@ -1539,6 +1557,7 @@ private:
     void synchronize() {
         if (!editor_ || !editor_->getProgramController()) return;
         bar_->setEnabled(editor_->isEnabled());
+        copyButton_->setEnabled(bool(editor_->getProgramController()->getDocument()));
         auto* nativePage = editor_->findChild<QSpinBox*>(QStringLiteral("pageNumberSpinBox"));
         auto* nativeCount = editor_->findChild<QLabel*>(QStringLiteral("pageNumberLabel"));
         auto* nativeZoom = editor_->findChild<QDoubleSpinBox*>(QStringLiteral("pageZoomSpinBox"));
@@ -1586,7 +1605,7 @@ private:
     QWidgetAction* spacerAction_ = nullptr;
     QWidget* rightGroup_ = nullptr;
     QWidgetAction* rightGroupAction_ = nullptr;
-    QToolButton *searchButton_ = nullptr, *printButton_ = nullptr;
+    QToolButton *copyButton_ = nullptr, *searchButton_ = nullptr, *printButton_ = nullptr;
     QLabel* saveStatus_ = nullptr;
     QWidgetAction* saveStatusAction_ = nullptr;
     QTimer poll_;

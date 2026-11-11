@@ -119,6 +119,8 @@ APPROVED = {
     "tools/apply_overlay.py", "tools/patch_script_text_layout.py", "tools/patch_thin_vector_strokes.py", "tools/preflight_public.py",
     "tests/test_thin_vector_strokes.py",
     "tests/test_lifetime_card_input.py",
+    "tests/test_reader_copy_toolbar.py",
+    ".github/workflows/reader-copy-build-once.yml",
     ".github/workflows/notability-vector-grid-once.yml",
     "tests/test_script_selection_patch.py",
     "tests/test_public_gate.py",
@@ -144,7 +146,7 @@ APPROVED.update(APPROVED_BINARY)
 # Verified-title rename adds bounded library orchestration without relaxing the default 200 KB cap.
 # Precisely scoped 2 KB allowance for deferred-close filename repair; the
 # default source cap, binary hash pins, secret scan and allowlist stay enforced.
-SOURCE_SIZE_CAPS = {"src/lunalibrary.cpp": 298_000}
+SOURCE_SIZE_CAPS = {"src/lunalibrary.cpp": 305_000}
 FORBIDDEN = [
     ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)),
     ("phone", re.compile(r"(?<!\d)01[016789][-. ]?\d{3,4}[-. ]?\d{4}(?!\d)")),

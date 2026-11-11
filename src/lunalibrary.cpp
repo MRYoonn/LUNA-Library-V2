@@ -1917,6 +1917,44 @@ public:
     }
     void showBothPanels() { navigation_->show(); documents_->show(); updateMinimum(); }
     void focusSearch() { documents_->show(); updateMinimum(); query_->setFocus(); query_->selectAll(); }
+    QString copyOpenReaderToSelectedFolder(pdfviewer::PDFEditorMainWindow& editor) {
+        // The toolbar is shell-owned and shared by all tabs. Never use an old
+        // editor or the current paper-list selection as the copy source.
+        if (viewer_ != &editor || !editor.getProgramController() ||
+            !editor.getProgramController()->getDocument()) {
+            QMessageBox::information(this, QStringLiteral("PDF 복사"),
+                QStringLiteral("먼저 복사할 PDF 탭을 열어 주세요."));
+            return {};
+        }
+        auto* controller = editor.getProgramController();
+        if (controller->hasUnsavedChanges()) {
+            QMessageBox::information(this, QStringLiteral("PDF 복사"),
+                QStringLiteral("현재 PDF에 저장하지 않은 변경사항이 있습니다. 먼저 Ctrl+S로 저장한 후 복사해 주세요."));
+            return {};
+        }
+        const QFileInfo source(controller->getOriginalFileName());
+        const QFileInfo folder(current_);
+        if (!source.isFile() || source.isSymLink() ||
+            source.suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) != 0) {
+            QMessageBox::warning(this, QStringLiteral("PDF 복사 실패"),
+                QStringLiteral("현재 탭의 원본 PDF 파일을 찾을 수 없습니다."));
+            return {};
+        }
+        if (root_.isEmpty() || !folder.isDir() || folder.isSymLink() ||
+            folder.canonicalFilePath().isEmpty()) {
+            QMessageBox::information(this, QStringLiteral("PDF 복사"),
+                QStringLiteral("라이브러리에서 복사할 대상 폴더를 먼저 선택해 주세요."));
+            return {};
+        }
+        if (source.canonicalPath().compare(folder.canonicalFilePath(), Qt::CaseInsensitive) == 0) {
+            QMessageBox::information(this, QStringLiteral("이미 현재 폴더에 있음"),
+                QStringLiteral("이 PDF는 이미 선택한 라이브러리 폴더에 있습니다. 중복 파일은 만들지 않았습니다."));
+            return {};
+        }
+        // Existing copy pipeline rejects collisions and symlinks, preserves
+        // the original PDF, and clones thumbnails and library metadata.
+        return copyDocumentTo(source.canonicalFilePath(), folder.canonicalFilePath());
+    }
     QLineEdit* searchEdit() const { return query_; }
     void savePanelState() {
         if (adjustingPanels_ || navigation_->isHidden() || documents_->isHidden()) return;
@@ -2717,16 +2755,17 @@ private:
             QMessageBox::warning(this, QStringLiteral("복사 데이터 저장 실패"),
                 QStringLiteral("PDF는 복사됐지만 일부 메모·즐겨찾기 저장에 실패했습니다. 원본 데이터는 유지됩니다."));
     }
-    void copyDocumentTo(const QString& source, const QString& destination) {
+    QString copyDocumentTo(const QString& source, const QString& destination) {
         const auto result = copyPdfWithThumbnails(source, destination);
         if (!result.success) {
             QMessageBox::warning(this, QStringLiteral("PDF 복사 실패"), result.error);
-            return;
+            return {};
         }
         cloneCopiedSettings(source, result.documentPath);
         if (bibliography_.record(DocumentClaim::identity(result.documentPath)).isEmpty())
             enqueueImportedMetadata(result.documentPath);
         refreshFileLists();
+        return result.documentPath;
     }
     void transferPdfs(const QStringList& paths, const QString& destination, bool copy) {
         if (!QFileInfo(destination).isDir()) return;
@@ -4235,6 +4274,12 @@ static LibraryPanel* panel(QMainWindow& shell) {
 }
 void bindLibraryEditor(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor) { if (auto* p = panel(shell)) p->bindEditor(editor); }
 void recordLibraryDocument(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor) { if (auto* p = panel(shell)) p->recordEditor(editor); }
+QString copyCurrentReaderPdfToSelectedFolder(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor) {
+    if (auto* p = panel(shell)) return p->copyOpenReaderToSelectedFolder(editor);
+    QMessageBox::information(&shell, QStringLiteral("PDF 복사"),
+        QStringLiteral("라이브러리가 준비되지 않았습니다. 대상 폴더를 먼저 선택해 주세요."));
+    return {};
+}
 void flushLibraryTitleRenames(QMainWindow& shell) {
     if (auto* p = panel(shell)) p->flushPendingTitleRenamesAfterReaderClose();
 }
@@ -5103,6 +5148,39 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         !library->folderTab_->isChecked() ||
         !library->tree_->selectionModel()->selectedIndexes().isEmpty())
         return fail("Root shortcut did not clear child-folder highlight");
+    // Exercise the same copy endpoint as the top-right reader button with a
+    // real temporary folder, PDF bytes and cropped-thumbnail sidecar. This is
+    // a synthetic fixture, never a user file or a copy into the source folder.
+    checkpoint("reader-copy");
+    auto* activeReader = window.getProgramController();
+    if (!wait([&] { return activeReader->getDocument() &&
+            !activeReader->getIsBusy() && !activeReader->hasUnsavedChanges() &&
+            QFileInfo(activeReader->getOriginalFileName()).canonicalFilePath() ==
+                QFileInfo(path).canonicalFilePath(); }, 12000))
+        return fail("Reader not ready for top-right current-PDF copy test");
+    {
+        QTemporaryDir readerDestination(pdf.absolutePath() +
+            QStringLiteral("/luna-reader-copy-XXXXXX"));
+        if (!readerDestination.isValid())
+            return fail("Synthetic reader-copy folder could not be created");
+        library->selectFolder(readerDestination.path());
+        const QString copiedPath = luna::copyCurrentReaderPdfToSelectedFolder(window, window);
+        const QString copiedThumbnail = SidecarStorage::thumbnail(
+            copiedPath, QStringLiteral(".png"));
+        if (copiedPath != QDir(readerDestination.path()).filePath(pdf.fileName()) ||
+            !QFileInfo(copiedPath).isFile() || !QFileInfo(copiedThumbnail).isFile())
+            return fail("Reader current-PDF copy button failed to create PDF and thumbnail");
+        QFile sourcePdf(path), targetPdf(copiedPath), sourceThumb(thumbnail), targetThumb(copiedThumbnail);
+        if (!sourcePdf.open(QIODevice::ReadOnly) || !targetPdf.open(QIODevice::ReadOnly) ||
+            !sourceThumb.open(QIODevice::ReadOnly) || !targetThumb.open(QIODevice::ReadOnly) ||
+            sourcePdf.readAll() != targetPdf.readAll() ||
+            sourceThumb.readAll() != targetThumb.readAll())
+            return fail("Reader copy changed PDF/thumbnail bytes or failed to retain sidecar");
+        if (QFileInfo(activeReader->getOriginalFileName()).canonicalFilePath() !=
+            QFileInfo(path).canonicalFilePath())
+            return fail("Reader-copy button changed the active PDF tab");
+        library->selectFolder(pdf.absolutePath());
+    }
     // No previously captured QListWidgetItem* is referenced after this point.
     checkpoint("ui-done");
     return true;

@@ -10,6 +10,9 @@ void installLibrary(pdfviewer::PDFEditorMainWindow& window);
 void installLibraryShell(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& initial);
 void bindLibraryEditor(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor);
 void recordLibraryDocument(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor);
+// Duplicate the current reader's disk PDF into the selected real library folder.
+// Returns the new file path on success, empty on cancellation/failure.
+QString copyCurrentReaderPdfToSelectedFolder(QMainWindow& shell, pdfviewer::PDFEditorMainWindow& editor);
 // After the native reader and document claims release their handles, drain
 // deferred verified-title renames without touching unverified documents.
 void flushLibraryTitleRenames(QMainWindow& shell);

@@ -50,19 +50,26 @@ public:
         for (int i = 0; i < present.size(); ++i) {
             if (present.at(i) != fingerprints_.at(i).first)
                 return fail(reason, QStringLiteral("복사본 파일 구성이 변경됐습니다."));
-            QFile file(present.at(i));
-            if (!file.open(QIODevice::ReadOnly) ||
-                QCryptographicHash::hash(&file, QCryptographicHash::Sha256) != fingerprints_.at(i).second)
+            QByteArray digest;
+            if (!hashFile(present.at(i), &digest) ||
+                digest != fingerprints_.at(i).second)
                 return fail(reason, QStringLiteral("복사본 파일 내용이 수정됐습니다."));
         }
         return true;
     }
 private:
     bool append(const QString& name) {
+        QByteArray digest;
+        if (!hashFile(name, &digest)) return false;
+        fingerprints_.append(qMakePair(name, digest));
+        return true;
+    }
+    static bool hashFile(const QString& name, QByteArray* out) {
         QFile file(name);
         if (!file.open(QIODevice::ReadOnly)) return false;
-        fingerprints_.append(qMakePair(name,
-            QCryptographicHash::hash(&file, QCryptographicHash::Sha256)));
+        QCryptographicHash hasher(QCryptographicHash::Sha256);
+        if (!hasher.addData(&file)) return false;
+        *out = hasher.result();
         return true;
     }
     static bool fail(QString* reason, const QString& message) {

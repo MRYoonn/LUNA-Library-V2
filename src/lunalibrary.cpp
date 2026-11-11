@@ -1958,8 +1958,8 @@ public:
         const QString destination = folder.canonicalFilePath();
         const QString sourceFile = source.canonicalFilePath();
         if (QMessageBox::question(this, QStringLiteral("PDF 복사 확인"),
-                QStringLiteral("현재 열린 PDF를 선택한 폴더에 복사할까요?\\n\\n"
-                               "PDF: %1\\n대상 폴더: %2\\n\\n"
+                QStringLiteral("현재 열린 PDF를 선택한 폴더에 복사할까요?\n\n"
+                               "PDF: %1\n대상 폴더: %2\n\n"
                                "복사 직후 Ctrl+Z로 복사본을 휴지통에 이동해 취소할 수 있습니다.")
                     .arg(source.fileName(), destination),
                 QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes)
@@ -1994,7 +1994,7 @@ public:
         if (!lastReaderCopy_.unchanged(&reason)) {
             lastReaderCopy_.clear();
             QMessageBox::warning(this, QStringLiteral("PDF 복사 취소 불가"),
-                reason + QStringLiteral("\\n복사본이 변경됐으므로 자동으로 삭제하지 않았습니다."));
+                reason + QStringLiteral("\n복사본이 변경됐으므로 자동으로 삭제하지 않았습니다."));
             return true;
         }
         if ((activateElsewhere && activateElsewhere(copied)) ||

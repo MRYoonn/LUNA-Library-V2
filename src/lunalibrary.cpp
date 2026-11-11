@@ -6,6 +6,7 @@
 #include "lunaautofilename.h"
 #include "lunamanualsi.h"
 #include "lunatrashundo.h"
+#include "lunareadercopyundo.h"
 #include "lunalocalsync.h"
 #include "lunadocumentclaim.h"
 #include "lunabibliography.h"
@@ -82,6 +83,8 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
+#include <QTextEdit>
+#include <QPlainTextEdit>
 #include <QListWidget>
 #include <QLockFile>
 #include <QItemSelectionModel>
@@ -98,6 +101,7 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
+#include <QToolTip>
 #include <QTreeView>
 #include <QVBoxLayout>
 #include <QPointer>
@@ -1951,9 +1955,107 @@ public:
                 QStringLiteral("이 PDF는 이미 선택한 라이브러리 폴더에 있습니다. 중복 파일은 만들지 않았습니다."));
             return {};
         }
-        // Existing copy pipeline rejects collisions and symlinks, preserves
-        // the original PDF, and clones thumbnails and library metadata.
-        return copyDocumentTo(source.canonicalFilePath(), folder.canonicalFilePath());
+        const QString destination = folder.canonicalFilePath();
+        const QString sourceFile = source.canonicalFilePath();
+        if (QMessageBox::question(this, QStringLiteral("PDF 복사 확인"),
+                QStringLiteral("현재 열린 PDF를 선택한 폴더에 복사할까요?\n\n"
+                               "PDF: %1\n대상 폴더: %2\n\n"
+                               "복사 직후 Ctrl+Z로 복사본을 휴지통에 이동해 취소할 수 있습니다.")
+                    .arg(source.fileName(), destination),
+                QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes)
+            return {};
+        // The existing pipeline is atomic/no-overwrite and clones only
+        // managed thumbnail, bibliography and memo records.
+        const QString copied = copyDocumentTo(sourceFile, destination);
+        if (copied.isEmpty()) return {};
+        lastReaderCopy_.clear();
+        readerCopySettings_.clear();
+        if (lastReaderCopy_.remember(copied)) {
+            const QString dateKey = openedDateKey(copied);
+            QSettings store(QSettings::defaultFormat(), QSettings::UserScope,
+                QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+            for (const auto& prefix : {QStringLiteral("library/memos/"),
+                                       QStringLiteral("library/openedDates/")}) {
+                const QString key = prefix + dateKey;
+                readerCopySettings_.insert(key, store.value(key));
+            }
+            readerCopyBibliography_ = bibliography_.record(DocumentClaim::identity(copied));
+            if (!readerCopyFilterInstalled_) {
+                qApp->installEventFilter(this);
+                readerCopyFilterInstalled_ = true;
+            }
+        }
+        return copied;
+    }
+    bool undoLastReaderPdfCopy() {
+        if (!lastReaderCopy_.available()) return false;
+        const QString copied = lastReaderCopy_.path();
+        QString reason;
+        if (!lastReaderCopy_.unchanged(&reason)) {
+            lastReaderCopy_.clear();
+            QMessageBox::warning(this, QStringLiteral("PDF 복사 취소 불가"),
+                reason + QStringLiteral("\n복사본이 변경됐으므로 자동으로 삭제하지 않았습니다."));
+            return true;
+        }
+        if ((activateElsewhere && activateElsewhere(copied)) ||
+            (viewer_ && independentDocuments(*viewer_) &&
+             independentDocuments(*viewer_)->openElsewhere(copied)) ||
+            (viewer_ && viewer_->getProgramController() &&
+             viewer_->getProgramController()->getDocument() &&
+             DocumentClaim::identity(viewer_->getProgramController()->getOriginalFileName()) ==
+                 DocumentClaim::identity(copied))) {
+            QMessageBox::information(this, QStringLiteral("PDF 복사 취소"),
+                QStringLiteral("복사본 PDF가 열려 있습니다. 해당 탭을 닫은 뒤 Ctrl+Z로 취소해 주세요."));
+            return true;
+        }
+        QSettings store(QSettings::defaultFormat(), QSettings::UserScope,
+            QStringLiteral("LUNA"), QStringLiteral("LUNA Library"));
+        for (auto it = readerCopySettings_.cbegin(); it != readerCopySettings_.cend(); ++it) {
+            if (store.value(it.key()) != it.value()) {
+                lastReaderCopy_.clear();
+                QMessageBox::warning(this, QStringLiteral("PDF 복사 취소 불가"),
+                    QStringLiteral("복사본의 메모 또는 열람 기록이 변경되어 자동 삭제를 막았습니다."));
+                return true;
+            }
+        }
+        if (bibliography_.record(DocumentClaim::identity(copied)) != readerCopyBibliography_) {
+            lastReaderCopy_.clear();
+            QMessageBox::warning(this, QStringLiteral("PDF 복사 취소 불가"),
+                QStringLiteral("복사본 서지정보가 변경되어 자동 삭제를 막았습니다."));
+            return true;
+        }
+        luna::RecentTrashUndo recycle;
+        if (!recycle.trash(copied, &reason)) {
+            QMessageBox::warning(this, QStringLiteral("PDF 복사 취소 실패"), reason);
+            return true;
+        }
+        // Remove only cloned settings; the original PDF and its records
+        // are never touched. The physical copy remains recoverable in Trash.
+        for (auto it = readerCopySettings_.cbegin(); it != readerCopySettings_.cend(); ++it)
+            store.remove(it.key());
+        const QString dateKey = openedDateKey(copied);
+        openedDates_.remove(dateKey);
+        memos_.remove(dateKey);
+        for (const QString& field : {QStringLiteral("library/favorites"), QStringLiteral("library/recent")}) {
+            QStringList list = store.value(field).toStringList();
+            list.removeAll(copied);
+            store.setValue(field, list);
+        }
+        favorites_.remove(copied);
+        store.sync();
+        const bool bibliographyCleared = bibliography_.forgetCopiedRecordIfUnchanged(
+            DocumentClaim::identity(copied), readerCopyBibliography_);
+        lastReaderCopy_.clear();
+        readerCopySettings_.clear();
+        readerCopyBibliography_.clear();
+        refreshFileLists();
+        if (store.status() != QSettings::NoError || !bibliographyCleared)
+            QMessageBox::warning(this, QStringLiteral("PDF 복사 취소 · 데이터 확인"),
+                QStringLiteral("복사본은 휴지통으로 옮겼지만 일부 서지정보·설정은 확인이 필요합니다."));
+        else
+            QToolTip::showText(mapToGlobal(rect().topRight()),
+                QStringLiteral("복사 취소 완료 · 복사본은 휴지통으로 이동했고 원본은 유지됩니다."), this);
+        return true;
     }
     QLineEdit* searchEdit() const { return query_; }
     void savePanelState() {
@@ -2927,6 +3029,26 @@ private:
         openPdf(opened);
     }
     bool eventFilter(QObject* observed, QEvent* event) override {
+        // Consume Ctrl+Z ONLY for an immediately pending toolbar copy. Never
+        // steal undo from text entry, a dirty PDF editor or a modal dialog.
+        if (lastReaderCopy_.available() &&
+            (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) &&
+            !QApplication::activeModalWidget() &&
+            QApplication::activeWindow() == window()) {
+            auto* key = static_cast<QKeyEvent*>(event);
+            QWidget* focused = QApplication::focusWidget();
+            const bool editingText = focused && (qobject_cast<QLineEdit*>(focused) ||
+                qobject_cast<QTextEdit*>(focused) || qobject_cast<QPlainTextEdit*>(focused));
+            const bool dirty = viewer_ && viewer_->getProgramController() &&
+                viewer_->getProgramController()->hasUnsavedChanges();
+            if (key->key() == Qt::Key_Z && key->modifiers() == Qt::ControlModifier &&
+                !editingText && !dirty) {
+                if (event->type() == QEvent::ShortcutOverride) {
+                    event->accept(); return false; // prevent the native QAction shortcut
+                }
+                return undoLastReaderPdfCopy();
+            }
+        }
         if (observed == parentWidget() && event->type() == QEvent::Resize) {
             // A real dock resize does not emit QSplitter::splitterMoved. The
             // earlier PR #35 lost user-set widths when a 690px dock was resized.
@@ -3986,6 +4108,10 @@ private:
     QHash<QString, QString> memos_;
     QSet<QString> favorites_;
     luna::RecentTrashUndo recentUndo_;
+    luna::ReaderCopyUndo lastReaderCopy_;
+    QHash<QString, QVariant> readerCopySettings_;
+    QVariantMap readerCopyBibliography_;
+    bool readerCopyFilterInstalled_ = false;
     luna::LocalFolderSync* localSync_=nullptr;
     bool applyingRemote_=false;
     QStringList undoFavorites_, undoRecent_;
@@ -5164,6 +5290,19 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         if (!readerDestination.isValid())
             return fail("Synthetic reader-copy folder could not be created");
         library->selectFolder(readerDestination.path());
+        // Cancel before copying: no file or metadata must be created.
+        QTimer::singleShot(0, &window, [] {
+            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                box->done(QMessageBox::Cancel);
+        });
+        const QString cancelled = luna::copyCurrentReaderPdfToSelectedFolder(window, window);
+        if (!cancelled.isEmpty() ||
+            QFileInfo(QDir(readerDestination.path()).filePath(pdf.fileName())).exists())
+            return fail("Reader-copy cancellation created a PDF");
+        QTimer::singleShot(0, &window, [] {
+            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                box->done(QMessageBox::Yes);
+        });
         const QString copiedPath = luna::copyCurrentReaderPdfToSelectedFolder(window, window);
         const QString copiedThumbnail = SidecarStorage::thumbnail(
             copiedPath, QStringLiteral(".png"));
@@ -5179,6 +5318,23 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         if (QFileInfo(activeReader->getOriginalFileName()).canonicalFilePath() !=
             QFileInfo(path).canonicalFilePath())
             return fail("Reader-copy button changed the active PDF tab");
+        sourcePdf.close(); targetPdf.close(); sourceThumb.close(); targetThumb.close();
+        // Exercise Ctrl+Z from the actual common toolbar widget, including
+        // ShortcutOverride and KeyPress through QApplication's event filters.
+        // Calling the rollback method directly would not test the shortcut.
+        auto* copyControl=window.findChild<QToolButton*>(QStringLiteral("LunaRightCopyCurrentPdf"));
+        if (!copyControl) return fail("Reader copy toolbar control not found for Ctrl+Z");
+        window.activateWindow(); copyControl->setFocus(); QCoreApplication::processEvents();
+        QKeyEvent override(QEvent::ShortcutOverride,Qt::Key_Z,Qt::ControlModifier);
+        QApplication::sendEvent(copyControl,&override);
+        QKeyEvent ctrlZ(QEvent::KeyPress,Qt::Key_Z,Qt::ControlModifier);
+        QApplication::sendEvent(copyControl,&ctrlZ);
+        if (QFileInfo(copiedPath).exists() || QFileInfo(copiedThumbnail).exists() ||
+            !QFileInfo(path).isFile() || !QFileInfo(thumbnail).isFile())
+            return fail("Ctrl+Z did not recycle copied PDF/thumbnail and preserve source");
+        // Ctrl+Z is one-shot; a second invocation must not delete anything.
+        if (library->undoLastReaderPdfCopy())
+            return fail("Reader copy undo erroneously retained a second deletion");
         library->selectFolder(pdf.absolutePath());
     }
     // No previously captured QListWidgetItem* is referenced after this point.

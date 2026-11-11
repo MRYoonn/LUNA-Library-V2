@@ -1,0 +1,49 @@
+# Rerun after preserving settled viewport seed diagnostics before async title rename.
+# Rebuild after staging copy-undo header in pinned PDF4QT overlay.
+# Revalidate with Qt streaming SHA256 and native Ctrl+Z event dispatch.
+# Retry after update to captured canonical-path reader copy contract.
+name: LUNA confirm PDF copy and Ctrl+Z rollback - one-time Windows validation
+on:
+  push:
+    branches: [feature/confirm-undo-reader-copy-20261111]
+    paths: [.github/workflows/reader-copy-undo-once.yml]
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: luna-copy-undo-20261111
+  cancel-in-progress: false
+jobs:
+  safe-source:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Security guard and full Python regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+  native-windows:
+    needs: safe-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch exact SHA native Windows PDF copy and undo smoke
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = MRYoonn/LUNA-Library-V2
+          test "$BRANCH" = feature/confirm-undo-reader-copy-20261111
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
+          echo "Native Windows full build dispatched for audited source $SOURCE_SHA; no release published"

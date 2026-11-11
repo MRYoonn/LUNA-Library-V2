@@ -1438,7 +1438,7 @@ public:
             const QString copied = copyCurrentReaderPdfToSelectedFolder(shell_, *editor_);
             if (!copied.isEmpty())
                 QToolTip::showText(copyButton_->mapToGlobal(copyButton_->rect().bottomLeft()),
-                    QStringLiteral("선택한 폴더에 PDF 복사 완료\n%1").arg(copied),
+                    QStringLiteral("선택한 폴더에 PDF 복사 완료 · Ctrl+Z로 취소\n%1").arg(copied),
                     copyButton_, copyButton_->rect(), 4000);
         });
         rightGroupAction_=new QWidgetAction(bar_);

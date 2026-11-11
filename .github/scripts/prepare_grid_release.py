@@ -5,11 +5,13 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 
 
 def api(endpoint):
-    return json.loads(subprocess.check_output(['gh','api',endpoint],text=True))
+    separator='&' if '?' in endpoint else '?'
+    return json.loads(subprocess.check_output(['gh','api',endpoint+separator+'poll='+str(time.time_ns())],text=True))
 
 
 def digest(path):
@@ -144,6 +146,7 @@ def main():
             '- Immutable v304 baseline reproduced missing Blend strokes while direct/compiled Qt succeeded. Required tabs, library/file management, annotations, public-paper/SI/corpus, DPI, CDB/full page heap and package hashes succeeded; per-step API outcomes are in windows-jobs.json.\n'
             f'- Owner confirmed the private original at100/150/200% on Windows on {acceptance["date_kst"]}; source EXE hash is recorded in user-acceptance.json. Public CI never received the original. PR119 is merged.\n'
             '- First QA packaging run43053218029 failed only because a newer gh CLI refused raw ANSI job-log output. Read the already retained child log files instead; product binaries and all Windows validation remain unchanged.\n')
+        record.write('- Draft preparation run43055684721 verified packaging but failed after creating the empty draft because its immediate release-list response did not contain the new draft (IndexError). Use the POST response directly and refresh mutable API reads; no product build or test criteria changed.\n')
     shutil.copyfile(source/'tools/probe_synthetic_grid.py',qa/'probe_synthetic_grid.py')
     (qa/'user-acceptance.json').write_text(json.dumps(acceptance,indent=2)+'\n')
     lines=['# LUNA P0 PDF 격자선 — Windows 검증 및 v305 정식 배포','',
@@ -233,10 +236,12 @@ def main():
     existing=[r for r in releases if r['tag_name']==payload['release_tag']]
     assert len(existing)<=1
     if not existing:
-        subprocess.run(['gh','release','create',payload['release_tag'],'--repo',repo,
-                        '--draft','--target',sha,'--title','LUNA Library v0.9.0.305 — PDF clipping grid fix',
-                        '--notes-file',str(notes_path)],check=True)
-        existing=[r for r in api(f'{prefix}/releases?per_page=100') if r['tag_name']==payload['release_tag']]
+        create_path=package/'draft-create.json'
+        create_path.write_text(json.dumps(dict(tag_name=payload['release_tag'],target_commitish=sha,
+            name='LUNA Library v0.9.0.305 — PDF clipping grid fix',body=notes,draft=True,
+            prerelease=False,make_latest='false')))
+        existing=[json.loads(subprocess.check_output(['gh','api','--method','POST',
+            f'{prefix}/releases','--input',str(create_path)],text=True))]
     release=existing[0]
     assert release['draft'] and not release['prerelease'] and release['target_commitish']==sha
     remote={a['name']:a for a in release['assets']}

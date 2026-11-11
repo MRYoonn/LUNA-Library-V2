@@ -1,4 +1,5 @@
 name: Prepare verified P0 grid v305 release assets and draft
+# Read the created draft directly; avoid a stale list immediately after creation.
 on:
   push:
     branches: [qa/p0-grid-v304-test-report]

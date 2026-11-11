@@ -101,6 +101,7 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
+#include <QToolTip>
 #include <QTreeView>
 #include <QVBoxLayout>
 #include <QPointer>
@@ -2052,8 +2053,8 @@ public:
             QMessageBox::warning(this, QStringLiteral("PDF 복사 취소 · 데이터 확인"),
                 QStringLiteral("복사본은 휴지통으로 옮겼지만 일부 서지정보·설정은 확인이 필요합니다."));
         else
-            QMessageBox::information(this, QStringLiteral("PDF 복사 취소 완료"),
-                QStringLiteral("방금 복사한 PDF와 썸네일을 휴지통으로 옮겼습니다. 원본은 그대로입니다."));
+            QToolTip::showText(mapToGlobal(rect().topRight()),
+                QStringLiteral("복사 취소 완료 · 복사본은 휴지통으로 이동했고 원본은 유지됩니다."), this);
         return true;
     }
     QLineEdit* searchEdit() const { return query_; }
@@ -5317,6 +5318,7 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
         if (QFileInfo(activeReader->getOriginalFileName()).canonicalFilePath() !=
             QFileInfo(path).canonicalFilePath())
             return fail("Reader-copy button changed the active PDF tab");
+        sourcePdf.close(); targetPdf.close(); sourceThumb.close(); targetThumb.close();
         // One-shot Ctrl+Z handler must move ONLY the copied PDF and its
         // thumbnail to Trash without changing the source/active tab.
         if (!library->undoLastReaderPdfCopy() ||

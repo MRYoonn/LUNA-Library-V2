@@ -5319,12 +5319,19 @@ bool verifyLibraryUi(pdfviewer::PDFEditorMainWindow& window, QString& error, con
             QFileInfo(path).canonicalFilePath())
             return fail("Reader-copy button changed the active PDF tab");
         sourcePdf.close(); targetPdf.close(); sourceThumb.close(); targetThumb.close();
-        // One-shot Ctrl+Z handler must move ONLY the copied PDF and its
-        // thumbnail to Trash without changing the source/active tab.
-        if (!library->undoLastReaderPdfCopy() ||
-            QFileInfo(copiedPath).exists() || QFileInfo(copiedThumbnail).exists() ||
+        // Exercise Ctrl+Z from the actual common toolbar widget, including
+        // ShortcutOverride and KeyPress through QApplication's event filters.
+        // Calling the rollback method directly would not test the shortcut.
+        auto* copyControl=window.findChild<QToolButton*>(QStringLiteral("LunaRightCopyCurrentPdf"));
+        if (!copyControl) return fail("Reader copy toolbar control not found for Ctrl+Z");
+        window.activateWindow(); copyControl->setFocus(); QCoreApplication::processEvents();
+        QKeyEvent override(QEvent::ShortcutOverride,Qt::Key_Z,Qt::ControlModifier);
+        QApplication::sendEvent(copyControl,&override);
+        QKeyEvent ctrlZ(QEvent::KeyPress,Qt::Key_Z,Qt::ControlModifier);
+        QApplication::sendEvent(copyControl,&ctrlZ);
+        if (QFileInfo(copiedPath).exists() || QFileInfo(copiedThumbnail).exists() ||
             !QFileInfo(path).isFile() || !QFileInfo(thumbnail).isFile())
-            return fail("Reader copy undo failed to recycle copied PDF/thumbnail safely");
+            return fail("Ctrl+Z did not recycle copied PDF/thumbnail and preserve source");
         // Ctrl+Z is one-shot; a second invocation must not delete anything.
         if (library->undoLastReaderPdfCopy())
             return fail("Reader copy undo erroneously retained a second deletion");

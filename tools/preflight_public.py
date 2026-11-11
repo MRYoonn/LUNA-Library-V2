@@ -7,6 +7,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED = {
+    "tools/probe_grid_baseline_windows.py",
+    "src/lunagridprobe.h", "tools/patch_blend_clip_strokes.py",
     "src/lunarendertrace.h", "tools/patch_pdf_render_trace.py",
     "tools/probe_synthetic_grid.py", "tools/probe_vector_grid_windows.py",
     "tests/test_panel_capture.py",

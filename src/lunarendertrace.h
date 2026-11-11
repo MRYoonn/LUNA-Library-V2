@@ -8,6 +8,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QPainter>
+#include <QPainterPath>
 
 namespace luna::RenderTrace {
 inline bool enabled() {

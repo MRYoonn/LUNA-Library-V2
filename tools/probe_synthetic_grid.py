@@ -74,6 +74,10 @@ def build(*, long_icc=False, nested_clip=False, clip_only=False, ctm_only=False)
         b"0 g BT /F1 8 Tf 45 20 Td (SYNTHETIC - NO USER DATA) Tj ET\n",
     ])
     first = b"".join(commands)
+    return assemble(first, profile)
+
+
+def assemble(first: bytes, profile: bytes, resources: bytes = b'') -> bytes:
     second = b"BT /F1 14 Tf 40 165 Td (Second synthetic page) Tj ET\n"
 
     def stream(data: bytes) -> bytes:
@@ -82,7 +86,7 @@ def build(*, long_icc=False, nested_clip=False, clip_only=False, ctm_only=False)
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] /Resources << /Font << /F1 4 0 R >> /ColorSpace << /Cs1 [ /ICCBased 8 0 R ] >> >> /Contents 5 0 R >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] /Resources << /Font << /F1 4 0 R >> /ColorSpace << /Cs1 [ /ICCBased 8 0 R ] >> " + resources + b">> /Contents 5 0 R >>" if resources else b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] /Resources << /Font << /F1 4 0 R >> /ColorSpace << /Cs1 [ /ICCBased 8 0 R ] >> >> /Contents 5 0 R >>",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         stream(first),
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] /Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>",
@@ -100,6 +104,67 @@ def build(*, long_icc=False, nested_clip=False, clip_only=False, ctm_only=False)
         pdf.extend(f"{pos:010d} 00000 n \n".encode())
     pdf.extend(f"trailer\n<< /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{startxref}\n%%EOF\n".encode())
     return bytes(pdf)
+
+
+EXTENDED_CASES = ('nested-tight', 'hole-evenodd', 'triangle', 'disjoint-clips',
+                  'saved-restore', 'alpha-strokes')
+
+
+def extended(case):
+    """Real intersections, nonrectangular clips, empty clips and state restore.
+
+    These extend the original six fixtures without changing any of their bytes.
+    All geometry and colors are independently generated; no private PDF data.
+    """
+    import re
+    baseline = build(nested_clip=case == 'nested-tight')
+    # Extract only our own generated, uncompressed content stream.
+    body = re.search(rb'5 0 obj\n<< /Length \d+ >>\nstream\n(.*?)\nendstream', baseline, re.S).group(1)
+    resources = b''
+    if case == 'nested-tight':
+        # The original case's q/clip around each grid now intersects two more
+        # clips in the same graphics-state ancestry, including its CTM.
+        clip = b'35 25 230 110 re W n 55 45 180 60 re W n\n'
+    elif case == 'hole-evenodd':
+        clip = b'0 0 300 220 re 80 55 140 40 re W* n\n'
+    elif case == 'triangle':
+        clip = b'35 25 m 270 25 l 150 135 l h W n\n'
+    elif case == 'disjoint-clips':
+        clip = b'0 0 140 220 re W n 160 0 140 220 re W n\n'
+    elif case == 'saved-restore':
+        clip = b'55 45 180 60 re W n\n'
+    elif case == 'alpha-strokes':
+        clip = b'0 0 300 220 re 290 210 m 295 210 l 295 215 l h W* n /GS1 gs\n'
+        resources = b'/ExtGState << /GS1 << /Type /ExtGState /CA 0.6 /ca 0.6 >> >> '
+    else:
+        raise ValueError('Unknown synthetic clip case')
+    body = b'q\n' + clip + body + b'Q\n'
+    if case == 'saved-restore':
+        body += b'0 0 1 rg 275 20 10 10 re f\n'
+    return assemble(body, ICC_GRAY_PROFILE, resources)
+
+
+def visible(case, x, y):
+    """Known PDF-space visibility; None marks boundary samples to exclude."""
+    if case in ('nested-tight', 'saved-restore'):
+        if min(abs(x-55), abs(x-235), abs(y-45), abs(y-105)) < 3:
+            return None
+        return 55 < x < 235 and 45 < y < 105
+    if case == 'hole-evenodd':
+        if min(abs(x-80), abs(x-220), abs(y-55), abs(y-95)) < 3:
+            return None
+        return not (80 < x < 220 and 55 < y < 95)
+    if case == 'triangle':
+        # Signed cross-products for a counter-clockwise triangle; reject
+        # samples within three PDF points of an edge.
+        vertices = ((35,25),(270,25),(150,135))
+        distances=[]
+        for a,b in zip(vertices,vertices[1:]+vertices[:1]):
+            dx,dy=b[0]-a[0],b[1]-a[1]
+            distances.append((dx*(y-a[1])-dy*(x-a[0]))/(dx*dx+dy*dy)**.5)
+        if min(abs(v) for v in distances)<3:return None
+        return all(v>0 for v in distances)
+    return case != 'disjoint-clips'
 
 
 if __name__ == "__main__":

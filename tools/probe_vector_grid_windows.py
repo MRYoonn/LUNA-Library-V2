@@ -6,12 +6,96 @@ native Qt screenshots; always retain screenshot and JSON even on failure.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
 import sys
 from PIL import Image
+
+
+def gray_ink(image, point, radius):
+    x,y=map(round,point)
+    sample=image.crop((x-radius,y-radius,x+radius+1,y+radius+1)).convert('RGB')
+    return sum((255-(r+g+b)/3)/255 for r,g,b in sample.getdata()
+               if max(r,g,b)-min(r,g,b)<=12 and 100<=(r+g+b)/3<254)
+
+
+def measure_native_grid(image, geometry, case):
+    from probe_synthetic_grid import visible
+    a,b,c,d,tx,ty=geometry['pageToWindow']
+    radius=math.ceil(geometry['zoom']*.75)+1
+    checks=[]
+    for color,start in [('icc',45),('device',165)]:
+        points=[(x,y) for x in range(start,start+81,20) for y in (45,65,85,105)]
+        points += [(x,y) for y in (35,55,75,95,115) for x in range(start+10,start+80,20)]
+        for x,y in points:
+            expected=visible(case,x,y)
+            if expected is None:continue
+            pixel=(a*x+c*y+tx,b*x+d*y+ty)
+            if not radius<=pixel[0]<image.width-radius or not radius<=pixel[1]<image.height-radius:
+                raise RuntimeError('Expected grid sample is outside the actual native screenshot')
+            ink=gray_ink(image,pixel,radius)
+            checks.append(dict(color=color,pdf=[x,y],pixel=pixel,expectedVisible=expected,
+                               grayInk=ink,passed=(ink>.02 if expected else ink<.01)))
+    if case=='saved-restore':
+        x,y=280,25
+        pixel=(round(a*x+c*y+tx),round(b*x+d*y+ty))
+        r,g,blue=image.convert('RGB').getpixel(pixel)
+        checks.append(dict(restoredBlueMarker=True,pixel=pixel,passed=blue>220 and r<30 and g<30))
+    return dict(samples=checks,passed=bool(checks) and all(c['passed'] for c in checks))
+
+
+def native_zoom_matrix(executable,directory,env):
+    from probe_synthetic_grid import build,extended,EXTENDED_CASES
+    original=[('short-icc-no-clip',{}),('long-icc-no-clip',{'long_icc':True}),
+              ('short-icc-clip-only',{'clip_only':True}),('short-icc-ctm-only',{'ctm_only':True}),
+              ('short-icc-nested-clip',{'nested_clip':True}),
+              ('long-icc-nested-clip',{'long_icc':True,'nested_clip':True})]
+    fixtures=[(name,build(**options)) for name,options in original]
+    fixtures += [(name,extended(name)) for name in EXTENDED_CASES]
+    results=[]
+    for name,data in fixtures:
+        for zoom in (1.0,1.5,2.0):
+            folder=directory/'native-matrix'/name/str(zoom)
+            folder.mkdir(parents=True)
+            pdf=folder/'synthetic-grid.pdf';pdf.write_bytes(data)
+            report=folder/'render.json';local_env=dict(env,LUNA_GRID_ZOOM=str(zoom),LUNA_METADATA_OFFLINE='1')
+            # Keep the legacy six-case trace. New matrix captures real desktop
+            # pixels without tracing, so diagnostics cannot mask the regression.
+            local_env.pop('LUNA_PDF_RENDER_TRACE',None)
+            if zoom==2.0:local_env['LUNA_GRID_COMPARE_ENGINES']='1'
+            completed=subprocess.run([str(executable.resolve()),'--luna-grid-report',str(report),str(pdf)],
+                cwd=folder,env=local_env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+                text=True,errors='replace',timeout=90)
+            (folder/'process.log').write_text(completed.stdout,encoding='utf-8')
+            if completed.returncode or not report.exists():
+                raise RuntimeError(f'Actual top-level LUNA grid capture failed: {name}/{zoom}, code={completed.returncode}')
+            if not pdf.exists() or hashlib.sha256(pdf.read_bytes()).hexdigest()!=hashlib.sha256(data).hexdigest():
+                raise RuntimeError('Read-only render probe changed its original PDF')
+            geometry=json.loads(report.read_text(encoding='utf-8-sig'))
+            if (geometry['zoom']!=zoom or geometry['devicePixelRatio']!=1 or
+                not geometry['nativeWindowCapture'] or not geometry['compiledReady'] or not geometry['blendBackend']):
+                raise RuntimeError('Wrong native zoom/window geometry')
+            image=Image.open(str(report)+'.native.png')
+            result=measure_native_grid(image,geometry,name)
+            if zoom==2.0:
+                reference_geometry={'zoom':zoom,'pageToWindow':[zoom,0,0,-zoom,0,220*zoom]}
+                comparisons={}
+                for mode in ('direct-qt','compiled-qt','direct-blend','compiled-blend'):
+                    comparisons[mode]=measure_native_grid(Image.open(str(report)+'.'+mode+'.png'),reference_geometry,name)
+                result['engineComparisons']=comparisons
+                result['passed'] = result['passed'] and all(v['passed'] for v in comparisons.values())
+            result.update(case=name,zoom=zoom,geometry=geometry)
+            results.append(result)
+            # Save every result before an assertion, including all mismatches.
+            (directory/'native-grid-matrix.json').write_text(json.dumps(results,indent=2),encoding='utf-8')
+            print('native-window',name,zoom,'passed',result['passed'],flush=True)
+    if not all(r['passed'] for r in results):
+        raise RuntimeError('Actual native grid/clip-hole/empty-clip/restore/alpha pixel assertions failed')
+    print('[PASS] 36 actual native Windows captures at 100/150/200% with positive and negative clip samples')
 
 
 def classify(image: Image.Image) -> dict:
@@ -100,6 +184,7 @@ def main(executable: Path, directory: Path) -> None:
                 ", ".join(missing) + "; see screenshot evidence"
             )
         print("[PASS] All six native Windows ICC/DeviceGray/clip/CTM grids are visibly drawn")
+        native_zoom_matrix(executable,directory,env)
 
 
 if __name__ == "__main__":

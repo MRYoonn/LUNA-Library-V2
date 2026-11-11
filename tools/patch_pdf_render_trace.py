@@ -78,20 +78,55 @@ def patch_processor(source):
     return source
 
 
+def patch_backend(source):
+    if MARKER in source:
+        raise ValueError('Already traced Blend2D backend')
+    source = once(source, '#include "pdfblpainter.h"', '#include "pdfblpainter.h"\n#include "lunarendertrace.h" // '+MARKER)
+    source = once(source, '    setFillRule(path.fillRule());', '''    if (luna::RenderTrace::enabled()) {
+        QPainterPathStroker diagnosticStroker(m_currentPen);
+        const QPainterPath stroke = m_currentTransform.map(diagnosticStroker.createStroke(path));
+        luna::RenderTrace::event("backend.path.cull", {
+            {"centerPath", luna::RenderTrace::path(transformedPath)},
+            {"strokePath", luna::RenderTrace::path(stroke)},
+            {"clipPath", luna::RenderTrace::path(m_finalClipPath.value_or(QPainterPath()))},
+            {"clipMode", int(clipMode)}, {"centerlineClipMode", int(resolveClipping(transformedPath))},
+            {"clipSingleRect", m_clipSingleRect},
+            {"clipEnabled", m_currentIsClipEnabled}, {"strokeActive", isStrokeActive() && enableStroke},
+            {"pen", luna::RenderTrace::pen(m_currentPen)}});
+    }
+    setFillRule(path.fillRule());''')
+    source = once(source, '        blcompat::stroke_path(*m_blContext, blPath);', '''        if (luna::RenderTrace::enabled()) luna::RenderTrace::event("backend.stroke.called", {
+            {"path", luna::RenderTrace::path(path)}, {"pen", luna::RenderTrace::pen(m_currentPen)}});
+        blcompat::stroke_path(*m_blContext, blPath);''')
+    source = once(source, '                    blcompat::fill_path(*m_blContext, getBLPath(finalTransformedStrokedPath));', '''                    if (luna::RenderTrace::enabled()) luna::RenderTrace::event("backend.clippedStroke.called", {
+                        {"coverage", luna::RenderTrace::path(finalTransformedStrokedPath)},
+                        {"pen", luna::RenderTrace::pen(m_currentPen)}});
+                    blcompat::fill_path(*m_blContext, getBLPath(finalTransformedStrokedPath));''')
+    source = once(source, '    m_clipSingleRect = false;\n    m_finalClipPathBoundingBox', '''    if (luna::RenderTrace::enabled()) luna::RenderTrace::event("backend.clip.intersection", {
+        {"path", luna::RenderTrace::path(*m_finalClipPath)},
+        {"operation", int(clipOperation)}, {"ctm", luna::RenderTrace::matrix(m_currentTransform)}});
+    m_clipSingleRect = false;
+    m_finalClipPathBoundingBox''')
+    return source
+
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('pdf4qt_root',type=Path)
     parser.add_argument('--dry-run',action='store_true')
     args=parser.parse_args()
     patched = {}
-    for name, transform in [('pdfpainter.cpp',patch_painter),('pdfpagecontentprocessor.cpp',patch_processor)]:
+    for name, transform in [('pdfpainter.cpp',patch_painter),('pdfpagecontentprocessor.cpp',patch_processor),
+                            ('pdfblpainter.cpp',patch_backend)]:
         target=args.pdf4qt_root/CORE/name
         raw=target.read_bytes(); newline=b'\r\n' if b'\r\n' in raw else b'\n'
         result=transform(raw.replace(b'\r\n',b'\n').decode()).encode().replace(b'\n',newline)
         patched[target] = result
     if not args.dry_run:
         for target, result in patched.items(): target.write_bytes(result)
-        (args.pdf4qt_root/CORE/'lunarendertrace.h').write_bytes((ROOT/'src/lunarendertrace.h').read_bytes())
+        header=(ROOT/'src/lunarendertrace.h').read_bytes().replace(b'\r\n',b'\n')
+        ending=b'\r\n' if b'\r\n' in (args.pdf4qt_root/CORE/'pdfpainter.cpp').read_bytes() else b'\n'
+        (args.pdf4qt_root/CORE/'lunarendertrace.h').write_bytes(header.replace(b'\n',ending))
     print('[PASS] Explicit opt-in PDF operator/compiler/replay trace; rendering semantics unchanged')
 
 

@@ -1,0 +1,27 @@
+{
+  "repository": "MRYoonn/LUNA-Library-V2",
+  "source_sha": "847a0a384a4214845c816ac0fe286cc0e08b9deb",
+  "source_run": 43045754089,
+  "base_sha": "97fe534fa96971ced318998e3cad7811240e83da",
+  "base_tag": "v0.9.0.304",
+  "release_tag": "v0.9.0.305",
+  "pr": 119,
+  "private_original_windows_user_confirmed": true,
+  "user_acceptance": {
+    "date_kst": "2026-11-12",
+    "source_sha": "847a0a384a4214845c816ac0fe286cc0e08b9deb",
+    "source_run": 43045754089,
+    "exe_sha256": "d3ea3a4a679f737864aa09c1586d3fd56c12a306515be64283398a5fbfd4338b",
+    "scales": [
+      100,
+      150,
+      200
+    ],
+    "method": "user confirmed privately in this session",
+    "public_ci_used_original": false
+  },
+  "base_asset_digests": {
+    "LUNA-Release.json": "sha256:869088a2a6d4dd95eec7ed9b13810fdf3558e8c7fdaedada17170f12363a9fb0",
+    "LUNA-Windows-Portable.zip": "sha256:3e925756a02b33073b0f00187eec6aceee58b8b6a435fd96ff015e34ecdc83cc"
+  }
+}

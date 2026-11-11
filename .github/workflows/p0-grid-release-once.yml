@@ -1,13 +1,14 @@
-name: Package verified P0 grid test Portable and public QA evidence
+name: Prepare verified P0 grid v305 release assets and draft
 on:
   push:
     branches: [qa/p0-grid-v304-test-report]
-    paths: [.github/workflows/p0-grid-test-package-once.yml]
+    paths: [.github/workflows/p0-grid-release-once.yml]
 permissions:
-  contents: read
+  contents: write
   actions: read
+  pull-requests: read
 jobs:
-  verified-test-package:
+  verified-release-draft:
     if: github.repository == 'MRYoonn/LUNA-Library-V2'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -20,17 +21,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Checkout the exact Windows-tested product source
+      - name: Checkout the exact Windows-tested and user-accepted product source
         uses: actions/checkout@v4
         with:
           ref: 847a0a384a4214845c816ac0fe286cc0e08b9deb
           path: validated-source
           persist-credentials: false
-      - name: Validate successful Windows gates and build test-only package without release permissions
-        run: python -B .github/scripts/package_grid_test.py "$GITHUB_WORKSPACE/validated-source" "$RUNNER_TEMP/luna-grid-test"
+      - name: Verify all gates, package unchanged binaries, upload and verify draft assets
+        run: python -B .github/scripts/prepare_grid_release.py "$GITHUB_WORKSPACE/validated-source" "$RUNNER_TEMP/luna-grid-release"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: LUNA-P0-Grid-Test-Package
-          path: ${{ runner.temp }}/luna-grid-test/test-package/
+          name: LUNA-P0-Grid-Release-Assets
+          path: ${{ runner.temp }}/luna-grid-release/release-assets/
           retention-days: 90
           if-no-files-found: error

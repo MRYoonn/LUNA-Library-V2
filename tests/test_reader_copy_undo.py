@@ -10,6 +10,7 @@ LIBRARY = (ROOT / "src/lunalibrary.cpp").read_text(encoding="utf-8")
 TOOLBAR = (ROOT / "src/lunareadertoolbar.cpp").read_text(encoding="utf-8")
 SNAPSHOT = (ROOT / "src/lunareadercopyundo.h").read_text(encoding="utf-8")
 BIBLIO = (ROOT / "src/lunabibliography.h").read_text(encoding="utf-8")
+OVERLAY = (ROOT / "tools/apply_overlay.py").read_text(encoding="utf-8")
 
 
 class ReaderCopyUndoContract(unittest.TestCase):
@@ -24,6 +25,9 @@ class ReaderCopyUndoContract(unittest.TestCase):
         self.assertIn("qApp->installEventFilter(this)", body)
         self.assertIn("Ctrl+Z", body)
         self.assertIn("Ctrl+Z", TOOLBAR)
+
+    def test_native_build_includes_copy_undo_header(self):
+        self.assertIn('folder / "lunareadercopyundo.h": (own / "lunareadercopyundo.h").read_bytes()', OVERLAY)
 
     def test_undo_only_last_intact_disk_copy(self):
         for phrase in (

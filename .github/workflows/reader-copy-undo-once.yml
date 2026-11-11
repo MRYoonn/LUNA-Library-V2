@@ -1,3 +1,4 @@
+# Retry after update to captured canonical-path reader copy contract.
 name: LUNA confirm PDF copy and Ctrl+Z rollback - one-time Windows validation
 on:
   push:

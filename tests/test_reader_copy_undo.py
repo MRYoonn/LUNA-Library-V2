@@ -32,7 +32,9 @@ class ReaderCopyUndoContract(unittest.TestCase):
             "SidecarStorage::allCompanions(path_)", "QCryptographicHash::Sha256",
             "file.isSymLink()", "file.isFile()",
             "present.size() != fingerprints_.size()",
-            "QCryptographicHash::hash(&file, QCryptographicHash::Sha256)",
+            "QCryptographicHash hasher(QCryptographicHash::Sha256)",
+            "hasher.addData(&file)",
+            "hasher.result()",
             "void clear()",
         ):
             self.assertIn(phrase, SNAPSHOT)

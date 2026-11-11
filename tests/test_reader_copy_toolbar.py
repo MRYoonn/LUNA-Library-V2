@@ -42,7 +42,9 @@ class ReaderCopyToolbarContracts(unittest.TestCase):
             'controller->hasUnsavedChanges()',
             'current_',
             'source.canonicalPath().compare(folder.canonicalFilePath(), Qt::CaseInsensitive) == 0',
-            'copyDocumentTo(source.canonicalFilePath(), folder.canonicalFilePath())',
+            'const QString sourceFile = source.canonicalFilePath()',
+            'const QString destination = folder.canonicalFilePath()',
+            'copyDocumentTo(sourceFile, destination)',
         ):
             self.assertIn(text, section)
         self.assertNotIn('selectedItems()', section)

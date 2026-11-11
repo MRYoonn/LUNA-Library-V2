@@ -68,21 +68,42 @@ inline void startGridProbe(pdfviewer::PDFEditorMainWindow& window, const QString
     timer->setInterval(100);
     QObject::connect(timer,&QTimer::timeout,&window,
         [&window,output,zoom,timer,attempt=0,phase=0,observed=QTransform(),stable=QElapsedTimer()]() mutable {
-        if (++attempt>300) { timer->stop(); qApp->exit(21); return; }
         auto* controller = window.getProgramController();
         auto* document = controller->getDocument();
-        if (!document || !controller->canClose() || document->getCatalog()->getPageCount()<1) return;
         auto* pdfWidget = controller->getPdfWidget();
         auto* proxy = pdfWidget->getDrawWidgetProxy();
         auto* widget = pdfWidget->getDrawWidget()->getWidget();
-        if (phase==0) {
-            proxy->setPageLayout(pdf::PageLayout::OneColumn); proxy->zoom(zoom); proxy->goToPage(0);
-            phase=1; return;
-        }
+        const bool remembered=!window.property("LunaRememberedPath").toString().isEmpty() &&
+            window.property("LunaRememberedSource").toString()==controller->getOriginalFileName();
         const auto snapshot=proxy->getSnapshot();
         const auto* page=snapshot.getPageSnapshot(0);
-        if (!page || qAbs(proxy->getZoom()-zoom)>.0001 ||
-            !proxy->getCompiler()->getCompiledPage(0,pdf::PDFAsynchronousPageCompiler::CompileMode::None)) return;
+        const bool compiled=document && controller->canClose() && proxy->getCompiler() &&
+            proxy->getCompiler()->getCompiledPage(0,pdf::PDFAsynchronousPageCompiler::CompileMode::None);
+        QJsonObject state{{"phase",phase}, {"attempt",++attempt}, {"documentPresent",bool(document)},
+            {"canClose",controller->canClose()}, {"rememberedSourceMatches",remembered},
+            {"zoom",proxy->getZoom()}, {"targetZoom",zoom}, {"pageSnapshot",bool(page)},
+            {"compiledReady",compiled}, {"renamePending",window.property("LunaMoveRestorePending").toBool()},
+            {"visible",window.isVisible()}};
+        if (attempt==1 || attempt%10==0) qInfo().noquote()<<"GRID_READY_STATE"<<QJsonDocument(state).toJson(QJsonDocument::Compact);
+        if (attempt>300) {
+            timer->stop(); window.grab().save(output+".failure.png");
+            if (window.screen()) window.screen()->grabWindow(0).save(output+".failure.desktop.png");
+            QSaveFile failure(output+".failure.json");
+            if (failure.open(QIODevice::WriteOnly)) { failure.write(QJsonDocument(state).toJson()); failure.commit(); }
+            qCritical().noquote()<<"GRID_TIMEOUT_STATE"<<QJsonDocument(state).toJson(QJsonDocument::Compact);
+            qApp->exit(21); return;
+        }
+        if (!document || !controller->canClose() || document->getCatalog()->getPageCount()<1) return;
+        if (phase==0) {
+            // The normal library's queued rememberEditor() applies its default
+            // opening zoom. Seed the requested test zoom AFTER that transition,
+            // then retain the exact stable-zoom/cached-page/pixel assertions.
+            if (!remembered || window.property("LunaMoveRestorePending").toBool()) return;
+            proxy->setPageLayout(pdf::PageLayout::OneColumn); proxy->zoom(zoom); proxy->goToPage(0);
+            qInfo().noquote()<<"GRID_ZOOM_SEEDED"<<QJsonDocument(state).toJson(QJsonDocument::Compact);
+            phase=1; return;
+        }
+        if (!page || qAbs(proxy->getZoom()-zoom)>.0001 || !compiled) return;
         if (!stable.isValid() || observed!=page->pageToDeviceMatrix) {
             observed=page->pageToDeviceMatrix; stable.restart(); return;
         }

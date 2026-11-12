@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: 2
+          fetch-depth: 0
       - name: Verify approved v306 source and successful Windows build
         shell: bash
         env:
@@ -30,8 +30,8 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "MRYoonn/LUNA-Library-V2"
           test "$GITHUB_REF_NAME" = "release/v306-execution-20261112"
-          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
-          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = ".github/workflows/release-v306-once.yml"
+          git merge-base --is-ancestor "$SOURCE_SHA" HEAD
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = ".github/workflows/release-v306-once.yml"
           test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.conclusion')" = "success"
           test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.head_sha')" = "$SOURCE_SHA"
           test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.path')" = ".github/workflows/build-windows.yml"

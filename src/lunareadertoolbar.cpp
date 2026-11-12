@@ -21,6 +21,8 @@
 #include <QLineEdit>
 #include <QApplication>
 #include <QDialog>
+#include <QTabWidget>
+#include <QGroupBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QPlainTextEdit>
@@ -1693,6 +1695,45 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
     if (auto* saveAs = nativeAction(window, "actionSave_As")) {
         saveAs->setText(QStringLiteral("다른 이름으로 저장…"));
         saveAs->setToolTip(QStringLiteral("원본을 보존하는 PDF 복사본 저장 (Ctrl+Shift+S)"));
+    }
+    // PDF4QT already has a native document-properties Fonts tab that scans
+    // page font resources asynchronously. Expose it directly rather than
+    // duplicating font parsing or exporting potentially licensed font data.
+    // Every native editor owns its own action; the shell rebinds that editor's
+    // File menu on tab change, so a previous tab can never be inspected.
+    if (auto* properties = nativeAction(window, "actionProperties")) {
+        if (auto* fileMenu = window.findChild<QMenu*>(QStringLiteral("menuFile"))) {
+            auto* inventory = new QAction(QStringLiteral("PDF 글꼴 정보…"), &window);
+            inventory->setObjectName(QStringLiteral("LunaDocumentFontInventory"));
+            inventory->setToolTip(QStringLiteral("현재 PDF의 사용 글꼴·유형·인코딩·포함 여부 확인"));
+            inventory->setEnabled(properties->isEnabled());
+            QObject::connect(properties, &QAction::changed, inventory,
+                [inventory, properties] { inventory->setEnabled(properties->isEnabled()); });
+            QObject::connect(inventory, &QAction::triggered, &window,
+                [editor = QPointer<pdfviewer::PDFEditorMainWindow>(&window), properties] {
+                    if (!editor || !properties->isEnabled() || !editor->getProgramController() ||
+                        !editor->getProgramController()->getDocument()) return;
+                    // The existing action enters QDialog::exec(). Queue a
+                    // selection for its modal event loop, then let PDF4QT
+                    // own the dialog, document lifetime and async font scan.
+                    QTimer::singleShot(0, editor, [editor] {
+                        if (!editor) return;
+                        auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+                        if (!dialog || dialog->objectName() != QStringLiteral("PDFDocumentPropertiesDialog") ||
+                            dialog->parentWidget() != editor) return;
+                        auto* tabs = dialog->findChild<QTabWidget*>(QStringLiteral("tabWidget"));
+                        auto* fonts = dialog->findChild<QWidget*>(QStringLiteral("fontsTab"));
+                        if (!tabs || !fonts || tabs->indexOf(fonts) < 0) return;
+                        tabs->setCurrentWidget(fonts);
+                        tabs->setTabText(tabs->indexOf(fonts), QStringLiteral("글꼴"));
+                        if (auto* group = dialog->findChild<QGroupBox*>(QStringLiteral("fontsGroupBox")))
+                            group->setTitle(QStringLiteral("이 문서에 사용된 글꼴"));
+                        dialog->setWindowTitle(QStringLiteral("PDF 글꼴 정보"));
+                    });
+                    properties->trigger();
+                });
+            fileMenu->insertAction(properties, inventory);
+        }
     }
     hideAdvancedToolbars(window);
     auto* interaction = new ReadingInteraction(window);

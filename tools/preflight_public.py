@@ -125,6 +125,8 @@ APPROVED = {
     "tests/test_lifetime_card_input.py",
     "tests/test_reader_copy_toolbar.py",
     "tests/test_reader_copy_undo.py",
+    "tests/test_pdf_font_inventory.py",
+    ".github/workflows/pdf-font-inventory-once.yml",
     ".github/workflows/reader-copy-undo-once.yml",
     ".github/workflows/reader-copy-build-once.yml",
     ".github/workflows/notability-vector-grid-once.yml",

@@ -39,6 +39,7 @@
 #include <QSettings>
 #include <QPointer>
 #include <QTabWidget>
+#include <QTreeWidget>
 #include <QTimer>
 #include <QToolBar>
 #include <QStatusBar>
@@ -1085,6 +1086,54 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         else
             settings.remove(QStringLiteral("annotations/pinnedHighlightSwatches"));
         result["readerToolbarPinnedColorsAndRightActions"]=true;
+        // Use the native PDF4QT Properties dialog, and require the new LUNA
+        // menu action to open directly on the Fonts tab with actual per-page
+        // font resources. Synthetic fixture A has /F1 /Helvetica.
+        phase("PDF native font inventory");
+        auto* inventoryAction = a->findChild<QAction*>(QStringLiteral("LunaDocumentFontInventory"));
+        auto* nativeProperties = a->findChild<QAction*>(QStringLiteral("actionProperties"));
+        auto* fontFileMenu = a->findChild<QMenu*>(QStringLiteral("menuFile"));
+        integrationRequire(inventoryAction && inventoryAction->isEnabled() &&
+            nativeProperties && fontFileMenu &&
+            fontFileMenu->actions().contains(inventoryAction) &&
+            fontFileMenu->actions().indexOf(inventoryAction) <
+                fontFileMenu->actions().indexOf(nativeProperties),
+            "LUNA font inventory not reachable before native Properties");
+        bool fontDialogOpened=false, fontTabSelected=false;
+        int fontCount=-1;
+        QTimer fontPoll;
+        fontPoll.setInterval(35);
+        QObject::connect(&fontPoll, &QTimer::timeout, &host, [&] {
+            auto* dlg=qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            if (!dlg || dlg->objectName()!=QStringLiteral("PDFDocumentPropertiesDialog")) return;
+            fontDialogOpened=true;
+            auto* fontTabs=dlg->findChild<QTabWidget*>(QStringLiteral("tabWidget"));
+            auto* fontTab=dlg->findChild<QWidget*>(QStringLiteral("fontsTab"));
+            auto* fontTree=dlg->findChild<QTreeWidget*>(QStringLiteral("fontsTreeWidget"));
+            fontTabSelected = fontTabs && fontTab && fontTabs->currentWidget()==fontTab &&
+                fontTabs->tabText(fontTabs->indexOf(fontTab))==QStringLiteral("글꼴");
+            if (fontTabSelected && fontTree && fontTree->topLevelItemCount()>0) {
+                fontCount=fontTree->topLevelItemCount();
+                dlg->reject();
+            }
+        });
+        QTimer fontGuard;
+        fontGuard.setSingleShot(true);
+        QObject::connect(&fontGuard, &QTimer::timeout, &host, [] {
+            if (auto* dlg=qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                if (dlg->objectName()==QStringLiteral("PDFDocumentPropertiesDialog")) dlg->reject();
+        });
+        fontPoll.start(); fontGuard.start(4500);
+        inventoryAction->trigger();
+        fontGuard.stop(); fontPoll.stop();
+        result["fontInventoryDiagnostics"]=QJsonObject{
+            {"nativeDialogOpened",fontDialogOpened},
+            {"fontsTabSelected",fontTabSelected},
+            {"fontsFound",fontCount}
+        }; write();
+        integrationRequire(fontDialogOpened && fontTabSelected && fontCount>=1,
+            "LUNA font inventory did not display fonts from the native PDF");
+        integrationRequire(ready(a), "Font inventory changed or closed the active PDF");
         phase("menu vertical alignment and library chrome");
         auto* menu = host.menuBar();
         integrationRequire(menu->height() == 48, "Menu/brand row differs from the approved HTML's 48 logical pixels");

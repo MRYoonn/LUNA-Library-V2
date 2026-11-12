@@ -1,0 +1,93 @@
+name: LUNA v306 approved stable release (one-shot)
+on:
+  push:
+    branches: [release/v306-execution-20261112]
+    paths: [.github/workflows/release-v306-once.yml]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: luna-v306-publish-once
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify approved v306 source and successful Windows build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: e09522bc04a27aa177b954eaf5d3e628fefb1360
+          RUN_ID: '43135335123'
+          VERSION_TAG: v0.9.0.306
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "MRYoonn/LUNA-Library-V2"
+          test "$GITHUB_REF_NAME" = "release/v306-execution-20261112"
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = ".github/workflows/release-v306-once.yml"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.conclusion')" = "success"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.head_sha')" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.path')" = ".github/workflows/build-windows.yml"
+          if gh release view "$VERSION_TAG" >/dev/null 2>&1; then
+            echo "Release already exists; refuse to overwrite"
+            exit 1
+          fi
+          test -z "$(git ls-remote --tags origin "refs/tags/$VERSION_TAG")"
+      - name: Download validated exact-SHA portable build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging/portable
+          gh run download 43135335123 --repo "$GITHUB_REPOSITORY" --name LUNA-Windows-Portable --dir staging/portable
+          test -f staging/portable/LUNA.exe
+          test -f staging/portable/build-info.json
+      - name: Build automatic-updater compatible SHA256-verified release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m tools.prepare_release --portable staging/portable --destination dist --tag v0.9.0.306 --source-run 43135335123 --commit e09522bc04a27aa177b954eaf5d3e628fefb1360
+          python - <<'PY'
+          import hashlib, json, pathlib, zipfile
+          root=pathlib.Path('dist')
+          m=json.loads((root/'LUNA-Release.json').read_text())
+          archive=root/'LUNA-Windows-Portable.zip'
+          assert m['schema']==2 and m['tag']=='v0.9.0.306'
+          assert m['source_run']==43135335123
+          assert m['commit']=='e09522bc04a27aa177b954eaf5d3e628fefb1360'
+          assert hashlib.sha256(archive.read_bytes()).hexdigest()==m['sha256']
+          with zipfile.ZipFile(archive) as z:
+              assert sorted(z.namelist())==sorted(x['path'] for x in m['files'])
+              for f in m['files']:
+                  assert hashlib.sha256(z.read(f['path'])).hexdigest()==f['sha256']
+          print('LUNA v306 release manifest, payload and all file SHA256 digests verified')
+          PY
+      - name: Publish Stable v306 after user approval
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'NOTES'
+          Adobe Acrobat처럼 PDF 문서에서 사용된 글꼴 정보를 확인할 수 있습니다.
+
+          - 파일 → PDF 글꼴 정보…: 글꼴 이름, 유형, 인코딩, 포함 여부 확인
+          - 현재 활성 PDF만 검사하며 PDF4QT의 기존 비동기 폰트 목록을 사용
+          - 글꼴 파일 추출/수정 없음. 기존 v305 격자선 수정 및 PDF 편집 기능 유지
+          - Windows native 폰트 대화상자 검증, 전체 Portable 빌드/회귀 테스트 통과
+          - 사용자 개인 연구노트 PDF에서의 최종 확인은 별도로 필요함
+          - Windows 검증: https://github.com/MRYoonn/LUNA-Library-V2/actions/runs/43135335123
+          - 변경 PR: https://github.com/MRYoonn/LUNA-Library-V2/pull/122
+
+          소스 SHA: e09522bc04a27aa177b954eaf5d3e628fefb1360
+          Portable ZIP 및 updater schema-2 SHA256 manifest 포함.
+          NOTES
+          gh release create v0.9.0.306 dist/LUNA-Windows-Portable.zip dist/LUNA-Release.json             --repo "$GITHUB_REPOSITORY" --target e09522bc04a27aa177b954eaf5d3e628fefb1360             --title "LUNA Library v0.9.0.306 — PDF 글꼴 정보 표시"             --notes-file release-notes.md --latest
+          gh release view v0.9.0.306 --repo "$GITHUB_REPOSITORY" --json url,isDraft,isPrerelease,tagName,assets

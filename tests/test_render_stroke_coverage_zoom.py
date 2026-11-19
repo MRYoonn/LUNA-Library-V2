@@ -44,6 +44,29 @@ class ClippedStrokePixelContract(unittest.TestCase):
                                        (10, 10, 30, 30), zoom)
                 self.assertTrue(pixels, "Coverage may intersect while centerline does not")
 
+    def test_horizontal_centerline_outside_clip_but_coverage_inside(self):
+        # Symmetric with the vertical case: the horizontal centreline is
+        # outside the clip, while its finite stroke width still overlaps.
+        clip = (10, 10, 30, 30)
+        for zoom in (1.0, 1.5, 2.0):
+            with self.subTest(zoom=zoom):
+                pixels = stroke_pixels("horizontal", 9.75, (12, 28), 1.5,
+                                       clip, zoom)
+                self.assertTrue(pixels, "Horizontal stroke coverage must survive clipping")
+                self.assertTrue(all(10 * zoom <= x + 0.5 < 30 * zoom and
+                                    10 * zoom <= y + 0.5 < 30 * zoom
+                                    for x, y in pixels))
+
+    def test_both_axes_entirely_outside_clip(self):
+        # A coverage-aware culling fix must not leak pixels from strokes
+        # whose complete painted extent is beyond the clip boundary.
+        clip = (10, 10, 30, 30)
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("horizontal", "vertical"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    self.assertFalse(stroke_pixels(axis, 8, (12, 28), 1,
+                                                   clip, zoom))
+
     def test_truly_invisible_stroke_stays_invisible(self):
         for zoom in (1.0, 1.5, 2.0):
             self.assertFalse(stroke_pixels("vertical", 5, (12, 28), 1,

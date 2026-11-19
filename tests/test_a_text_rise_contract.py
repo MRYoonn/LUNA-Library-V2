@@ -75,6 +75,37 @@ class TextRiseContract(unittest.TestCase):
         self.assertNotIn("Second synthetic page", texts[0] + texts[2])
         self.assertNotIn("Third synthetic page", texts[0] + texts[1])
 
+    def test_pymupdf_superscript_and_subscript_have_opposite_vertical_offsets(self):
+        # Geometry oracle: verifies the generated fixture has measurable rise,
+        # rather than merely containing PDF text-state operators.
+        import fitz
+        with fitz.open(stream=synthetic_pdf(2), filetype="pdf") as doc:
+            blocks = doc[1].get_text("rawdict")["blocks"]
+        lines = [
+            line for block in blocks if "lines" in block
+            for line in block["lines"]
+        ]
+        small_threes = []
+        for line in lines:
+            chars = [
+                (char["c"], char["bbox"], span["size"])
+                for span in line["spans"] for char in span["chars"]
+            ]
+            threes = [bbox for char, bbox, size in chars
+                      if char == "3" and abs(size - 10) < 0.5]
+            normals = [bbox for char, bbox, size in chars
+                       if char.strip() and abs(size - 16) < 0.5]
+            if threes and normals:
+                self.assertEqual(len(threes), 1)
+                small_y = (threes[0][1] + threes[0][3]) / 2
+                normal_y = sum((b[1] + b[3]) / 2 for b in normals) / len(normals)
+                small_threes.append((small_y - normal_y, threes[0][1]))
+        self.assertEqual(len(small_threes), 2)
+        # Top-to-bottom: the superscript is above the baseline, subscript below.
+        small_threes.sort(key=lambda pair: pair[1])
+        self.assertLess(small_threes[0][0], 0)
+        self.assertGreater(small_threes[1][0], 0)
+
     def test_single_page_does_not_contain_rise_fixture(self):
         pdf = synthetic_pdf(1)
         self.assertNotIn(b"6 Ts (3) Tj", pdf)

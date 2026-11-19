@@ -25,6 +25,35 @@ def stroke_pixels(axis, center, span, width, clip, zoom):
     return pixels
 
 
+
+def stroke_area_pixels(axis, center, span, width, clip, zoom):
+    """Pixel cells with positive geometric overlap (not anti-aliased color).
+
+    Unlike pixel-centre sampling, this detects subpixel strokes and is a
+    conservative visibility oracle for the native Blend2D screenshot gate.
+    """
+    import math
+    if width <= 0 or zoom <= 0:
+        return set()
+    cx0, cy0, cx1, cy1 = (v * zoom for v in clip)
+    lo, hi = (v * zoom for v in span)
+    mid, half = center * zoom, width * zoom / 2
+    if axis == "vertical":
+        sx0, sy0, sx1, sy1 = mid - half, lo, mid + half, hi
+    elif axis == "horizontal":
+        sx0, sy0, sx1, sy1 = lo, mid - half, hi, mid + half
+    else:
+        raise ValueError("Unknown stroke axis")
+    x0, y0 = max(cx0, sx0), max(cy0, sy0)
+    x1, y1 = min(cx1, sx1), min(cy1, sy1)
+    if x1 <= x0 or y1 <= y0:
+        return set()
+    return {(x, y) for y in range(math.floor(y0), math.ceil(y1))
+            for x in range(math.floor(x0), math.ceil(x1))
+            if min(x + 1, x1) > max(x, x0)
+            and min(y + 1, y1) > max(y, y0)}
+
+
 class ClippedStrokePixelContract(unittest.TestCase):
     def test_clipped_vertical_and_horizontal_at_three_zooms(self):
         clip = (10, 10, 30, 30)
@@ -71,6 +100,32 @@ class ClippedStrokePixelContract(unittest.TestCase):
         for zoom in (1.0, 1.5, 2.0):
             self.assertFalse(stroke_pixels("vertical", 5, (12, 28), 1,
                                            (10, 10, 30, 30), zoom))
+
+
+    def test_subpixel_stroke_coverage_survives_at_all_zooms(self):
+        # At 100% a 0.12pt stroke can miss every pixel centre despite
+        # positive area coverage; pixel-centre-only gates give false negatives.
+        clip = (10, 10, 30, 30)
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    area = stroke_area_pixels(axis, 15.2, (12, 28), 0.12, clip, zoom)
+                    self.assertTrue(area)
+                    self.assertTrue(all(10 * zoom < x + 1 and x < 30 * zoom
+                                        and 10 * zoom < y + 1 and y < 30 * zoom
+                                        for x, y in area))
+
+    def test_subpixel_stroke_clip_boundary_and_outside(self):
+        clip = (10, 10, 30, 30)
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    self.assertTrue(stroke_area_pixels(axis, 9.99, (12, 28),
+                                                       0.04, clip, zoom))
+                    self.assertFalse(stroke_area_pixels(axis, 9.9, (12, 28),
+                                                        0.04, clip, zoom))
+                    self.assertFalse(stroke_area_pixels(axis, 10, (12, 28),
+                                                        0, clip, zoom))
 
     def test_pinned_patch_uses_coverage_without_clip_bypass(self):
         from pathlib import Path

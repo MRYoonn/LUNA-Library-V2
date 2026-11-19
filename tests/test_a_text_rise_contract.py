@@ -61,6 +61,20 @@ class TextRiseContract(unittest.TestCase):
             self.assertEqual(stream.count(b"-4 Ts (3) Tj"), int(index == 1))
             self.assertEqual(stream.count(b"0 Ts"), 2 if index == 1 else 0)
 
+
+    def test_pymupdf_extraction_preserves_page_and_baseline_text(self):
+        # Extraction oracle only: this does not prove native Reader drag/Ctrl+C.
+        import fitz
+        with fitz.open(stream=synthetic_pdf(3), filetype="pdf") as doc:
+            self.assertEqual(len(doc), 3)
+            texts = [page.get_text(sort=True) for page in doc]
+        self.assertIn("LUNA synthetic smoke test", texts[0])
+        self.assertIn("Second synthetic page", texts[1])
+        self.assertIn("Third synthetic page", texts[2])
+        self.assertIn("3", texts[1])
+        self.assertNotIn("Second synthetic page", texts[0] + texts[2])
+        self.assertNotIn("Third synthetic page", texts[0] + texts[1])
+
     def test_single_page_does_not_contain_rise_fixture(self):
         pdf = synthetic_pdf(1)
         self.assertNotIn(b"6 Ts (3) Tj", pdf)

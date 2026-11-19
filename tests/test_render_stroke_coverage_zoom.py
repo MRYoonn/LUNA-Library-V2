@@ -156,6 +156,24 @@ class ClippedStrokePixelContract(unittest.TestCase):
                     self.assertTrue(inner)
                     self.assertTrue(inner.issubset(outer))
 
+    def test_subpixel_coverage_not_lost_to_pixel_centre_sampling(self):
+        # Notability-like thin grid: a stroke can occupy a fractional pixel
+        # without covering any pixel centre. This is an oracle, not Blend2D.
+        clip = (10, 10, 30, 30)
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    # Choose a device-space position at an integer boundary,
+                    # halfway between neighbouring pixel centres.
+                    center = 15.0 / zoom
+                    width = 0.10 / zoom
+                    area = stroke_area_pixels(axis, center, (12, 18), width,
+                                              clip, zoom)
+                    sampled = stroke_pixels(axis, center, (12, 18), width,
+                                            clip, zoom)
+                    self.assertTrue(area, "Positive subpixel coverage expected")
+                    self.assertFalse(sampled, "Pixel-centre gate must miss it")
+
     def test_pinned_patch_uses_coverage_without_clip_bypass(self):
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1] / "tools" /

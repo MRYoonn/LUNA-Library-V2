@@ -3,6 +3,7 @@
 Run: python -m unittest tests.test_a_text_rise_contract -v
 This checks fixture construction only, NOT native Ctrl+C accuracy.
 """
+import math
 import re
 import unittest
 from tools.smoke_windows import synthetic_pdf
@@ -126,7 +127,7 @@ class TextRiseContract(unittest.TestCase):
             # Both text runs use different baselines; preserve both origins.
             self.assertNotEqual(threes[0][0][1], threes[1][0][1])
             for origin, size in threes:
-                self.assertTrue(all(__import__("math").isfinite(v) for v in origin))
+                self.assertTrue(all(math.isfinite(v) for v in origin))
                 self.assertAlmostEqual(size, 10, delta=0.5)
             for other in (doc[0], doc[2]):
                 self.assertNotIn("3", other.get_text())

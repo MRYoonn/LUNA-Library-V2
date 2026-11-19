@@ -174,6 +174,28 @@ class ClippedStrokePixelContract(unittest.TestCase):
                     self.assertTrue(area, "Positive subpixel coverage expected")
                     self.assertFalse(sampled, "Pixel-centre gate must miss it")
 
+    def test_integer_device_translation_preserves_subpixel_coverage(self):
+        # Moving the same geometry by whole device pixels must translate
+        # its coverage mask, not change the count or lose thin grid lines.
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    original = stroke_area_pixels(
+                        axis, 15.2, (12, 28), 0.08,
+                        (10, 10, 30, 30), zoom)
+                    dx, dy = 3, 5
+                    translated = stroke_area_pixels(
+                        axis, 15.2 + (dx if axis == "vertical" else dy) / zoom,
+                        tuple(v + (dy if axis == "vertical" else dx) / zoom
+                              for v in (12, 28)),
+                        0.08,
+                        (10 + dx / zoom, 10 + dy / zoom,
+                         30 + dx / zoom, 30 + dy / zoom),
+                        zoom)
+                    self.assertTrue(original)
+                    self.assertEqual({(x + dx, y + dy) for x, y in original},
+                                     translated)
+
     def test_pinned_patch_uses_coverage_without_clip_bypass(self):
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1] / "tools" /

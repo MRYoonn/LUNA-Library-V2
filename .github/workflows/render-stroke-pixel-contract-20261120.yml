@@ -1,0 +1,23 @@
+name: C render stroke pixel contract (Windows)
+on:
+  push:
+    branches:
+      - test/render-stroke-coverage-zoom-20261120
+  workflow_dispatch:
+jobs:
+  synthetic-pixel-contract:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Synthetic clipped stroke pixel contract at 100/150/200 percent
+        run: python -m unittest discover -s tests -p test_render_stroke_coverage_zoom.py -v
+      - name: Preserve release source provenance
+        shell: pwsh
+        run: |
+          if (!(Test-Path "tools/patch_blend_clip_strokes.py")) { throw "Missing stable renderer patch" }
+          if (!(Test-Path "Pdf4QtLibCore")) { throw "Not a full release source checkout" }
+          git log -1 --format="%H %s"

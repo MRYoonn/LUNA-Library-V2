@@ -1,0 +1,20 @@
+name: A text-rise contract (Windows)
+on:
+  push:
+    branches:
+      - test/a-text-rise-contract-v306-20261120
+    paths:
+      - tests/test_a_text_rise_contract.py
+      - .github/workflows/a-text-rise-contract.yml
+  workflow_dispatch:
+jobs:
+  text-rise:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify synthetic text-rise page ownership
+        run: python -m unittest discover -s tests -p test_a_text_rise_contract.py -v

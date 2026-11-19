@@ -165,7 +165,7 @@ class ClippedStrokePixelContract(unittest.TestCase):
                 with self.subTest(zoom=zoom, axis=axis):
                     # Choose a device-space position at an integer boundary,
                     # halfway between neighbouring pixel centres.
-                    center = 15.0 / zoom
+                    center = round(15 * zoom) / zoom
                     width = 0.10 / zoom
                     area = stroke_area_pixels(axis, center, (12, 18), width,
                                               clip, zoom)

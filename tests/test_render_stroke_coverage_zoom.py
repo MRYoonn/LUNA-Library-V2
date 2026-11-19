@@ -184,5 +184,35 @@ class ClippedStrokePixelContract(unittest.TestCase):
         self.assertNotIn("clipMode = ClipMode::Visible;", source)
 
 
+    def test_subpixel_stroke_width_monotonic_at_all_zooms(self):
+        # Enlarging a stroke around the same centre cannot erase a pixel
+        # with positive area coverage. This checks geometry only, not Blend2D.
+        clip = (10, 10, 30, 30)
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    thin = stroke_area_pixels(axis, 15.2, (12, 28), 0.04, clip, zoom)
+                    thick = stroke_area_pixels(axis, 15.2, (12, 28), 0.12, clip, zoom)
+                    self.assertTrue(thin)
+                    self.assertTrue(thin.issubset(thick))
+
+    def test_subpixel_clip_monotonic_near_edge_at_all_zooms(self):
+        # Expanding the clip cannot remove a positive-coverage pixel,
+        # including when the stroke centreline lies outside the clip.
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    if axis == "vertical":
+                        narrow = (10.005, 10, 20, 20)
+                        wide = (9.995, 10, 20, 20)
+                    else:
+                        narrow = (10, 10.005, 20, 20)
+                        wide = (10, 9.995, 20, 20)
+                    a = stroke_area_pixels(axis, 10, (12, 18), 0.04, narrow, zoom)
+                    b = stroke_area_pixels(axis, 10, (12, 18), 0.04, wide, zoom)
+                    self.assertTrue(a)
+                    self.assertTrue(a.issubset(b))
+
+
 if __name__ == "__main__":
     unittest.main()

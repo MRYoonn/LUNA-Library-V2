@@ -106,6 +106,31 @@ class TextRiseContract(unittest.TestCase):
         self.assertLess(small_threes[0][0], 0)
         self.assertGreater(small_threes[1][0], 0)
 
+    def test_rise_glyphs_have_distinct_character_origins(self):
+        # Check extraction coordinates, not only stream bytes. This remains
+        # a synthetic PyMuPDF oracle, not the native Reader selection path.
+        import fitz
+        with fitz.open(stream=synthetic_pdf(3), filetype="pdf") as doc:
+            page = doc[1]
+            glyphs = [
+                (char["c"], tuple(char["origin"]), span["size"])
+                for block in page.get_text("rawdict")["blocks"]
+                if "lines" in block
+                for line in block["lines"]
+                for span in line["spans"]
+                for char in span["chars"]
+            ]
+            threes = [(origin, size) for char, origin, size in glyphs
+                      if char == "3" and abs(size - 10) < 0.5]
+            self.assertEqual(len(threes), 2)
+            # Both text runs use different baselines; preserve both origins.
+            self.assertNotEqual(threes[0][0][1], threes[1][0][1])
+            for origin, size in threes:
+                self.assertTrue(all(__import__("math").isfinite(v) for v in origin))
+                self.assertAlmostEqual(size, 10, delta=0.5)
+            for other in (doc[0], doc[2]):
+                self.assertNotIn("3", other.get_text())
+
     def test_single_page_does_not_contain_rise_fixture(self):
         pdf = synthetic_pdf(1)
         self.assertNotIn(b"6 Ts (3) Tj", pdf)

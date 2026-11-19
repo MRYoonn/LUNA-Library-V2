@@ -10,6 +10,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -19,5 +21,9 @@ jobs:
         shell: pwsh
         run: |
           if (!(Test-Path "tools/patch_blend_clip_strokes.py")) { throw "Missing stable renderer patch" }
-          if (!(Test-Path "Pdf4QtLibCore")) { throw "Not a full release source checkout" }
+          if (!(Test-Path "README.md")) { throw "Missing release README" }
+          git rev-parse --verify "refs/tags/v0.9.0.306"
+          if ($LASTEXITCODE -ne 0) { throw "Release tag missing" }
+          git merge-base --is-ancestor "v0.9.0.306" HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Checkout does not descend from v0.9.0.306" }
           git log -1 --format="%H %s"

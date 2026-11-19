@@ -127,6 +127,35 @@ class ClippedStrokePixelContract(unittest.TestCase):
                     self.assertFalse(stroke_area_pixels(axis, 10, (12, 28),
                                                         0, clip, zoom))
 
+    def test_fractional_clip_only_counts_positive_area(self):
+        # A clip touching the stroke boundary at one line has zero area.
+        # Fractional pixel cells count only when intersection area is positive.
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    if axis == "vertical":
+                        touching = (10.02, 10, 20, 20)
+                        overlapping = (10.019, 10, 20, 20)
+                    else:
+                        touching = (10, 10.02, 20, 20)
+                        overlapping = (10, 10.019, 20, 20)
+                    self.assertFalse(stroke_area_pixels(
+                        axis, 10, (12, 18), 0.04, touching, zoom))
+                    self.assertTrue(stroke_area_pixels(
+                        axis, 10, (12, 18), 0.04, overlapping, zoom))
+
+    def test_clip_shrinking_never_adds_coverage_pixels(self):
+        # A narrower clip cannot reveal a new painted pixel.
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    outer = stroke_area_pixels(
+                        axis, 15.2, (8, 32), 0.12, (10, 10, 30, 30), zoom)
+                    inner = stroke_area_pixels(
+                        axis, 15.2, (8, 32), 0.12, (12, 12, 28, 28), zoom)
+                    self.assertTrue(inner)
+                    self.assertTrue(inner.issubset(outer))
+
     def test_pinned_patch_uses_coverage_without_clip_bypass(self):
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1] / "tools" /

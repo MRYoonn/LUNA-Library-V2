@@ -38,6 +38,29 @@ class TextRiseContract(unittest.TestCase):
         self.assertNotIn(b"6 Ts (3) Tj", after)
         self.assertNotIn(b"-4 Ts (3) Tj", after)
 
+    def test_page_content_references_isolate_rise_operators(self):
+        # Resolve /Contents references instead of relying on textual page markers.
+        # This catches accidental relocation of rise commands to another page.
+        pdf = synthetic_pdf(3)
+        objects = {
+            int(number): body
+            for number, body in re.findall(
+                rb"(\d+) 0 obj\s*(.*?)\s*endobj", pdf, re.DOTALL
+            )
+        }
+        pages = [
+            body for _, body in sorted(objects.items())
+            if re.search(rb"/Type\s*/Page(?!s)\b", body)
+        ]
+        self.assertEqual(len(pages), 3)
+        for index, page in enumerate(pages):
+            match = re.search(rb"/Contents\s+(\d+)\s+0\s+R", page)
+            self.assertIsNotNone(match)
+            stream = objects[int(match.group(1))]
+            self.assertEqual(stream.count(b"6 Ts (3) Tj"), int(index == 1))
+            self.assertEqual(stream.count(b"-4 Ts (3) Tj"), int(index == 1))
+            self.assertEqual(stream.count(b"0 Ts"), 2 if index == 1 else 0)
+
     def test_single_page_does_not_contain_rise_fixture(self):
         pdf = synthetic_pdf(1)
         self.assertNotIn(b"6 Ts (3) Tj", pdf)

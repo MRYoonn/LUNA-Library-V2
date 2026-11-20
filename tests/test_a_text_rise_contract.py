@@ -204,6 +204,28 @@ class TextRiseContract(unittest.TestCase):
                     if other != expected:
                         self.assertNotIn(other, selected)
 
+    def test_two_column_region_order_oracle(self):
+        # Synthetic two-column reading-order baseline, not native LUNA selection.
+        # Extract each column independently to prevent row-wise interleaving.
+        import fitz
+        with fitz.open() as doc:
+            page = doc.new_page(width=420, height=300)
+            for x, y, value in (
+                (30, 55, "LEFT FIRST"),
+                (30, 90, "LEFT SECOND"),
+                (230, 55, "RIGHT FIRST"),
+                (230, 90, "RIGHT SECOND"),
+            ):
+                page.insert_text((x, y), value, fontsize=12)
+            left = page.get_text("text", clip=fitz.Rect(20, 20, 205, 250), sort=True)
+            right = page.get_text("text", clip=fitz.Rect(215, 20, 410, 250), sort=True)
+        self.assertEqual(left.splitlines(), ["LEFT FIRST", "LEFT SECOND"])
+        self.assertEqual(right.splitlines(), ["RIGHT FIRST", "RIGHT SECOND"])
+        self.assertEqual(
+            (left + right).splitlines(),
+            ["LEFT FIRST", "LEFT SECOND", "RIGHT FIRST", "RIGHT SECOND"],
+        )
+
     def test_single_page_does_not_contain_rise_fixture(self):
         pdf = synthetic_pdf(1)
         self.assertNotIn(b"6 Ts (3) Tj", pdf)

@@ -322,5 +322,20 @@ class ClippedStrokePixelContract(unittest.TestCase):
                     self.assertTrue(a.issubset(b))
 
 
+    def test_fractional_positive_overlap_is_one_pixel_not_neighbor(self):
+        # The painted stroke and fractional clip intersect inside one device
+        # pixel only. Adjacent pixels must not leak across the clip boundary.
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    clip = tuple(v / zoom for v in
+                                 (10.25, 10.25, 10.75, 10.75))
+                    pixels = stroke_area_pixels(
+                        axis, 10.5 / zoom,
+                        (10.0 / zoom, 11.0 / zoom),
+                        0.08 / zoom, clip, zoom)
+                    self.assertEqual(pixels, {(10, 10)})
+
+
 if __name__ == "__main__":
     unittest.main()

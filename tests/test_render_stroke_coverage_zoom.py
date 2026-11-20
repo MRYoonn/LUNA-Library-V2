@@ -196,6 +196,24 @@ class ClippedStrokePixelContract(unittest.TestCase):
                     self.assertEqual({(x + dx, y + dy) for x, y in original},
                                      translated)
 
+    def test_fractional_clip_inside_one_device_pixel(self):
+        # A fractional clip smaller than one device pixel must preserve the
+        # one genuinely covered pixel, without bleeding into neighbours.
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    clip = tuple(v / zoom for v in (10, 10, 10.2, 10.2))
+                    pixels = stroke_area_pixels(
+                        axis, 10.1 / zoom, (9 / zoom, 11 / zoom),
+                        0.1 / zoom, clip, zoom)
+                    self.assertEqual(pixels, {(10, 10)})
+                    # Zero-area clip must never emit a pixel.
+                    empty = (10 / zoom, 10 / zoom,
+                             10 / zoom, 10.2 / zoom)
+                    self.assertEqual(stroke_area_pixels(
+                        axis, 10.1 / zoom, (9 / zoom, 11 / zoom),
+                        0.1 / zoom, empty, zoom), set())
+
     def test_pinned_patch_uses_coverage_without_clip_bypass(self):
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1] / "tools" /

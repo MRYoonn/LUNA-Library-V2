@@ -132,6 +132,31 @@ class TextRiseContract(unittest.TestCase):
             for other in (doc[0], doc[2]):
                 self.assertNotIn("3", other.get_text())
 
+    def test_rise_character_bbox_is_finite_and_page_local(self):
+        # Detect non-finite or out-of-page glyph coordinates before a future
+        # selection bridge consumes them. Synthetic extraction oracle only.
+        import fitz
+        with fitz.open(stream=synthetic_pdf(3), filetype="pdf") as doc:
+            page = doc[1]
+            rect = page.rect
+            small = [
+                char
+                for block in page.get_text("rawdict")["blocks"]
+                if "lines" in block
+                for line in block["lines"]
+                for span in line["spans"]
+                if abs(span["size"] - 10) < 0.5
+                for char in span["chars"]
+                if char["c"] == "3"
+            ]
+            self.assertEqual(len(small), 2)
+            for char in small:
+                bbox = fitz.Rect(char["bbox"])
+                self.assertTrue(all(math.isfinite(v) for v in char["bbox"]))
+                self.assertFalse(bbox.is_empty)
+                self.assertTrue(rect.contains(bbox))
+            self.assertNotEqual(tuple(small[0]["bbox"]), tuple(small[1]["bbox"]))
+
     def test_single_page_does_not_contain_rise_fixture(self):
         pdf = synthetic_pdf(1)
         self.assertNotIn(b"6 Ts (3) Tj", pdf)

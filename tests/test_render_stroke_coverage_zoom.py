@@ -214,6 +214,29 @@ class ClippedStrokePixelContract(unittest.TestCase):
                         axis, 10.1 / zoom, (9 / zoom, 11 / zoom),
                         0.1 / zoom, empty, zoom), set())
 
+    def test_subpixel_clip_partition_conserves_covered_pixels(self):
+        # Partition a clip at a device-pixel boundary. Each partition must
+        # contribute only pixels also covered by the original clip; their
+        # union must equal the unsplit result (no seam loss or bleed).
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    clip = (10.03, 10.07, 30.11, 30.19)
+                    split = 20 / zoom
+                    if axis == "vertical":
+                        first = (clip[0], clip[1], clip[2], split)
+                        second = (clip[0], split, clip[2], clip[3])
+                    else:
+                        first = (clip[0], clip[1], split, clip[3])
+                        second = (split, clip[1], clip[2], clip[3])
+                    args = (axis, 15.2, (8, 32), 0.08)
+                    full = stroke_area_pixels(*args, clip, zoom)
+                    left = stroke_area_pixels(*args, first, zoom)
+                    right = stroke_area_pixels(*args, second, zoom)
+                    self.assertTrue(full)
+                    self.assertEqual(left | right, full)
+                    self.assertTrue(left <= full and right <= full)
+
     def test_pinned_patch_uses_coverage_without_clip_bypass(self):
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1] / "tools" /

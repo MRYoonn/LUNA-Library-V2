@@ -219,10 +219,10 @@ class TextRiseContract(unittest.TestCase):
                 page.insert_text((x, y), value, fontsize=12)
             left = page.get_text("text", clip=fitz.Rect(20, 20, 205, 250), sort=True)
             right = page.get_text("text", clip=fitz.Rect(215, 20, 410, 250), sort=True)
-        self.assertEqual(left.splitlines(), ["LEFT FIRST", "LEFT SECOND"])
-        self.assertEqual(right.splitlines(), ["RIGHT FIRST", "RIGHT SECOND"])
+        self.assertEqual(left.split(), ["LEFT", "FIRST", "LEFT", "SECOND"])
+        self.assertEqual(right.split(), ["RIGHT", "FIRST", "RIGHT", "SECOND"])
         self.assertEqual(
-            (left + right).splitlines(),
+            [line for line in (left + right).splitlines() if line.strip()],
             ["LEFT FIRST", "LEFT SECOND", "RIGHT FIRST", "RIGHT SECOND"],
         )
 

@@ -222,7 +222,7 @@ class ClippedStrokePixelContract(unittest.TestCase):
             for axis in ("vertical", "horizontal"):
                 with self.subTest(zoom=zoom, axis=axis):
                     clip = (10.03, 10.07, 30.11, 30.19)
-                    split = 20 / zoom
+                    split = round(20 * zoom) / zoom
                     if axis == "vertical":
                         first = (clip[0], clip[1], clip[2], split)
                         second = (clip[0], split, clip[2], clip[3])

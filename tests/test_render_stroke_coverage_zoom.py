@@ -237,6 +237,29 @@ class ClippedStrokePixelContract(unittest.TestCase):
                     self.assertEqual(left | right, full)
                     self.assertTrue(left <= full and right <= full)
 
+    def test_fractional_partition_inside_pixel_conserves_coverage(self):
+        # A split inside one device pixel must not drop a subpixel grid line.
+        # Both pieces can cover the same pixel; union, not sum, is invariant.
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    clip = tuple(v / zoom for v in (10, 10, 12, 12))
+                    split = 10.37 / zoom
+                    if axis == "vertical":
+                        a = (clip[0], clip[1], split, clip[3])
+                        b = (split, clip[1], clip[2], clip[3])
+                    else:
+                        a = (clip[0], clip[1], clip[2], split)
+                        b = (clip[0], split, clip[2], clip[3])
+                    args = (axis, 10.37 / zoom,
+                            (9 / zoom, 13 / zoom), 0.08 / zoom)
+                    whole = stroke_area_pixels(*args, clip, zoom)
+                    first = stroke_area_pixels(*args, a, zoom)
+                    second = stroke_area_pixels(*args, b, zoom)
+                    self.assertTrue(whole)
+                    self.assertEqual(first | second, whole)
+                    self.assertTrue(first <= whole and second <= whole)
+
     def test_pinned_patch_uses_coverage_without_clip_bypass(self):
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1] / "tools" /

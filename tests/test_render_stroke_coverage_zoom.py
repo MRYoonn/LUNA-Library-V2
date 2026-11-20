@@ -260,6 +260,28 @@ class ClippedStrokePixelContract(unittest.TestCase):
                     self.assertEqual(first | second, whole)
                     self.assertTrue(first <= whole and second <= whole)
 
+    def test_disjoint_fractional_clip_has_no_false_positive(self):
+        # Fractional clips can overlap a pixel cell without overlapping
+        # the actual painted stroke. Their pixel sets must stay empty.
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    # Both rectangles sit inside device pixel (10, 10).
+                    # The stroke occupies [10.10, 10.20] on its thin axis,
+                    # while the clip occupies [10.30, 10.40].
+                    center = 10.15 / zoom
+                    width = 0.10 / zoom
+                    if axis == "vertical":
+                        clip = tuple(v / zoom for v in
+                                     (10.30, 10.00, 10.40, 11.00))
+                    else:
+                        clip = tuple(v / zoom for v in
+                                     (10.00, 10.30, 11.00, 10.40))
+                    self.assertEqual(
+                        stroke_area_pixels(axis, center,
+                                           (10 / zoom, 11 / zoom),
+                                           width, clip, zoom), set())
+
     def test_pinned_patch_uses_coverage_without_clip_bypass(self):
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1] / "tools" /

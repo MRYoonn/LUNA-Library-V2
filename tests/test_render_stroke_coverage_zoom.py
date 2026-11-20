@@ -337,5 +337,28 @@ class ClippedStrokePixelContract(unittest.TestCase):
                     self.assertEqual(pixels, {(10, 10)})
 
 
+    def test_corner_touch_vs_positive_overlap_at_three_zooms(self):
+        # Two rectangles touching at a corner have zero painted area.
+        # A 0.001-device-pixel overlap must still be retained, without bleed.
+        for zoom in (1.0, 1.5, 2.0):
+            for axis in ("vertical", "horizontal"):
+                with self.subTest(zoom=zoom, axis=axis):
+                    center = 10 / zoom
+                    span = (10 / zoom, 11 / zoom)
+                    width = 0.2 / zoom
+                    if axis == "vertical":
+                        touching = (10.1, 11, 10.3, 11.3)
+                        overlap = (10.099, 10.999, 10.3, 11.3)
+                    else:
+                        touching = (11, 10.1, 11.3, 10.3)
+                        overlap = (10.999, 10.099, 11.3, 10.3)
+                    to_pdf = lambda rect: tuple(v / zoom for v in rect)
+                    self.assertEqual(stroke_area_pixels(
+                        axis, center, span, width, to_pdf(touching), zoom), set())
+                    self.assertEqual(stroke_area_pixels(
+                        axis, center, span, width, to_pdf(overlap), zoom),
+                        {(10, 10)})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -185,6 +185,25 @@ class TextRiseContract(unittest.TestCase):
             self.assertNotIn("LUNA synthetic smoke test", selected)
             self.assertNotIn("Third synthetic page", selected)
 
+    def test_same_selection_rectangle_does_not_leak_across_pages(self):
+        # Identical page-local rectangles must never return adjacent page text.
+        # PyMuPDF oracle only; native LUNA drag/Ctrl+C remains unverified.
+        import fitz
+        with fitz.open(stream=synthetic_pdf(3), filetype="pdf") as doc:
+            titles = (
+                "LUNA synthetic smoke test",
+                "Second synthetic page",
+                "Third synthetic page",
+            )
+            for index, expected in enumerate(titles):
+                matches = doc[index].search_for(expected)
+                self.assertEqual(len(matches), 1)
+                selected = doc[index].get_textbox(matches[0] + (-1, -1, 1, 1))
+                self.assertIn(expected, selected)
+                for other in titles:
+                    if other != expected:
+                        self.assertNotIn(other, selected)
+
     def test_single_page_does_not_contain_rise_fixture(self):
         pdf = synthetic_pdf(1)
         self.assertNotIn(b"6 Ts (3) Tj", pdf)

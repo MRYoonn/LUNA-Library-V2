@@ -170,6 +170,21 @@ class TextRiseContract(unittest.TestCase):
             self.assertEqual(sum("Second synthetic page" in p.get_text()
                                  for p in doc), 1)
 
+    def test_region_copy_excludes_text_outside_selected_rectangle(self):
+        # A rectangular extraction oracle for region selection. This is not
+        # native LUNA drag selection or clipboard validation.
+        import fitz
+        with fitz.open(stream=synthetic_pdf(3), filetype="pdf") as doc:
+            page = doc[1]
+            matches = page.search_for("Second synthetic page")
+            self.assertEqual(len(matches), 1)
+            selected = page.get_textbox(matches[0] + (-1, -1, 1, 1))
+            self.assertIn("Second synthetic page", selected)
+            self.assertNotIn("CF", selected)
+            self.assertNotIn("3", selected)
+            self.assertNotIn("LUNA synthetic smoke test", selected)
+            self.assertNotIn("Third synthetic page", selected)
+
     def test_single_page_does_not_contain_rise_fixture(self):
         pdf = synthetic_pdf(1)
         self.assertNotIn(b"6 Ts (3) Tj", pdf)

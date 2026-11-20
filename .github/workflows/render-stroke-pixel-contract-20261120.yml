@@ -3,6 +3,12 @@ on:
   push:
     branches:
       - test/render-stroke-coverage-zoom-20261120
+  pull_request:
+    branches:
+      - release/v306-execution-20261112
+    paths:
+      - 'tests/test_render_stroke_coverage_zoom.py'
+      - '.github/workflows/render-stroke-pixel-contract-20261120.yml'
   workflow_dispatch:
 jobs:
   synthetic-pixel-contract:
@@ -26,4 +32,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Release tag missing" }
           git merge-base --is-ancestor "v0.9.0.306" HEAD
           if ($LASTEXITCODE -ne 0) { throw "Checkout does not descend from v0.9.0.306" }
+          git merge-base --is-ancestor "847a0a384a4214845c816ac0fe286cc0e08b9deb" HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Missing verified PR 119 source ancestry" }
+          git diff --exit-code 847a0a384a4214845c816ac0fe286cc0e08b9deb HEAD -- tools/patch_blend_clip_strokes.py
+          if ($LASTEXITCODE -ne 0) { throw "Stable Blend2D patch differs from verified source" }
           git log -1 --format="%H %s"

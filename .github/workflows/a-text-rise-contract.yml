@@ -6,6 +6,12 @@ on:
     paths:
       - tests/test_a_text_rise_contract.py
       - .github/workflows/a-text-rise-contract.yml
+  pull_request:
+    branches:
+      - release/v306-execution-20261112
+    paths:
+      - tests/test_a_text_rise_contract.py
+      - .github/workflows/a-text-rise-contract.yml
   workflow_dispatch:
 jobs:
   text-rise:

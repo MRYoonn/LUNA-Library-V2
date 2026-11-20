@@ -157,6 +157,19 @@ class TextRiseContract(unittest.TestCase):
                 self.assertTrue(rect.contains(bbox))
             self.assertNotEqual(tuple(small[0]["bbox"]), tuple(small[1]["bbox"]))
 
+    def test_rise_page_copy_oracle_excludes_neighbor_pages(self):
+        # Page-local clipboard baseline only; native drag selection is not covered.
+        import fitz
+        with fitz.open(stream=synthetic_pdf(3), filetype="pdf") as doc:
+            copied = doc[1].get_text(sort=True)
+            self.assertIn("Second synthetic page", copied)
+            self.assertIn("CF", copied)
+            self.assertIn("3", copied)
+            self.assertNotIn("LUNA synthetic smoke test", copied)
+            self.assertNotIn("Third synthetic page", copied)
+            self.assertEqual(sum("Second synthetic page" in p.get_text()
+                                 for p in doc), 1)
+
     def test_single_page_does_not_contain_rise_fixture(self):
         pdf = synthetic_pdf(1)
         self.assertNotIn(b"6 Ts (3) Tj", pdf)

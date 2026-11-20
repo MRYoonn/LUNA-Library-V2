@@ -38,6 +38,16 @@ static bool isLunaInlineScript(const TextCharacter& a, const TextCharacter& b)
     if (!smallBox.isValid() || !baseBox.isValid())
         return false;
 
+    // Reject vertically stacked glyphs (adjacent lines, table cells or
+    // equation rows) whose horizontal extents substantially coincide.
+    // Inline scripts may overlap a base glyph's edge through kerning.
+    const qreal overlap = qMax<qreal>(0.0,
+        qMin(smallBox.right(), baseBox.right()) -
+        qMax(smallBox.left(), baseBox.left()));
+    if (overlap > smallBox.width() * 0.80 &&
+        qAbs(small.position.x() - base.position.x()) < smallBox.width() * 0.35)
+        return false;
+
     // A superscript must touch the base word horizontally, regardless of
     // whether it appears above or below the typographic baseline.
     const qreal gap = qMax<qreal>(0.0, qMax(

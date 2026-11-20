@@ -222,7 +222,8 @@ class TextRiseContract(unittest.TestCase):
         self.assertEqual(left.split(), ["LEFT", "FIRST", "LEFT", "SECOND"])
         self.assertEqual(right.split(), ["RIGHT", "FIRST", "RIGHT", "SECOND"])
         self.assertEqual(
-            [line for line in (left + right).splitlines() if line.strip()],
+            [line for column in (left, right)
+             for line in column.splitlines() if line.strip()],
             ["LEFT FIRST", "LEFT SECOND", "RIGHT FIRST", "RIGHT SECOND"],
         )
 

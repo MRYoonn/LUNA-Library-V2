@@ -148,6 +148,8 @@ jobs:
         run: |
           python -B tools/preflight_public.py
           if ($LASTEXITCODE -ne 0) { throw "Public security gate blocked build" }
+          python -m pip install --disable-pip-version-check PyMuPDF==1.28.2
+          if ($LASTEXITCODE -ne 0) { throw "Synthetic extraction oracle dependency installation failed" }
           python -B -m unittest discover -s tests -p 'test_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw "Regression tests failed" }
           python -B tools/verify_folder_counts.py --output "$env:RUNNER_TEMP/luna-build-diagnostics/folder-count-verification.json"
@@ -298,6 +300,8 @@ jobs:
         run: |
           python tools/preflight_public.py
           if ($LASTEXITCODE -ne 0) { throw "Public security gate blocked build" }
+          python -m pip install --disable-pip-version-check PyMuPDF==1.28.2
+          if ($LASTEXITCODE -ne 0) { throw "Synthetic extraction oracle dependency installation failed" }
           python -m unittest discover -s tests -p 'test_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw "Regression tests failed" }
 

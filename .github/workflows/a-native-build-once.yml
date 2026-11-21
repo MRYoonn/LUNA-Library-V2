@@ -1,0 +1,52 @@
+name: LUNA A - one-time native Windows selection validation
+# Use the established exact-branch dispatch pattern. Production workflow remains manual-only.
+on:
+  push:
+    branches: [test/a-text-rise-contract-v306-20261120]
+    paths: [.github/workflows/a-native-build-once.yml]
+permissions:
+  contents: read
+concurrency:
+  group: luna-a-native-build-once
+  cancel-in-progress: false
+jobs:
+  source-safety:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Public source gate and full Python regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B tools/preflight_public.py
+          python -m pip install --disable-pip-version-check PyMuPDF==1.28.2
+          python -B -m unittest discover -s tests -p 'test_*.py' -v
+  dispatch-native:
+    needs: source-safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Dispatch existing native build with public research PDF check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = MRYoonn/LUNA-Library-V2
+          test "$BRANCH" = test/a-text-rise-contract-v306-20261120
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh workflow run build-windows.yml --repo "$REPO" --ref "$BRANCH" -f research_pdf_probe=true
+          echo "Native development verification requested for $SOURCE_SHA; no merge or release."

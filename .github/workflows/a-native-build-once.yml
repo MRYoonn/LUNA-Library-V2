@@ -1,5 +1,6 @@
 name: LUNA A - one-time native Windows selection validation
 # Use the established exact-branch dispatch pattern. Production workflow remains manual-only.
+# Retry after reconciling the inherited v306 release workflow with the public source allowlist.
 on:
   push:
     branches: [test/a-text-rise-contract-v306-20261120]

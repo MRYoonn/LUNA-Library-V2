@@ -133,6 +133,7 @@ APPROVED = {
     "tests/test_script_selection_patch.py",
     "tests/test_a_text_rise_contract.py", ".github/workflows/a-text-rise-contract.yml",
     ".github/workflows/a-native-build-once.yml",
+    ".github/workflows/release-v306-once.yml",
     "tests/test_public_gate.py",
     "tests/test_citation_contract.py",
     "tests/test_real_file_management_contract.py",

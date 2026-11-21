@@ -1,0 +1,57 @@
+name: C native PDF4QT Windows validation - one shot
+# Keep build-windows.yml manual-only. This bridge follows the existing
+# repository-owned one-shot dispatch pattern; never executes fork PRs.
+on:
+  push:
+    branches: [test/render-stroke-coverage-zoom-20261120]
+    paths: [.github/workflows/c-native-render-dispatch-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: luna-c-native-render-dispatch
+  cancel-in-progress: false
+
+jobs:
+  verify-source:
+    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact public v306 source and preserve stable renderer
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor v0.9.0.306 HEAD
+          git merge-base --is-ancestor 847a0a384a4214845c816ac0fe286cc0e08b9deb HEAD
+          git diff --exit-code 847a0a384a4214845c816ac0fe286cc0e08b9deb HEAD -- tools/patch_blend_clip_strokes.py
+          python -B tools/preflight_public.py
+  dispatch-native:
+    needs: verify-source
+    if: github.repository == 'MRYoonn/LUNA-Library-V2' && github.ref == 'refs/heads/test/render-stroke-coverage-zoom-20261120'
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Request existing full Windows build without release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = 'MRYoonn/LUNA-Library-V2'
+          test "$BRANCH" = 'test/render-stroke-coverage-zoom-20261120'
+          test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$SOURCE_SHA"
+          gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
+          echo "Requested full Windows PDF4QT build at $SOURCE_SHA; dispatch is not a native PASS."

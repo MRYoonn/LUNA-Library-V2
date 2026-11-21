@@ -2,8 +2,9 @@ name: C native PDF4QT Windows validation - one shot
 # Keep build-windows.yml manual-only. This bridge follows the existing
 # repository-owned one-shot dispatch pattern; never executes fork PRs.
 on:
-  push:
-    branches: [test/render-stroke-coverage-zoom-20261120]
+  pull_request:
+    types: [synchronize]
+    branches: [release/v306-execution-20261112]
     paths: [.github/workflows/c-native-render-dispatch-once.yml]
 
 permissions:
@@ -15,7 +16,7 @@ concurrency:
 
 jobs:
   verify-source:
-    if: github.repository == 'MRYoonn/LUNA-Library-V2'
+    if: github.repository == 'MRYoonn/LUNA-Library-V2' && github.event.pull_request.number == 123 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'test/render-stroke-coverage-zoom-20261120'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -23,18 +24,19 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Verify exact public v306 source and preserve stable renderer
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
           git merge-base --is-ancestor v0.9.0.306 HEAD
           git merge-base --is-ancestor 847a0a384a4214845c816ac0fe286cc0e08b9deb HEAD
           git diff --exit-code 847a0a384a4214845c816ac0fe286cc0e08b9deb HEAD -- tools/patch_blend_clip_strokes.py
           python -B tools/preflight_public.py
   dispatch-native:
     needs: verify-source
-    if: github.repository == 'MRYoonn/LUNA-Library-V2' && github.ref == 'refs/heads/test/render-stroke-coverage-zoom-20261120'
+    if: github.repository == 'MRYoonn/LUNA-Library-V2' && github.event.pull_request.number == 123 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'test/render-stroke-coverage-zoom-20261120'
     permissions:
       contents: read
       actions: write
@@ -46,8 +48,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          BRANCH: ${{ github.ref_name }}
-          SOURCE_SHA: ${{ github.sha }}
+          BRANCH: ${{ github.head_ref }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           test "$REPO" = 'MRYoonn/LUNA-Library-V2'
@@ -55,3 +57,14 @@ jobs:
           test "$(gh api "repos/$REPO/branches/$BRANCH" --jq '.commit.sha')" = "$SOURCE_SHA"
           gh api -X POST "repos/$REPO/actions/workflows/build-windows.yml/dispatches" -f ref="$BRANCH"
           echo "Requested full Windows PDF4QT build at $SOURCE_SHA; dispatch is not a native PASS."
+          # Report the dispatched run ID through this PR-visible job's log.
+          for attempt in $(seq 1 12); do
+            run_id=$(gh api --method GET "repos/$REPO/actions/workflows/build-windows.yml/runs" -f branch="$BRANCH" -f event=workflow_dispatch --jq ".workflow_runs[] | select(.head_sha == \"$SOURCE_SHA\") | .id" | head -n 1)
+            if [ -n "$run_id" ]; then
+              echo "Native CI: https://github.com/$REPO/actions/runs/$run_id"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Dispatch accepted but matching run ID not yet visible"
+          exit 1

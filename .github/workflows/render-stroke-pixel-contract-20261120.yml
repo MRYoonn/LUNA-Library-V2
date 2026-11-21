@@ -1,0 +1,39 @@
+name: C render stroke pixel contract (Windows)
+on:
+  push:
+    branches:
+      - test/render-stroke-coverage-zoom-20261120
+  pull_request:
+    branches:
+      - release/v306-execution-20261112
+    paths:
+      - 'tests/test_render_stroke_coverage_zoom.py'
+      - '.github/workflows/render-stroke-pixel-contract-20261120.yml'
+  workflow_dispatch:
+jobs:
+  synthetic-pixel-contract:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Synthetic clipped stroke pixel contract at 100/150/200 percent
+        run: python -m unittest discover -s tests -p test_render_stroke_coverage_zoom.py -v
+      - name: Preserve release source provenance
+        shell: pwsh
+        run: |
+          if (!(Test-Path "tools/patch_blend_clip_strokes.py")) { throw "Missing stable renderer patch" }
+          if (!(Test-Path "README.md")) { throw "Missing release README" }
+          git rev-parse --verify "refs/tags/v0.9.0.306"
+          if ($LASTEXITCODE -ne 0) { throw "Release tag missing" }
+          git merge-base --is-ancestor "v0.9.0.306" HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Checkout does not descend from v0.9.0.306" }
+          git merge-base --is-ancestor "847a0a384a4214845c816ac0fe286cc0e08b9deb" HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Missing verified PR 119 source ancestry" }
+          git diff --exit-code 847a0a384a4214845c816ac0fe286cc0e08b9deb HEAD -- tools/patch_blend_clip_strokes.py
+          if ($LASTEXITCODE -ne 0) { throw "Stable Blend2D patch differs from verified source" }
+          git log -1 --format="%H %s"

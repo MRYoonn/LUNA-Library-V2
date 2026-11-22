@@ -11,6 +11,8 @@ import re
 import subprocess
 
 PIN = '67b6b9903cb4e318803342f2d428f02e1bb124e3'
+# Normalized output of patch_script_text_layout.py for this one source file.
+CROSS_PAGE_TOOL_SHA256 = 'fbc90fddc01a46b3594130381173fc98388c7f39ea4cc729d8e034d976056189'
 
 
 def prepare(root, proof=True):
@@ -24,7 +26,12 @@ def prepare(root, proof=True):
         target = root / path
         if path not in planned:
             baseline = subprocess.check_output(['git', '-C', str(root), 'show', f'{PIN}:{path}'])
-            if target.read_bytes().replace(b'\r\n', b'\n') != baseline.replace(b'\r\n', b'\n'):
+            source = target.read_bytes().replace(b'\r\n', b'\n')
+            cross_page_tool = (
+                path == 'Pdf4QtLibWidgets/sources/pdfwidgettool.cpp'
+                and hashlib.sha256(source).hexdigest() == CROSS_PAGE_TOOL_SHA256
+            )
+            if source != baseline.replace(b'\r\n', b'\n') and not cross_page_tool:
                 raise ValueError('Unexpected upstream edits: ' + path)
             planned[path] = target.read_text(encoding='utf-8')
         text = planned[path]

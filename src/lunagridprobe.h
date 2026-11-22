@@ -59,15 +59,17 @@ inline bool compareGridEngines(pdf::PDFDocument& document, const QString& output
 
 inline void startGridProbe(pdfviewer::PDFEditorMainWindow& window, const QString& output) {
     bool zoomOk = false;
-    const double zoom = qEnvironmentVariable("LUNA_GRID_ZOOM").toDouble(&zoomOk);
-    if (!zoomOk || (zoom!=1.0 && zoom!=1.5 && zoom!=2.0)) {
+    const QString requestedZoom = qEnvironmentVariable("LUNA_GRID_ZOOM");
+    const bool fitPage = requestedZoom == QStringLiteral("fit");
+    const double zoom = requestedZoom.toDouble(&zoomOk);
+    if (!fitPage && (!zoomOk || (zoom!=1.0 && zoom!=1.5 && zoom!=2.0))) {
         QTimer::singleShot(0,qApp,[]{qApp->exit(2);}); return;
     }
     window.resize(1366,768); window.move(16,16); window.raise(); window.activateWindow();
     auto* timer = new QTimer(&window);
     timer->setInterval(100);
     QObject::connect(timer,&QTimer::timeout,&window,
-        [&window,output,zoom,timer,attempt=0,phase=0,observed=QTransform(),stable=QElapsedTimer()]() mutable {
+        [&window,output,zoom,fitPage,timer,attempt=0,phase=0,observed=QTransform(),stable=QElapsedTimer()]() mutable {
         auto* controller = window.getProgramController();
         auto* document = controller->getDocument();
         auto* pdfWidget = controller->getPdfWidget();
@@ -99,11 +101,16 @@ inline void startGridProbe(pdfviewer::PDFEditorMainWindow& window, const QString
             // opening zoom. Seed the requested test zoom AFTER that transition,
             // then retain the exact stable-zoom/cached-page/pixel assertions.
             if (!remembered || window.property("LunaMoveRestorePending").toBool()) return;
-            proxy->setPageLayout(pdf::PageLayout::OneColumn); proxy->zoom(zoom); proxy->goToPage(0);
+            proxy->setPageLayout(pdf::PageLayout::OneColumn);
+            if (fitPage)
+                proxy->performOperation(pdf::PDFDrawWidgetProxy::ZoomFit);
+            else
+                proxy->zoom(zoom);
+            proxy->goToPage(0);
             qInfo().noquote()<<"GRID_ZOOM_SEEDED"<<QJsonDocument(state).toJson(QJsonDocument::Compact);
             phase=1; return;
         }
-        if (!page || qAbs(proxy->getZoom()-zoom)>.0001 || !compiled) return;
+        if (!page || (!fitPage && qAbs(proxy->getZoom()-zoom)>.0001) || !compiled) return;
         if (!stable.isValid() || observed!=page->pageToDeviceMatrix) {
             observed=page->pageToDeviceMatrix; stable.restart(); return;
         }
@@ -117,7 +124,7 @@ inline void startGridProbe(pdfviewer::PDFEditorMainWindow& window, const QString
             !native.save(output+".native.png") || !window.grab().save(output+".png") ||
             !window.screen()->grabWindow(0).save(output+".desktop.png")) { qApp->exit(22); return; }
         QJsonObject result{{"zoom",proxy->getZoom()}, {"devicePixelRatio",window.devicePixelRatioF()},
-            {"renderer",int(proxy->getRendererEngine())}, {"nativeWindowCapture",true},
+            {"fitPage",fitPage}, {"renderer",int(proxy->getRendererEngine())}, {"nativeWindowCapture",true},
             {"compiledReady",true},
             {"blendBackend",proxy->getRendererEngine()==pdf::RendererEngine::Blend2D_MultiThread ||
                 proxy->getRendererEngine()==pdf::RendererEngine::Blend2D_SingleThread},
@@ -125,6 +132,10 @@ inline void startGridProbe(pdfviewer::PDFEditorMainWindow& window, const QString
             {"pageToWindow",QJsonArray{m.m11(),m.m12(),m.m21(),m.m22(),m.dx()+offset.x(),m.dy()+offset.y()}}};
         const bool compare=qEnvironmentVariableIsSet("LUNA_GRID_COMPARE_ENGINES");
         if (compare && !compareGridEngines(*document,output,zoom)) { qApp->exit(23); return; }
+        if (compare && qEnvironmentVariableIsSet("LUNA_GRID_HIGH_ZOOM")) {
+            if (!compareGridEngines(*document,output+".300",3.0) ||
+                !compareGridEngines(*document,output+".400",4.0)) { qApp->exit(23); return; }
+        }
         result.insert("comparedDirectAndCompiledQtAndBlend",compare);
         QSaveFile file(output);
         if (!file.open(QIODevice::WriteOnly) || file.write(QJsonDocument(result).toJson())<0 || !file.commit()) {

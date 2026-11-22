@@ -491,6 +491,59 @@ bool verifyEditorRoundTrip(pdfviewer::PDFEditorMainWindow& window,
     proxy->goToPage(0); proxy->zoom(1.0);
     if (proxy->getPageLayout() != pdf::PageLayout::OneColumn) return fail("Continuous menu action disconnected");
 
+    checkpoint("Reader phase: cross-page drag and clipboard in both page layouts");
+    const QString firstPageLine = QStringLiteral("LUNA synthetic smoke test");
+    const QString secondPageLine = QStringLiteral("Second synthetic page");
+    const QString crossPageText = firstPageLine + QStringLiteral("\n\n") + secondPageLine;
+    auto glyphCenter = [&](pdf::PDFInteger pageIndex, const QString& expected, bool atEnd) {
+        const pdf::PDFTextLayout layout = proxy->getTextLayoutCompiler()->getTextLayoutLazy(pageIndex);
+        for (const auto& block : layout.getTextBlocks()) {
+            for (const auto& line : block.getLines()) {
+                const auto& characters = line.getCharacters();
+                QString text;
+                for (const auto& character : characters) text += character.character;
+                if (text != expected) continue;
+                const auto& endpoint = atEnd ? characters.back() : characters.front();
+                return endpoint.boundingBox.boundingRect().center();
+            }
+        }
+        return QPointF();
+    };
+    const QPointF firstGlyph = glyphCenter(0, firstPageLine, false);
+    const QPointF lastGlyph = glyphCenter(1, secondPageLine, true);
+    if (firstGlyph.isNull() || lastGlyph.isNull()) return fail("Cross-page fixture glyphs missing");
+    auto crossPageCopy = [&](QPoint start, QPoint end) {
+        QApplication::clipboard()->clear();
+        widget->setFocus();
+        mouse(widget, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+        mouse(widget, QEvent::MouseMove, end, Qt::NoButton, Qt::LeftButton);
+        mouse(widget, QEvent::MouseButtonRelease, end, Qt::LeftButton, Qt::NoButton);
+        key(widget, Qt::Key_C, Qt::ControlModifier);
+        return QApplication::clipboard()->text().trimmed() == crossPageText;
+    };
+    for (const auto mode : {pdf::PageLayout::OneColumn, pdf::PageLayout::TwoPagesLeft}) {
+        proxy->setPageLayout(mode);
+        proxy->zoom(0.70);
+        proxy->goToPage(0);
+        QPoint from, to;
+        if (!waitFor([&] {
+            const auto snapshot = proxy->getSnapshot();
+            const auto* first = snapshot.getPageSnapshot(0);
+            const auto* second = snapshot.getPageSnapshot(1);
+            if (!first || !second) return false;
+            from = first->pageToDeviceMatrix.map(firstGlyph).toPoint();
+            to = second->pageToDeviceMatrix.map(lastGlyph).toPoint();
+            return widget->rect().contains(from) && widget->rect().contains(to);
+        })) return fail("Cross-page fixture endpoints are outside the reader");
+        if (!crossPageCopy(from, to) || !crossPageCopy(to, from))
+            return fail(mode == pdf::PageLayout::OneColumn
+                ? "Cross-page clipboard order failed in continuous layout"
+                : "Cross-page clipboard order failed in the two-page view");
+    }
+    proxy->setPageLayout(pdf::PageLayout::OneColumn);
+    proxy->zoom(1.0);
+    proxy->goToPage(0);
+
     checkpoint("Reader phase: Ctrl+F native PDF text search");
     widget->setFocus(); key(widget, Qt::Key_F, Qt::ControlModifier);
     QPointer<QDialog> findDialog;

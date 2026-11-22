@@ -36,6 +36,9 @@
 #include <QFont>
 #include <QIconEngine>
 #include <QKeyEvent>
+#include <QKeySequence>
+#include <QClipboard>
+#include <QTreeWidget>
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
@@ -1729,6 +1732,34 @@ void installReaderToolbar(pdfviewer::PDFEditorMainWindow& window, QToolBar& bar,
                         if (auto* group = dialog->findChild<QGroupBox*>(QStringLiteral("fontsGroupBox")))
                             group->setTitle(QStringLiteral("이 문서에 사용된 글꼴"));
                         dialog->setWindowTitle(QStringLiteral("PDF 글꼴 정보"));
+                        if (auto* tree = fonts->findChild<QTreeWidget*>(QStringLiteral("fontsTreeWidget"))) {
+                            auto* copy = new QAction(QStringLiteral("글꼴 정보 복사"), tree);
+                            copy->setObjectName(QStringLiteral("LunaCopyFontInformation"));
+                            copy->setShortcut(QKeySequence::Copy);
+                            copy->setShortcutContext(Qt::WidgetShortcut);
+                            copy->setEnabled(tree->currentItem());
+                            tree->addAction(copy);
+                            tree->setContextMenuPolicy(Qt::ActionsContextMenu);
+                            QObject::connect(tree, &QTreeWidget::currentItemChanged, copy,
+                                [copy](QTreeWidgetItem* current) { copy->setEnabled(current); });
+                            QObject::connect(copy, &QAction::triggered, tree, [tree] {
+                                auto* item = tree->currentItem();
+                                if (!item) return;
+                                while (item->parent()) item = item->parent();
+                                QStringList lines;
+                                auto append = [&](auto&& self, const QTreeWidgetItem* row, int depth) -> void {
+                                    if (!row->text(0).isEmpty()) {
+                                        QString line = QString(depth * 2, QLatin1Char(' ')) + row->text(0);
+                                        if (!row->text(1).isEmpty()) line += QStringLiteral("\t") + row->text(1);
+                                        lines.append(line);
+                                    }
+                                    for (int i = 0; i < row->childCount(); ++i)
+                                        self(self, row->child(i), depth + 1);
+                                };
+                                append(append, item, 0);
+                                QApplication::clipboard()->setText(lines.join(QLatin1Char('\n')));
+                            });
+                        }
                     });
                     properties->trigger();
                 });

@@ -936,3 +936,14 @@ complete actual PDF snapshot already passed before this fixture adjustment.
 - Extended actual native-window capture: short-icc-no-clip passes100/150/200%, including all four direct/compiled Qt/Blend comparisons at200%. The next case long-icc-no-clip/100% exited21 after the new probe's unchanged300x100ms readiness limit. Its process log contained only FFmpeg initialization; no readiness branch or zoom values were recorded. Do NOT infer which predicate timed out from that artifact or label the entire extended matrix passed.
 - Source inspection exposes a probe ordering race: phase0 set the requested zoom as soon as controller/document were available, before the normal library's queued rememberEditor() applies its configured opening zoom. Wait for its existing LunaRememberedSource/LunaRememberedPath transition before seeding the probe zoom. Retain the exact target zoom, compiled-page presence, Blend backend, stable matrix, pixel conditions and existing timeout. Add bounded per-phase readiness states plus a native window/desktop and JSON on timeout, so another failure identifies its actual predicate rather than guessing. This changes test initialization only; the renderer correction is unchanged.
 - Remaining full regression, controlled v304 comparison and private original Windows acceptance were not reached. Keep test/draft status and stable v304 unchanged.
+
+## 2026-11-22 — A Windows run #44923969829: publisher PDF unavailable
+
+- Exact source: `b9e6a31080e54179d2caee5830c7892a93d9e976`.
+- The native two-column and figure-caption selection, clipboard copy, highlight,
+  Save As and reopen passed. The next step in that gate could not fetch the
+  pinned RSC bibliography fixture. Europe PMC returned HTTP 500/403 and RSC
+  returned HTTP 403, so bibliography validation did not run.
+- PMC Open Access hosts the same versioned main and SI PDFs. Both downloaded
+  files matched the original SHA-256 pins. The retry retains both pins and the
+  native assertions.

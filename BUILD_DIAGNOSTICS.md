@@ -947,3 +947,13 @@ complete actual PDF snapshot already passed before this fixture adjustment.
 - PMC Open Access hosts the same versioned main and SI PDFs. Both downloaded
   files matched the original SHA-256 pins. The retry retains both pins and the
   native assertions.
+
+## 2026-11-22 — v307 integration Windows run #44996742945: overlapping pinned overlays
+
+- Source `2b32bd38f2ca9e2c1bbce6a228d323c198524b90` passed its preflight and
+  stopped at **Apply opt-in native session proof**, before compiling. The
+  reader preparation step rejected the already patched `pdfwidgettool.cpp`.
+- Source `63c564f6e6a6a7e9837f58fd4cdf59c542a59641` recognizes the one
+  normalized SHA-256 produced by the pinned cross-page selection patch. Other
+  unexpected edits still fail. The complete ordered source patch sequence and
+  C++ syntax checks passed locally. Windows validation run #44996922930.

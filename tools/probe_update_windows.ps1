@@ -51,6 +51,7 @@ Set-Content -LiteralPath $sentinel -Value '{"legacyFixture":true}' -Encoding UTF
 $sentinelHash = (Get-FileHash $sentinel).Hash
 $token = ''
 $env:LUNA_METADATA_OFFLINE = '1'
+$env:LUNA_DISABLE_UPDATES = '1'
 try {
     $check = & $helper -Mode Check -InstallDir $install | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0 -or $check.status -cne 'ok' -or !$check.available -or $check.tag -cne $target) {
@@ -61,7 +62,9 @@ try {
     if ($LASTEXITCODE -ne 0 -or $stage.status -cne 'staged' -or $token -cnotmatch '^[a-f0-9]{32}$') {
         throw 'v306 updater could not stage candidate'
     }
-    & $helper -Mode Apply -InstallDir $install -Token $token
+    $applyHelper = Join-Path $Work 'apply-v306.ps1'
+    Copy-Item -LiteralPath $helper -Destination $applyHelper
+    & $applyHelper -Mode Apply -InstallDir $install -Token $token
     if ($LASTEXITCODE -ne 0) { throw 'v306 updater failed to apply and launch candidate' }
     $installed = Get-Content -LiteralPath $localInfo -Raw | ConvertFrom-Json
     if ($installed.version -cne $target -or $installed.commit -cne $manifest.commit -or

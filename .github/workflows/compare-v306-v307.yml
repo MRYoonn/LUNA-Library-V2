@@ -1,0 +1,58 @@
+name: Windows Portable v306 and v307 comparison
+on:
+  push:
+    branches: [verification/v0.9.0.307]
+    paths: [.github/workflows/compare-v306-v307.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  compare:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download and verify exact baseline and candidate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN: '44996922930'
+          CANDIDATE_SHA: '63c564f6e6a6a7e9837f58fd4cdf59c542a59641'
+        run: |
+          $head = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:CANDIDATE_RUN" --jq '.head_sha + ":" + .conclusion'
+          if ($LASTEXITCODE -ne 0 -or $head -cne "${env:CANDIDATE_SHA}:success") { throw 'Candidate Windows build is unverified' }
+          gh release download v0.9.0.306 --repo $env:GITHUB_REPOSITORY --pattern LUNA-Windows-Portable.zip --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'v306 download failed' }
+          $baselineZip = Join-Path $env:RUNNER_TEMP 'LUNA-Windows-Portable.zip'
+          if ((Get-FileHash $baselineZip).Hash.ToLowerInvariant() -cne '03fd2c9c1863ce2f3a7eaca2195833af7bc56f4894d7c463d250067d24d6ad58') { throw 'v306 hash mismatch' }
+          Expand-Archive -LiteralPath $baselineZip -DestinationPath (Join-Path $env:RUNNER_TEMP 'v306')
+          gh run download $env:CANDIDATE_RUN --repo $env:GITHUB_REPOSITORY --name LUNA-Windows-Portable --dir "$env:RUNNER_TEMP/v307"
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate download failed' }
+          foreach ($version in @('v306','v307')) {
+            python -B tools/verify_portable.py "$env:RUNNER_TEMP/$version"
+            if ($LASTEXITCODE -ne 0) { throw 'Portable packaging check failed' }
+          }
+          $candidate = Get-Content "$env:RUNNER_TEMP/v307/build-info.json" -Raw | ConvertFrom-Json
+          if ($candidate.commit -cne $env:CANDIDATE_SHA -or $candidate.run -ne $env:CANDIDATE_RUN -or
+              (Get-FileHash "$env:RUNNER_TEMP/v307/LUNA.exe").Hash.ToLowerInvariant() -cne $candidate.exeSha256) { throw 'Candidate source/EXE mismatch' }
+      - name: Compare native startup, PDF open, first paint and five mixed tabs
+        shell: pwsh
+        env:
+          LUNA_DISABLE_UPDATES: '1'
+          LUNA_METADATA_OFFLINE: '1'
+        run: |
+          python -B tools/prepare_desktop_windows.py evidence/desktop.json
+          if ($LASTEXITCODE -ne 0) { throw 'Native desktop setup failed' }
+          python -B tools/benchmark_open_windows.py "$env:RUNNER_TEMP/v306" "$env:RUNNER_TEMP/v307" evidence/performance
+          if ($LASTEXITCODE -ne 0) { throw 'Portable comparison failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LUNA-v306-v307-Portable-Comparison
+          path: evidence
+          if-no-files-found: ignore

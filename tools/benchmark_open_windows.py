@@ -102,6 +102,34 @@ def run(before, after, output):
     def paints(path):
         return [event for event in events(path) if event['stage'] == 'request-to-first-page-paint']
 
+    class ProcessMemory(ctypes.Structure):
+        _fields_ = [
+            ('size', w.DWORD), ('pageFaultCount', w.DWORD),
+            *[(field, ctypes.c_size_t) for field in (
+                'peakWorkingSet', 'workingSet', 'peakPagedPool', 'pagedPool',
+                'peakNonpagedPool', 'nonpagedPool', 'pagefile', 'peakPagefile', 'privateBytes')],
+        ]
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+    kernel.OpenProcess.restype = w.HANDLE
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    psapi = ctypes.WinDLL('psapi', use_last_error=True)
+    psapi.GetProcessMemoryInfo.argtypes = [w.HANDLE, ctypes.POINTER(ProcessMemory), w.DWORD]
+
+    def memory(pid):
+        process = kernel.OpenProcess(0x0410, False, pid)
+        if not process:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            info = ProcessMemory()
+            info.size = ctypes.sizeof(info)
+            if not psapi.GetProcessMemoryInfo(process, ctypes.byref(info), info.size):
+                raise ctypes.WinError(ctypes.get_last_error())
+            return {'workingSetBytes': info.workingSet, 'privateBytes': info.privateBytes}
+        finally:
+            kernel.CloseHandle(process)
+
     output.mkdir(parents=True, exist_ok=True)
     with urlopen(Request(URL, headers={'User-Agent': 'LUNA-public-fixture-validation'}), timeout=30) as response:
         paper = response.read(2_000_001)
@@ -133,6 +161,7 @@ def run(before, after, output):
                     try:
                         wait(lambda: len(paints(log_path)) >= 1, child)
                         startup = round((time.monotonic() - started) * 1000)
+                        first_document_memory = memory(child.pid)
                         for index, path in enumerate(documents[1:], 2):
                             hwnd = wait(lambda: window(child.pid), child)
                             user.SetForegroundWindow(hwnd)
@@ -154,6 +183,7 @@ def run(before, after, output):
                         hwnd = wait(lambda: window(child.pid), child)
                         user.SetForegroundWindow(hwnd)
                         wait(lambda: user.GetForegroundWindow() == hwnd, child)
+                        final_memory = memory(child.pid)
                         key(ord('Q'), True)
                         if child.wait(timeout=15) != 0:
                             raise RuntimeError('Nonzero benchmark close')
@@ -165,6 +195,7 @@ def run(before, after, output):
                 for event in events(log_path):
                     stages.setdefault(event['stage'], []).append(event['durationMs'])
                 result = {'build': label, 'workload': workload, 'processStartToFirstPaintMs': startup,
+                          'memoryAfterFirstPaint': first_document_memory, 'memoryAfterWorkload': final_memory,
                           'stages': {stage: stats(values) for stage, values in stages.items()}}
                 results.append(result)
                 (output / 'summary.json').write_text(json.dumps({'results': results}, indent=2), encoding='utf-8')

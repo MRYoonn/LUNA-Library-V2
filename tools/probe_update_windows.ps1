@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 param(
     [Parameter(Mandatory)][string]$Candidate,
-    [Parameter(Mandatory)][string]$Work
+    [Parameter(Mandatory)][string]$Work,
+    [switch]$LiveRelease
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -23,27 +24,30 @@ if ((Get-Content -LiteralPath $localInfo -Raw | ConvertFrom-Json).version -cne '
     throw 'Wrong installed baseline version'
 }
 
-# Stub only GitHub responses so the published v306 updater sees the unpublished
-# candidate. Check, Stage, Apply, startup acknowledgement and hashing are real.
-$releaseApi = 'https://api.github.com/repos/MRYoonn/LUNA-Library-V2/releases/latest'
-$fixtureUrls = @{}
-foreach ($name in @('LUNA-Release.json', 'LUNA-Windows-Portable.zip')) {
-    $fixtureUrls["$assetPrefix$target/$name"] = Get-Item -LiteralPath (Join-Path $Candidate $name)
-}
-function Invoke-RestMethod($Uri, $Headers, $TimeoutSec) {
-    if ($Uri -cne $releaseApi) { throw 'Unexpected updater API request' }
-    @{
-        tag_name = $target
-        draft = $false
-        prerelease = $false
-        assets = @($fixtureUrls.GetEnumerator() | ForEach-Object {
-            @{ name = $_.Value.Name; size = $_.Value.Length; browser_download_url = $_.Key }
-        })
+if (!$LiveRelease) {
+    # Stub only GitHub responses so the published v306 updater sees the unpublished
+    # candidate. Check, Stage, Apply, startup acknowledgement and hashing are real.
+    $releaseApi = 'https://api.github.com/repos/MRYoonn/LUNA-Library-V2/releases/latest'
+    $fixtureUrls = @{}
+    foreach ($name in @('LUNA-Release.json', 'LUNA-Windows-Portable.zip')) {
+        $fixtureUrls["$assetPrefix$target/$name"] = Get-Item -LiteralPath (Join-Path $Candidate $name)
     }
-}
-function Invoke-WebRequest($Uri, $OutFile, $TimeoutSec, [switch]$UseBasicParsing) {
-    if (!$fixtureUrls.ContainsKey($Uri)) { throw 'Unexpected updater asset request' }
-    Copy-Item -LiteralPath $fixtureUrls[$Uri].FullName -Destination $OutFile
+    function Invoke-RestMethod($Uri, $Headers, $TimeoutSec) {
+        if ($Uri -cne $releaseApi) { throw 'Unexpected updater API request' }
+        @{
+            tag_name = $target
+            draft = $false
+            prerelease = $false
+            assets = @($fixtureUrls.GetEnumerator() | ForEach-Object {
+                @{ name = $_.Value.Name; size = $_.Value.Length; browser_download_url = $_.Key }
+            })
+        }
+    }
+    function Invoke-WebRequest($Uri, $OutFile, $TimeoutSec, [switch]$UseBasicParsing) {
+        if (!$fixtureUrls.ContainsKey($Uri)) { throw 'Unexpected updater asset request' }
+        Copy-Item -LiteralPath $fixtureUrls[$Uri].FullName -Destination $OutFile
+    }
+
 }
 
 $sentinel = Join-Path $install 'legacy-user-settings.json'
@@ -76,7 +80,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or $current.status -cne 'ok' -or $current.available) {
         throw 'Installed candidate was incorrectly offered again'
     }
-    Write-Host '[PASS] v306 updater detected, staged and applied the candidate; native startup was acknowledged and the legacy file was preserved'
+    Write-Host '[PASS] v306 updater detected, staged and installed the expected release; native startup was acknowledged and the legacy file was preserved'
 } finally {
     $exe = Join-Path $install 'LUNA.exe'
     Get-CimInstance Win32_Process -Filter "name='LUNA.exe'" |

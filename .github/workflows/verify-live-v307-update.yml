@@ -1,0 +1,34 @@
+name: Verify the published v307 portable update
+on:
+  push:
+    branches: [verification/v0.9.0.307]
+    paths: [.github/workflows/verify-live-v307-update.yml]
+permissions:
+  contents: read
+jobs:
+  update:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Apply the real public Latest update using the released v306 updater
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'luna-v307-live-update'
+          $candidate = Join-Path $root 'candidate'
+          New-Item -ItemType Directory -Path $candidate -Force | Out-Null
+          $latest = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest" --jq '.tag_name + ":" + .target_commitish'
+          if ($LASTEXITCODE -ne 0 -or $latest -cne 'v0.9.0.307:63c564f6e6a6a7e9837f58fd4cdf59c542a59641') {
+            throw 'The exact v307 source is not Latest'
+          }
+          gh release download v0.9.0.307 --repo $env:GITHUB_REPOSITORY --pattern LUNA-Release.json --dir $candidate
+          if ($LASTEXITCODE -ne 0) { throw 'Published v307 manifest download failed' }
+          if ((Get-FileHash (Join-Path $candidate 'LUNA-Release.json')).Hash.ToLowerInvariant() -cne '62cb9297b7142939ceacc909c38c6b2b048ae0e660aac2dbf17400be2665ae5a') {
+            throw 'Unexpected published v307 manifest'
+          }
+          # The helper uses the same public endpoints as an ordinary v306 client.
+          & tools/probe_update_windows.ps1 -Candidate $candidate -Work (Join-Path $root 'install-test') -LiveRelease

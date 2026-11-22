@@ -96,6 +96,7 @@ APPROVED = {
     "USER_GUIDE_KO.md",
     ".github/workflows/build-windows.yml",
     ".github/workflows/compare-v306-v307.yml",
+    ".github/workflows/verify-live-v307-update.yml",
     ".github/workflows/manager8-dispatch-once.yml",
     ".github/workflows/hidden-storage-build-once.yml",
     ".github/workflows/metadata-live-validate-once.yml",

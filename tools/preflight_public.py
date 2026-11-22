@@ -122,6 +122,7 @@ APPROVED = {
     "tools/probe_research_windows.py",
     "tools/apply_overlay.py", "tools/patch_script_text_layout.py", "tools/patch_thin_vector_strokes.py", "tools/preflight_public.py",
     "tests/test_thin_vector_strokes.py",
+    "tests/test_render_stroke_coverage_zoom.py",
     "tests/test_lifetime_card_input.py",
     "tests/test_reader_copy_toolbar.py",
     "tests/test_reader_copy_undo.py",

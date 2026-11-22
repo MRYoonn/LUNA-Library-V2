@@ -267,6 +267,58 @@ def make_main(src: str) -> str:
         'if (!luna::openInitialDocument(mainWindow, arguments.front())) return 0;')
     return src
 
+FONT_PROPERTIES = "Pdf4QtLibGui/pdfdocumentpropertiesdialog.cpp"
+FONT_PROPERTIES_BLOB = "87b9417ad8c1eeaf8b908f36c184446bd9eb3b43"
+
+
+def font_properties(source: str) -> str:
+    source = replace_exact(source, "#include <stack>\n", "#include <stack>\n#include <map>\n")
+    source = replace_exact(source,
+        "        std::set<pdf::PDFObjectReference> usedFontReferences;",
+        """        std::map<pdf::PDFObjectReference, std::set<pdf::PDFInteger>> resourcePages;
+        std::map<QTreeWidgetItem*, pdf::PDFObjectReference> referencedItems;
+        const auto pagesLabel = tr("Pages (font resources)");""")
+    source = replace_exact(source, """                                if (usedFontReferences.count(object.getReference()))
+                                {
+                                    continue;
+                                }
+                                else
+                                {
+                                    usedFontReferences.insert(object.getReference());
+                                }""", """                                auto& pages = resourcePages[object.getReference()];
+                                const bool firstReference = pages.empty();
+                                pages.insert(pageIndex + 1);
+                                if (!firstReference)
+                                    continue;""")
+    source = replace_exact(source, """                                        int plusPos = fontName.lastIndexOf('+');""",
+        """                                        const int plusPos = fontName.indexOf('+');
+                                        const QString subsetPrefix = fontName.left(plusPos);
+                                        const bool subset = plusPos == 6 && plusPos + 1 < fontName.size() &&
+                                            std::all_of(subsetPrefix.cbegin(), subsetPrefix.cend(), [](QChar c) {
+                                                return c >= QLatin1Char('A') && c <= QLatin1Char('Z');
+                                            });""")
+    source = replace_exact(source, "if (plusPos != -1 && plusPos < fontName.size() - 1)", "if (subset)")
+    source = replace_exact(source, '                                        new QTreeWidgetItem(fontRootItem, { tr("Embedded subset"), fontDescriptor->getEmbeddedFontData() ? tr("Yes") : tr("No") });',
+        """                                        new QTreeWidgetItem(fontRootItem, { tr("Embedded"), fontDescriptor->getEmbeddedFontData() ? tr("Yes") : tr("No") });
+                                        new QTreeWidgetItem(fontRootItem, { tr("Subset"), subset ? tr("Yes") : tr("No") });""")
+    source = replace_exact(source, "                                        m_fontTreeWidgetItems.push_back(fontRootItemPtr.release());",
+        """                                        if (object.isReference())
+                                            referencedItems.emplace(fontRootItem, object.getReference());
+                                        else
+                                            new QTreeWidgetItem(fontRootItem, { pagesLabel, QString::number(pageIndex + 1) });
+                                        m_fontTreeWidgetItems.push_back(fontRootItemPtr.release());""")
+    return replace_exact(source,
+        "        pdf::PDFExecutionPolicy::execute(pdf::PDFExecutionPolicy::Scope::Page, indices.begin(), indices.end(), processPage);",
+        """        pdf::PDFExecutionPolicy::execute(pdf::PDFExecutionPolicy::Scope::Page, indices.begin(), indices.end(), processPage);
+        for (const auto& [item, reference] : referencedItems)
+        {
+            QStringList pages;
+            for (const auto page : resourcePages.at(reference))
+                pages.append(QString::number(page));
+            new QTreeWidgetItem(item, { pagesLabel, pages.join(QStringLiteral(", ")) });
+        }""")
+
+
 def apply(root: Path, dry_run=False) -> None:
     root = root.resolve(strict=True)
     folder = root / "Pdf4QtEditor"
@@ -274,6 +326,11 @@ def apply(root: Path, dry_run=False) -> None:
     for rel, sha in BLOBS.items():
         if not verify_file(root / rel, sha):
             raise ValueError("PDF4QT source pin mismatch or unsafe symlink: " + rel)
+    font_source = root / FONT_PROPERTIES
+    if not verify_file(font_source, FONT_PROPERTIES_BLOB):
+        raise ValueError("PDF4QT document properties source pin mismatch")
+    fonts_newline = b"\r\n" if b"\r\n" in font_source.read_bytes() else b"\n"
+    fonts_output = font_properties(font_source.read_text(encoding="utf-8")).encode("utf-8")
     own = Path(__file__).resolve().parents[1] / "src"
     approved_pdf_icon = (own.parent / "assets/icons/LUNA-PDF-approved.ico").read_bytes()
     if len(approved_pdf_icon) != 105070 or hashlib.sha256(approved_pdf_icon).hexdigest() != APPROVED_PDF_ICON_SHA256:
@@ -396,7 +453,8 @@ def apply(root: Path, dry_run=False) -> None:
     cmake_newline = b"\r\n" if b"\r\n" in cmake_data else b"\n"
     cmake.write_bytes(cmake_data.rstrip(b"\r\n") + cmake_newline * 2 +
                       CMAKE_ADDITION.encode("utf-8").replace(b"\n", cmake_newline))
-    print("[PASS] Standalone LUNA target applied, PDF4QT engine untouched")
+    font_source.write_bytes(fonts_output.replace(b"\n", fonts_newline))
+    print("[PASS] Standalone LUNA target and PDF font inventory applied")
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

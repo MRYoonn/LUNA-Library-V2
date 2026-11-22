@@ -1099,7 +1099,7 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
             fontFileMenu->actions().indexOf(inventoryAction) <
                 fontFileMenu->actions().indexOf(nativeProperties),
             "LUNA font inventory not reachable before native Properties");
-        bool fontDialogOpened=false, fontTabSelected=false;
+        bool fontDialogOpened=false, fontTabSelected=false, fontDetailsCopied=false;
         int fontCount=-1;
         QTimer fontPoll;
         fontPoll.setInterval(35);
@@ -1114,6 +1114,17 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
                 fontTabs->tabText(fontTabs->indexOf(fontTab))==QStringLiteral("글꼴");
             if (fontTabSelected && fontTree && fontTree->topLevelItemCount()>0) {
                 fontCount=fontTree->topLevelItemCount();
+                auto* font = fontTree->topLevelItem(0);
+                fontTree->setCurrentItem(font);
+                if (auto* copy = fontTree->findChild<QAction*>(QStringLiteral("LunaCopyFontInformation"))) {
+                    QApplication::clipboard()->clear();
+                    copy->trigger();
+                    const QString details = QApplication::clipboard()->text();
+                    fontDetailsCopied = details.contains(font->text(0)) &&
+                        details.contains(QStringLiteral("Embedded\tNo")) &&
+                        details.contains(QStringLiteral("Subset\tNo")) &&
+                        details.contains(QStringLiteral("Pages (font resources)\t1, 2"));
+                }
                 dlg->reject();
             }
         });
@@ -1129,10 +1140,11 @@ static void verifyIntegration(NativeTabs& host, const QStringList& files, const 
         result["fontInventoryDiagnostics"]=QJsonObject{
             {"nativeDialogOpened",fontDialogOpened},
             {"fontsTabSelected",fontTabSelected},
-            {"fontsFound",fontCount}
+            {"fontsFound",fontCount}, {"fontDetailsCopied",fontDetailsCopied}
         }; write();
         integrationRequire(fontDialogOpened && fontTabSelected && fontCount>=1,
             "LUNA font inventory did not display fonts from the native PDF");
+        integrationRequire(fontDetailsCopied, "Font inventory could not copy embedding and resource pages");
         integrationRequire(ready(a), "Font inventory changed or closed the active PDF");
         phase("menu vertical alignment and library chrome");
         auto* menu = host.menuBar();

@@ -137,7 +137,7 @@ APPROVED = {
     "tests/test_citation_contract.py",
     "tests/test_real_file_management_contract.py",
     "tests/test_updater.py", "tools/prepare_release.py",
-    "src/lunaupdater.h", "tools/LUNA-Update.ps1",
+    "src/lunaupdater.h", "tools/LUNA-Update.ps1", "tools/probe_update_windows.ps1",
     ".github/workflows/draft-release.yml",
     "tools/LUNA-Library-Setup.iss", "tests/test_installer_contract.py",
     "tools/verify_portable.py", "tests/test_portable.py",

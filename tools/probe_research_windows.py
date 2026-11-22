@@ -2,10 +2,8 @@
 """Pinned CC BY publisher fixture; no research PDF is committed or packaged."""
 import argparse
 import hashlib
-import io
 import json
 import time
-import zipfile
 import os
 from pathlib import Path
 import shutil
@@ -79,9 +77,10 @@ def bibliography_probe(package: Path, output: Path):
         raise RuntimeError("Bibliography integration requires native Windows")
     package = package.resolve(strict=True)
     output.mkdir(parents=True, exist_ok=True)
-    # Use the official download API directly; the article front door can reject
-    # hosted Windows runners before redirecting to this exact public resource.
+    # PMC Open Access stores versioned publisher files with stable URLs.
+    pmc_archive = "https://pmc-oa-opendata.s3.amazonaws.com/PMC12599387.2/"
     sources = (
+        pmc_archive + "PMC12599387.2.pdf",
         "https://europepmc.org/api/getPdf?pmcid=PMC12599387",
         "https://pubs.rsc.org/en/content/articlepdf/2026/sc/d5sc05518k",
         "https://europepmc.org/articles/PMC12599387?pdf=render",
@@ -92,25 +91,18 @@ def bibliography_probe(package: Path, output: Path):
         try:
             with urlopen(Request(source, headers={"User-Agent": "LUNA-public-fixture-validation"}), timeout=60) as response:
                 data = response.read(2_000_001)
-            if hashlib.sha256(data).hexdigest() != expected or not data.startswith(b"%PDF-"):
+            if len(data) > 2_000_000 or hashlib.sha256(data).hexdigest() != expected or not data.startswith(b"%PDF-"):
                 raise RuntimeError("Public RSC publisher copy checksum mismatch")
             break
         except Exception as error:
             failures.append(f"{source}: {error}")
     else:
         raise RuntimeError("Pinned public PDF unavailable; no verification was performed: " + "; ".join(failures))
-    # The public second SI attachment is read from the official OA supplement
-    # response. Extract only the fixed member, enforce bounds and pin its bytes.
-    supplement_url = "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC12599387/supplementaryFiles"
+    supplement_url = pmc_archive + "SC-017-D5SC05518K-s002.pdf"
     with urlopen(Request(supplement_url, headers={"User-Agent": "LUNA-public-fixture-validation"}), timeout=120) as response:
-        archive = response.read(40_000_001)
-    if len(archive) > 40_000_000:
-        raise RuntimeError("Public SI archive exceeds fixture bound")
-    member = "SC-017-D5SC05518K-s002.pdf"
-    with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
-        if bundle.namelist().count(member) != 1 or bundle.getinfo(member).file_size > 30_000_000:
-            raise RuntimeError("Public SI fixture member changed")
-        si_data = bundle.read(member)
+        si_data = response.read(30_000_001)
+    if len(si_data) > 30_000_000:
+        raise RuntimeError("Public SI file exceeds fixture bound")
     si_hash = "12b58a233e193b0e5d2cab553e3c7b4a4da9a9824f9dd24afdab26767f3708b8"
     if hashlib.sha256(si_data).hexdigest() != si_hash or not si_data.startswith(b"%PDF-"):
         raise RuntimeError("Public SI publisher copy checksum mismatch")

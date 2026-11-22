@@ -48,7 +48,7 @@ def measure_native_grid(image, geometry, case):
     return dict(samples=checks,passed=bool(checks) and all(c['passed'] for c in checks))
 
 
-def native_zoom_matrix(executable,directory,env):
+def native_zoom_matrix(executable,directory,env,*,extended_zoom=False):
     from probe_synthetic_grid import build,extended,EXTENDED_CASES
     original=[('short-icc-no-clip',{}),('long-icc-no-clip',{'long_icc':True}),
               ('short-icc-clip-only',{'clip_only':True}),('short-icc-ctm-only',{'ctm_only':True}),
@@ -57,8 +57,9 @@ def native_zoom_matrix(executable,directory,env):
     fixtures=[(name,build(**options)) for name,options in original]
     fixtures += [(name,extended(name)) for name in EXTENDED_CASES]
     results=[]
+    zoom_modes = (1.0,1.5,2.0,"fit") if extended_zoom else (1.0,1.5,2.0)
     for name,data in fixtures:
-        for zoom in (1.0,1.5,2.0):
+        for zoom in zoom_modes:
             folder=directory/'native-matrix'/name/str(zoom)
             folder.mkdir(parents=True)
             pdf=folder/'synthetic-grid.pdf';pdf.write_bytes(data)
@@ -66,7 +67,10 @@ def native_zoom_matrix(executable,directory,env):
             # Keep the legacy six-case trace. New matrix captures real desktop
             # pixels without tracing, so diagnostics cannot mask the regression.
             local_env.pop('LUNA_PDF_RENDER_TRACE',None)
-            if zoom==2.0:local_env['LUNA_GRID_COMPARE_ENGINES']='1'
+            if zoom==2.0:
+                local_env['LUNA_GRID_COMPARE_ENGINES']='1'
+                if extended_zoom:
+                    local_env['LUNA_GRID_HIGH_ZOOM']='1'
             completed=subprocess.run([str(executable.resolve()),'--luna-grid-report',str(report),str(pdf)],
                 cwd=folder,env=local_env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
                 text=True,errors='replace',timeout=90)
@@ -76,7 +80,11 @@ def native_zoom_matrix(executable,directory,env):
             if not pdf.exists() or hashlib.sha256(pdf.read_bytes()).hexdigest()!=hashlib.sha256(data).hexdigest():
                 raise RuntimeError('Read-only render probe changed its original PDF')
             geometry=json.loads(report.read_text(encoding='utf-8-sig'))
-            if (geometry['zoom']!=zoom or geometry['devicePixelRatio']!=1 or
+            if zoom == "fit":
+                zoom_ok = geometry.get('fitPage') and geometry['zoom'] > 0
+            else:
+                zoom_ok = geometry['zoom'] == zoom
+            if (not zoom_ok or geometry['devicePixelRatio']!=1 or
                 not geometry['nativeWindowCapture'] or not geometry['compiledReady'] or not geometry['blendBackend']):
                 raise RuntimeError('Wrong native zoom/window geometry')
             image=Image.open(str(report)+'.native.png')
@@ -88,6 +96,15 @@ def native_zoom_matrix(executable,directory,env):
                     comparisons[mode]=measure_native_grid(Image.open(str(report)+'.'+mode+'.png'),reference_geometry,name)
                 result['engineComparisons']=comparisons
                 result['passed'] = result['passed'] and all(v['passed'] for v in comparisons.values())
+                if extended_zoom:
+                    for factor in (3, 4):
+                        reference = {'zoom':factor,'pageToWindow':[factor,0,0,-factor,0,220*factor]}
+                        high_zoom = {}
+                        for mode in comparisons:
+                            rendered = Image.open(f'{report}.{factor * 100}.{mode}.png')
+                            high_zoom[mode] = measure_native_grid(rendered,reference,name)
+                        result[f'{factor * 100}PercentComparisons'] = high_zoom
+                        result['passed'] = result['passed'] and all(v['passed'] for v in high_zoom.values())
             result.update(case=name,zoom=zoom,geometry=geometry)
             results.append(result)
             # Save every result before an assertion, including all mismatches.
@@ -95,7 +112,9 @@ def native_zoom_matrix(executable,directory,env):
             print('native-window',name,zoom,'passed',result['passed'],flush=True)
     if not all(r['passed'] for r in results):
         raise RuntimeError('Actual native grid/clip-hole/empty-clip/restore/alpha pixel assertions failed')
-    print('[PASS] 36 actual native Windows captures at 100/150/200% with positive and negative clip samples')
+    print(f'[PASS] {len(results)} native Windows captures with positive and negative clip samples')
+    if extended_zoom:
+        print('[PASS] Page-fit window and direct/compiled Qt/Blend2D at 300/400%')
 
 
 def classify(image: Image.Image) -> dict:
@@ -184,7 +203,7 @@ def main(executable: Path, directory: Path) -> None:
                 ", ".join(missing) + "; see screenshot evidence"
             )
         print("[PASS] All six native Windows ICC/DeviceGray/clip/CTM grids are visibly drawn")
-        native_zoom_matrix(executable,directory,env)
+        native_zoom_matrix(executable,directory,env,extended_zoom=True)
 
 
 if __name__ == "__main__":
